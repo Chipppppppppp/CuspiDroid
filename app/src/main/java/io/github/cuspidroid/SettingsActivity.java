@@ -11,6 +11,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -201,14 +202,20 @@ public class SettingsActivity extends Activity {
             TextView text = helperText(item.title + "\n" + item.url);
             text.setTextColor(TEXT);
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            Button delete = new Button(this);
-            delete.setText("Delete");
-            delete.setAllCaps(false);
+            ImageButton delete = new ImageButton(this);
+            delete.setImageResource(R.drawable.ic_delete);
+            delete.setContentDescription("Delete history item");
+            delete.setColorFilter(TEXT);
+            delete.setBackground(roundedField());
+            delete.setPadding(dp(10), dp(10), dp(10), dp(10));
+            delete.setScaleType(ImageButton.ScaleType.CENTER);
             delete.setOnClickListener(v -> {
                 MainActivity.removeThreadHistory(preferences, item.url);
                 renderHistory();
             });
-            row.addView(delete, new LinearLayout.LayoutParams(dp(92), dp(44)));
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(46), dp(44));
+            deleteParams.setMargins(dp(8), 0, 0, 0);
+            row.addView(delete, deleteParams);
             historyList.addView(row);
         }
     }

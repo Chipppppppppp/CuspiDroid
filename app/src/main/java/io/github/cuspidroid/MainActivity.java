@@ -30,7 +30,6 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
 import android.content.Intent;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -134,7 +133,7 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (!replyPopups.isEmpty()) {
-            dismissThreadPopups();
+            dismissTopReplyPopup();
             return;
         }
         if (tabs.size() > 1) {
@@ -148,7 +147,7 @@ public class MainActivity extends Activity {
     public boolean dispatchTouchEvent(MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             if (!replyPopups.isEmpty() && !isTouchInsideReplyPopup(event)) {
-                dismissThreadPopups();
+                dismissTopReplyPopup();
                 return true;
             }
             if (addressBar != null && addressBar.hasFocus()
@@ -324,7 +323,10 @@ public class MainActivity extends Activity {
         }
         suggestionsPanel.removeAllViews();
 
-        String query = addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
+        boolean allSelected = addressBar.hasSelection()
+                && addressBar.getSelectionStart() == 0
+                && addressBar.getSelectionEnd() == addressBar.getText().length();
+        String query = allSelected ? "" : addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
         String clipboardLink = query.isEmpty() ? clipboardLink() : null;
         if (clipboardLink != null) {
             TextView item = suggestionItem("Paste link from clipboard", clipboardLink);
@@ -1021,15 +1023,20 @@ public class MainActivity extends Activity {
     }
 
     private View withScrollScrubber(ScrollView scroll) {
-        FrameLayout frame = new FrameLayout(this);
-        frame.addView(scroll, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+
+        FrameLayout scrubber = new FrameLayout(this);
+        root.addView(scrubber, new LinearLayout.LayoutParams(
+                dp(34), ViewGroup.LayoutParams.MATCH_PARENT));
 
         View rail = new View(this);
         rail.setBackgroundColor(Color.argb(28, 31, 41, 55));
-        FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(dp(34), ViewGroup.LayoutParams.MATCH_PARENT);
-        railParams.gravity = Gravity.RIGHT;
-        frame.addView(rail, railParams);
+        FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        scrubber.addView(rail, railParams);
 
         View thumb = new View(this);
         GradientDrawable thumbBackground = new GradientDrawable();
@@ -1037,9 +1044,8 @@ public class MainActivity extends Activity {
         thumbBackground.setCornerRadius(dp(8));
         thumb.setBackground(thumbBackground);
         FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(dp(16), dp(56));
-        thumbParams.gravity = Gravity.RIGHT;
-        thumbParams.rightMargin = dp(9);
-        frame.addView(thumb, thumbParams);
+        thumbParams.gravity = Gravity.CENTER_HORIZONTAL;
+        scrubber.addView(thumb, thumbParams);
 
         Runnable updateThumb = () -> {
             int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight();
@@ -1049,7 +1055,7 @@ public class MainActivity extends Activity {
                 return;
             }
             thumb.setVisibility(View.VISIBLE);
-            int frameHeight = Math.max(1, frame.getHeight());
+            int frameHeight = Math.max(1, scrubber.getHeight());
             int thumbHeight = Math.max(dp(42), frameHeight * scroll.getHeight() / Math.max(scroll.getChildAt(0).getHeight(), 1));
             int maxTop = Math.max(0, frameHeight - thumbHeight);
             params.height = thumbHeight;
@@ -1058,10 +1064,10 @@ public class MainActivity extends Activity {
         };
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> updateThumb.run());
-        frame.post(updateThumb);
-        rail.setOnTouchListener(scrubberTouchListener(scroll, frame, thumb));
-        thumb.setOnTouchListener(scrubberTouchListener(scroll, frame, thumb));
-        return frame;
+        scrubber.post(updateThumb);
+        rail.setOnTouchListener(scrubberTouchListener(scroll, scrubber, thumb));
+        thumb.setOnTouchListener(scrubberTouchListener(scroll, scrubber, thumb));
+        return root;
     }
 
     private View.OnTouchListener scrubberTouchListener(ScrollView scroll, View frame, View thumb) {
@@ -1244,26 +1250,33 @@ public class MainActivity extends Activity {
             return;
         }
 
+        FrameLayout popupRoot = new FrameLayout(this);
+        popupRoot.setBackgroundColor(Color.WHITE);
+        popupRoot.setFocusable(true);
+        popupRoot.setClickable(true);
+
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(10), dp(8), dp(10), dp(10));
         box.setBackgroundColor(Color.WHITE);
-        box.setFocusable(true);
-        box.setClickable(true);
-
-        Button jump = new Button(this);
-        jump.setText(targets.size() == 1 ? "Jump to >>" + targets.get(0).number : "Jump to first");
-        jump.setAllCaps(false);
-        box.addView(jump, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+        popupRoot.addView(box, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ScrollView popupScroll = new ScrollView(this);
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
+        popupPosts.setPadding(0, 0, 0, dp(52));
         popupScroll.addView(popupPosts, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         box.addView(popupScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        ImageButton jump = iconButton(R.drawable.ic_jump_arrow, targets.size() == 1
+                ? "Jump to >>" + targets.get(0).number : "Jump to first", null);
+        FrameLayout.LayoutParams jumpParams = new FrameLayout.LayoutParams(dp(46), dp(46));
+        jumpParams.gravity = Gravity.RIGHT | Gravity.BOTTOM;
+        jumpParams.setMargins(0, 0, dp(10), dp(10));
+        popupRoot.addView(jump, jumpParams);
 
         for (Post post : targets) {
             TextView meta = new TextView(this);
@@ -1287,10 +1300,10 @@ public class MainActivity extends Activity {
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int desiredHeight = popupPosts.getMeasuredHeight() + dp(40) + dp(18);
+        int desiredHeight = popupPosts.getMeasuredHeight() + dp(18);
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
         int y = Math.max(dp(8), anchorLocation[1] - popupHeight - dp(8));
-        PopupWindow popup = new PopupWindow(box, width, popupHeight, false);
+        PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setElevation(dp(8));
@@ -1309,6 +1322,14 @@ public class MainActivity extends Activity {
         for (PopupWindow popup : popups) {
             popup.dismiss();
         }
+    }
+
+    private void dismissTopReplyPopup() {
+        if (replyPopups.isEmpty()) {
+            return;
+        }
+        PopupWindow popup = replyPopups.get(replyPopups.size() - 1);
+        popup.dismiss();
     }
 
     private boolean isTouchInsideReplyPopup(MotionEvent event) {
