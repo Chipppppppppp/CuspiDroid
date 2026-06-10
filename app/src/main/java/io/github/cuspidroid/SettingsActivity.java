@@ -5,6 +5,8 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -29,7 +31,6 @@ public class SettingsActivity extends Activity {
     private CheckBox open5chInNewTab;
     private CheckBox blurImgurImages;
     private RadioButton searchFind5chIo;
-    private RadioButton searchFind5chNet;
     private RadioButton searchCustom;
     private EditText customTemplate;
     private LinearLayout historyList;
@@ -40,6 +41,7 @@ public class SettingsActivity extends Activity {
         preferences = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
         buildLayout();
         loadSettings();
+        setupAutoSave();
     }
 
     private void buildLayout() {
@@ -77,10 +79,8 @@ public class SettingsActivity extends Activity {
         RadioGroup searchGroup = new RadioGroup(this);
         searchGroup.setOrientation(RadioGroup.VERTICAL);
         searchFind5chIo = radio("find.5ch.io");
-        searchFind5chNet = radio("find.5ch.net");
         searchCustom = radio("Custom URL template");
         searchGroup.addView(searchFind5chIo);
-        searchGroup.addView(searchFind5chNet);
         searchGroup.addView(searchCustom);
         root.addView(searchGroup);
 
@@ -119,15 +119,6 @@ public class SettingsActivity extends Activity {
         root.addView(clearHistory, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
-        Button save = new Button(this);
-        save.setText("Save");
-        save.setAllCaps(false);
-        save.setTextSize(16);
-        save.setOnClickListener(v -> saveSettings());
-        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        saveParams.setMargins(0, dp(18), 0, 0);
-        root.addView(save, saveParams);
     }
 
     private void loadSettings() {
@@ -136,25 +127,65 @@ public class SettingsActivity extends Activity {
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
-        if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template) || MainActivity.LEGACY_FIND_IO_TEMPLATE.equals(template)) {
+        if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template)
+                || MainActivity.LEGACY_FIND_IO_TEMPLATE.equals(template)
+                || MainActivity.FIND_NET_TEMPLATE.equals(template)) {
             searchFind5chIo.setChecked(true);
-        } else if (MainActivity.FIND_NET_TEMPLATE.equals(template)) {
-            searchFind5chNet.setChecked(true);
         } else {
             searchCustom.setChecked(true);
         }
     }
 
-    private void saveSettings() {
+    private void setupAutoSave() {
+        open5chInNewTab.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        searchFind5chIo.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                saveSettings(false);
+            }
+        });
+        searchCustom.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                saveSettings(false);
+            }
+        });
+        customTemplate.setOnEditorActionListener((v, actionId, event) -> {
+            saveSettings(true);
+            return false;
+        });
+        customTemplate.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                saveSettings(true);
+            }
+        });
+        customTemplate.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (searchCustom.isChecked() && s.toString().trim().contains("%s")) {
+                    saveSettings(false);
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+    }
+
+    private void saveSettings(boolean showError) {
         String template;
         if (searchFind5chIo.isChecked()) {
             template = MainActivity.DEFAULT_SEARCH_TEMPLATE;
-        } else if (searchFind5chNet.isChecked()) {
-            template = MainActivity.FIND_NET_TEMPLATE;
         } else {
             template = customTemplate.getText().toString().trim();
-            if (template.isEmpty()) {
-                Toast.makeText(this, "Enter a custom search URL template.", Toast.LENGTH_SHORT).show();
+            if (template.isEmpty() || !template.contains("%s")) {
+                if (showError) {
+                    Toast.makeText(this, "Enter a custom search URL template containing %s.", Toast.LENGTH_SHORT).show();
+                }
                 return;
             }
         }
@@ -164,8 +195,6 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
-        Toast.makeText(this, "Settings saved.", Toast.LENGTH_SHORT).show();
-        finish();
     }
 
     private TextView sectionTitle(String value) {

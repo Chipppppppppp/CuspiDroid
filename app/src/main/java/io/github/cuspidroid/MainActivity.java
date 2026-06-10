@@ -1406,7 +1406,6 @@ public class MainActivity extends Activity {
 
     private View imgurPreview(String originalUrl, String imageUrl) {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackground(roundedDrawable(SURFACE, BORDER, dp(8)));
         frame.setClickable(true);
         LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(176));
@@ -1414,7 +1413,7 @@ public class MainActivity extends Activity {
         frame.setLayoutParams(frameParams);
 
         ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setScaleType(ImageView.ScaleType.FIT_START);
         image.setVisibility(View.GONE);
         frame.addView(image, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -1658,10 +1657,55 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap blurredBitmap(Bitmap bitmap) {
-        int smallWidth = Math.max(1, bitmap.getWidth() / 18);
-        int smallHeight = Math.max(1, bitmap.getHeight() / 18);
+        int smallWidth = Math.max(1, bitmap.getWidth() / 32);
+        int smallHeight = Math.max(1, bitmap.getHeight() / 32);
         Bitmap small = Bitmap.createScaledBitmap(bitmap, smallWidth, smallHeight, true);
+        small = boxBlur(small, 4);
         return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
+    }
+
+    private Bitmap boxBlur(Bitmap source, int iterations) {
+        Bitmap current = source.copy(Bitmap.Config.ARGB_8888, true);
+        int width = current.getWidth();
+        int height = current.getHeight();
+        if (width < 3 || height < 3) {
+            return current;
+        }
+        int[] pixels = new int[width * height];
+        int[] blurred = new int[width * height];
+        for (int pass = 0; pass < iterations; pass++) {
+            current.getPixels(pixels, 0, width, 0, 0, width, height);
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int a = 0;
+                    int r = 0;
+                    int g = 0;
+                    int b = 0;
+                    int count = 0;
+                    for (int dy = -1; dy <= 1; dy++) {
+                        int yy = y + dy;
+                        if (yy < 0 || yy >= height) {
+                            continue;
+                        }
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int xx = x + dx;
+                            if (xx < 0 || xx >= width) {
+                                continue;
+                            }
+                            int color = pixels[yy * width + xx];
+                            a += Color.alpha(color);
+                            r += Color.red(color);
+                            g += Color.green(color);
+                            b += Color.blue(color);
+                            count++;
+                        }
+                    }
+                    blurred[y * width + x] = Color.argb(a / count, r / count, g / count, b / count);
+                }
+            }
+            current.setPixels(blurred, 0, width, 0, 0, width, height);
+        }
+        return current;
     }
 
     private String stripTrailingUrlPunctuation(String url) {
@@ -1996,7 +2040,8 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
                 if (posted) {
                     Toast.makeText(this, "Posted.", Toast.LENGTH_SHORT).show();
-                    loadThread(tab, tab.url);
+                    rememberThreadScroll(tab);
+                    loadThread(tab, tab.url, false);
                 } else {
                     new AlertDialog.Builder(this)
                             .setTitle("Post failed")
