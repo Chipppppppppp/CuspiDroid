@@ -87,6 +87,7 @@ public class MainActivity extends Activity {
 
     private LinearLayout tabStrip;
     private LinearLayout suggestionsPanel;
+    private FrameLayout overlayFrame;
     private EditText addressBar;
     private FrameLayout contentFrame;
     private ProgressBar progressBar;
@@ -152,7 +153,8 @@ public class MainActivity extends Activity {
             }
             if (addressBar != null && addressBar.hasFocus()
                     && !isTouchInsideView(event, addressBar)
-                    && !isTouchInsideView(event, suggestionsPanel)) {
+                    && (suggestionsPanel == null || suggestionsPanel.getVisibility() != View.VISIBLE
+                    || !isTouchInsideView(event, suggestionsPanel))) {
                 clearAddressFocus();
             }
         }
@@ -257,13 +259,6 @@ public class MainActivity extends Activity {
         addToolbarButton(toolbar, R.drawable.ic_add, "New tab", v -> createBlankTab());
         addToolbarButton(toolbar, R.drawable.ic_settings, "Settings", v -> openSettings());
 
-        suggestionsPanel = new LinearLayout(this);
-        suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
-        suggestionsPanel.setBackgroundColor(Color.WHITE);
-        suggestionsPanel.setVisibility(View.GONE);
-        root.addView(suggestionsPanel, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
         progressBar.setVisibility(View.GONE);
@@ -272,7 +267,20 @@ public class MainActivity extends Activity {
 
         contentFrame = new FrameLayout(this);
         contentFrame.setFocusableInTouchMode(true);
-        root.addView(contentFrame, new LinearLayout.LayoutParams(
+        overlayFrame = new FrameLayout(this);
+        overlayFrame.addView(contentFrame, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        suggestionsPanel = new LinearLayout(this);
+        suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
+        suggestionsPanel.setBackground(suggestionsBackground());
+        suggestionsPanel.setVisibility(View.GONE);
+        FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        suggestionsParams.gravity = Gravity.TOP;
+        suggestionsParams.leftMargin = dp(8);
+        suggestionsParams.rightMargin = dp(8);
+        overlayFrame.addView(suggestionsPanel, suggestionsParams);
+        root.addView(overlayFrame, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
     }
 
@@ -322,6 +330,9 @@ public class MainActivity extends Activity {
                 addressBar.selectAll();
                 updateSuggestions();
             });
+            if (suggestionsPanel.getChildCount() > 0) {
+                suggestionsPanel.addView(suggestionDivider());
+            }
             suggestionsPanel.addView(item);
         }
 
@@ -336,6 +347,9 @@ public class MainActivity extends Activity {
                         addressBar.setSelection(addressBar.getText().length());
                         openFromAddressBar();
                     });
+                    if (suggestionsPanel.getChildCount() > 0) {
+                        suggestionsPanel.addView(suggestionDivider());
+                    }
                     suggestionsPanel.addView(item);
                     count++;
                     if (count >= 6) {
@@ -352,8 +366,18 @@ public class MainActivity extends Activity {
         view.setText(label + "\n" + value);
         view.setTextColor(TEXT);
         view.setTextSize(14);
-        view.setPadding(dp(14), dp(8), dp(14), dp(8));
+        view.setBackgroundColor(Color.WHITE);
+        view.setPadding(dp(14), dp(10), dp(14), dp(10));
+        view.setMinHeight(dp(58));
         return view;
+    }
+
+    private View suggestionDivider() {
+        View divider = new View(this);
+        divider.setBackgroundColor(BORDER);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+        return divider;
     }
 
     private String clipboardLink() {
@@ -455,6 +479,14 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
+    private GradientDrawable suggestionsBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.WHITE);
+        drawable.setStroke(dp(1), BORDER);
+        drawable.setCornerRadius(dp(10));
+        return drawable;
+    }
+
     private void createTab(String url, boolean select) {
         createTab(url, select, -1);
     }
@@ -507,6 +539,7 @@ public class MainActivity extends Activity {
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
+                tab.threadBottomOffset = item.optInt("threadBottomOffset", 0);
                 if (NATIVE_THREAD.equals(tab.nativeKind)) {
                     tab.threadPage = threadPageFromJson(item.optJSONObject("threadPage"));
                     if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
@@ -556,6 +589,7 @@ public class MainActivity extends Activity {
                 item.put("title", tab.title == null ? "Tab" : tab.title);
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
+                item.put("threadBottomOffset", tab.threadBottomOffset);
                 if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
                     item.put("threadPage", threadPageToJson(tab.threadPage));
                 }
@@ -737,7 +771,7 @@ public class MainActivity extends Activity {
         tab.url = url;
         tab.title = hostTitle(url);
         if (showFullLoading || tab.readerView == null) {
-            tab.readerView = loadingView("Loading thread...");
+            tab.readerView = loadingView("");
             switchToTab(tabs.indexOf(tab));
         }
         progressBar.setVisibility(View.VISIBLE);
@@ -830,7 +864,9 @@ public class MainActivity extends Activity {
         text.setTextColor(TEXT);
         text.setTextSize(16);
         text.setPadding(0, dp(10), 0, 0);
-        box.addView(text);
+        if (message != null && !message.isEmpty()) {
+            box.addView(text);
+        }
         return box;
     }
 
@@ -896,6 +932,7 @@ public class MainActivity extends Activity {
 
         enableBottomPullRefresh(scroll, list, bottomLoader, () -> {
             rememberThreadScroll(tab);
+            tab.restoreFromBottom = true;
             loadThread(tab, tab.url, false);
         });
         return withScrollScrubber(scroll);
@@ -1290,6 +1327,7 @@ public class MainActivity extends Activity {
         }
         int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
         tab.threadScrollRatio = range <= 0 ? 0f : Math.max(0f, Math.min(1f, tab.threadScroll.getScrollY() / (float) range));
+        tab.threadBottomOffset = range <= 0 ? 0 : Math.max(0, range - tab.threadScroll.getScrollY());
     }
 
     private void restoreThreadScroll(CuspTab tab) {
@@ -1302,7 +1340,12 @@ public class MainActivity extends Activity {
             }
             int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
             if (range > 0) {
-                tab.threadScroll.scrollTo(0, (int) (range * tab.threadScrollRatio));
+                if (tab.restoreFromBottom) {
+                    tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
+                    tab.restoreFromBottom = false;
+                } else {
+                    tab.threadScroll.scrollTo(0, (int) (range * tab.threadScrollRatio));
+                }
             }
         });
     }
@@ -2082,6 +2125,8 @@ public class MainActivity extends Activity {
         Map<Integer, View> postViews;
         String nativeKind;
         float threadScrollRatio;
+        int threadBottomOffset;
+        boolean restoreFromBottom;
         int returnToIndex = -1;
         boolean readerMode;
     }
