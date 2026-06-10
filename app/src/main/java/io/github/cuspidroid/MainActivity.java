@@ -506,13 +506,27 @@ public class MainActivity extends Activity {
                 tab.url = url;
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
+                tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
+                if (NATIVE_THREAD.equals(tab.nativeKind)) {
+                    tab.threadPage = threadPageFromJson(item.optJSONObject("threadPage"));
+                    if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                        tab.readerMode = true;
+                        tab.postViews = new LinkedHashMap<>();
+                        tab.readerView = buildThreadView(tab.threadPage, tab);
+                    }
+                } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
+                    tab.readerMode = true;
+                    tab.readerView = buildSearchHomeView();
+                }
                 tab.returnToIndex = -1;
                 tabs.add(tab);
             }
             switchToTab(selected);
             CuspTab tab = currentTab();
             if (tab != null) {
-                if (tab.url == null || tab.url.isEmpty()) {
+                if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                    restoreThreadScroll(tab);
+                } else if (tab.url == null || tab.url.isEmpty()) {
                     tab.readerMode = true;
                     tab.nativeKind = NATIVE_SEARCH_HOME;
                     tab.readerView = buildSearchHomeView();
@@ -531,12 +545,20 @@ public class MainActivity extends Activity {
 
     private void saveTabs() {
         try {
+            CuspTab current = currentTab();
+            if (current != null) {
+                rememberThreadScroll(current);
+            }
             JSONArray array = new JSONArray();
             for (CuspTab tab : tabs) {
                 JSONObject item = new JSONObject();
                 item.put("url", tab.url == null ? "" : tab.url);
                 item.put("title", tab.title == null ? "Tab" : tab.title);
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
+                item.put("threadScrollRatio", tab.threadScrollRatio);
+                if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
+                    item.put("threadPage", threadPageToJson(tab.threadPage));
+                }
                 array.put(item);
             }
             JSONObject root = new JSONObject();
@@ -547,9 +569,56 @@ public class MainActivity extends Activity {
         }
     }
 
+    private JSONObject threadPageToJson(ThreadPage page) throws Exception {
+        JSONObject object = new JSONObject();
+        object.put("url", page.url);
+        object.put("title", page.title);
+        JSONArray posts = new JSONArray();
+        for (Post post : page.posts) {
+            JSONObject item = new JSONObject();
+            item.put("number", post.number);
+            item.put("name", post.name);
+            item.put("date", post.date);
+            item.put("body", post.body);
+            posts.put(item);
+        }
+        object.put("posts", posts);
+        return object;
+    }
+
+    private ThreadPage threadPageFromJson(JSONObject object) {
+        if (object == null) {
+            return null;
+        }
+        ThreadPage page = new ThreadPage();
+        page.url = object.optString("url", "");
+        page.title = object.optString("title", hostTitle(page.url));
+        JSONArray posts = object.optJSONArray("posts");
+        if (posts != null) {
+            for (int i = 0; i < posts.length(); i++) {
+                JSONObject item = posts.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                Post post = new Post();
+                post.number = item.optInt("number", i + 1);
+                post.name = item.optString("name", "");
+                post.date = item.optString("date", "");
+                post.body = item.optString("body", "");
+                page.posts.add(post);
+                page.postsByNumber.put(post.number, post);
+            }
+        }
+        return page;
+    }
+
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) {
             return;
+        }
+        CuspTab previous = currentTab();
+        if (previous != null) {
+            rememberThreadScroll(previous);
         }
         if (index != currentIndex && !replyPopups.isEmpty()) {
             dismissThreadPopups();
@@ -658,13 +727,19 @@ public class MainActivity extends Activity {
     }
 
     private void loadThread(CuspTab tab, String url) {
+        loadThread(tab, url, true);
+    }
+
+    private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
         rememberThreadScroll(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
         tab.url = url;
         tab.title = hostTitle(url);
-        tab.readerView = loadingView("Loading thread...");
-        switchToTab(tabs.indexOf(tab));
+        if (showFullLoading || tab.readerView == null) {
+            tab.readerView = loadingView("Loading thread...");
+            switchToTab(tabs.indexOf(tab));
+        }
         progressBar.setVisibility(View.VISIBLE);
 
         ioExecutor.execute(() -> {
@@ -747,10 +822,14 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setGravity(Gravity.CENTER);
         box.setOrientation(LinearLayout.VERTICAL);
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        box.addView(spinner, new LinearLayout.LayoutParams(dp(44), dp(44)));
         TextView text = new TextView(this);
         text.setText(message);
         text.setTextColor(TEXT);
         text.setTextSize(16);
+        text.setPadding(0, dp(10), 0, 0);
         box.addView(text);
         return box;
     }
@@ -817,7 +896,7 @@ public class MainActivity extends Activity {
 
         enableBottomPullRefresh(scroll, list, bottomLoader, () -> {
             rememberThreadScroll(tab);
-            loadThread(tab, tab.url);
+            loadThread(tab, tab.url, false);
         });
         return withScrollScrubber(scroll);
     }
