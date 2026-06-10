@@ -638,6 +638,12 @@ public class MainActivity extends Activity {
                         tab.postViews = new LinkedHashMap<>();
                         tab.readerView = buildThreadView(tab.threadPage, tab);
                     }
+                } else if (NATIVE_SEARCH.equals(tab.nativeKind)) {
+                    tab.searchPage = searchPageFromJson(item.optJSONObject("searchPage"));
+                    if (tab.searchPage != null) {
+                        tab.readerMode = true;
+                        tab.readerView = buildSearchView(tab.searchPage);
+                    }
                 } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
                     tab.readerMode = true;
                     tab.readerView = buildSearchHomeView();
@@ -654,6 +660,10 @@ public class MainActivity extends Activity {
             if (tab != null) {
                 if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                     restoreThreadScroll(tab);
+                } else if (NATIVE_SEARCH.equals(tab.nativeKind) && tab.searchPage != null) {
+                    tab.readerMode = true;
+                    tab.readerView = buildSearchView(tab.searchPage);
+                    switchToTab(selected);
                 } else if (tab.url == null || tab.url.isEmpty()) {
                     tab.readerMode = true;
                     tab.nativeKind = NATIVE_SEARCH_HOME;
@@ -693,6 +703,8 @@ public class MainActivity extends Activity {
                 item.put("navigationHistory", history);
                 if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
                     item.put("threadPage", threadPageToJson(tab.threadPage));
+                } else if (NATIVE_SEARCH.equals(tab.nativeKind) && tab.searchPage != null && tab.searchPage.error == null) {
+                    item.put("searchPage", searchPageToJson(tab.searchPage));
                 }
                 array.put(item);
             }
@@ -742,6 +754,46 @@ public class MainActivity extends Activity {
                 post.body = item.optString("body", "");
                 page.posts.add(post);
                 page.postsByNumber.put(post.number, post);
+            }
+        }
+        return page;
+    }
+
+    private JSONObject searchPageToJson(SearchPage page) throws Exception {
+        JSONObject object = new JSONObject();
+        object.put("url", page.url);
+        object.put("title", page.title);
+        JSONArray results = new JSONArray();
+        for (SearchResult result : page.results) {
+            JSONObject item = new JSONObject();
+            item.put("title", result.title);
+            item.put("url", result.url);
+            item.put("meta", result.meta);
+            results.put(item);
+        }
+        object.put("results", results);
+        return object;
+    }
+
+    private SearchPage searchPageFromJson(JSONObject object) {
+        if (object == null) {
+            return null;
+        }
+        SearchPage page = new SearchPage();
+        page.url = object.optString("url", "");
+        page.title = object.optString("title", searchTitle(page.url));
+        JSONArray results = object.optJSONArray("results");
+        if (results != null) {
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject item = results.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                SearchResult result = new SearchResult();
+                result.title = item.optString("title", "");
+                result.url = item.optString("url", "");
+                result.meta = item.optString("meta", "");
+                page.results.add(result);
             }
         }
         return page;
@@ -932,6 +984,7 @@ public class MainActivity extends Activity {
         tab.nativeKind = NATIVE_THREAD;
         tab.url = url;
         tab.title = hostTitle(url);
+        tab.searchPage = null;
         if (showFullLoading || tab.readerView == null) {
             tab.readerView = loadingView("");
             switchToTab(tabs.indexOf(tab));
@@ -975,6 +1028,7 @@ public class MainActivity extends Activity {
         tab.title = searchTitle(url);
         tab.readerView = loadingView("");
         tab.threadPage = null;
+        tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
         switchToTab(tabs.indexOf(tab));
@@ -991,6 +1045,7 @@ public class MainActivity extends Activity {
             SearchPage result = page;
             runOnUiThread(() -> {
                 tab.title = result.title;
+                tab.searchPage = result;
                 tab.readerView = buildSearchView(result);
                 progressBar.setVisibility(View.GONE);
                 if (tab == currentTab()) {
@@ -1007,6 +1062,7 @@ public class MainActivity extends Activity {
         tab.url = url;
         tab.title = "5ch Search";
         tab.threadPage = null;
+        tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
         tab.readerView = buildSearchHomeView();
@@ -1923,7 +1979,7 @@ public class MainActivity extends Activity {
             String result;
             boolean success = false;
             try {
-                result = postToThread(tab.url, address, name, mail, message);
+                result = postToThreadWithCookieConfirm(tab.url, address, name, mail, message);
                 String plain = cleanText(result);
                 success = plain.contains("書きこみました")
                         || plain.contains("書き込みました")
@@ -1983,6 +2039,91 @@ public class MainActivity extends Activity {
             throw new IllegalStateException("HTTP " + code + "\n" + cleanText(response));
         }
         return response;
+    }
+
+    private String postToThreadWithCookieConfirm(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
+        String endpoint = "https://" + address.server + ".5ch.net/test/bbs.cgi";
+        String payload = formField("bbs", address.board)
+                + "&" + formField("key", address.key)
+                + "&" + formField("time", String.valueOf(System.currentTimeMillis() / 1000L))
+                + "&" + formField("FROM", name)
+                + "&" + formField("mail", mail)
+                + "&" + formField("MESSAGE", message)
+                + "&" + formField("submit", "\u66f8\u304d\u8fbc\u3080");
+
+        PostResult first = sendPostWithCookie(endpoint, threadUrl, payload, null);
+        String firstPlain = cleanText(first.body);
+        if (!requiresCookieConfirm(firstPlain)) {
+            return postSucceeded(firstPlain) ? "write done" : first.body;
+        }
+
+        String cookie = cookieHeader(first.cookies);
+        if (cookie.isEmpty()) {
+            cookie = "yuki=akari";
+        } else if (!cookie.contains("MonaTicket=") && !cookie.contains("yuki=")) {
+            cookie = cookie + "; yuki=akari";
+        }
+        PostResult second = sendPostWithCookie(endpoint, threadUrl, payload, cookie);
+        String secondPlain = cleanText(second.body);
+        return postSucceeded(secondPlain) ? "write done" : second.body;
+    }
+
+    private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie) throws Exception {
+        byte[] body = payload.getBytes(Charset.forName("MS932"));
+        HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
+        connection.setConnectTimeout(12000);
+        connection.setReadTimeout(18000);
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
+        connection.setRequestProperty("Referer", referer);
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        connection.setRequestProperty("Content-Length", String.valueOf(body.length));
+        if (cookie != null && !cookie.isEmpty()) {
+            connection.setRequestProperty("Cookie", cookie);
+        }
+        try (OutputStream stream = connection.getOutputStream()) {
+            stream.write(body);
+        }
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = stream == null ? "" : readText(stream, Charset.forName("MS932"));
+        List<String> cookies = connection.getHeaderFields().get("Set-Cookie");
+        connection.disconnect();
+        if (code >= 400) {
+            throw new IllegalStateException("HTTP " + code + "\n" + cleanText(response));
+        }
+        PostResult result = new PostResult();
+        result.body = response;
+        result.cookies = cookies == null ? new ArrayList<>() : cookies;
+        return result;
+    }
+
+    private String cookieHeader(List<String> cookies) {
+        List<String> values = new ArrayList<>();
+        for (String cookie : cookies) {
+            if (cookie == null || cookie.trim().isEmpty()) {
+                continue;
+            }
+            String value = cookie.split(";", 2)[0].trim();
+            if (!value.isEmpty()) {
+                values.add(value);
+            }
+        }
+        return String.join("; ", values);
+    }
+
+    private boolean requiresCookieConfirm(String text) {
+        return text.contains("\u66f8\u304d\u8fbc\u307f\u78ba\u8a8d")
+                || text.contains("\u30af\u30c3\u30ad\u30fc\u78ba\u8a8d")
+                || text.toLowerCase(Locale.ROOT).contains("cookie");
+    }
+
+    private boolean postSucceeded(String text) {
+        return text.contains("\u66f8\u304d\u3053\u307f\u307e\u3057\u305f")
+                || text.contains("\u66f8\u304d\u8fbc\u307f\u307e\u3057\u305f")
+                || text.toLowerCase(Locale.ROOT).contains("write done");
     }
 
     private String formField(String name, String value) throws Exception {
@@ -2926,6 +3067,7 @@ public class MainActivity extends Activity {
         String url;
         View readerView;
         ThreadPage threadPage;
+        SearchPage searchPage;
         ScrollView threadScroll;
         Map<Integer, View> postViews;
         String nativeKind;
@@ -2983,6 +3125,11 @@ public class MainActivity extends Activity {
         String title;
         String url;
         String meta;
+    }
+
+    private static class PostResult {
+        String body;
+        List<String> cookies = new ArrayList<>();
     }
 
     private static class DatAddress {
