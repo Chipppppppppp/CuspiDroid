@@ -8,14 +8,18 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.graphics.Rect;
 import android.text.Html;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.TextPaint;
 import android.text.method.LinkMovementMethod;
+import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
 import android.text.util.Linkify;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -33,6 +37,7 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.PopupWindow;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
@@ -48,8 +53,10 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -73,6 +80,10 @@ public class MainActivity extends Activity {
     private FrameLayout contentFrame;
     private ProgressBar progressBar;
     private SharedPreferences preferences;
+    private ThreadPage visibleThreadPage;
+    private ScrollView visibleThreadScroll;
+    private final Map<Integer, View> visiblePostViews = new LinkedHashMap<>();
+    private final List<PopupWindow> replyPopups = new ArrayList<>();
     private int currentIndex = -1;
 
     @Override
@@ -101,6 +112,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (!replyPopups.isEmpty()) {
+            dismissThreadPopups();
+            return;
+        }
         CuspTab tab = currentTab();
         if (tab != null && !tab.readerMode && tab.webView.canGoBack()) {
             tab.webView.goBack();
@@ -111,6 +126,16 @@ public class MainActivity extends Activity {
             return;
         }
         super.onBackPressed();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getAction() == MotionEvent.ACTION_DOWN && !replyPopups.isEmpty()
+                && !isTouchInsideReplyPopup(event)) {
+            dismissThreadPopups();
+            return true;
+        }
+        return super.dispatchTouchEvent(event);
     }
 
     private void buildLayout() {
@@ -261,8 +286,16 @@ public class MainActivity extends Activity {
         currentIndex = index;
         CuspTab tab = tabs.get(index);
         contentFrame.removeAllViews();
+        visibleThreadPage = null;
+        visibleThreadScroll = null;
+        visiblePostViews.clear();
         if (tab.readerMode && tab.readerView != null) {
             contentFrame.addView(tab.readerView);
+            visibleThreadPage = tab.threadPage;
+            visibleThreadScroll = tab.threadScroll;
+            if (tab.postViews != null) {
+                visiblePostViews.putAll(tab.postViews);
+            }
         } else {
             contentFrame.addView(tab.webView, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -347,7 +380,9 @@ public class MainActivity extends Activity {
             ThreadPage result = page;
             runOnUiThread(() -> {
                 tab.title = result.title;
-                tab.readerView = buildThreadView(result);
+                tab.threadPage = result;
+                tab.postViews = new LinkedHashMap<>();
+                tab.readerView = buildThreadView(result, tab);
                 progressBar.setVisibility(View.GONE);
                 if (tab == currentTab()) {
                     switchToTab(currentIndex);
@@ -369,9 +404,11 @@ public class MainActivity extends Activity {
         return box;
     }
 
-    private View buildThreadView(ThreadPage page) {
+    private View buildThreadView(ThreadPage page, CuspTab tab) {
         ScrollView scroll = new ScrollView(this);
+        tab.threadScroll = scroll;
         scroll.setFillViewport(true);
+        scroll.setOnClickListener(v -> dismissThreadPopups());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
@@ -387,10 +424,10 @@ public class MainActivity extends Activity {
         list.addView(title);
 
         if (page.error != null) {
-            TextView error = postText(page.error);
+            TextView error = postText(page.error, page);
             error.setTextColor(Color.rgb(185, 28, 28));
             list.addView(error);
-            list.addView(postText("The page can still be opened in WebView with the R button."));
+            list.addView(postText("The page can still be opened in WebView with the R button.", page));
             return scroll;
         }
 
@@ -410,22 +447,24 @@ public class MainActivity extends Activity {
             meta.setPadding(0, 0, 0, dp(5));
             card.addView(meta);
 
-            TextView body = postText(post.body);
+            TextView body = postText(post.body, page);
             card.addView(body);
             list.addView(card, cardParams);
+            tab.postViews.put(post.number, card);
         }
 
         if (page.posts.isEmpty()) {
-            list.addView(postText("No posts were parsed. Use R to reload, or open another URL."));
+            list.addView(postText("No posts were parsed. Use R to reload, or open another URL.", page));
         }
         return scroll;
     }
 
-    private TextView postText(String value) {
+    private TextView postText(String value, ThreadPage page) {
         TextView text = new TextView(this);
         SpannableString linkedText = new SpannableString(value);
         Linkify.addLinks(linkedText, Linkify.WEB_URLS);
         replaceUrlSpans(linkedText);
+        replaceReplySpans(linkedText, page);
         text.setText(linkedText);
         text.setTextColor(TEXT);
         text.setLinkTextColor(TEAL);
@@ -450,6 +489,125 @@ public class MainActivity extends Activity {
                 }
             }, start, end, flags);
         }
+    }
+
+    private void replaceReplySpans(SpannableString text, ThreadPage page) {
+        Matcher matcher = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\u2010-\u2015]\\s*(\\d{1,5}))?").matcher(text);
+        while (matcher.find()) {
+            int from = parsePositiveInt(matcher.group(1), -1);
+            int to = matcher.group(2) == null ? from : parsePositiveInt(matcher.group(2), from);
+            if (from <= 0) {
+                continue;
+            }
+            int start = matcher.start();
+            int end = matcher.end();
+            text.setSpan(new ClickableSpan() {
+                @Override
+                public void onClick(View widget) {
+                    showReplyPopup(widget, page, from, to);
+                }
+
+                @Override
+                public void updateDrawState(TextPaint ds) {
+                    super.updateDrawState(ds);
+                    ds.setColor(TEAL);
+                    ds.setUnderlineText(true);
+                }
+            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+    }
+
+    private void showReplyPopup(View anchor, ThreadPage page, int from, int to) {
+        if (page == null || page.postsByNumber.isEmpty()) {
+            return;
+        }
+        int first = Math.min(from, to);
+        int last = Math.max(from, to);
+        List<Post> targets = new ArrayList<>();
+        for (int number = first; number <= last && targets.size() < 20; number++) {
+            Post post = page.postsByNumber.get(number);
+            if (post != null) {
+                targets.add(post);
+            }
+        }
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "Referenced post not found.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(10), dp(8), dp(10), dp(10));
+        box.setBackgroundColor(Color.WHITE);
+        box.setFocusable(true);
+        box.setClickable(true);
+
+        for (Post post : targets) {
+            TextView meta = new TextView(this);
+            meta.setText(">>" + post.number + "  " + post.name + "  " + post.date);
+            meta.setTextColor(Color.rgb(79, 91, 103));
+            meta.setTextSize(12);
+            box.addView(meta);
+
+            TextView body = postText(post.body, page);
+            body.setPadding(0, dp(4), 0, dp(6));
+            box.addView(body);
+        }
+
+        Button jump = new Button(this);
+        jump.setText(targets.size() == 1 ? "Jump to >>" + targets.get(0).number : "Jump to first");
+        jump.setAllCaps(false);
+        box.addView(jump, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+
+        int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420));
+        PopupWindow popup = new PopupWindow(box, width, ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        popup.setElevation(dp(8));
+        popup.setOnDismissListener(() -> replyPopups.remove(popup));
+        jump.setOnClickListener(v -> {
+            dismissThreadPopups();
+            jumpToPost(targets.get(0).number);
+        });
+        replyPopups.add(popup);
+        popup.showAsDropDown(anchor, dp(8), -dp(4));
+    }
+
+    private void dismissThreadPopups() {
+        List<PopupWindow> popups = new ArrayList<>(replyPopups);
+        replyPopups.clear();
+        for (PopupWindow popup : popups) {
+            popup.dismiss();
+        }
+    }
+
+    private boolean isTouchInsideReplyPopup(MotionEvent event) {
+        int x = (int) event.getRawX();
+        int y = (int) event.getRawY();
+        Rect bounds = new Rect();
+        for (PopupWindow popup : replyPopups) {
+            View content = popup.getContentView();
+            if (content == null || !popup.isShowing()) {
+                continue;
+            }
+            int[] location = new int[2];
+            content.getLocationOnScreen(location);
+            bounds.set(location[0], location[1], location[0] + content.getWidth(), location[1] + content.getHeight());
+            if (bounds.contains(x, y)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void jumpToPost(int number) {
+        View target = visiblePostViews.get(number);
+        if (target == null || visibleThreadScroll == null) {
+            Toast.makeText(this, "Referenced post is not visible.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        visibleThreadScroll.post(() -> visibleThreadScroll.smoothScrollTo(0, Math.max(0, target.getTop() - dp(8))));
     }
 
     private boolean routeLink(String rawUrl, CuspTab sourceTab) {
@@ -703,20 +861,44 @@ public class MainActivity extends Activity {
         if (address == null) {
             return null;
         }
-        HttpURLConnection connection = openConnectionFollowingRedirects(
-                address.url,
-                "Monazilla/1.00 CuspiDroid/0.1");
-        int code = connection.getResponseCode();
-        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        if (stream == null) {
-            throw new IllegalStateException("HTTP " + code);
+        List<String> candidates = datCandidates(address);
+        Exception lastError = null;
+        for (String candidate : candidates) {
+            try {
+                HttpURLConnection connection = openConnectionFollowingRedirects(
+                        candidate,
+                        "Monazilla/1.00 CuspiDroid/0.1");
+                int code = connection.getResponseCode();
+                InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+                if (stream == null) {
+                    throw new IllegalStateException("HTTP " + code);
+                }
+                byte[] bytes = readBytes(stream);
+                String body = new String(bytes, Charset.forName("MS932"));
+                if (code >= 400) {
+                    throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
+                }
+                return parseDatThread(threadUrl, body);
+            } catch (Exception error) {
+                lastError = error;
+            }
         }
-        byte[] bytes = readBytes(stream);
-        String body = new String(bytes, Charset.forName("MS932"));
-        if (code >= 400) {
-            throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
+        if (lastError != null) {
+            throw lastError;
         }
-        return parseDatThread(threadUrl, body);
+        return null;
+    }
+
+    private List<String> datCandidates(DatAddress address) {
+        List<String> candidates = new ArrayList<>();
+        candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/dat/" + address.key + ".dat");
+        candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/dat/" + address.key + ".dat");
+        if (address.key.length() >= 4) {
+            String bucket = address.key.substring(0, 4);
+            candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
+            candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
+        }
+        return candidates;
     }
 
     private DatAddress datAddress(String threadUrl) {
@@ -749,7 +931,9 @@ public class MainActivity extends Activity {
         }
 
         DatAddress address = new DatAddress();
-        address.url = "https://" + server + ".5ch.io/" + board + "/dat/" + key + ".dat";
+        address.server = server;
+        address.board = board;
+        address.key = key;
         return address;
     }
 
@@ -768,11 +952,12 @@ public class MainActivity extends Activity {
                 continue;
             }
             Post post = new Post();
-            post.number = String.valueOf(number);
+            post.number = number;
             post.name = cleanText(fields[0]);
             post.date = cleanText(fields[2]);
             post.body = cleanText(fields[3]);
             page.posts.add(post);
+            page.postsByNumber.put(post.number, post);
             if (number == 1 && fields.length >= 5 && !cleanText(fields[4]).isEmpty()) {
                 page.title = cleanText(fields[4]);
             }
@@ -794,7 +979,15 @@ public class MainActivity extends Activity {
         if (page.posts.isEmpty()) {
             parseClassicPosts(html, page.posts);
         }
+        indexPosts(page);
         return page;
+    }
+
+    private void indexPosts(ThreadPage page) {
+        page.postsByNumber.clear();
+        for (Post post : page.posts) {
+            page.postsByNumber.put(post.number, post);
+        }
     }
 
     private void parseModernPosts(String html, List<Post> posts) {
@@ -810,7 +1003,7 @@ public class MainActivity extends Activity {
                 continue;
             }
             Post post = new Post();
-            post.number = valueOr(firstMatch(block, "class=[\"'][^\"']*(?:number|no)[^\"']*[\"'][^>]*>(.*?)<"), String.valueOf(fallbackNumber));
+            post.number = parsePositiveInt(valueOr(firstMatch(block, "class=[\"'][^\"']*(?:number|no)[^\"']*[\"'][^>]*>(.*?)<"), String.valueOf(fallbackNumber)), fallbackNumber);
             post.name = valueOr(firstMatch(block, "class=[\"'][^\"']*name[^\"']*[\"'][^>]*>(.*?)<"), "anonymous");
             post.date = valueOr(firstMatch(block, "class=[\"'][^\"']*(?:date|time)[^\"']*[\"'][^>]*>(.*?)<"), "");
             post.body = cleanText(body);
@@ -827,11 +1020,27 @@ public class MainActivity extends Activity {
             String meta = matcher.group(1);
             String body = matcher.group(2);
             Post post = new Post();
-            post.number = valueOr(firstMatch(meta, "^(\\s*\\d+)"), String.valueOf(posts.size() + 1)).trim();
+            post.number = parsePositiveInt(valueOr(firstMatch(meta, "^(\\s*\\d+)"), String.valueOf(posts.size() + 1)).trim(), posts.size() + 1);
             post.name = valueOr(firstMatch(meta, "<b[^>]*>(.*?)</b>"), "anonymous");
-            post.date = cleanText(stripTags(meta)).replace(post.number, "").replace(post.name, "").trim();
+            post.date = cleanText(stripTags(meta)).replace(String.valueOf(post.number), "").replace(post.name, "").trim();
             post.body = cleanText(body);
             posts.add(post);
+        }
+    }
+
+    private int parsePositiveInt(String value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        Matcher matcher = Pattern.compile("\\d+").matcher(value);
+        if (!matcher.find()) {
+            return fallback;
+        }
+        try {
+            int parsed = Integer.parseInt(matcher.group());
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException error) {
+            return fallback;
         }
     }
 
@@ -965,6 +1174,9 @@ public class MainActivity extends Activity {
         String url;
         WebView webView;
         View readerView;
+        ThreadPage threadPage;
+        ScrollView threadScroll;
+        Map<Integer, View> postViews;
         boolean readerMode;
     }
 
@@ -973,6 +1185,7 @@ public class MainActivity extends Activity {
         String title;
         String error;
         List<Post> posts = new ArrayList<>();
+        Map<Integer, Post> postsByNumber = new LinkedHashMap<>();
 
         static ThreadPage error(String url, String message) {
             ThreadPage page = new ThreadPage();
@@ -984,11 +1197,13 @@ public class MainActivity extends Activity {
     }
 
     private static class DatAddress {
-        String url;
+        String server;
+        String board;
+        String key;
     }
 
     private static class Post {
-        String number;
+        int number;
         String name;
         String date;
         String body;
