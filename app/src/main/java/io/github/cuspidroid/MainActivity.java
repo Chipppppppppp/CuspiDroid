@@ -322,7 +322,8 @@ public class MainActivity extends Activity {
         }
         suggestionsPanel.removeAllViews();
 
-        String clipboardLink = clipboardLink();
+        String query = addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
+        String clipboardLink = query.isEmpty() ? clipboardLink() : null;
         if (clipboardLink != null) {
             TextView item = suggestionItem("Paste link from clipboard", clipboardLink);
             item.setOnClickListener(v -> {
@@ -336,7 +337,6 @@ public class MainActivity extends Activity {
             suggestionsPanel.addView(item);
         }
 
-        String query = addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
         if (!query.isEmpty()) {
             int count = 0;
             for (ThreadHistoryItem history : threadHistory()) {
@@ -395,7 +395,11 @@ public class MainActivity extends Activity {
                 return null;
             }
             String value = text.toString().trim();
-            return looksLikeUrl(value) ? normalizeUrl(value) : null;
+            if (!looksLikeUrl(value)) {
+                return null;
+            }
+            String url = normalizeUrl(value);
+            return is5chUrl(url) ? url : null;
         } catch (Exception error) {
             return null;
         }
@@ -403,22 +407,24 @@ public class MainActivity extends Activity {
 
     private void showAddressEditMenu() {
         LinearLayout menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setBackgroundColor(Color.WHITE);
+        menu.setOrientation(LinearLayout.HORIZONTAL);
+        menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(210), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setElevation(dp(8));
+        popup.setElevation(dp(12));
 
         menu.addView(menuItem("Copy", v -> {
             copyAddressText();
             popup.dismiss();
         }));
+        menu.addView(verticalDivider());
         menu.addView(menuItem("Paste", v -> {
             pasteIntoAddressBar(false);
             popup.dismiss();
         }));
+        menu.addView(verticalDivider());
         menu.addView(menuItem("Paste and go", v -> {
             pasteIntoAddressBar(true);
             popup.dismiss();
@@ -430,10 +436,19 @@ public class MainActivity extends Activity {
         TextView view = new TextView(this);
         view.setText(text);
         view.setTextColor(TEXT);
-        view.setTextSize(16);
-        view.setPadding(dp(14), dp(10), dp(14), dp(10));
+        view.setTextSize(14);
+        view.setGravity(Gravity.CENTER);
+        view.setMinWidth(dp(82));
+        view.setPadding(dp(12), dp(10), dp(12), dp(10));
         view.setOnClickListener(listener);
         return view;
+    }
+
+    private View verticalDivider() {
+        View divider = new View(this);
+        divider.setBackgroundColor(BORDER);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT));
+        return divider;
     }
 
     private void copyAddressText() {
@@ -461,6 +476,13 @@ public class MainActivity extends Activity {
         addressBar.setSelection(addressBar.getText().length());
         if (go) {
             openFromAddressBar();
+        } else {
+            addressBar.requestFocus();
+            addressBar.post(() -> {
+                addressBar.requestFocus();
+                showKeyboard();
+                updateSuggestions();
+            });
         }
     }
 
@@ -481,8 +503,16 @@ public class MainActivity extends Activity {
 
     private GradientDrawable suggestionsBackground() {
         GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.rgb(255, 255, 255));
+        drawable.setStroke(dp(2), Color.rgb(148, 163, 184));
+        drawable.setCornerRadius(dp(12));
+        return drawable;
+    }
+
+    private GradientDrawable menuBackground() {
+        GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.WHITE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setStroke(dp(2), Color.rgb(148, 163, 184));
         drawable.setCornerRadius(dp(10));
         return drawable;
     }
