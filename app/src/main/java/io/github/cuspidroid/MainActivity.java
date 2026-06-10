@@ -2273,7 +2273,8 @@ public class MainActivity extends Activity {
         message.setTextSize(14);
         message.setTextIsSelectable(true);
         message.setPadding(dp(20), dp(12), dp(20), 0);
-        new AlertDialog.Builder(this)
+        String authUrl = firstUrl(messageText);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle("Post failed")
                 .setView(message)
                 .setNegativeButton("Copy", (dialog, which) -> {
@@ -2282,8 +2283,26 @@ public class MainActivity extends Activity {
                         manager.setPrimaryClip(ClipData.newPlainText("Post failed", messageText));
                     }
                 })
-                .setPositiveButton("OK", null)
-                .show();
+                .setPositiveButton("OK", null);
+        if (authUrl != null) {
+            builder.setNeutralButton("Open auth", (dialog, which) -> openAuthUrl(authUrl));
+        }
+        builder.show();
+    }
+
+    private String firstUrl(String text) {
+        Matcher matcher = URL_TEXT_PATTERN.matcher(text);
+        if (!matcher.find()) {
+            return null;
+        }
+        return stripTrailingUrlPunctuation(matcher.group());
+    }
+
+    private void openAuthUrl(String url) {
+        Intent intent = new Intent(this, AuthActivity.class);
+        intent.putExtra(AuthActivity.EXTRA_URL, url);
+        intent.putExtra(AuthActivity.EXTRA_USER_AGENT, "Monazilla/1.00 CuspiDroid/0.1");
+        startActivity(intent);
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {

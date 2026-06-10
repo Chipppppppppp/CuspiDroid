@@ -9,8 +9,12 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class AuthActivity extends Activity {
     public static final String EXTRA_URL = "auth_url";
+    public static final String EXTRA_USER_AGENT = "auth_user_agent";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,6 +34,10 @@ public class AuthActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+        String userAgent = getIntent().getStringExtra(EXTRA_USER_AGENT);
+        if (userAgent != null && !userAgent.trim().isEmpty()) {
+            settings.setUserAgentString(userAgent);
+        }
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -43,7 +51,13 @@ public class AuthActivity extends Activity {
             finish();
             return;
         }
-        webView.loadUrl(normalize(url));
+        String normalized = normalize(url);
+        Map<String, String> headers = new HashMap<>();
+        String cookie = cookieManager.getCookie(normalized);
+        if (cookie != null && !cookie.trim().isEmpty()) {
+            headers.put("Cookie", cookie);
+        }
+        webView.loadUrl(normalized, headers);
     }
 
     private String normalize(String value) {
