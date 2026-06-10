@@ -126,9 +126,9 @@ public class SettingsActivity extends Activity {
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
-        if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template)) {
+        if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template) || MainActivity.LEGACY_FIND_IO_TEMPLATE.equals(template)) {
             searchFind5chIo.setChecked(true);
-        } else if ("https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL".equals(template)) {
+        } else if (MainActivity.FIND_NET_TEMPLATE.equals(template)) {
             searchFind5chNet.setChecked(true);
         } else {
             searchCustom.setChecked(true);
@@ -140,7 +140,7 @@ public class SettingsActivity extends Activity {
         if (searchFind5chIo.isChecked()) {
             template = MainActivity.DEFAULT_SEARCH_TEMPLATE;
         } else if (searchFind5chNet.isChecked()) {
-            template = "https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL";
+            template = MainActivity.FIND_NET_TEMPLATE;
         } else {
             template = customTemplate.getText().toString().trim();
             if (template.isEmpty()) {

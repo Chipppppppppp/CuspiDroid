@@ -48,6 +48,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -66,7 +67,12 @@ public class MainActivity extends Activity {
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_LINKS_IN_APP = "open_links_in_app";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
-    static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
+    static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
+    static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
+    static final String FIND_NET_TEMPLATE = "https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL";
+    private static final String NATIVE_THREAD = "thread";
+    private static final String NATIVE_SEARCH = "search";
+    private static final String NATIVE_SEARCH_HOME = "search_home";
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
@@ -142,7 +148,13 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.WHITE);
+        root.setFocusableInTouchMode(true);
+        root.requestFocus();
         setContentView(root);
+        root.post(() -> {
+            root.requestFocus();
+            hideKeyboard();
+        });
 
         HorizontalScrollView tabScroll = new HorizontalScrollView(this);
         tabScroll.setHorizontalScrollBarEnabled(false);
@@ -174,7 +186,7 @@ public class MainActivity extends Activity {
         addressBar.setTextColor(TEXT);
         addressBar.setHint("Search 5ch or enter URL");
         addressBar.setSelectAllOnFocus(true);
-        addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
+        addressBar.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         addressBar.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         addressBar.setBackground(addressBarBackground());
@@ -189,6 +201,12 @@ public class MainActivity extends Activity {
                 return true;
             }
             return false;
+        });
+        addressBar.setOnClickListener(v -> addressBar.selectAll());
+        addressBar.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) {
+                addressBar.selectAll();
+            }
         });
         toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
@@ -305,9 +323,11 @@ public class MainActivity extends Activity {
         visiblePostViews.clear();
         if (tab.readerMode && tab.readerView != null) {
             contentFrame.addView(tab.readerView);
-            visibleThreadPage = tab.threadPage;
-            visibleThreadScroll = tab.threadScroll;
-            if (tab.postViews != null) {
+            if (NATIVE_THREAD.equals(tab.nativeKind)) {
+                visibleThreadPage = tab.threadPage;
+                visibleThreadScroll = tab.threadScroll;
+            }
+            if (NATIVE_THREAD.equals(tab.nativeKind) && tab.postViews != null) {
                 visiblePostViews.putAll(tab.postViews);
             }
         } else {
@@ -362,8 +382,17 @@ public class MainActivity extends Activity {
             loadThread(tab, url);
             return;
         }
+        if (isFindSearchUrl(url)) {
+            loadSearchResults(tab, url);
+            return;
+        }
+        if (isFindHomeUrl(url)) {
+            loadSearchHome(tab, url);
+            return;
+        }
         tab.readerMode = false;
         tab.readerView = null;
+        tab.nativeKind = null;
         tab.url = url;
         tab.title = hostTitle(url);
         switchToTab(currentIndex);
@@ -374,6 +403,7 @@ public class MainActivity extends Activity {
 
     private void loadThread(CuspTab tab, String url) {
         tab.readerMode = true;
+        tab.nativeKind = NATIVE_THREAD;
         tab.url = url;
         tab.title = hostTitle(url);
         tab.readerView = loadingView("Loading thread...");
@@ -404,6 +434,52 @@ public class MainActivity extends Activity {
                 renderTabs();
             });
         });
+    }
+
+    private void loadSearchResults(CuspTab tab, String url) {
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_SEARCH;
+        tab.url = url;
+        tab.title = searchTitle(url);
+        tab.readerView = loadingView("Searching...");
+        tab.threadPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        switchToTab(tabs.indexOf(tab));
+        progressBar.setVisibility(View.VISIBLE);
+
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                String html = download(url);
+                page = parseSearchPage(url, html);
+            } catch (Exception error) {
+                page = SearchPage.error(url, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                tab.title = result.title;
+                tab.readerView = buildSearchView(result);
+                progressBar.setVisibility(View.GONE);
+                if (tab == currentTab()) {
+                    switchToTab(currentIndex);
+                }
+                renderTabs();
+            });
+        });
+    }
+
+    private void loadSearchHome(CuspTab tab, String url) {
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_SEARCH_HOME;
+        tab.url = url;
+        tab.title = "5ch Search";
+        tab.threadPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        tab.readerView = buildSearchHomeView();
+        switchToTab(tabs.indexOf(tab));
+        renderTabs();
     }
 
     private View loadingView(String message) {
@@ -471,6 +547,82 @@ public class MainActivity extends Activity {
             list.addView(postText("No posts were parsed. Use R to reload, or open another URL.", page));
         }
         return scroll;
+    }
+
+    private View buildSearchView(SearchPage page) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = new TextView(this);
+        title.setText(page.title);
+        title.setTextColor(TEXT);
+        title.setTextSize(20);
+        title.setPadding(0, 0, 0, dp(10));
+        list.addView(title);
+
+        if (page.error != null) {
+            TextView error = postText(page.error, null);
+            error.setTextColor(Color.rgb(185, 28, 28));
+            list.addView(error);
+            return scroll;
+        }
+
+        for (SearchResult result : page.results) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(dp(10), dp(9), dp(10), dp(9));
+            row.setBackgroundColor(Color.rgb(250, 251, 252));
+            row.setOnClickListener(v -> routeLink(result.url, currentTab()));
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rowParams.setMargins(0, 0, 0, dp(8));
+
+            TextView resultTitle = new TextView(this);
+            resultTitle.setText(result.title);
+            resultTitle.setTextColor(TEXT);
+            resultTitle.setTextSize(16);
+            resultTitle.setPadding(0, 0, 0, dp(4));
+            row.addView(resultTitle);
+
+            TextView meta = new TextView(this);
+            meta.setText(result.meta);
+            meta.setTextColor(Color.rgb(79, 91, 103));
+            meta.setTextSize(12);
+            row.addView(meta);
+            list.addView(row, rowParams);
+        }
+
+        if (page.results.isEmpty()) {
+            list.addView(postText("No search results.", null));
+        }
+        return scroll;
+    }
+
+    private View buildSearchHomeView() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(dp(24), dp(24), dp(24), dp(24));
+
+        TextView title = new TextView(this);
+        title.setText("5ch Search");
+        title.setTextColor(TEXT);
+        title.setTextSize(24);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title);
+
+        TextView hint = new TextView(this);
+        hint.setText("Enter keywords in the address bar.");
+        hint.setTextColor(Color.rgb(79, 91, 103));
+        hint.setTextSize(15);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, dp(8), 0, 0);
+        box.addView(hint);
+        return box;
     }
 
     private TextView postText(String value, ThreadPage page) {
@@ -720,8 +872,12 @@ public class MainActivity extends Activity {
         if (tab == null) {
             return;
         }
-        if (tab.readerMode) {
+        if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
             loadThread(tab, tab.url);
+        } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
+            loadSearchResults(tab, tab.url);
+        } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
+            loadSearchHome(tab, tab.url);
         } else {
             progressBar.setVisibility(View.VISIBLE);
             tab.webView.reload();
@@ -1001,6 +1157,61 @@ public class MainActivity extends Activity {
         }
     }
 
+    private SearchPage parseSearchPage(String url, String html) {
+        SearchPage page = new SearchPage();
+        page.url = url;
+        page.title = searchTitle(url);
+        Pattern rowPattern = Pattern.compile(
+                "<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])list_line(?![A-Za-z0-9_-])[^\"']*[\"'][^>]*>(.*?)(?=<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])list_line(?![A-Za-z0-9_-])[^\"']*[\"']|</div>\\s*</div>\\s*<div[^>]+class=[\"'][^\"']*col-lg-5|<script|</body>)",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher rowMatcher = rowPattern.matcher(html);
+        while (rowMatcher.find()) {
+            String block = rowMatcher.group(1);
+            String href = firstMatch(block, "<a[^>]+class=[\"'][^\"']*list_line_link[^\"']*[\"'][^>]+href=[\"']([^\"']+)[\"']");
+            String title = firstMatch(block, "<div[^>]+class=[\"'][^\"']*list_line_link_title[^\"']*[\"'][^>]*>(.*?)</div>");
+            if (href == null || title == null) {
+                continue;
+            }
+            SearchResult result = new SearchResult();
+            result.url = absolutizeFindUrl(href);
+            result.title = cleanText(title);
+            result.meta = cleanSearchMeta(block);
+            page.results.add(result);
+        }
+        return page;
+    }
+
+    private String cleanSearchMeta(String block) {
+        StringBuilder meta = new StringBuilder();
+        Pattern infoPattern = Pattern.compile(
+                "<div[^>]+class=[\"'][^\"']*list_line_info_container[^\"']*[\"'][^>]*>(.*?)</div>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = infoPattern.matcher(block);
+        while (matcher.find()) {
+            String value = cleanText(matcher.group(1));
+            if (!value.isEmpty()) {
+                if (meta.length() > 0) {
+                    meta.append("  ");
+                }
+                meta.append(value);
+            }
+        }
+        return meta.toString();
+    }
+
+    private String absolutizeFindUrl(String href) {
+        if (href.startsWith("//")) {
+            return "https:" + href;
+        }
+        if (href.startsWith("http://") || href.startsWith("https://")) {
+            return href;
+        }
+        if (href.startsWith("/")) {
+            return "https://find.5ch.io" + href;
+        }
+        return "https://find.5ch.io/" + href;
+    }
+
     private int parsePositiveInt(String value, int fallback) {
         if (value == null) {
             return fallback;
@@ -1057,6 +1268,38 @@ public class MainActivity extends Activity {
                 || lower.contains("/test/read.cgi/");
     }
 
+    private boolean isFindSearchUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null) {
+                return false;
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            return (lowerHost.equals("find.5ch.io") || lowerHost.equals("find.5ch.net"))
+                    && path.equals("/search");
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private boolean isFindHomeUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null) {
+                return false;
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            boolean findHost = lowerHost.equals("find.5ch.io") || lowerHost.equals("find.5ch.net");
+            return findHost && (path == null || path.isEmpty() || path.equals("/"));
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
     private boolean is5chUrl(String url) {
         try {
             String host = Uri.parse(url).getHost();
@@ -1089,6 +1332,9 @@ public class MainActivity extends Activity {
             return HOME_URL;
         }
         String value = input.trim();
+        if (value.startsWith("//")) {
+            return "https:" + value;
+        }
         if (value.startsWith("http://") || value.startsWith("https://")) {
             return value;
         }
@@ -1100,6 +1346,9 @@ public class MainActivity extends Activity {
             String encoded = URLEncoder.encode(query, "UTF-8");
             String template = preferences.getString(PREF_SEARCH_TEMPLATE, DEFAULT_SEARCH_TEMPLATE);
             if (template == null || template.trim().isEmpty()) {
+                template = DEFAULT_SEARCH_TEMPLATE;
+            }
+            if (LEGACY_FIND_IO_TEMPLATE.equals(template)) {
                 template = DEFAULT_SEARCH_TEMPLATE;
             }
             if (template.contains("%s")) {
@@ -1120,6 +1369,29 @@ public class MainActivity extends Activity {
         } catch (Exception error) {
             return "Tab";
         }
+    }
+
+    private String searchTitle(String url) {
+        String query = "";
+        try {
+            Uri uri = Uri.parse(url);
+            query = uri.getQueryParameter("q");
+            if (query == null) {
+                query = uri.getQueryParameter("STR");
+            }
+            if (query == null) {
+                Matcher matcher = Pattern.compile("[?&](?:q|STR)=([^&]+)").matcher(url);
+                if (matcher.find()) {
+                    query = URLDecoder.decode(matcher.group(1), "UTF-8");
+                }
+            }
+        } catch (Exception ignored) {
+            query = "";
+        }
+        if (query == null || query.trim().isEmpty()) {
+            return "5ch Search";
+        }
+        return "Search: " + query.trim();
     }
 
     private String cleanTitle(String title, String url) {
@@ -1157,6 +1429,7 @@ public class MainActivity extends Activity {
         ThreadPage threadPage;
         ScrollView threadScroll;
         Map<Integer, View> postViews;
+        String nativeKind;
         boolean readerMode;
     }
 
@@ -1174,6 +1447,27 @@ public class MainActivity extends Activity {
             page.error = message == null ? "Unknown error" : message;
             return page;
         }
+    }
+
+    private static class SearchPage {
+        String url;
+        String title;
+        String error;
+        List<SearchResult> results = new ArrayList<>();
+
+        static SearchPage error(String url, String message) {
+            SearchPage page = new SearchPage();
+            page.url = url;
+            page.title = "Search failed";
+            page.error = message == null ? "Unknown error" : message;
+            return page;
+        }
+    }
+
+    private static class SearchResult {
+        String title;
+        String url;
+        String meta;
     }
 
     private static class DatAddress {
