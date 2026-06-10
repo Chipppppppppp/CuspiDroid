@@ -33,6 +33,9 @@ public class SettingsActivity extends Activity {
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
+    private EditText bbsName;
+    private EditText bbsUrl;
+    private LinearLayout bbsList;
     private LinearLayout historyList;
 
     @Override
@@ -101,6 +104,40 @@ public class SettingsActivity extends Activity {
 
         TextView hint = helperText("Use %s where the encoded query should be inserted.");
         root.addView(hint);
+
+        root.addView(sectionTitle("BBS Links"));
+        bbsName = new EditText(this);
+        bbsName.setSingleLine(true);
+        bbsName.setTextSize(14);
+        bbsName.setTextColor(TEXT);
+        bbsName.setHint("Name, e.g. Edge");
+        bbsName.setBackground(roundedField());
+        bbsName.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(bbsName, fieldParams());
+
+        bbsUrl = new EditText(this);
+        bbsUrl.setSingleLine(true);
+        bbsUrl.setTextSize(14);
+        bbsUrl.setTextColor(TEXT);
+        bbsUrl.setHint("Board URL, e.g. https://example.net/live/");
+        bbsUrl.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        bbsUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        bbsUrl.setBackground(roundedField());
+        bbsUrl.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(bbsUrl, fieldParams());
+
+        Button addBbs = new Button(this);
+        addBbs.setText("Add BBS link");
+        addBbs.setAllCaps(false);
+        addBbs.setOnClickListener(v -> addBbsLink());
+        root.addView(addBbs, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        bbsList = new LinearLayout(this);
+        bbsList.setOrientation(LinearLayout.VERTICAL);
+        root.addView(bbsList);
+        renderBbsLinks();
 
         root.addView(sectionTitle("Thread History"));
         historyList = new LinearLayout(this);
@@ -221,6 +258,61 @@ public class SettingsActivity extends Activity {
         button.setTextColor(TEXT);
         button.setTextSize(16);
         return button;
+    }
+
+    private LinearLayout.LayoutParams fieldParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        params.setMargins(0, dp(4), 0, dp(8));
+        return params;
+    }
+
+    private void addBbsLink() {
+        String name = bbsName.getText().toString().trim();
+        String url = bbsUrl.getText().toString().trim();
+        if (name.isEmpty() || url.isEmpty()) {
+            Toast.makeText(this, "Enter a BBS name and board URL.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        MainActivity.addBbsLink(preferences, name, url);
+        bbsName.setText("");
+        bbsUrl.setText("");
+        renderBbsLinks();
+    }
+
+    private void renderBbsLinks() {
+        if (bbsList == null) {
+            return;
+        }
+        bbsList.removeAllViews();
+        java.util.List<MainActivity.BbsLink> links = MainActivity.readBbsLinks(preferences);
+        if (links.isEmpty()) {
+            bbsList.addView(helperText("No BBS links."));
+            return;
+        }
+        for (MainActivity.BbsLink link : links) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView text = helperText(link.name + "\n" + link.url);
+            text.setTextColor(TEXT);
+            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            ImageButton delete = new ImageButton(this);
+            delete.setImageResource(R.drawable.ic_delete);
+            delete.setContentDescription("Delete BBS link");
+            delete.setColorFilter(TEXT);
+            delete.setBackground(roundedField());
+            delete.setPadding(dp(10), dp(10), dp(10), dp(10));
+            delete.setScaleType(ImageButton.ScaleType.CENTER);
+            delete.setOnClickListener(v -> {
+                MainActivity.removeBbsLink(preferences, link.url);
+                renderBbsLinks();
+            });
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(46), dp(44));
+            deleteParams.setMargins(dp(8), 0, 0, 0);
+            row.addView(delete, deleteParams);
+            bbsList.addView(row);
+        }
     }
 
     private void renderHistory() {

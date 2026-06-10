@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
+    static final String PREF_BBS_LINKS = "bbs_links";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -683,7 +684,7 @@ public class MainActivity extends Activity {
                         tab.postViews = new LinkedHashMap<>();
                         tab.readerView = buildThreadView(tab.threadPage, tab);
                     }
-                } else if (NATIVE_SEARCH.equals(tab.nativeKind)) {
+                } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
                     tab.searchPage = searchPageFromJson(item.optJSONObject("searchPage"));
                     if (tab.searchPage != null) {
                         tab.readerMode = true;
@@ -705,7 +706,7 @@ public class MainActivity extends Activity {
             if (tab != null) {
                 if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                     restoreThreadScroll(tab);
-                } else if (NATIVE_SEARCH.equals(tab.nativeKind) && tab.searchPage != null) {
+                } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) && tab.searchPage != null) {
                     tab.readerMode = true;
                     tab.readerView = buildSearchView(tab.searchPage);
                     switchToTab(selected);
@@ -748,7 +749,8 @@ public class MainActivity extends Activity {
                 item.put("navigationHistory", history);
                 if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
                     item.put("threadPage", threadPageToJson(tab.threadPage));
-                } else if (NATIVE_SEARCH.equals(tab.nativeKind) && tab.searchPage != null && tab.searchPage.error == null) {
+                } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
+                        && tab.searchPage != null && tab.searchPage.error == null) {
                     item.put("searchPage", searchPageToJson(tab.searchPage));
                 }
                 array.put(item);
@@ -1478,6 +1480,15 @@ public class MainActivity extends Activity {
                 {"Linux", "https://mao.5ch.net/linux/"},
                 {"自作PC", "https://egg.5ch.net/jisaku/"}
         });
+        List<BbsLink> customLinks = readBbsLinks(preferences);
+        if (!customLinks.isEmpty()) {
+            list.addView(sectionTitleView("Custom BBS"));
+            for (BbsLink link : customLinks) {
+                TextView row = actionRow(link.name);
+                row.setOnClickListener(v -> openBoardUrl(link.url));
+                list.addView(row);
+            }
+        }
         return withScrollScrubber(scroll);
     }
 
@@ -2292,7 +2303,7 @@ public class MainActivity extends Activity {
     }
 
     private String postToThreadWithCookieConfirm(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
-        String endpoint = "https://" + address.server + ".5ch.net/test/bbs.cgi";
+        String endpoint = (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/test/bbs.cgi";
         Map<String, String> fields = postFields(address, name, mail, message);
         String payload = postPayload(fields, "\u66f8\u304d\u8fbc\u3080");
 
@@ -2590,6 +2601,9 @@ public class MainActivity extends Activity {
         } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
             clearAddressFocus();
             loadSearchResults(tab, tab.url);
+        } else if (tab.readerMode && NATIVE_BOARD.equals(tab.nativeKind)) {
+            clearAddressFocus();
+            loadBoard(tab, tab.url);
         } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
             clearAddressFocus();
             loadSearchHome(tab, tab.url);
@@ -2756,6 +2770,19 @@ public class MainActivity extends Activity {
 
     private List<String> datCandidates(DatAddress address) {
         List<String> candidates = new ArrayList<>();
+        if (address.host != null && !address.host.isEmpty()) {
+            String base = (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/" + address.board;
+            candidates.add(base + "/dat/" + address.key + ".dat");
+            if (address.key.length() >= 4) {
+                String bucket = address.key.substring(0, 4);
+                candidates.add(base + "/kako/" + bucket + "/" + address.key + ".dat");
+            }
+            if (address.key.length() >= 5) {
+                String bucket4 = address.key.substring(0, 4);
+                String bucket5 = address.key.substring(0, 5);
+                candidates.add(base + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
+            }
+        }
         candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/dat/" + address.key + ".dat");
         candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/dat/" + address.key + ".dat");
         if (address.key.length() >= 4) {
@@ -2804,6 +2831,8 @@ public class MainActivity extends Activity {
         }
 
         DatAddress address = new DatAddress();
+        address.scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+        address.host = host;
         address.server = server;
         address.board = board;
         address.key = key;
@@ -3128,6 +3157,65 @@ public class MainActivity extends Activity {
         preferences.edit().putString(PREF_HISTORY, array.toString()).apply();
     }
 
+    static List<BbsLink> readBbsLinks(SharedPreferences preferences) {
+        List<BbsLink> links = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(preferences.getString(PREF_BBS_LINKS, "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String name = item.optString("name", "").trim();
+                String url = item.optString("url", "").trim();
+                if (!name.isEmpty() && !url.isEmpty()) {
+                    links.add(new BbsLink(name, url));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return links;
+    }
+
+    static void addBbsLink(SharedPreferences preferences, String name, String url) {
+        List<BbsLink> links = readBbsLinks(preferences);
+        JSONArray array = new JSONArray();
+        try {
+            String normalized = normalizeUrlStatic(url);
+            for (BbsLink link : links) {
+                if (!normalized.equals(link.url)) {
+                    JSONObject item = new JSONObject();
+                    item.put("name", link.name);
+                    item.put("url", link.url);
+                    array.put(item);
+                }
+            }
+            JSONObject added = new JSONObject();
+            added.put("name", name.trim());
+            added.put("url", normalized);
+            array.put(added);
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_BBS_LINKS, array.toString()).apply();
+    }
+
+    static void removeBbsLink(SharedPreferences preferences, String url) {
+        List<BbsLink> links = readBbsLinks(preferences);
+        JSONArray array = new JSONArray();
+        try {
+            for (BbsLink link : links) {
+                if (!url.equals(link.url)) {
+                    JSONObject item = new JSONObject();
+                    item.put("name", link.name);
+                    item.put("url", link.url);
+                    array.put(item);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_BBS_LINKS, array.toString()).apply();
+    }
+
     private boolean isThreadUrl(String url) {
         String lower = url.toLowerCase(Locale.ROOT);
         return lower.contains(".5ch.net/test/read.cgi/")
@@ -3173,10 +3261,30 @@ public class MainActivity extends Activity {
         try {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
-            return host != null && is5chUrl(url) && boardNameFromUrl(url) != null;
+            return host != null && (is5chUrl(url) || isRegisteredBbsUrl(url)) && boardNameFromUrl(url) != null;
         } catch (Exception error) {
             return false;
         }
+    }
+
+    private boolean isRegisteredBbsUrl(String url) {
+        try {
+            String normalized = normalizeUrl(url);
+            Uri target = Uri.parse(normalized);
+            String targetHost = target.getHost();
+            if (targetHost == null) {
+                return false;
+            }
+            for (BbsLink link : readBbsLinks(preferences)) {
+                Uri base = Uri.parse(link.url);
+                String baseHost = base.getHost();
+                if (baseHost != null && targetHost.equalsIgnoreCase(baseHost)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private String boardNameFromUrl(String url) {
@@ -3231,6 +3339,10 @@ public class MainActivity extends Activity {
     }
 
     private String normalizeUrl(String input) {
+        return normalizeUrlStatic(input);
+    }
+
+    private static String normalizeUrlStatic(String input) {
         if (input == null || input.trim().isEmpty()) {
             return HOME_URL;
         }
@@ -3491,6 +3603,16 @@ public class MainActivity extends Activity {
         }
     }
 
+    static class BbsLink {
+        final String name;
+        final String url;
+
+        BbsLink(String name, String url) {
+            this.name = name;
+            this.url = url;
+        }
+    }
+
     private static class ThreadPage {
         String url;
         String title;
@@ -3534,6 +3656,8 @@ public class MainActivity extends Activity {
     }
 
     private static class DatAddress {
+        String scheme;
+        String host;
         String server;
         String board;
         String key;
