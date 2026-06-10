@@ -51,14 +51,17 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.FileOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1318,42 +1321,21 @@ public class MainActivity extends Activity {
     private View postContent(String value, ThreadPage page) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(postText(value, page));
 
         Matcher matcher = URL_TEXT_PATTERN.matcher(value);
-        int cursor = 0;
-        boolean replacedImage = false;
+        List<String> added = new ArrayList<>();
         while (matcher.find()) {
             String rawUrl = matcher.group();
             String cleanUrl = stripTrailingUrlPunctuation(rawUrl);
             String imageUrl = imgurImageUrl(cleanUrl);
-            if (imageUrl == null) {
+            if (imageUrl == null || added.contains(imageUrl)) {
                 continue;
             }
-
-            if (matcher.start() > cursor) {
-                addPostTextSegment(box, value.substring(cursor, matcher.start()), page);
-            }
             box.addView(imgurPreview(cleanUrl, imageUrl));
-            cursor = matcher.start() + cleanUrl.length();
-            replacedImage = true;
-        }
-
-        if (!replacedImage) {
-            box.addView(postText(value, page));
-            return box;
-        }
-        if (cursor < value.length()) {
-            addPostTextSegment(box, value.substring(cursor), page);
+            added.add(imageUrl);
         }
         return box;
-    }
-
-    private void addPostTextSegment(LinearLayout box, String segment, ThreadPage page) {
-        if (segment.isEmpty()) {
-            return;
-        }
-        TextView text = postText(segment, page);
-        box.addView(text);
     }
 
     private View imgurPreview(String originalUrl, String imageUrl) {
@@ -1361,7 +1343,7 @@ public class MainActivity extends Activity {
         frame.setBackground(roundedDrawable(SURFACE, BORDER, dp(8)));
         frame.setClickable(true);
         LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(180));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(220));
         frameParams.setMargins(0, dp(6), 0, dp(6));
         frame.setLayoutParams(frameParams);
 
@@ -1406,34 +1388,41 @@ public class MainActivity extends Activity {
                     error.setVisibility(View.VISIBLE);
                     return;
                 }
-                resizeImagePreview(frame, bitmap);
                 image.setImageBitmap(blur ? blurredBitmap(bitmap) : bitmap);
                 image.setVisibility(View.VISIBLE);
                 if (blur) {
                     reveal.setVisibility(View.VISIBLE);
                     reveal.setOnClickListener(v -> {
                         image.setImageBitmap(bitmap);
-                        image.setOnClickListener(click -> openExternal(originalUrl));
+                        image.setOnClickListener(click -> showImageDialog(bitmap, originalUrl));
                         reveal.setVisibility(View.GONE);
                     });
                 } else {
-                    image.setOnClickListener(v -> openExternal(originalUrl));
+                    image.setOnClickListener(v -> showImageDialog(bitmap, originalUrl));
                 }
             });
         });
         return frame;
     }
 
-    private void resizeImagePreview(View frame, Bitmap bitmap) {
-        if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) {
-            return;
-        }
-        int targetWidth = Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(80));
-        int height = targetWidth * bitmap.getHeight() / bitmap.getWidth();
-        height = Math.max(dp(130), Math.min(dp(420), height));
-        ViewGroup.LayoutParams params = frame.getLayoutParams();
-        params.height = height;
-        frame.setLayoutParams(params);
+    private void showImageDialog(Bitmap bitmap, String originalUrl) {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+        ImageView image = new ImageView(this);
+        image.setImageBitmap(bitmap);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        root.addView(image, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(root)
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Open", (d, which) -> openExternal(originalUrl))
+                .create();
+        dialog.setOnShowListener(d -> {
+            dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            image.setOnClickListener(v -> dialog.dismiss());
+        });
+        dialog.show();
     }
 
     private Bitmap downloadBitmap(String url) {
@@ -1453,6 +1442,10 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap downloadBitmapOnce(String url) {
+        Bitmap cached = cachedBitmap(url);
+        if (cached != null) {
+            return cached;
+        }
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(url).openConnection();
@@ -1461,7 +1454,9 @@ public class MainActivity extends Activity {
             connection.setInstanceFollowRedirects(true);
             connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
             try (InputStream stream = connection.getInputStream()) {
-                return BitmapFactory.decodeStream(stream);
+                byte[] bytes = readBytes(stream);
+                cacheImageBytes(url, bytes);
+                return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
             }
         } catch (Exception ignored) {
             return null;
@@ -1470,6 +1465,44 @@ public class MainActivity extends Activity {
                 connection.disconnect();
             }
         }
+    }
+
+    private Bitmap cachedBitmap(String url) {
+        try {
+            File file = imageCacheFile(url);
+            if (file.exists() && file.length() > 0) {
+                return BitmapFactory.decodeFile(file.getAbsolutePath());
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private void cacheImageBytes(String url, byte[] bytes) {
+        try {
+            File dir = imageCacheDir();
+            if (!dir.exists() && !dir.mkdirs()) {
+                return;
+            }
+            try (FileOutputStream out = new FileOutputStream(imageCacheFile(url))) {
+                out.write(bytes);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private File imageCacheDir() {
+        return new File(getCacheDir(), "imgur");
+    }
+
+    private File imageCacheFile(String url) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(url.getBytes(Charset.forName("UTF-8")));
+        StringBuilder name = new StringBuilder();
+        for (byte value : hash) {
+            name.append(String.format(Locale.ROOT, "%02x", value));
+        }
+        return new File(imageCacheDir(), name.toString() + ".img");
     }
 
     private Bitmap blurredBitmap(Bitmap bitmap) {
