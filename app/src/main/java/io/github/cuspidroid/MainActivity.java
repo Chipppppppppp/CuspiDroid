@@ -2,6 +2,8 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -12,6 +14,8 @@ import android.graphics.Rect;
 import android.text.Html;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.text.TextPaint;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
@@ -42,6 +46,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -67,6 +74,8 @@ public class MainActivity extends Activity {
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_LINKS_IN_APP = "open_links_in_app";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
+    private static final String PREF_TABS = "saved_tabs";
+    private static final String PREF_HISTORY = "search_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
     static final String FIND_NET_TEMPLATE = "https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -82,10 +91,12 @@ public class MainActivity extends Activity {
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
     private LinearLayout tabStrip;
+    private LinearLayout suggestionsPanel;
     private EditText addressBar;
     private FrameLayout contentFrame;
     private ProgressBar progressBar;
     private SharedPreferences preferences;
+    private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
     private ScrollView visibleThreadScroll;
     private final Map<Integer, View> visiblePostViews = new LinkedHashMap<>();
@@ -105,10 +116,18 @@ public class MainActivity extends Activity {
             launchUrl = intent.getData().toString();
         }
         if (launchUrl == null) {
-            createBlankTab();
+            if (!restoreTabs()) {
+                createBlankTab();
+            }
         } else {
             createTab(launchUrl, true);
         }
+    }
+
+    @Override
+    protected void onPause() {
+        saveTabs();
+        super.onPause();
     }
 
     @Override
@@ -145,7 +164,9 @@ public class MainActivity extends Activity {
                 dismissThreadPopups();
                 return true;
             }
-            if (addressBar != null && addressBar.hasFocus() && !isTouchInsideView(event, addressBar)) {
+            if (addressBar != null && addressBar.hasFocus()
+                    && !isTouchInsideView(event, addressBar)
+                    && !isTouchInsideView(event, suggestionsPanel)) {
                 clearAddressFocus();
             }
         }
@@ -159,10 +180,6 @@ public class MainActivity extends Activity {
         root.setFocusableInTouchMode(true);
         root.requestFocus();
         setContentView(root);
-        root.post(() -> {
-            root.requestFocus();
-            hideKeyboard();
-        });
 
         HorizontalScrollView tabScroll = new HorizontalScrollView(this);
         tabScroll.setHorizontalScrollBarEnabled(false);
@@ -184,9 +201,9 @@ public class MainActivity extends Activity {
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
 
-        toolbar.addView(iconButton(R.drawable.ic_arrow_back, "Back", v -> goBack()));
-        toolbar.addView(iconButton(R.drawable.ic_arrow_forward, "Forward", v -> goForward()));
-        toolbar.addView(iconButton(R.drawable.ic_refresh, "Reload", v -> reload()));
+        addToolbarButton(toolbar, R.drawable.ic_arrow_back, "Back", v -> goBack());
+        addToolbarButton(toolbar, R.drawable.ic_arrow_forward, "Forward", v -> goForward());
+        addToolbarButton(toolbar, R.drawable.ic_refresh, "Reload", v -> reload());
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
@@ -227,11 +244,39 @@ public class MainActivity extends Activity {
             if (hasFocus) {
                 addressBar.selectAll();
             }
+            updateAddressFocusUi(hasFocus);
+        });
+        addressBar.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (addressBar.hasFocus()) {
+                    updateSuggestions();
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+        addressBar.setOnLongClickListener(v -> {
+            showAddressEditMenu();
+            return true;
         });
         toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
-        toolbar.addView(iconButton(R.drawable.ic_add, "New tab", v -> createBlankTab()));
-        toolbar.addView(iconButton(R.drawable.ic_settings, "Settings", v -> openSettings()));
+        addToolbarButton(toolbar, R.drawable.ic_add, "New tab", v -> createBlankTab());
+        addToolbarButton(toolbar, R.drawable.ic_settings, "Settings", v -> openSettings());
+
+        suggestionsPanel = new LinearLayout(this);
+        suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
+        suggestionsPanel.setBackgroundColor(Color.WHITE);
+        suggestionsPanel.setVisibility(View.GONE);
+        root.addView(suggestionsPanel, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
@@ -258,6 +303,155 @@ public class MainActivity extends Activity {
         params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
         return button;
+    }
+
+    private void addToolbarButton(LinearLayout toolbar, int iconRes, String description, View.OnClickListener listener) {
+        ImageButton button = iconButton(iconRes, description, listener);
+        toolbarButtons.add(button);
+        toolbar.addView(button);
+    }
+
+    private void updateAddressFocusUi(boolean focused) {
+        for (View button : toolbarButtons) {
+            button.setVisibility(focused ? View.GONE : View.VISIBLE);
+        }
+        if (focused) {
+            updateSuggestions();
+        } else if (suggestionsPanel != null) {
+            suggestionsPanel.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateSuggestions() {
+        if (suggestionsPanel == null || !addressBar.hasFocus()) {
+            return;
+        }
+        suggestionsPanel.removeAllViews();
+
+        String clipboardLink = clipboardLink();
+        if (clipboardLink != null) {
+            TextView item = suggestionItem("Paste link from clipboard", clipboardLink);
+            item.setOnClickListener(v -> {
+                addressBar.setText(clipboardLink);
+                addressBar.selectAll();
+                updateSuggestions();
+            });
+            suggestionsPanel.addView(item);
+        }
+
+        String query = addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
+        if (!query.isEmpty()) {
+            int count = 0;
+            for (String history : searchHistory()) {
+                if (history.toLowerCase(Locale.ROOT).contains(query)) {
+                    TextView item = suggestionItem("Search history", history);
+                    item.setOnClickListener(v -> {
+                        addressBar.setText(history);
+                        addressBar.setSelection(addressBar.getText().length());
+                        openFromAddressBar();
+                    });
+                    suggestionsPanel.addView(item);
+                    count++;
+                    if (count >= 6) {
+                        break;
+                    }
+                }
+            }
+        }
+        suggestionsPanel.setVisibility(suggestionsPanel.getChildCount() == 0 ? View.GONE : View.VISIBLE);
+    }
+
+    private TextView suggestionItem(String label, String value) {
+        TextView view = new TextView(this);
+        view.setText(label + "\n" + value);
+        view.setTextColor(TEXT);
+        view.setTextSize(14);
+        view.setPadding(dp(14), dp(8), dp(14), dp(8));
+        return view;
+    }
+
+    private String clipboardLink() {
+        try {
+            ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (manager == null || !manager.hasPrimaryClip()) {
+                return null;
+            }
+            ClipData data = manager.getPrimaryClip();
+            if (data == null || data.getItemCount() == 0) {
+                return null;
+            }
+            CharSequence text = data.getItemAt(0).coerceToText(this);
+            if (text == null) {
+                return null;
+            }
+            String value = text.toString().trim();
+            return looksLikeUrl(value) ? normalizeUrl(value) : null;
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private void showAddressEditMenu() {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackgroundColor(Color.WHITE);
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(210), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        popup.setElevation(dp(8));
+
+        menu.addView(menuItem("Copy", v -> {
+            copyAddressText();
+            popup.dismiss();
+        }));
+        menu.addView(menuItem("Paste", v -> {
+            pasteIntoAddressBar(false);
+            popup.dismiss();
+        }));
+        menu.addView(menuItem("Paste and go", v -> {
+            pasteIntoAddressBar(true);
+            popup.dismiss();
+        }));
+        popup.showAsDropDown(addressBar, dp(8), dp(2));
+    }
+
+    private TextView menuItem(String text, View.OnClickListener listener) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextColor(TEXT);
+        view.setTextSize(16);
+        view.setPadding(dp(14), dp(10), dp(14), dp(10));
+        view.setOnClickListener(listener);
+        return view;
+    }
+
+    private void copyAddressText() {
+        ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (manager != null) {
+            String selected = addressBar.getText().toString();
+            manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid address", selected));
+        }
+    }
+
+    private void pasteIntoAddressBar(boolean go) {
+        ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (manager == null || !manager.hasPrimaryClip()) {
+            return;
+        }
+        ClipData data = manager.getPrimaryClip();
+        if (data == null || data.getItemCount() == 0) {
+            return;
+        }
+        CharSequence text = data.getItemAt(0).coerceToText(this);
+        if (text == null) {
+            return;
+        }
+        addressBar.setText(text.toString());
+        addressBar.setSelection(addressBar.getText().length());
+        if (go) {
+            openFromAddressBar();
+        }
     }
 
     private GradientDrawable iconButtonBackground() {
@@ -310,6 +504,69 @@ public class MainActivity extends Activity {
         renderTabs();
     }
 
+    private boolean restoreTabs() {
+        String saved = preferences.getString(PREF_TABS, "");
+        if (saved == null || saved.isEmpty()) {
+            return false;
+        }
+        try {
+            JSONObject root = new JSONObject(saved);
+            JSONArray array = root.optJSONArray("tabs");
+            if (array == null || array.length() == 0) {
+                return false;
+            }
+            int selected = Math.max(0, Math.min(root.optInt("current", 0), array.length() - 1));
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.getJSONObject(i);
+                String url = item.optString("url", "");
+                CuspTab tab = new CuspTab();
+                tab.title = item.optString("title", "New tab");
+                tab.url = url;
+                String nativeKind = item.optString("nativeKind", "");
+                tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
+                tab.returnToIndex = -1;
+                tab.webView = new WebView(this);
+                configureWebView(tab);
+                tabs.add(tab);
+            }
+            switchToTab(selected);
+            CuspTab tab = currentTab();
+            if (tab != null) {
+                if (tab.url == null || tab.url.isEmpty()) {
+                    tab.readerMode = true;
+                    tab.nativeKind = NATIVE_SEARCH_HOME;
+                    tab.readerView = buildSearchHomeView();
+                    switchToTab(selected);
+                    startAddressEntry();
+                } else {
+                    openInCurrentTab(tab.url);
+                }
+            }
+            renderTabs();
+            return true;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private void saveTabs() {
+        try {
+            JSONArray array = new JSONArray();
+            for (CuspTab tab : tabs) {
+                JSONObject item = new JSONObject();
+                item.put("url", tab.url == null ? "" : tab.url);
+                item.put("title", tab.title == null ? "Tab" : tab.title);
+                item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
+                array.put(item);
+            }
+            JSONObject root = new JSONObject();
+            root.put("current", Math.max(0, currentIndex));
+            root.put("tabs", array);
+            preferences.edit().putString(PREF_TABS, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
     private void configureWebView(CuspTab tab) {
         WebSettings settings = tab.webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -355,6 +612,9 @@ public class MainActivity extends Activity {
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) {
             return;
+        }
+        if (index != currentIndex && !replyPopups.isEmpty()) {
+            dismissThreadPopups();
         }
         currentIndex = index;
         CuspTab tab = tabs.get(index);
@@ -435,7 +695,11 @@ public class MainActivity extends Activity {
             return;
         }
         clearAddressFocus();
-        String url = looksLikeUrl(input) ? normalizeUrl(input) : searchUrl(input);
+        boolean urlLike = looksLikeUrl(input);
+        if (!urlLike) {
+            addSearchHistory(input);
+        }
+        String url = urlLike ? normalizeUrl(input) : searchUrl(input);
         openInCurrentTab(url);
     }
 
@@ -1449,16 +1713,23 @@ public class MainActivity extends Activity {
     }
 
     private String cleanText(String html) {
-        String normalized = html.replace("<br>", "\n")
-                .replace("<br/>", "\n")
-                .replace("<br />", "\n");
+        String marker = "\uE000";
+        String normalized = html
+                .replaceAll("(?i)<br\\s*/?>", marker)
+                .replaceAll("(?i)</p\\s*>", marker)
+                .replaceAll("(?i)</div\\s*>", marker);
         Spanned spanned;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             spanned = Html.fromHtml(normalized, Html.FROM_HTML_MODE_LEGACY);
         } else {
             spanned = Html.fromHtml(normalized);
         }
-        return spanned.toString().replace('\u00a0', ' ').trim();
+        return spanned.toString()
+                .replace(marker, "\n")
+                .replace('\u00a0', ' ')
+                .replaceAll("[ \\t]+\\n", "\n")
+                .replaceAll("\\n[ \\t]+", "\n")
+                .trim();
     }
 
     private String stripTags(String html) {
@@ -1472,6 +1743,31 @@ public class MainActivity extends Activity {
             return fallback;
         }
         return cleanText(value);
+    }
+
+    private void addSearchHistory(String query) {
+        List<String> history = searchHistory();
+        history.remove(query);
+        history.add(0, query);
+        while (history.size() > 50) {
+            history.remove(history.size() - 1);
+        }
+        preferences.edit().putString(PREF_HISTORY, new JSONArray(history).toString()).apply();
+    }
+
+    private List<String> searchHistory() {
+        List<String> history = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(preferences.getString(PREF_HISTORY, "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                String value = array.optString(i, "").trim();
+                if (!value.isEmpty()) {
+                    history.add(value);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return history;
     }
 
     private boolean isThreadUrl(String url) {
