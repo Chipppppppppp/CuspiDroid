@@ -88,6 +88,7 @@ public class MainActivity extends Activity {
     private static final String NATIVE_THREAD = "thread";
     private static final String NATIVE_SEARCH = "search";
     private static final String NATIVE_SEARCH_HOME = "search_home";
+    private static final String NATIVE_BOARD = "board";
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
@@ -113,6 +114,7 @@ public class MainActivity extends Activity {
     private final List<PopupWindow> replyPopups = new ArrayList<>();
     private int currentIndex = -1;
     private boolean pendingNewTab;
+    private boolean pendingHistoryAll;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -149,6 +151,10 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (pendingNewTab) {
+            if (pendingHistoryAll) {
+                showPendingNewTab(false);
+                return;
+            }
             cancelPendingNewTab();
             return;
         }
@@ -612,14 +618,28 @@ public class MainActivity extends Activity {
             dismissThreadPopups();
         }
         pendingNewTab = true;
+        pendingHistoryAll = false;
         contentFrame.removeAllViews();
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
-        contentFrame.addView(buildSearchHomeView());
+        contentFrame.addView(buildSearchHomeView(false));
         addressBar.setText("");
         updateBottomThreadBar(null);
-        startAddressEntry();
+        clearAddressFocus();
+        renderTabs();
+    }
+
+    private void showPendingNewTab(boolean fullHistory) {
+        if (!pendingNewTab) {
+            showPendingNewTab();
+            return;
+        }
+        pendingHistoryAll = fullHistory;
+        contentFrame.removeAllViews();
+        contentFrame.addView(fullHistory ? buildHistoryView() : buildSearchHomeView(false));
+        addressBar.setText("");
+        clearAddressFocus();
         renderTabs();
     }
 
@@ -629,6 +649,7 @@ public class MainActivity extends Activity {
             showPendingNewTab();
             return;
         }
+        pendingHistoryAll = false;
         switchToTab(Math.max(0, Math.min(currentIndex, tabs.size() - 1)));
     }
 
@@ -670,7 +691,7 @@ public class MainActivity extends Activity {
                     }
                 } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
                     tab.readerMode = true;
-                    tab.readerView = buildSearchHomeView();
+                    tab.readerView = buildSearchHomeView(true);
                 }
                 if (tab.navigationHistory.isEmpty() && url != null && !url.isEmpty()) {
                     tab.navigationHistory.add(url);
@@ -691,9 +712,9 @@ public class MainActivity extends Activity {
                 } else if (tab.url == null || tab.url.isEmpty()) {
                     tab.readerMode = true;
                     tab.nativeKind = NATIVE_SEARCH_HOME;
-                    tab.readerView = buildSearchHomeView();
+                    tab.readerView = buildSearchHomeView(true);
                     switchToTab(selected);
-                    startAddressEntry();
+                    clearAddressFocus();
                 } else {
                     openInCurrentTab(tab.url);
                 }
@@ -846,6 +867,7 @@ public class MainActivity extends Activity {
             return;
         }
         pendingNewTab = false;
+        pendingHistoryAll = false;
         CuspTab previous = currentTab();
         if (previous != null) {
             rememberThreadScroll(previous);
@@ -985,6 +1007,13 @@ public class MainActivity extends Activity {
             loadSearchHome(tab, url);
             return;
         }
+        if (isBoardUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
+            loadBoard(tab, url);
+            return;
+        }
         openExternal(url);
     }
 
@@ -1095,9 +1124,43 @@ public class MainActivity extends Activity {
         tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
-        tab.readerView = buildSearchHomeView();
+        tab.readerView = buildSearchHomeView(true);
         switchToTab(tabs.indexOf(tab));
         renderTabs();
+    }
+
+    private void loadBoard(CuspTab tab, String url) {
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_BOARD;
+        tab.url = url;
+        tab.title = boardTitle(url);
+        tab.readerView = loadingView("");
+        tab.threadPage = null;
+        tab.searchPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        switchToTab(tabs.indexOf(tab));
+        progressBar.setVisibility(View.VISIBLE);
+
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                page = downloadBoard(url);
+            } catch (Exception error) {
+                page = SearchPage.error(url, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                tab.title = result.title;
+                tab.searchPage = result;
+                tab.readerView = buildSearchView(result);
+                progressBar.setVisibility(View.GONE);
+                if (tab == currentTab()) {
+                    switchToTab(currentIndex);
+                }
+                renderTabs();
+            });
+        });
     }
 
     private View loadingView(String message) {
@@ -1363,7 +1426,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private View buildSearchHomeView() {
+    private View buildSearchHomeView(boolean fullHistory) {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
@@ -1372,30 +1435,142 @@ public class MainActivity extends Activity {
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        for (ThreadHistoryItem item : threadHistory()) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.VERTICAL);
-            row.setPadding(dp(10), dp(9), dp(10), dp(9));
-            row.setBackgroundColor(Color.rgb(250, 251, 252));
-            row.setOnClickListener(v -> routeLink(item.url, currentTab()));
-            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            rowParams.setMargins(0, 0, 0, dp(8));
+        list.addView(sectionTitleView("History"));
+        List<ThreadHistoryItem> history = threadHistory();
+        int limit = fullHistory ? history.size() : Math.min(history.size(), 8);
+        if (history.isEmpty()) {
+            list.addView(helperLine("No thread history."));
+        } else {
+            for (int i = 0; i < limit; i++) {
+                list.addView(historyRow(history.get(i)));
+            }
+            if (!fullHistory && history.size() > limit) {
+                TextView more = actionRow("More history");
+                more.setOnClickListener(v -> {
+                    if (pendingNewTab) {
+                        showPendingNewTab(true);
+                    } else {
+                        CuspTab tab = currentTab();
+                        if (tab != null) {
+                            tab.readerView = buildHistoryView();
+                            contentFrame.removeAllViews();
+                            contentFrame.addView(tab.readerView);
+                        }
+                    }
+                });
+                list.addView(more);
+            }
+        }
 
-            TextView title = new TextView(this);
-            title.setText(item.title);
-            title.setTextColor(TEXT);
-            title.setTextSize(16);
-            row.addView(title);
+        list.addView(sectionTitleView("5ch"));
+        addBoardFolder(list, "News", new String[][]{
+                {"ニュース速報+", "https://asahi.5ch.net/newsplus/"},
+                {"芸スポ速報+", "https://hayabusa9.5ch.net/mnewsplus/"},
+                {"ニュース速報", "https://hayabusa9.5ch.net/news/"}
+        });
+        addBoardFolder(list, "Culture", new String[][]{
+                {"映画一般", "https://lavender.5ch.net/movie/"},
+                {"音楽一般", "https://lavender.5ch.net/music/"},
+                {"読書", "https://mevius.5ch.net/books/"}
+        });
+        addBoardFolder(list, "Technology", new String[][]{
+                {"プログラマー", "https://medaka.5ch.net/prog/"},
+                {"Linux", "https://mao.5ch.net/linux/"},
+                {"自作PC", "https://egg.5ch.net/jisaku/"}
+        });
+        return withScrollScrubber(scroll);
+    }
 
-            TextView url = new TextView(this);
-            url.setText(item.url);
-            url.setTextColor(Color.rgb(79, 91, 103));
-            url.setTextSize(12);
-            row.addView(url);
-            list.addView(row, rowParams);
+    private View buildHistoryView() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        list.addView(sectionTitleView("History"));
+        List<ThreadHistoryItem> history = threadHistory();
+        if (history.isEmpty()) {
+            list.addView(helperLine("No thread history."));
+        } else {
+            for (ThreadHistoryItem item : history) {
+                list.addView(historyRow(item));
+            }
         }
         return withScrollScrubber(scroll);
+    }
+
+    private TextView sectionTitleView(String value) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextColor(TEXT);
+        view.setTextSize(18);
+        view.setPadding(0, dp(10), 0, dp(8));
+        return view;
+    }
+
+    private TextView helperLine(String value) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextColor(Color.rgb(79, 91, 103));
+        view.setTextSize(14);
+        view.setPadding(dp(10), dp(8), dp(10), dp(10));
+        return view;
+    }
+
+    private TextView actionRow(String value) {
+        TextView view = helperLine(value);
+        view.setTextColor(TEAL);
+        view.setBackgroundColor(Color.rgb(250, 251, 252));
+        return view;
+    }
+
+    private View historyRow(ThreadHistoryItem item) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(10), dp(9), dp(10), dp(9));
+        row.setBackgroundColor(Color.rgb(250, 251, 252));
+        row.setOnClickListener(v -> routeLink(item.url, currentTab()));
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowParams);
+
+        TextView title = new TextView(this);
+        title.setText(item.title);
+        title.setTextColor(TEXT);
+        title.setTextSize(16);
+        row.addView(title);
+
+        TextView url = new TextView(this);
+        url.setText(item.url);
+        url.setTextColor(Color.rgb(79, 91, 103));
+        url.setTextSize(12);
+        row.addView(url);
+        return row;
+    }
+
+    private void addBoardFolder(LinearLayout list, String folder, String[][] boards) {
+        TextView header = helperLine(folder);
+        header.setTextColor(TEXT);
+        header.setBackgroundColor(Color.rgb(229, 233, 238));
+        list.addView(header);
+        for (String[] board : boards) {
+            TextView row = actionRow("  " + board[0]);
+            row.setOnClickListener(v -> openBoardUrl(board[1]));
+            list.addView(row);
+        }
+    }
+
+    private void openBoardUrl(String url) {
+        if (pendingNewTab) {
+            pendingNewTab = false;
+            createTab(url, true);
+        } else {
+            openInCurrentTab(url);
+        }
     }
 
     private TextView postText(String value, ThreadPage page) {
@@ -2664,6 +2839,51 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    private SearchPage downloadBoard(String boardUrl) throws Exception {
+        Uri uri = Uri.parse(boardUrl);
+        String host = uri.getHost();
+        String board = boardNameFromUrl(boardUrl);
+        if (host == null || board == null) {
+            throw new IllegalStateException("Unsupported board URL.");
+        }
+        String subjectUrl = "https://" + host + "/" + board + "/subject.txt";
+        HttpURLConnection connection = openConnectionFollowingRedirects(
+                subjectUrl,
+                "Monazilla/1.00 CuspiDroid/0.1");
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        if (stream == null) {
+            throw new IllegalStateException("HTTP " + code);
+        }
+        String body = readText(stream, Charset.forName("MS932"));
+        connection.disconnect();
+        if (code >= 400) {
+            throw new IllegalStateException("HTTP " + code + "\n" + cleanText(body));
+        }
+
+        SearchPage page = new SearchPage();
+        page.url = boardUrl;
+        page.title = boardTitle(boardUrl);
+        for (String line : body.split("\\r?\\n")) {
+            int sep = line.indexOf("<>");
+            if (sep <= 0) {
+                continue;
+            }
+            String dat = line.substring(0, sep);
+            String title = cleanText(line.substring(sep + 2));
+            if (!dat.endsWith(".dat")) {
+                continue;
+            }
+            String key = dat.substring(0, dat.length() - 4);
+            SearchResult result = new SearchResult();
+            result.title = title;
+            result.url = "https://" + host + "/test/read.cgi/" + board + "/" + key + "/";
+            result.meta = board;
+            page.results.add(result);
+        }
+        return page;
+    }
+
     private ThreadPage parseThread(String url, String html) {
         ThreadPage page = new ThreadPage();
         page.url = url;
@@ -2947,6 +3167,40 @@ public class MainActivity extends Activity {
         } catch (Exception error) {
             return false;
         }
+    }
+
+    private boolean isBoardUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            return host != null && is5chUrl(url) && boardNameFromUrl(url) != null;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private String boardNameFromUrl(String url) {
+        Uri uri = Uri.parse(url);
+        String path = uri.getPath();
+        if (path == null) {
+            return null;
+        }
+        String[] parts = path.split("/");
+        for (String part : parts) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            if ("test".equals(part) || "read.cgi".equals(part) || "dat".equals(part)) {
+                return null;
+            }
+            return part;
+        }
+        return null;
+    }
+
+    private String boardTitle(String url) {
+        String board = boardNameFromUrl(url);
+        return board == null ? hostTitle(url) : board;
     }
 
     private boolean is5chUrl(String url) {
