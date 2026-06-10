@@ -2043,13 +2043,8 @@ public class MainActivity extends Activity {
 
     private String postToThreadWithCookieConfirm(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
         String endpoint = "https://" + address.server + ".5ch.net/test/bbs.cgi";
-        String payload = formField("bbs", address.board)
-                + "&" + formField("key", address.key)
-                + "&" + formField("time", String.valueOf(System.currentTimeMillis() / 1000L))
-                + "&" + formField("FROM", name)
-                + "&" + formField("mail", mail)
-                + "&" + formField("MESSAGE", message)
-                + "&" + formField("submit", "\u66f8\u304d\u8fbc\u3080");
+        Map<String, String> fields = postFields(address, name, mail, message);
+        String payload = postPayload(fields, "\u66f8\u304d\u8fbc\u3080");
 
         PostResult first = sendPostWithCookie(endpoint, threadUrl, payload, null);
         String firstPlain = cleanText(first.body);
@@ -2063,9 +2058,69 @@ public class MainActivity extends Activity {
         } else if (!cookie.contains("MonaTicket=") && !cookie.contains("yuki=")) {
             cookie = cookie + "; yuki=akari";
         }
-        PostResult second = sendPostWithCookie(endpoint, threadUrl, payload, cookie);
+        String confirmPayload = confirmPostPayload(first.body, fields);
+        PostResult second = sendPostWithCookie(endpoint, threadUrl, confirmPayload, cookie);
         String secondPlain = cleanText(second.body);
         return postSucceeded(secondPlain) ? "write done" : second.body;
+    }
+
+    private Map<String, String> postFields(DatAddress address, String name, String mail, String message) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("bbs", address.board);
+        fields.put("key", address.key);
+        fields.put("time", String.valueOf(System.currentTimeMillis() / 1000L));
+        fields.put("FROM", name);
+        fields.put("mail", mail);
+        fields.put("MESSAGE", message);
+        return fields;
+    }
+
+    private String confirmPostPayload(String html, Map<String, String> originalFields) throws Exception {
+        Map<String, String> fields = hiddenFormFields(html);
+        fields.putAll(originalFields);
+        return postPayload(fields, "\u4e0a\u8a18\u5168\u3066\u3092\u627f\u8afe\u3057\u3066\u66f8\u304d\u8fbc\u3080");
+    }
+
+    private Map<String, String> hiddenFormFields(String html) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        Matcher inputMatcher = Pattern.compile("<input\\b[^>]*>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
+        while (inputMatcher.find()) {
+            String input = inputMatcher.group();
+            String name = htmlAttribute(input, "name");
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            String value = htmlAttribute(input, "value");
+            fields.put(name, value == null ? "" : value);
+        }
+        return fields;
+    }
+
+    private String htmlAttribute(String tag, String attribute) {
+        Matcher quoted = Pattern.compile(attribute + "\\s*=\\s*(['\"])(.*?)\\1", Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(tag);
+        if (quoted.find()) {
+            return cleanText(quoted.group(2));
+        }
+        Matcher bare = Pattern.compile(attribute + "\\s*=\\s*([^\\s>]+)", Pattern.CASE_INSENSITIVE).matcher(tag);
+        return bare.find() ? cleanText(bare.group(1)) : null;
+    }
+
+    private String postPayload(Map<String, String> fields, String submit) throws Exception {
+        StringBuilder payload = new StringBuilder();
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            if ("submit".equalsIgnoreCase(entry.getKey())) {
+                continue;
+            }
+            if (payload.length() > 0) {
+                payload.append('&');
+            }
+            payload.append(formField(entry.getKey(), entry.getValue()));
+        }
+        if (payload.length() > 0) {
+            payload.append('&');
+        }
+        payload.append(formField("submit", submit));
+        return payload.toString();
     }
 
     private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie) throws Exception {
@@ -2088,7 +2143,7 @@ public class MainActivity extends Activity {
         }
         int code = connection.getResponseCode();
         InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        String response = stream == null ? "" : readText(stream, Charset.forName("MS932"));
+        String response = stream == null ? "" : readText(stream, responseCharset(connection));
         List<String> cookies = connection.getHeaderFields().get("Set-Cookie");
         connection.disconnect();
         if (code >= 400) {
@@ -2112,6 +2167,20 @@ public class MainActivity extends Activity {
             }
         }
         return String.join("; ", values);
+    }
+
+    private Charset responseCharset(HttpURLConnection connection) {
+        String contentType = connection.getContentType();
+        if (contentType != null) {
+            Matcher matcher = Pattern.compile("charset=([^;]+)", Pattern.CASE_INSENSITIVE).matcher(contentType);
+            if (matcher.find()) {
+                try {
+                    return Charset.forName(matcher.group(1).trim());
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Charset.forName("MS932");
     }
 
     private boolean requiresCookieConfirm(String text) {
