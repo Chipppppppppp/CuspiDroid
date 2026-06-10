@@ -112,6 +112,7 @@ public class MainActivity extends Activity {
     private final Map<Integer, View> visiblePostViews = new LinkedHashMap<>();
     private final List<PopupWindow> replyPopups = new ArrayList<>();
     private int currentIndex = -1;
+    private boolean pendingNewTab;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -147,6 +148,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (pendingNewTab) {
+            cancelPendingNewTab();
+            return;
+        }
         if (addressBar != null && addressBar.hasFocus()) {
             clearAddressFocus();
             return;
@@ -595,17 +600,36 @@ public class MainActivity extends Activity {
     }
 
     private void createBlankTab() {
-        CuspTab tab = new CuspTab();
-        tab.title = "New tab";
-        tab.url = "";
-        tab.returnToIndex = -1;
-        tab.readerMode = true;
-        tab.nativeKind = NATIVE_SEARCH_HOME;
-        tab.readerView = buildSearchHomeView();
-        tabs.add(tab);
-        switchToTab(tabs.size() - 1);
+        showPendingNewTab();
+    }
+
+    private void showPendingNewTab() {
+        CuspTab previous = currentTab();
+        if (previous != null) {
+            rememberThreadScroll(previous);
+        }
+        if (!replyPopups.isEmpty()) {
+            dismissThreadPopups();
+        }
+        pendingNewTab = true;
+        contentFrame.removeAllViews();
+        visibleThreadPage = null;
+        visibleThreadScroll = null;
+        visiblePostViews.clear();
+        contentFrame.addView(buildSearchHomeView());
+        addressBar.setText("");
+        updateBottomThreadBar(null);
         startAddressEntry();
         renderTabs();
+    }
+
+    private void cancelPendingNewTab() {
+        pendingNewTab = false;
+        if (tabs.isEmpty()) {
+            showPendingNewTab();
+            return;
+        }
+        switchToTab(Math.max(0, Math.min(currentIndex, tabs.size() - 1)));
     }
 
     private boolean restoreTabs() {
@@ -821,6 +845,7 @@ public class MainActivity extends Activity {
         if (index < 0 || index >= tabs.size()) {
             return;
         }
+        pendingNewTab = false;
         CuspTab previous = currentTab();
         if (previous != null) {
             rememberThreadScroll(previous);
@@ -872,7 +897,7 @@ public class MainActivity extends Activity {
             LinearLayout tabBox = new LinearLayout(this);
             tabBox.setOrientation(LinearLayout.HORIZONTAL);
             tabBox.setGravity(Gravity.CENTER_VERTICAL);
-            tabBox.setBackgroundColor(i == currentIndex ? TEAL : Color.rgb(229, 233, 238));
+            tabBox.setBackgroundColor(!pendingNewTab && i == currentIndex ? TEAL : Color.rgb(229, 233, 238));
             tabBox.setPadding(dp(8), 0, dp(4), 0);
             int target = i;
             tabBox.setOnClickListener(v -> switchToTab(target));
@@ -882,7 +907,7 @@ public class MainActivity extends Activity {
             tabView.setGravity(Gravity.CENTER_VERTICAL);
             tabView.setTextSize(13);
             tabView.setSingleLine(true);
-            tabView.setTextColor(i == currentIndex ? Color.WHITE : TEXT);
+            tabView.setTextColor(!pendingNewTab && i == currentIndex ? Color.WHITE : TEXT);
             tabView.setOnClickListener(v -> switchToTab(target));
             tabBox.addView(tabView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
@@ -920,6 +945,11 @@ public class MainActivity extends Activity {
         clearAddressFocus();
         boolean urlLike = looksLikeUrl(input);
         String url = urlLike ? normalizeUrl(input) : searchUrl(input);
+        if (pendingNewTab) {
+            pendingNewTab = false;
+            createTab(url, true);
+            return;
+        }
         openInCurrentTab(url);
     }
 
@@ -2432,6 +2462,9 @@ public class MainActivity extends Activity {
     }
 
     private CuspTab currentTab() {
+        if (pendingNewTab) {
+            return null;
+        }
         if (currentIndex < 0 || currentIndex >= tabs.size()) {
             return null;
         }
