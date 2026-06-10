@@ -104,7 +104,11 @@ public class MainActivity extends Activity {
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
             launchUrl = intent.getData().toString();
         }
-        createTab(launchUrl == null ? HOME_URL : launchUrl, true);
+        if (launchUrl == null) {
+            createBlankTab();
+        } else {
+            createTab(launchUrl, true);
+        }
     }
 
     @Override
@@ -272,9 +276,14 @@ public class MainActivity extends Activity {
     }
 
     private void createTab(String url, boolean select) {
+        createTab(url, select, -1);
+    }
+
+    private void createTab(String url, boolean select, int returnToIndex) {
         CuspTab tab = new CuspTab();
         tab.title = "New tab";
         tab.url = normalizeUrl(url);
+        tab.returnToIndex = returnToIndex;
         tab.webView = new WebView(this);
         configureWebView(tab);
         tabs.add(tab);
@@ -289,6 +298,7 @@ public class MainActivity extends Activity {
         CuspTab tab = new CuspTab();
         tab.title = "New tab";
         tab.url = "";
+        tab.returnToIndex = -1;
         tab.webView = new WebView(this);
         configureWebView(tab);
         tab.readerMode = true;
@@ -556,6 +566,7 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
         scroll.setOnClickListener(v -> dismissThreadPopups());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -604,11 +615,13 @@ public class MainActivity extends Activity {
         if (page.posts.isEmpty()) {
             list.addView(postText("No posts were parsed. Use R to reload, or open another URL.", page));
         }
-        return scroll;
+        enableBottomPullRefresh(scroll, () -> loadThread(tab, tab.url));
+        return withScrollScrubber(scroll);
     }
 
     private View buildSearchView(SearchPage page) {
         ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
@@ -657,7 +670,93 @@ public class MainActivity extends Activity {
         if (page.results.isEmpty()) {
             list.addView(postText("No search results.", null));
         }
-        return scroll;
+        return withScrollScrubber(scroll);
+    }
+
+    private View withScrollScrubber(ScrollView scroll) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        View rail = new View(this);
+        rail.setBackgroundColor(Color.argb(28, 31, 41, 55));
+        FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(dp(14), ViewGroup.LayoutParams.MATCH_PARENT);
+        railParams.gravity = Gravity.RIGHT;
+        frame.addView(rail, railParams);
+
+        View thumb = new View(this);
+        GradientDrawable thumbBackground = new GradientDrawable();
+        thumbBackground.setColor(Color.argb(170, 15, 118, 110));
+        thumbBackground.setCornerRadius(dp(4));
+        thumb.setBackground(thumbBackground);
+        FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(dp(6), dp(48));
+        thumbParams.gravity = Gravity.RIGHT;
+        thumbParams.rightMargin = dp(4);
+        frame.addView(thumb, thumbParams);
+
+        Runnable updateThumb = () -> {
+            int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight();
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) thumb.getLayoutParams();
+            if (range <= 0) {
+                thumb.setVisibility(View.GONE);
+                return;
+            }
+            thumb.setVisibility(View.VISIBLE);
+            int frameHeight = Math.max(1, frame.getHeight());
+            int thumbHeight = Math.max(dp(42), frameHeight * scroll.getHeight() / Math.max(scroll.getChildAt(0).getHeight(), 1));
+            int maxTop = Math.max(0, frameHeight - thumbHeight);
+            params.height = thumbHeight;
+            params.topMargin = maxTop * scroll.getScrollY() / range;
+            thumb.setLayoutParams(params);
+        };
+
+        scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> updateThumb.run());
+        frame.post(updateThumb);
+        rail.setOnTouchListener((v, event) -> handleScrubberTouch(event, scroll, frame, thumb));
+        thumb.setOnTouchListener((v, event) -> handleScrubberTouch(event, scroll, frame, thumb));
+        return frame;
+    }
+
+    private boolean handleScrubberTouch(MotionEvent event, ScrollView scroll, View frame, View thumb) {
+        if (event.getAction() != MotionEvent.ACTION_DOWN
+                && event.getAction() != MotionEvent.ACTION_MOVE
+                && event.getAction() != MotionEvent.ACTION_UP) {
+            return false;
+        }
+        int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight();
+        if (range <= 0) {
+            return true;
+        }
+        int thumbHeight = Math.max(thumb.getHeight(), dp(42));
+        int usable = Math.max(1, frame.getHeight() - thumbHeight);
+        float y = event.getRawY();
+        int[] frameLocation = new int[2];
+        frame.getLocationOnScreen(frameLocation);
+        float localY = y - frameLocation[1] - thumbHeight / 2f;
+        float ratio = Math.max(0f, Math.min(1f, localY / usable));
+        scroll.scrollTo(0, (int) (range * ratio));
+        return true;
+    }
+
+    private void enableBottomPullRefresh(ScrollView scroll, Runnable refresh) {
+        final float[] downY = new float[1];
+        final boolean[] startedAtBottom = new boolean[1];
+        final boolean[] triggered = new boolean[1];
+        scroll.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downY[0] = event.getY();
+                startedAtBottom[0] = !scroll.canScrollVertically(1);
+                triggered[0] = false;
+            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                if (startedAtBottom[0] && !triggered[0] && downY[0] - event.getY() > dp(96)) {
+                    triggered[0] = true;
+                    Toast.makeText(this, "Reloading...", Toast.LENGTH_SHORT).show();
+                    refresh.run();
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     private View buildSearchHomeView() {
@@ -772,20 +871,40 @@ public class MainActivity extends Activity {
         box.addView(jump, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
 
+        ScrollView popupScroll = new ScrollView(this);
+        LinearLayout popupPosts = new LinearLayout(this);
+        popupPosts.setOrientation(LinearLayout.VERTICAL);
+        popupScroll.addView(popupPosts, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(popupScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
         for (Post post : targets) {
             TextView meta = new TextView(this);
             meta.setText(">>" + post.number + "  " + post.name + "  " + post.date);
             meta.setTextColor(Color.rgb(79, 91, 103));
             meta.setTextSize(12);
-            box.addView(meta);
+            popupPosts.addView(meta);
 
             TextView body = postText(post.body, page);
             body.setPadding(0, dp(4), 0, dp(6));
-            box.addView(body);
+            popupPosts.addView(body);
         }
 
         int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420));
-        PopupWindow popup = new PopupWindow(box, width, ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        int[] anchorLocation = new int[2];
+        anchor.getLocationOnScreen(anchorLocation);
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int x = Math.max(dp(8), Math.min(anchorLocation[0] + dp(8), screenWidth - width - dp(8)));
+        int availableAbove = Math.max(dp(140), anchorLocation[1] - dp(16));
+        int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - dp(64), availableAbove);
+        popupPosts.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int desiredHeight = popupPosts.getMeasuredHeight() + dp(40) + dp(18);
+        int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
+        int y = Math.max(dp(8), anchorLocation[1] - popupHeight - dp(8));
+        PopupWindow popup = new PopupWindow(box, width, popupHeight, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setElevation(dp(8));
@@ -795,15 +914,6 @@ public class MainActivity extends Activity {
             jumpToPost(targets.get(0).number);
         });
         replyPopups.add(popup);
-        int[] anchorLocation = new int[2];
-        anchor.getLocationOnScreen(anchorLocation);
-        int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        int x = Math.max(dp(8), Math.min(anchorLocation[0] + dp(8), screenWidth - width - dp(8)));
-        box.measure(
-                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int measuredHeight = box.getMeasuredHeight();
-        int y = Math.max(dp(8), anchorLocation[1] - measuredHeight - dp(8));
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
     }
 
@@ -858,7 +968,7 @@ public class MainActivity extends Activity {
         String url = normalizeUrl(rawUrl);
         if (isThreadUrl(url)) {
             if (open5chLinksInNewTab()) {
-                createTab(url, true);
+                createTab(url, true, tabs.indexOf(sourceTab == null ? currentTab() : sourceTab));
             } else {
                 CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
                 if (tab == null) {
@@ -876,7 +986,7 @@ public class MainActivity extends Activity {
 
         if (is5chUrl(url)) {
             if (open5chLinksInNewTab()) {
-                createTab(url, true);
+                createTab(url, true, tabs.indexOf(sourceTab == null ? currentTab() : sourceTab));
             } else {
                 CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
                 if (tab == null) {
@@ -973,13 +1083,27 @@ public class MainActivity extends Activity {
         if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
             return;
         }
+        CuspTab closing = tabs.get(index);
+        int returnToIndex = closing.returnToIndex;
         CuspTab removed = tabs.remove(index);
         removed.webView.destroy();
+        for (CuspTab tab : tabs) {
+            if (tab.returnToIndex == index) {
+                tab.returnToIndex = -1;
+            } else if (tab.returnToIndex > index) {
+                tab.returnToIndex--;
+            }
+        }
         if (tabs.isEmpty()) {
             createBlankTab();
             return;
         }
-        if (index < currentIndex) {
+        if (index == currentIndex && returnToIndex >= 0) {
+            if (returnToIndex > index) {
+                returnToIndex--;
+            }
+            currentIndex = Math.max(0, Math.min(returnToIndex, tabs.size() - 1));
+        } else if (index < currentIndex) {
             currentIndex--;
         } else if (index == currentIndex) {
             currentIndex = Math.max(0, Math.min(index, tabs.size() - 1));
@@ -1549,6 +1673,7 @@ public class MainActivity extends Activity {
         ScrollView threadScroll;
         Map<Integer, View> postViews;
         String nativeKind;
+        int returnToIndex = -1;
         boolean readerMode;
     }
 
