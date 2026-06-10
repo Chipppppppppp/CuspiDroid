@@ -973,7 +973,7 @@ public class MainActivity extends Activity {
         tab.nativeKind = NATIVE_SEARCH;
         tab.url = url;
         tab.title = searchTitle(url);
-        tab.readerView = loadingView("Searching...");
+        tab.readerView = loadingView("");
         tab.threadPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
@@ -1345,12 +1345,12 @@ public class MainActivity extends Activity {
         frame.setBackground(roundedDrawable(SURFACE, BORDER, dp(8)));
         frame.setClickable(true);
         LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(220));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(176));
         frameParams.setMargins(0, dp(6), 0, dp(6));
         frame.setLayoutParams(frameParams);
 
         ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setVisibility(View.GONE);
         frame.addView(image, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -1384,7 +1384,7 @@ public class MainActivity extends Activity {
         boolean blur = blurImgurImages();
         final boolean[] started = new boolean[1];
         Runnable load = () -> ioExecutor.execute(() -> {
-            Bitmap bitmap = downloadBitmap(imageUrl, getResources().getDisplayMetrics().widthPixels, dp(220));
+            Bitmap bitmap = downloadBitmap(imageUrl, getResources().getDisplayMetrics().widthPixels, dp(176));
             runOnUiThread(() -> {
                 if (!frame.isAttachedToWindow()) {
                     return;
