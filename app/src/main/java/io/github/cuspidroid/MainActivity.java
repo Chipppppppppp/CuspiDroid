@@ -658,6 +658,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadThread(CuspTab tab, String url) {
+        rememberThreadScroll(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
         tab.url = url;
@@ -689,6 +690,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
                 if (tab == currentTab()) {
                     switchToTab(currentIndex);
+                    restoreThreadScroll(tab);
                 }
                 renderTabs();
             });
@@ -813,7 +815,10 @@ public class MainActivity extends Activity {
         loaderParams.setMargins(0, dp(4), 0, dp(8));
         list.addView(bottomLoader, loaderParams);
 
-        enableBottomPullRefresh(scroll, list, bottomLoader, () -> loadThread(tab, tab.url));
+        enableBottomPullRefresh(scroll, list, bottomLoader, () -> {
+            rememberThreadScroll(tab);
+            loadThread(tab, tab.url);
+        });
         return withScrollScrubber(scroll);
     }
 
@@ -916,42 +921,11 @@ public class MainActivity extends Activity {
     }
 
     private View.OnTouchListener scrubberTouchListener(ScrollView scroll, View frame, View thumb) {
-        final boolean[] active = new boolean[1];
-        final boolean[] movedBeforeLongPress = new boolean[1];
-        final float[] downY = new float[1];
-        final Runnable[] activate = new Runnable[1];
         return (view, event) -> {
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                active[0] = false;
-                movedBeforeLongPress[0] = false;
-                downY[0] = event.getRawY();
-                activate[0] = () -> {
-                    if (!movedBeforeLongPress[0]) {
-                        active[0] = true;
-                        view.setPressed(true);
-                    }
-                };
-                view.postDelayed(activate[0], 420);
-                return true;
-            }
-            if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                if (!active[0]) {
-                    if (Math.abs(event.getRawY() - downY[0]) > dp(8)) {
-                        movedBeforeLongPress[0] = true;
-                        view.removeCallbacks(activate[0]);
-                    }
-                    return true;
-                }
+            if (event.getAction() == MotionEvent.ACTION_DOWN
+                    || event.getAction() == MotionEvent.ACTION_MOVE
+                    || event.getAction() == MotionEvent.ACTION_UP) {
                 return handleScrubberDrag(event, scroll, frame, thumb);
-            }
-            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                view.removeCallbacks(activate[0]);
-                view.setPressed(false);
-                if (active[0] && event.getAction() == MotionEvent.ACTION_UP) {
-                    handleScrubberDrag(event, scroll, frame, thumb);
-                }
-                active[0] = false;
-                return true;
             }
             return false;
         };
@@ -1015,11 +989,38 @@ public class MainActivity extends Activity {
     }
 
     private View buildSearchHomeView() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        box.setPadding(dp(24), dp(24), dp(24), dp(24));
-        return box;
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        for (ThreadHistoryItem item : threadHistory()) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(dp(10), dp(9), dp(10), dp(9));
+            row.setBackgroundColor(Color.rgb(250, 251, 252));
+            row.setOnClickListener(v -> routeLink(item.url, currentTab()));
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rowParams.setMargins(0, 0, 0, dp(8));
+
+            TextView title = new TextView(this);
+            title.setText(item.title);
+            title.setTextColor(TEXT);
+            title.setTextSize(16);
+            row.addView(title);
+
+            TextView url = new TextView(this);
+            url.setText(item.url);
+            url.setTextColor(Color.rgb(79, 91, 103));
+            url.setTextSize(12);
+            row.addView(url);
+            list.addView(row, rowParams);
+        }
+        return withScrollScrubber(scroll);
     }
 
     private TextView postText(String value, ThreadPage page) {
@@ -1202,6 +1203,29 @@ public class MainActivity extends Activity {
             return;
         }
         visibleThreadScroll.post(() -> visibleThreadScroll.smoothScrollTo(0, Math.max(0, target.getTop() - dp(8))));
+    }
+
+    private void rememberThreadScroll(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
+            return;
+        }
+        int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
+        tab.threadScrollRatio = range <= 0 ? 0f : Math.max(0f, Math.min(1f, tab.threadScroll.getScrollY() / (float) range));
+    }
+
+    private void restoreThreadScroll(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null) {
+            return;
+        }
+        tab.threadScroll.post(() -> {
+            if (tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
+                return;
+            }
+            int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
+            if (range > 0) {
+                tab.threadScroll.scrollTo(0, (int) (range * tab.threadScrollRatio));
+            }
+        });
     }
 
     private boolean routeLink(String rawUrl, CuspTab sourceTab) {
@@ -1978,6 +2002,7 @@ public class MainActivity extends Activity {
         ScrollView threadScroll;
         Map<Integer, View> postViews;
         String nativeKind;
+        float threadScrollRatio;
         int returnToIndex = -1;
         boolean readerMode;
     }
