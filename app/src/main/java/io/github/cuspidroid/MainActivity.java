@@ -1,6 +1,7 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -52,6 +53,7 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -96,6 +98,8 @@ public class MainActivity extends Activity {
     private EditText addressBar;
     private FrameLayout contentFrame;
     private ProgressBar progressBar;
+    private LinearLayout bottomThreadBar;
+    private TextView bottomThreadTitle;
     private SharedPreferences preferences;
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
@@ -194,7 +198,7 @@ public class MainActivity extends Activity {
         toolbar.setOrientation(LinearLayout.HORIZONTAL);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
         toolbar.setPadding(dp(6), dp(5), dp(6), dp(5));
-        toolbar.setBackgroundColor(Color.WHITE);
+        toolbar.setBackgroundColor(Color.rgb(242, 246, 249));
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
 
@@ -268,6 +272,11 @@ public class MainActivity extends Activity {
         addToolbarButton(toolbar, R.drawable.ic_add, "New tab", v -> createBlankTab());
         addToolbarButton(toolbar, R.drawable.ic_settings, "Settings", v -> openSettings());
 
+        View toolbarDivider = new View(this);
+        toolbarDivider.setBackgroundColor(Color.rgb(176, 188, 199));
+        root.addView(toolbarDivider, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
         progressBar.setVisibility(View.GONE);
@@ -293,6 +302,27 @@ public class MainActivity extends Activity {
         overlayFrame.addView(suggestionsPanel, suggestionsParams);
         root.addView(overlayFrame, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        bottomThreadBar = new LinearLayout(this);
+        bottomThreadBar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomThreadBar.setGravity(Gravity.CENTER_VERTICAL);
+        bottomThreadBar.setPadding(dp(10), dp(4), dp(6), dp(4));
+        bottomThreadBar.setBackground(bottomBarBackground());
+        bottomThreadBar.setVisibility(View.GONE);
+
+        bottomThreadTitle = new TextView(this);
+        bottomThreadTitle.setTextColor(TEXT);
+        bottomThreadTitle.setTextSize(14);
+        bottomThreadTitle.setSingleLine(true);
+        bottomThreadTitle.setGravity(Gravity.CENTER_VERTICAL);
+        bottomThreadTitle.setOnClickListener(v -> scrollCurrentThreadToBottom());
+        bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+
+        ImageButton write = iconButton(R.drawable.ic_edit, "Write", v -> showWriteDialog());
+        bottomThreadBar.addView(write, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
     }
 
     private ImageButton iconButton(int iconRes, String description, View.OnClickListener listener) {
@@ -535,6 +565,13 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
+    private GradientDrawable bottomBarBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.rgb(242, 246, 249));
+        drawable.setStroke(dp(1), Color.rgb(176, 188, 199));
+        return drawable;
+    }
+
     private void createTab(String url, boolean select) {
         createTab(url, select, -1);
     }
@@ -752,7 +789,20 @@ public class MainActivity extends Activity {
             }
         }
         addressBar.setText(tab.url == null ? "" : tab.url);
+        updateBottomThreadBar(tab);
         renderTabs();
+    }
+
+    private void updateBottomThreadBar(CuspTab tab) {
+        if (bottomThreadBar == null || bottomThreadTitle == null) {
+            return;
+        }
+        if (tab != null && NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
+            bottomThreadTitle.setText(tab.threadPage.title == null ? tab.title : tab.threadPage.title);
+            bottomThreadBar.setVisibility(View.VISIBLE);
+        } else {
+            bottomThreadBar.setVisibility(View.GONE);
+        }
     }
 
     private void renderTabs() {
@@ -1660,6 +1710,154 @@ public class MainActivity extends Activity {
             return;
         }
         visibleThreadScroll.post(() -> visibleThreadScroll.smoothScrollTo(0, Math.max(0, target.getTop() - dp(8))));
+    }
+
+    private void scrollCurrentThreadToBottom() {
+        CuspTab tab = currentTab();
+        ScrollView scroll = tab == null ? visibleThreadScroll : tab.threadScroll;
+        if (scroll == null || scroll.getChildCount() == 0) {
+            return;
+        }
+        clearAddressFocus();
+        scroll.post(() -> {
+            int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+            scroll.smoothScrollTo(0, range);
+        });
+    }
+
+    private void showWriteDialog() {
+        CuspTab tab = currentTab();
+        if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
+            Toast.makeText(this, "This thread cannot be written from here.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        clearAddressFocus();
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18), dp(8), dp(18), 0);
+
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setHint("Name");
+        form.addView(name, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
+        EditText mail = new EditText(this);
+        mail.setSingleLine(true);
+        mail.setHint("Mail");
+        form.addView(mail, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
+        EditText message = new EditText(this);
+        message.setMinLines(5);
+        message.setGravity(Gravity.TOP | Gravity.START);
+        message.setHint("Message");
+        form.addView(message, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(tab.threadPage == null ? "Write" : tab.threadPage.title)
+                .setView(form)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Post", null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String body = message.getText().toString();
+            if (body.trim().isEmpty()) {
+                Toast.makeText(this, "Enter a message.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            dialog.dismiss();
+            submitPost(tab, name.getText().toString(), mail.getText().toString(), body);
+        }));
+        dialog.show();
+        message.requestFocus();
+        message.postDelayed(() -> {
+            try {
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                manager.showSoftInput(message, InputMethodManager.SHOW_IMPLICIT);
+            } catch (Exception ignored) {
+            }
+        }, 120);
+    }
+
+    private void submitPost(CuspTab tab, String name, String mail, String message) {
+        DatAddress address = datAddress(tab.url);
+        if (address == null) {
+            Toast.makeText(this, "Cannot find thread write target.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        progressBar.setVisibility(View.VISIBLE);
+        Toast.makeText(this, "Posting...", Toast.LENGTH_SHORT).show();
+        ioExecutor.execute(() -> {
+            String result;
+            boolean success = false;
+            try {
+                result = postToThread(tab.url, address, name, mail, message);
+                String plain = cleanText(result);
+                success = plain.contains("書きこみました")
+                        || plain.contains("書き込みました")
+                        || plain.toLowerCase(Locale.ROOT).contains("write done");
+                if (!success) {
+                    result = shorten(plain.replace('\n', ' '), 220);
+                }
+            } catch (Exception error) {
+                result = error.getMessage() == null ? "Post failed." : error.getMessage();
+            }
+            String messageText = result;
+            boolean posted = success;
+            runOnUiThread(() -> {
+                progressBar.setVisibility(View.GONE);
+                if (posted) {
+                    Toast.makeText(this, "Posted.", Toast.LENGTH_SHORT).show();
+                    loadThread(tab, tab.url);
+                } else {
+                    new AlertDialog.Builder(this)
+                            .setTitle("Post failed")
+                            .setMessage(messageText)
+                            .setPositiveButton("OK", null)
+                            .show();
+                }
+            });
+        });
+    }
+
+    private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
+        String endpoint = "https://" + address.server + ".5ch.net/test/bbs.cgi";
+        String payload = formField("bbs", address.board)
+                + "&" + formField("key", address.key)
+                + "&" + formField("time", String.valueOf(System.currentTimeMillis() / 1000L))
+                + "&" + formField("FROM", name)
+                + "&" + formField("mail", mail)
+                + "&" + formField("MESSAGE", message)
+                + "&" + formField("submit", "書き込む");
+        byte[] body = payload.getBytes(Charset.forName("MS932"));
+        HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
+        connection.setConnectTimeout(12000);
+        connection.setReadTimeout(18000);
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
+        connection.setRequestProperty("Referer", threadUrl);
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        connection.setRequestProperty("Content-Length", String.valueOf(body.length));
+        try (OutputStream stream = connection.getOutputStream()) {
+            stream.write(body);
+        }
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = stream == null ? "" : readText(stream, Charset.forName("MS932"));
+        connection.disconnect();
+        if (code >= 400) {
+            throw new IllegalStateException("HTTP " + code + "\n" + cleanText(response));
+        }
+        return response;
+    }
+
+    private String formField(String name, String value) throws Exception {
+        return URLEncoder.encode(name, "MS932") + "=" + URLEncoder.encode(value == null ? "" : value, "MS932");
     }
 
     private void rememberThreadScroll(CuspTab tab) {
