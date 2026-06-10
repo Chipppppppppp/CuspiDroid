@@ -136,10 +136,14 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN && !replyPopups.isEmpty()
-                && !isTouchInsideReplyPopup(event)) {
-            dismissThreadPopups();
-            return true;
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            if (!replyPopups.isEmpty() && !isTouchInsideReplyPopup(event)) {
+                dismissThreadPopups();
+                return true;
+            }
+            if (addressBar != null && addressBar.hasFocus() && !isTouchInsideView(event, addressBar)) {
+                clearAddressFocus();
+            }
         }
         return super.dispatchTouchEvent(event);
     }
@@ -196,7 +200,10 @@ public class MainActivity extends Activity {
         addressBar.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
                     && event.getAction() == KeyEvent.ACTION_UP;
-            if (actionId == EditorInfo.IME_ACTION_GO || enter) {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH
+                    || actionId == EditorInfo.IME_ACTION_GO
+                    || actionId == EditorInfo.IME_ACTION_DONE
+                    || enter) {
                 openFromAddressBar();
                 return true;
             }
@@ -211,7 +218,6 @@ public class MainActivity extends Activity {
         toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
         toolbar.addView(iconButton(R.drawable.ic_add, "New tab", v -> createTab(HOME_URL, true)));
-        toolbar.addView(iconButton(R.drawable.ic_close, "Close tab", v -> closeCurrentTab()));
         toolbar.addView(iconButton(R.drawable.ic_settings, "Settings", v -> openSettings()));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -221,6 +227,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
 
         contentFrame = new FrameLayout(this);
+        contentFrame.setFocusableInTouchMode(true);
         root.addView(contentFrame, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
     }
@@ -345,20 +352,47 @@ public class MainActivity extends Activity {
         tabStrip.removeAllViews();
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
+            LinearLayout tabBox = new LinearLayout(this);
+            tabBox.setOrientation(LinearLayout.HORIZONTAL);
+            tabBox.setGravity(Gravity.CENTER_VERTICAL);
+            tabBox.setBackgroundColor(i == currentIndex ? TEAL : Color.rgb(229, 233, 238));
+            tabBox.setPadding(dp(8), 0, dp(4), 0);
+            int target = i;
+            tabBox.setOnClickListener(v -> switchToTab(target));
+
             TextView tabView = new TextView(this);
             tabView.setText(shorten(tab.title == null ? "Tab" : tab.title, 22));
-            tabView.setGravity(Gravity.CENTER);
+            tabView.setGravity(Gravity.CENTER_VERTICAL);
             tabView.setTextSize(13);
             tabView.setSingleLine(true);
             tabView.setTextColor(i == currentIndex ? Color.WHITE : TEXT);
-            tabView.setBackgroundColor(i == currentIndex ? TEAL : Color.rgb(229, 233, 238));
-            tabView.setPadding(dp(12), 0, dp(12), 0);
-            int target = i;
             tabView.setOnClickListener(v -> switchToTab(target));
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(148), dp(36));
+            tabBox.addView(tabView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+
+            ImageButton close = new ImageButton(this);
+            close.setImageResource(R.drawable.ic_close);
+            close.setContentDescription("Close tab");
+            close.setColorFilter(i == currentIndex ? Color.WHITE : TEXT);
+            close.setBackgroundColor(Color.TRANSPARENT);
+            close.setPadding(dp(7), dp(7), dp(7), dp(7));
+            close.setOnClickListener(v -> closeTab(target));
+            tabBox.addView(close, new LinearLayout.LayoutParams(dp(30), dp(34)));
+
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(166), dp(36));
             params.setMargins(dp(3), 0, dp(3), 0);
-            tabStrip.addView(tabView, params);
+            tabStrip.addView(tabBox, params);
         }
+
+        ImageButton add = new ImageButton(this);
+        add.setImageResource(R.drawable.ic_add);
+        add.setContentDescription("New tab");
+        add.setColorFilter(TEXT);
+        add.setBackgroundColor(Color.TRANSPARENT);
+        add.setPadding(dp(8), dp(8), dp(8), dp(8));
+        add.setOnClickListener(v -> createTab(HOME_URL, true));
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(dp(40), dp(36));
+        addParams.setMargins(dp(3), 0, dp(8), 0);
+        tabStrip.addView(add, addParams);
     }
 
     private void openFromAddressBar() {
@@ -366,7 +400,7 @@ public class MainActivity extends Activity {
         if (input.isEmpty()) {
             return;
         }
-        hideKeyboard();
+        clearAddressFocus();
         String url = looksLikeUrl(input) ? normalizeUrl(input) : searchUrl(input);
         openInCurrentTab(url);
     }
@@ -767,6 +801,17 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    private boolean isTouchInsideView(MotionEvent event, View view) {
+        int[] location = new int[2];
+        view.getLocationOnScreen(location);
+        Rect bounds = new Rect(
+                location[0],
+                location[1],
+                location[0] + view.getWidth(),
+                location[1] + view.getHeight());
+        return bounds.contains((int) event.getRawX(), (int) event.getRawY());
+    }
+
     private void jumpToPost(int number) {
         View target = visiblePostViews.get(number);
         if (target == null || visibleThreadScroll == null) {
@@ -888,13 +933,26 @@ public class MainActivity extends Activity {
         if (tabs.isEmpty()) {
             return;
         }
-        CuspTab removed = tabs.remove(currentIndex);
+        closeTab(currentIndex);
+    }
+
+    private void closeTab(int index) {
+        if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
+            return;
+        }
+        CuspTab removed = tabs.remove(index);
         removed.webView.destroy();
         if (tabs.isEmpty()) {
             createTab(HOME_URL, true);
             return;
         }
-        currentIndex = Math.max(0, Math.min(currentIndex, tabs.size() - 1));
+        if (index < currentIndex) {
+            currentIndex--;
+        } else if (index == currentIndex) {
+            currentIndex = Math.max(0, Math.min(index, tabs.size() - 1));
+        } else {
+            currentIndex = Math.max(0, Math.min(currentIndex, tabs.size() - 1));
+        }
         switchToTab(currentIndex);
     }
 
@@ -1414,6 +1472,16 @@ public class MainActivity extends Activity {
             manager.hideSoftInputFromWindow(addressBar.getWindowToken(), 0);
         } catch (Exception ignored) {
             Toast.makeText(this, "Opening...", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void clearAddressFocus() {
+        addressBar.clearFocus();
+        addressBar.setSelection(addressBar.getText().length());
+        hideKeyboard();
+        View current = getCurrentFocus();
+        if (current == null || current == addressBar) {
+            contentFrame.requestFocus();
         }
     }
 
