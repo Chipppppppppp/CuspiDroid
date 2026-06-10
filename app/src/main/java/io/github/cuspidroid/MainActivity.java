@@ -9,6 +9,7 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -27,6 +28,7 @@ import android.text.util.Linkify;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -1348,7 +1350,7 @@ public class MainActivity extends Activity {
         frame.setLayoutParams(frameParams);
 
         ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         image.setVisibility(View.GONE);
         frame.addView(image, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -1380,9 +1382,13 @@ public class MainActivity extends Activity {
         frame.addView(reveal, revealParams);
 
         boolean blur = blurImgurImages();
-        ioExecutor.execute(() -> {
-            Bitmap bitmap = downloadBitmap(imageUrl);
+        final boolean[] started = new boolean[1];
+        Runnable load = () -> ioExecutor.execute(() -> {
+            Bitmap bitmap = downloadBitmap(imageUrl, getResources().getDisplayMetrics().widthPixels, dp(220));
             runOnUiThread(() -> {
+                if (!frame.isAttachedToWindow()) {
+                    return;
+                }
                 spinner.setVisibility(View.GONE);
                 if (bitmap == null) {
                     error.setVisibility(View.VISIBLE);
@@ -1394,55 +1400,111 @@ public class MainActivity extends Activity {
                     reveal.setVisibility(View.VISIBLE);
                     reveal.setOnClickListener(v -> {
                         image.setImageBitmap(bitmap);
-                        image.setOnClickListener(click -> showImageDialog(bitmap, originalUrl));
+                        image.setOnClickListener(click -> showImageViewer(originalUrl, imageUrl));
                         reveal.setVisibility(View.GONE);
                     });
                 } else {
-                    image.setOnClickListener(v -> showImageDialog(bitmap, originalUrl));
+                    image.setOnClickListener(v -> showImageViewer(originalUrl, imageUrl));
                 }
             });
         });
+        frame.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View view) {
+                if (!started[0]) {
+                    started[0] = true;
+                    load.run();
+                }
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View view) {
+            }
+        });
+        if (frame.isAttachedToWindow()) {
+            started[0] = true;
+            load.run();
+        }
         return frame;
     }
 
-    private void showImageDialog(Bitmap bitmap, String originalUrl) {
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
-        ImageView image = new ImageView(this);
-        image.setImageBitmap(bitmap);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        root.addView(image, new FrameLayout.LayoutParams(
+    private void showImageViewer(String originalUrl, String imageUrl) {
+        clearAddressFocus();
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(Color.BLACK);
+        overlay.setClickable(true);
+
+        ZoomImageView image = new ZoomImageView(this);
+        overlay.addView(image, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(root)
-                .setNegativeButton("Close", null)
-                .setPositiveButton("Open", (d, which) -> openExternal(originalUrl))
-                .create();
-        dialog.setOnShowListener(d -> {
-            dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-            image.setOnClickListener(v -> dialog.dismiss());
+
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(44), dp(44));
+        spinnerParams.gravity = Gravity.CENTER;
+        overlay.addView(spinner, spinnerParams);
+
+        ImageButton close = iconButton(R.drawable.ic_close, "Close image", v -> {
+            ViewGroup parent = (ViewGroup) overlay.getParent();
+            if (parent != null) {
+                parent.removeView(overlay);
+            }
         });
-        dialog.show();
+        close.setColorFilter(Color.WHITE);
+        close.setBackgroundColor(Color.argb(80, 0, 0, 0));
+        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(dp(48), dp(48));
+        closeParams.gravity = Gravity.TOP | Gravity.RIGHT;
+        closeParams.setMargins(0, dp(18), dp(14), 0);
+        overlay.addView(close, closeParams);
+
+        ImageButton open = iconButton(R.drawable.ic_arrow_forward, "Open image link", v -> openExternal(originalUrl));
+        open.setColorFilter(Color.WHITE);
+        open.setBackgroundColor(Color.argb(80, 0, 0, 0));
+        FrameLayout.LayoutParams openParams = new FrameLayout.LayoutParams(dp(48), dp(48));
+        openParams.gravity = Gravity.TOP | Gravity.RIGHT;
+        openParams.setMargins(0, dp(18), dp(68), 0);
+        overlay.addView(open, openParams);
+
+        addContentView(overlay, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        ioExecutor.execute(() -> {
+            Bitmap bitmap = downloadBitmap(imageUrl,
+                    getResources().getDisplayMetrics().widthPixels * 3,
+                    getResources().getDisplayMetrics().heightPixels * 3);
+            runOnUiThread(() -> {
+                spinner.setVisibility(View.GONE);
+                if (bitmap == null) {
+                    Toast.makeText(this, "Image failed to load.", Toast.LENGTH_SHORT).show();
+                    ViewGroup parent = (ViewGroup) overlay.getParent();
+                    if (parent != null) {
+                        parent.removeView(overlay);
+                    }
+                    return;
+                }
+                image.setImageBitmap(bitmap);
+            });
+        });
     }
 
-    private Bitmap downloadBitmap(String url) {
-        Bitmap bitmap = downloadBitmapOnce(url);
+    private Bitmap downloadBitmap(String url, int maxWidth, int maxHeight) {
+        Bitmap bitmap = downloadBitmapOnce(url, maxWidth, maxHeight);
         if (bitmap != null) {
             return bitmap;
         }
         if (url.startsWith("https://i.imgur.com/") && url.endsWith(".jpg")) {
             String base = url.substring(0, url.length() - 4);
-            bitmap = downloadBitmapOnce(base + ".png");
+            bitmap = downloadBitmapOnce(base + ".png", maxWidth, maxHeight);
             if (bitmap != null) {
                 return bitmap;
             }
-            return downloadBitmapOnce(base + ".webp");
+            return downloadBitmapOnce(base + ".webp", maxWidth, maxHeight);
         }
         return null;
     }
 
-    private Bitmap downloadBitmapOnce(String url) {
-        Bitmap cached = cachedBitmap(url);
+    private Bitmap downloadBitmapOnce(String url, int maxWidth, int maxHeight) {
+        Bitmap cached = cachedBitmap(url, maxWidth, maxHeight);
         if (cached != null) {
             return cached;
         }
@@ -1456,7 +1518,7 @@ public class MainActivity extends Activity {
             try (InputStream stream = connection.getInputStream()) {
                 byte[] bytes = readBytes(stream);
                 cacheImageBytes(url, bytes);
-                return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                return decodeBitmap(bytes, maxWidth, maxHeight);
             }
         } catch (Exception ignored) {
             return null;
@@ -1467,15 +1529,41 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Bitmap cachedBitmap(String url) {
+    private Bitmap cachedBitmap(String url, int maxWidth, int maxHeight) {
         try {
             File file = imageCacheFile(url);
             if (file.exists() && file.length() > 0) {
-                return BitmapFactory.decodeFile(file.getAbsolutePath());
+                return decodeBitmap(readFileBytes(file), maxWidth, maxHeight);
             }
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    private Bitmap decodeBitmap(byte[] bytes, int maxWidth, int maxHeight) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, maxWidth, maxHeight);
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+    }
+
+    private int sampleSize(int width, int height, int maxWidth, int maxHeight) {
+        int sample = 1;
+        if (width <= 0 || height <= 0) {
+            return sample;
+        }
+        while (width / (sample * 2) >= maxWidth || height / (sample * 2) >= maxHeight) {
+            sample *= 2;
+        }
+        return sample;
+    }
+
+    private byte[] readFileBytes(File file) throws Exception {
+        try (InputStream stream = new java.io.FileInputStream(file)) {
+            return readBytes(stream);
+        }
     }
 
     private void cacheImageBytes(String url, byte[] bytes) {
@@ -2709,6 +2797,117 @@ public class MainActivity extends Activity {
 
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static class ZoomImageView extends ImageView {
+        private final Matrix matrix = new Matrix();
+        private final ScaleGestureDetector scaleDetector;
+        private float scale = 1f;
+        private float minScale = 1f;
+        private float lastX;
+        private float lastY;
+        private boolean dragging;
+
+        ZoomImageView(Context context) {
+            super(context);
+            setScaleType(ScaleType.MATRIX);
+            setBackgroundColor(Color.BLACK);
+            scaleDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override
+                public boolean onScale(ScaleGestureDetector detector) {
+                    float next = Math.max(minScale, Math.min(5f, scale * detector.getScaleFactor()));
+                    float factor = next / scale;
+                    scale = next;
+                    matrix.postScale(factor, factor, detector.getFocusX(), detector.getFocusY());
+                    constrain();
+                    setImageMatrix(matrix);
+                    return true;
+                }
+            });
+        }
+
+        @Override
+        public void setImageBitmap(Bitmap bitmap) {
+            super.setImageBitmap(bitmap);
+            post(this::fitImage);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            scaleDetector.onTouchEvent(event);
+            if (event.getPointerCount() > 1) {
+                dragging = false;
+                return true;
+            }
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    lastX = event.getX();
+                    lastY = event.getY();
+                    dragging = true;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (dragging && scale > minScale) {
+                        float dx = event.getX() - lastX;
+                        float dy = event.getY() - lastY;
+                        matrix.postTranslate(dx, dy);
+                        constrain();
+                        setImageMatrix(matrix);
+                    }
+                    lastX = event.getX();
+                    lastY = event.getY();
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    dragging = false;
+                    return true;
+                default:
+                    return true;
+            }
+        }
+
+        private void fitImage() {
+            if (getDrawable() == null || getWidth() <= 0 || getHeight() <= 0) {
+                return;
+            }
+            int imageWidth = getDrawable().getIntrinsicWidth();
+            int imageHeight = getDrawable().getIntrinsicHeight();
+            if (imageWidth <= 0 || imageHeight <= 0) {
+                return;
+            }
+            float fit = Math.min((float) getWidth() / imageWidth, (float) getHeight() / imageHeight);
+            minScale = fit;
+            scale = fit;
+            matrix.reset();
+            matrix.postScale(fit, fit);
+            matrix.postTranslate((getWidth() - imageWidth * fit) / 2f, (getHeight() - imageHeight * fit) / 2f);
+            setImageMatrix(matrix);
+        }
+
+        private void constrain() {
+            if (getDrawable() == null) {
+                return;
+            }
+            android.graphics.RectF rect = new android.graphics.RectF(
+                    0, 0, getDrawable().getIntrinsicWidth(), getDrawable().getIntrinsicHeight());
+            matrix.mapRect(rect);
+            float dx = 0;
+            float dy = 0;
+            if (rect.width() <= getWidth()) {
+                dx = (getWidth() - rect.width()) / 2f - rect.left;
+            } else if (rect.left > 0) {
+                dx = -rect.left;
+            } else if (rect.right < getWidth()) {
+                dx = getWidth() - rect.right;
+            }
+            if (rect.height() <= getHeight()) {
+                dy = (getHeight() - rect.height()) / 2f - rect.top;
+            } else if (rect.top > 0) {
+                dy = -rect.top;
+            } else if (rect.bottom < getHeight()) {
+                dy = getHeight() - rect.bottom;
+            }
+            matrix.postTranslate(dx, dy);
+        }
     }
 
     private static class CuspTab {
