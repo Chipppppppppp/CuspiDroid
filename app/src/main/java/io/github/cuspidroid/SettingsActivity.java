@@ -1,6 +1,7 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -35,6 +36,7 @@ public class SettingsActivity extends Activity {
     private EditText customTemplate;
     private EditText bbsName;
     private EditText bbsUrl;
+    private EditText authUrl;
     private LinearLayout bbsList;
     private LinearLayout historyList;
 
@@ -138,6 +140,26 @@ public class SettingsActivity extends Activity {
         bbsList.setOrientation(LinearLayout.VERTICAL);
         root.addView(bbsList);
         renderBbsLinks();
+
+        root.addView(sectionTitle("BBS Auth"));
+        authUrl = new EditText(this);
+        authUrl.setSingleLine(true);
+        authUrl.setTextSize(14);
+        authUrl.setTextColor(TEXT);
+        authUrl.setHint("Auth URL");
+        authUrl.setImeOptions(EditorInfo.IME_ACTION_GO);
+        authUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        authUrl.setBackground(roundedField());
+        authUrl.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(authUrl, fieldParams());
+
+        Button openAuth = new Button(this);
+        openAuth.setText("Open auth webview");
+        openAuth.setAllCaps(false);
+        openAuth.setOnClickListener(v -> openAuthWebView());
+        root.addView(openAuth, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
         root.addView(sectionTitle("Thread History"));
         historyList = new LinearLayout(this);
@@ -278,6 +300,17 @@ public class SettingsActivity extends Activity {
         bbsName.setText("");
         bbsUrl.setText("");
         renderBbsLinks();
+    }
+
+    private void openAuthWebView() {
+        String url = authUrl.getText().toString().trim();
+        if (url.isEmpty()) {
+            Toast.makeText(this, "Enter an auth URL.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(this, AuthActivity.class);
+        intent.putExtra(AuthActivity.EXTRA_URL, url);
+        startActivity(intent);
     }
 
     private void renderBbsLinks() {

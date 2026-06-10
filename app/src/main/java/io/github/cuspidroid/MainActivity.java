@@ -47,6 +47,7 @@ import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.webkit.CookieManager;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -2259,14 +2260,30 @@ public class MainActivity extends Activity {
                     rememberThreadScroll(tab);
                     loadThread(tab, tab.url, false);
                 } else {
-                    new AlertDialog.Builder(this)
-                            .setTitle("Post failed")
-                            .setMessage(messageText)
-                            .setPositiveButton("OK", null)
-                            .show();
+                    showCopyablePostFailure(messageText);
                 }
             });
         });
+    }
+
+    private void showCopyablePostFailure(String messageText) {
+        TextView message = new TextView(this);
+        message.setText(messageText);
+        message.setTextColor(TEXT);
+        message.setTextSize(14);
+        message.setTextIsSelectable(true);
+        message.setPadding(dp(20), dp(12), dp(20), 0);
+        new AlertDialog.Builder(this)
+                .setTitle("Post failed")
+                .setView(message)
+                .setNegativeButton("Copy", (dialog, which) -> {
+                    ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (manager != null) {
+                        manager.setPrimaryClip(ClipData.newPlainText("Post failed", messageText));
+                    }
+                })
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
@@ -2396,9 +2413,7 @@ public class MainActivity extends Activity {
         connection.setRequestProperty("Referer", referer);
         connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
         connection.setRequestProperty("Content-Length", String.valueOf(body.length));
-        if (cookie != null && !cookie.isEmpty()) {
-            connection.setRequestProperty("Cookie", cookie);
-        }
+        applyCookies(connection, endpoint, cookie);
         try (OutputStream stream = connection.getOutputStream()) {
             stream.write(body);
         }
@@ -2406,6 +2421,7 @@ public class MainActivity extends Activity {
         InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
         String response = stream == null ? "" : readText(stream, responseCharset(connection));
         List<String> cookies = connection.getHeaderFields().get("Set-Cookie");
+        storeCookies(endpoint, cookies);
         connection.disconnect();
         if (code >= 400) {
             throw new IllegalStateException("HTTP " + code + "\n" + cleanText(response));
@@ -2428,6 +2444,40 @@ public class MainActivity extends Activity {
             }
         }
         return String.join("; ", values);
+    }
+
+    private void applyCookies(HttpURLConnection connection, String url, String extraCookie) {
+        List<String> values = new ArrayList<>();
+        try {
+            String stored = CookieManager.getInstance().getCookie(url);
+            if (stored != null && !stored.trim().isEmpty()) {
+                values.add(stored);
+            }
+        } catch (Exception ignored) {
+        }
+        if (extraCookie != null && !extraCookie.trim().isEmpty()) {
+            values.add(extraCookie);
+        }
+        if (!values.isEmpty()) {
+            connection.setRequestProperty("Cookie", String.join("; ", values));
+        }
+    }
+
+    private void storeCookies(String url, List<String> cookies) {
+        if (cookies == null || cookies.isEmpty()) {
+            return;
+        }
+        try {
+            CookieManager manager = CookieManager.getInstance();
+            manager.setAcceptCookie(true);
+            for (String cookie : cookies) {
+                if (cookie != null && !cookie.trim().isEmpty()) {
+                    manager.setCookie(url, cookie);
+                }
+            }
+            manager.flush();
+        } catch (Exception ignored) {
+        }
     }
 
     private Charset responseCharset(HttpURLConnection connection) {
@@ -2691,7 +2741,9 @@ public class MainActivity extends Activity {
             connection.setReadTimeout(16000);
             connection.setRequestProperty("User-Agent", userAgent);
             connection.setRequestProperty("Accept", "*/*");
+            applyCookies(connection, current, null);
             int code = connection.getResponseCode();
+            storeCookies(current, connection.getHeaderFields().get("Set-Cookie"));
             if (code == HttpURLConnection.HTTP_MOVED_PERM
                     || code == HttpURLConnection.HTTP_MOVED_TEMP
                     || code == HttpURLConnection.HTTP_SEE_OTHER
