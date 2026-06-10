@@ -27,6 +27,7 @@ public class SettingsActivity extends Activity {
 
     private SharedPreferences preferences;
     private CheckBox open5chInNewTab;
+    private CheckBox blurImgurImages;
     private RadioButton searchFind5chIo;
     private RadioButton searchFind5chNet;
     private RadioButton searchCustom;
@@ -65,6 +66,12 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setTextColor(TEXT);
         open5chInNewTab.setTextSize(16);
         root.addView(open5chInNewTab);
+
+        blurImgurImages = new CheckBox(this);
+        blurImgurImages.setText("Blur imgur image previews until shown");
+        blurImgurImages.setTextColor(TEXT);
+        blurImgurImages.setTextSize(16);
+        root.addView(blurImgurImages);
 
         root.addView(sectionTitle("Default Search Engine"));
         RadioGroup searchGroup = new RadioGroup(this);
@@ -125,6 +132,7 @@ public class SettingsActivity extends Activity {
 
     private void loadSettings() {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
+        blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
@@ -153,6 +161,7 @@ public class SettingsActivity extends Activity {
 
         preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
+                .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
         Toast.makeText(this, "Settings saved.", Toast.LENGTH_SHORT).show();

@@ -5,6 +5,8 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -30,10 +32,12 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
 import android.content.Intent;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.PopupWindow;
@@ -68,6 +72,7 @@ public class MainActivity extends Activity {
     static final String PREFS_NAME = "cuspidroid_settings";
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
+    static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -80,6 +85,7 @@ public class MainActivity extends Activity {
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
     private static final int TEXT = Color.rgb(31, 41, 55);
+    private static final Pattern URL_TEXT_PATTERN = Pattern.compile("https?://\\S+");
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -498,6 +504,14 @@ public class MainActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.TRANSPARENT);
         drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable roundedDrawable(int fill, int stroke, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setStroke(dp(1), stroke);
+        drawable.setCornerRadius(radius);
         return drawable;
     }
 
@@ -943,8 +957,7 @@ public class MainActivity extends Activity {
             meta.setPadding(0, 0, 0, dp(5));
             card.addView(meta);
 
-            TextView body = postText(post.body, page);
-            card.addView(body);
+            card.addView(postContent(post.body, page));
             list.addView(card, cardParams);
             tab.postViews.put(post.number, card);
         }
@@ -1189,6 +1202,221 @@ public class MainActivity extends Activity {
         return text;
     }
 
+    private View postContent(String value, ThreadPage page) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        Matcher matcher = URL_TEXT_PATTERN.matcher(value);
+        int cursor = 0;
+        boolean replacedImage = false;
+        while (matcher.find()) {
+            String rawUrl = matcher.group();
+            String cleanUrl = stripTrailingUrlPunctuation(rawUrl);
+            String imageUrl = imgurImageUrl(cleanUrl);
+            if (imageUrl == null) {
+                continue;
+            }
+
+            if (matcher.start() > cursor) {
+                addPostTextSegment(box, value.substring(cursor, matcher.start()), page);
+            }
+            box.addView(imgurPreview(cleanUrl, imageUrl));
+            cursor = matcher.start() + cleanUrl.length();
+            replacedImage = true;
+        }
+
+        if (!replacedImage) {
+            box.addView(postText(value, page));
+            return box;
+        }
+        if (cursor < value.length()) {
+            addPostTextSegment(box, value.substring(cursor), page);
+        }
+        return box;
+    }
+
+    private void addPostTextSegment(LinearLayout box, String segment, ThreadPage page) {
+        if (segment.isEmpty()) {
+            return;
+        }
+        TextView text = postText(segment, page);
+        box.addView(text);
+    }
+
+    private View imgurPreview(String originalUrl, String imageUrl) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackground(roundedDrawable(SURFACE, BORDER, dp(8)));
+        frame.setClickable(true);
+        LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(180));
+        frameParams.setMargins(0, dp(6), 0, dp(6));
+        frame.setLayoutParams(frameParams);
+
+        ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setVisibility(View.GONE);
+        frame.addView(image, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(36), dp(36));
+        spinnerParams.gravity = Gravity.CENTER;
+        frame.addView(spinner, spinnerParams);
+
+        TextView error = new TextView(this);
+        error.setText("Open imgur image");
+        error.setTextColor(TEAL);
+        error.setTextSize(14);
+        error.setGravity(Gravity.CENTER);
+        error.setVisibility(View.GONE);
+        error.setOnClickListener(v -> openExternal(originalUrl));
+        frame.addView(error, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        Button reveal = new Button(this);
+        reveal.setText("Show");
+        reveal.setAllCaps(false);
+        reveal.setTextColor(TEXT);
+        reveal.setVisibility(View.GONE);
+        reveal.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(8)));
+        FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(112), dp(44));
+        revealParams.gravity = Gravity.CENTER;
+        frame.addView(reveal, revealParams);
+
+        boolean blur = blurImgurImages();
+        ioExecutor.execute(() -> {
+            Bitmap bitmap = downloadBitmap(imageUrl);
+            runOnUiThread(() -> {
+                spinner.setVisibility(View.GONE);
+                if (bitmap == null) {
+                    error.setVisibility(View.VISIBLE);
+                    return;
+                }
+                resizeImagePreview(frame, bitmap);
+                image.setImageBitmap(blur ? blurredBitmap(bitmap) : bitmap);
+                image.setVisibility(View.VISIBLE);
+                if (blur) {
+                    reveal.setVisibility(View.VISIBLE);
+                    reveal.setOnClickListener(v -> {
+                        image.setImageBitmap(bitmap);
+                        image.setOnClickListener(click -> openExternal(originalUrl));
+                        reveal.setVisibility(View.GONE);
+                    });
+                } else {
+                    image.setOnClickListener(v -> openExternal(originalUrl));
+                }
+            });
+        });
+        return frame;
+    }
+
+    private void resizeImagePreview(View frame, Bitmap bitmap) {
+        if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) {
+            return;
+        }
+        int targetWidth = Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(80));
+        int height = targetWidth * bitmap.getHeight() / bitmap.getWidth();
+        height = Math.max(dp(130), Math.min(dp(420), height));
+        ViewGroup.LayoutParams params = frame.getLayoutParams();
+        params.height = height;
+        frame.setLayoutParams(params);
+    }
+
+    private Bitmap downloadBitmap(String url) {
+        Bitmap bitmap = downloadBitmapOnce(url);
+        if (bitmap != null) {
+            return bitmap;
+        }
+        if (url.startsWith("https://i.imgur.com/") && url.endsWith(".jpg")) {
+            String base = url.substring(0, url.length() - 4);
+            bitmap = downloadBitmapOnce(base + ".png");
+            if (bitmap != null) {
+                return bitmap;
+            }
+            return downloadBitmapOnce(base + ".webp");
+        }
+        return null;
+    }
+
+    private Bitmap downloadBitmapOnce(String url) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(15000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+            try (InputStream stream = connection.getInputStream()) {
+                return BitmapFactory.decodeStream(stream);
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private Bitmap blurredBitmap(Bitmap bitmap) {
+        int smallWidth = Math.max(1, bitmap.getWidth() / 18);
+        int smallHeight = Math.max(1, bitmap.getHeight() / 18);
+        Bitmap small = Bitmap.createScaledBitmap(bitmap, smallWidth, smallHeight, true);
+        return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
+    }
+
+    private String stripTrailingUrlPunctuation(String url) {
+        int end = url.length();
+        while (end > 0) {
+            char c = url.charAt(end - 1);
+            if (c == '.' || c == ',' || c == ')' || c == ']' || c == '}' || c == '>' || c == '"' || c == '\'') {
+                end--;
+            } else {
+                break;
+            }
+        }
+        return url.substring(0, end);
+    }
+
+    private String imgurImageUrl(String rawUrl) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(rawUrl));
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null) {
+                return null;
+            }
+            host = host.toLowerCase(Locale.ROOT);
+            if (!host.equals("i.imgur.com") && !host.equals("imgur.com")
+                    && !host.equals("www.imgur.com") && !host.equals("m.imgur.com")) {
+                return null;
+            }
+            if (path.contains("/a/") || path.contains("/gallery/")) {
+                return null;
+            }
+            String file = path.substring(path.lastIndexOf('/') + 1);
+            if (file.isEmpty()) {
+                return null;
+            }
+            int dot = file.lastIndexOf('.');
+            String id = dot > 0 ? file.substring(0, dot) : file;
+            if (!id.matches("[A-Za-z0-9]+")) {
+                return null;
+            }
+            if (dot > 0) {
+                String ext = file.substring(dot + 1).toLowerCase(Locale.ROOT);
+                if (!ext.matches("jpe?g|png|webp|gif")) {
+                    return null;
+                }
+                return "https://i.imgur.com/" + file;
+            }
+            return "https://i.imgur.com/" + id + ".jpg";
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private void replaceUrlSpans(SpannableString text) {
         URLSpan[] spans = text.getSpans(0, text.length(), URLSpan.class);
         for (URLSpan span : spans) {
@@ -1285,7 +1513,7 @@ public class MainActivity extends Activity {
             meta.setTextSize(12);
             popupPosts.addView(meta);
 
-            TextView body = postText(post.body, page);
+            View body = postContent(post.body, page);
             body.setPadding(0, dp(4), 0, dp(6));
             popupPosts.addView(body);
         }
@@ -1459,6 +1687,10 @@ public class MainActivity extends Activity {
 
     private boolean open5chLinksInNewTab() {
         return preferences.getBoolean(PREF_5CH_NEW_TAB, true);
+    }
+
+    private boolean blurImgurImages() {
+        return preferences.getBoolean(PREF_BLUR_IMGUR, true);
     }
 
     private void openExternal(String url) {
