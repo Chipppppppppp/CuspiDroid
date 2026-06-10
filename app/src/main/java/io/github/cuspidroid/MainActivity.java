@@ -805,7 +805,15 @@ public class MainActivity extends Activity {
         if (page.posts.isEmpty()) {
             list.addView(postText("No posts were parsed. Use R to reload, or open another URL.", page));
         }
-        enableBottomPullRefresh(scroll, () -> loadThread(tab, tab.url));
+        ProgressBar bottomLoader = new ProgressBar(this);
+        bottomLoader.setIndeterminate(true);
+        bottomLoader.setVisibility(View.GONE);
+        LinearLayout.LayoutParams loaderParams = new LinearLayout.LayoutParams(dp(42), dp(42));
+        loaderParams.gravity = Gravity.CENTER_HORIZONTAL;
+        loaderParams.setMargins(0, dp(4), 0, dp(8));
+        list.addView(bottomLoader, loaderParams);
+
+        enableBottomPullRefresh(scroll, list, bottomLoader, () -> loadThread(tab, tab.url));
         return withScrollScrubber(scroll);
     }
 
@@ -870,18 +878,18 @@ public class MainActivity extends Activity {
 
         View rail = new View(this);
         rail.setBackgroundColor(Color.argb(28, 31, 41, 55));
-        FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(dp(14), ViewGroup.LayoutParams.MATCH_PARENT);
+        FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(dp(34), ViewGroup.LayoutParams.MATCH_PARENT);
         railParams.gravity = Gravity.RIGHT;
         frame.addView(rail, railParams);
 
         View thumb = new View(this);
         GradientDrawable thumbBackground = new GradientDrawable();
         thumbBackground.setColor(Color.argb(170, 15, 118, 110));
-        thumbBackground.setCornerRadius(dp(4));
+        thumbBackground.setCornerRadius(dp(8));
         thumb.setBackground(thumbBackground);
-        FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(dp(6), dp(48));
+        FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(dp(16), dp(56));
         thumbParams.gravity = Gravity.RIGHT;
-        thumbParams.rightMargin = dp(4);
+        thumbParams.rightMargin = dp(9);
         frame.addView(thumb, thumbParams);
 
         Runnable updateThumb = () -> {
@@ -902,12 +910,54 @@ public class MainActivity extends Activity {
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> updateThumb.run());
         frame.post(updateThumb);
-        rail.setOnTouchListener((v, event) -> handleScrubberTouch(event, scroll, frame, thumb));
-        thumb.setOnTouchListener((v, event) -> handleScrubberTouch(event, scroll, frame, thumb));
+        rail.setOnTouchListener(scrubberTouchListener(scroll, frame, thumb));
+        thumb.setOnTouchListener(scrubberTouchListener(scroll, frame, thumb));
         return frame;
     }
 
-    private boolean handleScrubberTouch(MotionEvent event, ScrollView scroll, View frame, View thumb) {
+    private View.OnTouchListener scrubberTouchListener(ScrollView scroll, View frame, View thumb) {
+        final boolean[] active = new boolean[1];
+        final boolean[] movedBeforeLongPress = new boolean[1];
+        final float[] downY = new float[1];
+        final Runnable[] activate = new Runnable[1];
+        return (view, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                active[0] = false;
+                movedBeforeLongPress[0] = false;
+                downY[0] = event.getRawY();
+                activate[0] = () -> {
+                    if (!movedBeforeLongPress[0]) {
+                        active[0] = true;
+                        view.setPressed(true);
+                    }
+                };
+                view.postDelayed(activate[0], 420);
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                if (!active[0]) {
+                    if (Math.abs(event.getRawY() - downY[0]) > dp(8)) {
+                        movedBeforeLongPress[0] = true;
+                        view.removeCallbacks(activate[0]);
+                    }
+                    return true;
+                }
+                return handleScrubberDrag(event, scroll, frame, thumb);
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                view.removeCallbacks(activate[0]);
+                view.setPressed(false);
+                if (active[0] && event.getAction() == MotionEvent.ACTION_UP) {
+                    handleScrubberDrag(event, scroll, frame, thumb);
+                }
+                active[0] = false;
+                return true;
+            }
+            return false;
+        };
+    }
+
+    private boolean handleScrubberDrag(MotionEvent event, ScrollView scroll, View frame, View thumb) {
         if (event.getAction() != MotionEvent.ACTION_DOWN
                 && event.getAction() != MotionEvent.ACTION_MOVE
                 && event.getAction() != MotionEvent.ACTION_UP) {
@@ -928,7 +978,7 @@ public class MainActivity extends Activity {
         return true;
     }
 
-    private void enableBottomPullRefresh(ScrollView scroll, Runnable refresh) {
+    private void enableBottomPullRefresh(ScrollView scroll, View content, View loader, Runnable refresh) {
         final float[] downY = new float[1];
         final boolean[] startedAtBottom = new boolean[1];
         final boolean[] triggered = new boolean[1];
@@ -937,12 +987,27 @@ public class MainActivity extends Activity {
                 downY[0] = event.getY();
                 startedAtBottom[0] = !scroll.canScrollVertically(1);
                 triggered[0] = false;
+                loader.setVisibility(View.GONE);
+                content.setTranslationY(0);
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                if (startedAtBottom[0] && !triggered[0] && downY[0] - event.getY() > dp(96)) {
-                    triggered[0] = true;
-                    Toast.makeText(this, "Reloading...", Toast.LENGTH_SHORT).show();
-                    refresh.run();
-                    return true;
+                if (startedAtBottom[0]) {
+                    float pull = Math.max(0, downY[0] - event.getY());
+                    if (pull > dp(8)) {
+                        loader.setVisibility(View.VISIBLE);
+                        content.setTranslationY(-Math.min(dp(72), pull * 0.45f));
+                    }
+                    if (!triggered[0] && pull > dp(116)) {
+                        triggered[0] = true;
+                        loader.setVisibility(View.VISIBLE);
+                        content.setTranslationY(-dp(72));
+                        refresh.run();
+                        return true;
+                    }
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (!triggered[0]) {
+                    content.animate().translationY(0).setDuration(140).start();
+                    loader.setVisibility(View.GONE);
                 }
             }
             return false;
