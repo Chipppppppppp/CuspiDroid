@@ -1,12 +1,19 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.Html;
+import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.method.LinkMovementMethod;
+import android.text.style.URLSpan;
+import android.text.util.Linkify;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -20,11 +27,14 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,6 +57,9 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
     private static final String HOME_URL = "https://find.5ch.net/";
+    private static final String PREFS_NAME = "cuspidroid_settings";
+    private static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
+    private static final String PREF_LINKS_IN_APP = "open_links_in_app";
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
@@ -59,11 +72,13 @@ public class MainActivity extends Activity {
     private EditText addressBar;
     private FrameLayout contentFrame;
     private ProgressBar progressBar;
+    private SharedPreferences preferences;
     private int currentIndex = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         WebView.setWebContentsDebuggingEnabled(true);
         buildLayout();
 
@@ -154,6 +169,7 @@ public class MainActivity extends Activity {
         toolbar.addView(iconButton("Find", v -> openFromAddressBar(true)));
         toolbar.addView(iconButton("+", v -> createTab(HOME_URL, true)));
         toolbar.addView(iconButton("X", v -> closeCurrentTab()));
+        toolbar.addView(iconButton("Opt", v -> showSettingsDialog()));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
@@ -176,7 +192,7 @@ public class MainActivity extends Activity {
         button.setMinimumWidth(0);
         button.setPadding(dp(6), 0, dp(6), 0);
         button.setOnClickListener(listener);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(label.length() > 1 ? 52 : 38), dp(40));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(label.length() > 1 ? 44 : 34), dp(40));
         params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
         return button;
@@ -230,12 +246,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean interceptNavigation(CuspTab tab, String url) {
-        if (isThreadUrl(url)) {
-            int index = tabs.indexOf(tab);
-            if (index >= 0) {
-                switchToTab(index);
-            }
-            loadThread(tab, normalizeUrl(url));
+        if (routeLink(url, tab)) {
             return true;
         }
         tab.readerMode = false;
@@ -412,12 +423,151 @@ public class MainActivity extends Activity {
 
     private TextView postText(String value) {
         TextView text = new TextView(this);
-        text.setText(value);
+        SpannableString linkedText = new SpannableString(value);
+        Linkify.addLinks(linkedText, Linkify.WEB_URLS);
+        replaceUrlSpans(linkedText);
+        text.setText(linkedText);
         text.setTextColor(TEXT);
+        text.setLinkTextColor(TEAL);
         text.setTextSize(15);
         text.setLineSpacing(0, 1.15f);
-        text.setTextIsSelectable(true);
+        text.setMovementMethod(LinkMovementMethod.getInstance());
         return text;
+    }
+
+    private void replaceUrlSpans(SpannableString text) {
+        URLSpan[] spans = text.getSpans(0, text.length(), URLSpan.class);
+        for (URLSpan span : spans) {
+            int start = text.getSpanStart(span);
+            int end = text.getSpanEnd(span);
+            int flags = text.getSpanFlags(span);
+            String url = span.getURL();
+            text.removeSpan(span);
+            text.setSpan(new URLSpan(url) {
+                @Override
+                public void onClick(View widget) {
+                    routeLink(getURL(), currentTab());
+                }
+            }, start, end, flags);
+        }
+    }
+
+    private boolean routeLink(String rawUrl, CuspTab sourceTab) {
+        String url = normalizeUrl(rawUrl);
+        if (isThreadUrl(url)) {
+            if (open5chLinksInNewTab()) {
+                createTab(url, true);
+            } else {
+                CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
+                if (tab == null) {
+                    createTab(url, true);
+                } else {
+                    int index = tabs.indexOf(tab);
+                    if (index >= 0) {
+                        switchToTab(index);
+                    }
+                    loadThread(tab, url);
+                }
+            }
+            return true;
+        }
+
+        if (is5chUrl(url)) {
+            if (open5chLinksInNewTab()) {
+                createTab(url, true);
+            } else {
+                CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
+                if (tab == null) {
+                    createTab(url, true);
+                } else {
+                    int index = tabs.indexOf(tab);
+                    if (index >= 0) {
+                        switchToTab(index);
+                    }
+                    openInCurrentTab(url);
+                }
+            }
+            return true;
+        }
+
+        if (openLinksInApp()) {
+            CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
+            if (tab == null) {
+                createTab(url, true);
+            } else {
+                int index = tabs.indexOf(tab);
+                if (index >= 0) {
+                    switchToTab(index);
+                }
+                openInCurrentTab(url);
+            }
+        } else {
+            openExternal(url);
+        }
+        return true;
+    }
+
+    private boolean open5chLinksInNewTab() {
+        return preferences.getBoolean(PREF_5CH_NEW_TAB, true);
+    }
+
+    private boolean openLinksInApp() {
+        return preferences.getBoolean(PREF_LINKS_IN_APP, false);
+    }
+
+    private void openExternal(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            startActivity(intent);
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(this, "No app can open this link.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showSettingsDialog() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(8), dp(20), 0);
+
+        CheckBox newTab = new CheckBox(this);
+        newTab.setText("5ch links open in a new tab");
+        newTab.setTextColor(TEXT);
+        newTab.setTextSize(15);
+        newTab.setChecked(open5chLinksInNewTab());
+        content.addView(newTab);
+
+        TextView label = new TextView(this);
+        label.setText("Other links open with");
+        label.setTextColor(TEXT);
+        label.setTextSize(14);
+        label.setPadding(0, dp(12), 0, 0);
+        content.addView(label);
+
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.VERTICAL);
+        RadioButton browser = new RadioButton(this);
+        browser.setText("Browser app");
+        browser.setTextColor(TEXT);
+        browser.setId(View.generateViewId());
+        RadioButton inApp = new RadioButton(this);
+        inApp.setText("This app");
+        inApp.setTextColor(TEXT);
+        inApp.setId(View.generateViewId());
+        group.addView(browser);
+        group.addView(inApp);
+        group.check(openLinksInApp() ? inApp.getId() : browser.getId());
+        content.addView(group);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Settings")
+                .setView(content)
+                .setPositiveButton("Save", (dialog, which) -> preferences.edit()
+                        .putBoolean(PREF_5CH_NEW_TAB, newTab.isChecked())
+                        .putBoolean(PREF_LINKS_IN_APP, group.getCheckedRadioButtonId() == inApp.getId())
+                        .apply())
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void goBack() {
@@ -719,8 +869,28 @@ public class MainActivity extends Activity {
     private boolean isThreadUrl(String url) {
         String lower = url.toLowerCase(Locale.ROOT);
         return lower.contains(".5ch.net/test/read.cgi/")
+                || lower.contains(".5ch.io/test/read.cgi/")
+                || lower.contains(".5ch.io/") && lower.contains("/test/read.cgi/")
                 || lower.contains(".2ch.sc/test/read.cgi/")
                 || lower.contains("/test/read.cgi/");
+    }
+
+    private boolean is5chUrl(String url) {
+        try {
+            String host = Uri.parse(url).getHost();
+            if (host == null) {
+                return false;
+            }
+            String lower = host.toLowerCase(Locale.ROOT);
+            return lower.equals("5ch.net")
+                    || lower.equals("5ch.io")
+                    || lower.endsWith(".5ch.net")
+                    || lower.endsWith(".5ch.io")
+                    || lower.equals("bbspink.com")
+                    || lower.endsWith(".bbspink.com");
+        } catch (Exception error) {
+            return false;
+        }
     }
 
     private boolean looksLikeUrl(String input) {
