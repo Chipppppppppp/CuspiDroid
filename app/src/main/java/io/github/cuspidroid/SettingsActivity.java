@@ -26,12 +26,11 @@ public class SettingsActivity extends Activity {
 
     private SharedPreferences preferences;
     private CheckBox open5chInNewTab;
-    private RadioButton linksInBrowser;
-    private RadioButton linksInApp;
     private RadioButton searchFind5chIo;
     private RadioButton searchFind5chNet;
     private RadioButton searchCustom;
     private EditText customTemplate;
+    private LinearLayout historyList;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,16 +65,6 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setTextSize(16);
         root.addView(open5chInNewTab);
 
-        TextView otherLinks = helperText("Other links");
-        root.addView(otherLinks);
-        RadioGroup linkGroup = new RadioGroup(this);
-        linkGroup.setOrientation(RadioGroup.VERTICAL);
-        linksInBrowser = radio("Browser app");
-        linksInApp = radio("This app");
-        linkGroup.addView(linksInBrowser);
-        linkGroup.addView(linksInApp);
-        root.addView(linkGroup);
-
         root.addView(sectionTitle("Default Search Engine"));
         RadioGroup searchGroup = new RadioGroup(this);
         searchGroup.setOrientation(RadioGroup.VERTICAL);
@@ -105,6 +94,23 @@ public class SettingsActivity extends Activity {
         TextView hint = helperText("Use %s where the encoded query should be inserted.");
         root.addView(hint);
 
+        root.addView(sectionTitle("Thread History"));
+        historyList = new LinearLayout(this);
+        historyList.setOrientation(LinearLayout.VERTICAL);
+        root.addView(historyList);
+        renderHistory();
+
+        Button clearHistory = new Button(this);
+        clearHistory.setText("Clear thread history");
+        clearHistory.setAllCaps(false);
+        clearHistory.setOnClickListener(v -> {
+            MainActivity.clearThreadHistory(preferences);
+            renderHistory();
+            Toast.makeText(this, "Thread history cleared.", Toast.LENGTH_SHORT).show();
+        });
+        root.addView(clearHistory, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
         Button save = new Button(this);
         save.setText("Save");
         save.setAllCaps(false);
@@ -118,11 +124,6 @@ public class SettingsActivity extends Activity {
 
     private void loadSettings() {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
-        if (preferences.getBoolean(MainActivity.PREF_LINKS_IN_APP, false)) {
-            linksInApp.setChecked(true);
-        } else {
-            linksInBrowser.setChecked(true);
-        }
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
@@ -151,7 +152,6 @@ public class SettingsActivity extends Activity {
 
         preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
-                .putBoolean(MainActivity.PREF_LINKS_IN_APP, linksInApp.isChecked())
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
         Toast.makeText(this, "Settings saved.", Toast.LENGTH_SHORT).show();
@@ -182,6 +182,35 @@ public class SettingsActivity extends Activity {
         button.setTextColor(TEXT);
         button.setTextSize(16);
         return button;
+    }
+
+    private void renderHistory() {
+        if (historyList == null) {
+            return;
+        }
+        historyList.removeAllViews();
+        java.util.List<MainActivity.ThreadHistoryItem> history = MainActivity.readThreadHistory(preferences);
+        if (history.isEmpty()) {
+            historyList.addView(helperText("No thread history."));
+            return;
+        }
+        for (MainActivity.ThreadHistoryItem item : history) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView text = helperText(item.title + "\n" + item.url);
+            text.setTextColor(TEXT);
+            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            Button delete = new Button(this);
+            delete.setText("Delete");
+            delete.setAllCaps(false);
+            delete.setOnClickListener(v -> {
+                MainActivity.removeThreadHistory(preferences, item.url);
+                renderHistory();
+            });
+            row.addView(delete, new LinearLayout.LayoutParams(dp(92), dp(44)));
+            historyList.addView(row);
+        }
     }
 
     private GradientDrawable roundedField() {

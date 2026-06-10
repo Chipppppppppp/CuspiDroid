@@ -30,10 +30,6 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
 import android.content.Intent;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -72,10 +68,9 @@ public class MainActivity extends Activity {
     static final String HOME_URL = "https://find.5ch.io/";
     static final String PREFS_NAME = "cuspidroid_settings";
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
-    static final String PREF_LINKS_IN_APP = "open_links_in_app";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
     private static final String PREF_TABS = "saved_tabs";
-    private static final String PREF_HISTORY = "search_history";
+    static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
     static final String FIND_NET_TEMPLATE = "https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -107,7 +102,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        WebView.setWebContentsDebuggingEnabled(true);
         buildLayout();
 
         String launchUrl = null;
@@ -132,9 +126,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        for (CuspTab tab : tabs) {
-            tab.webView.destroy();
-        }
         ioExecutor.shutdownNow();
         super.onDestroy();
     }
@@ -143,11 +134,6 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (!replyPopups.isEmpty()) {
             dismissThreadPopups();
-            return;
-        }
-        CuspTab tab = currentTab();
-        if (tab != null && !tab.readerMode && tab.webView.canGoBack()) {
-            tab.webView.goBack();
             return;
         }
         if (tabs.size() > 1) {
@@ -342,11 +328,11 @@ public class MainActivity extends Activity {
         String query = addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
         if (!query.isEmpty()) {
             int count = 0;
-            for (String history : searchHistory()) {
-                if (history.toLowerCase(Locale.ROOT).contains(query)) {
-                    TextView item = suggestionItem("Search history", history);
+            for (ThreadHistoryItem history : threadHistory()) {
+                if (history.title.toLowerCase(Locale.ROOT).contains(query)) {
+                    TextView item = suggestionItem("Thread history", history.title);
                     item.setOnClickListener(v -> {
-                        addressBar.setText(history);
+                        addressBar.setText(history.url);
                         addressBar.setSelection(addressBar.getText().length());
                         openFromAddressBar();
                     });
@@ -478,8 +464,6 @@ public class MainActivity extends Activity {
         tab.title = "New tab";
         tab.url = normalizeUrl(url);
         tab.returnToIndex = returnToIndex;
-        tab.webView = new WebView(this);
-        configureWebView(tab);
         tabs.add(tab);
         if (select) {
             switchToTab(tabs.size() - 1);
@@ -493,8 +477,6 @@ public class MainActivity extends Activity {
         tab.title = "New tab";
         tab.url = "";
         tab.returnToIndex = -1;
-        tab.webView = new WebView(this);
-        configureWebView(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH_HOME;
         tab.readerView = buildSearchHomeView();
@@ -525,8 +507,6 @@ public class MainActivity extends Activity {
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.returnToIndex = -1;
-                tab.webView = new WebView(this);
-                configureWebView(tab);
                 tabs.add(tab);
             }
             switchToTab(selected);
@@ -567,48 +547,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void configureWebView(CuspTab tab) {
-        WebSettings settings = tab.webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
-
-        tab.webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return interceptNavigation(tab, request.getUrl().toString());
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return interceptNavigation(tab, url);
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                tab.url = url;
-                tab.title = cleanTitle(view.getTitle(), url);
-                if (tab == currentTab()) {
-                    addressBar.setText(url);
-                    progressBar.setVisibility(View.GONE);
-                }
-                renderTabs();
-            }
-        });
-    }
-
-    private boolean interceptNavigation(CuspTab tab, String url) {
-        if (routeLink(url, tab)) {
-            return true;
-        }
-        tab.readerMode = false;
-        progressBar.setVisibility(View.VISIBLE);
-        return false;
-    }
-
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) {
             return;
@@ -622,7 +560,7 @@ public class MainActivity extends Activity {
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
-        if (tab.readerMode && tab.readerView != null) {
+        if (tab.readerView != null) {
             contentFrame.addView(tab.readerView);
             if (NATIVE_THREAD.equals(tab.nativeKind)) {
                 visibleThreadPage = tab.threadPage;
@@ -631,9 +569,6 @@ public class MainActivity extends Activity {
             if (NATIVE_THREAD.equals(tab.nativeKind) && tab.postViews != null) {
                 visiblePostViews.putAll(tab.postViews);
             }
-        } else {
-            contentFrame.addView(tab.webView, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         addressBar.setText(tab.url == null ? "" : tab.url);
         renderTabs();
@@ -696,9 +631,6 @@ public class MainActivity extends Activity {
         }
         clearAddressFocus();
         boolean urlLike = looksLikeUrl(input);
-        if (!urlLike) {
-            addSearchHistory(input);
-        }
         String url = urlLike ? normalizeUrl(input) : searchUrl(input);
         openInCurrentTab(url);
     }
@@ -722,15 +654,7 @@ public class MainActivity extends Activity {
             loadSearchHome(tab, url);
             return;
         }
-        tab.readerMode = false;
-        tab.readerView = null;
-        tab.nativeKind = null;
-        tab.url = url;
-        tab.title = hostTitle(url);
-        switchToTab(currentIndex);
-        progressBar.setVisibility(View.VISIBLE);
-        tab.webView.loadUrl(url);
-        renderTabs();
+        openExternal(url);
     }
 
     private void loadThread(CuspTab tab, String url) {
@@ -759,6 +683,9 @@ public class MainActivity extends Activity {
                 tab.threadPage = result;
                 tab.postViews = new LinkedHashMap<>();
                 tab.readerView = buildThreadView(result, tab);
+                if (result.error == null && !result.posts.isEmpty()) {
+                    addThreadHistory(result.url, result.title);
+                }
                 progressBar.setVisibility(View.GONE);
                 if (tab == currentTab()) {
                     switchToTab(currentIndex);
@@ -850,7 +777,6 @@ public class MainActivity extends Activity {
             TextView error = postText(page.error, page);
             error.setTextColor(Color.rgb(185, 28, 28));
             list.addView(error);
-            list.addView(postText("The page can still be opened in WebView with the R button.", page));
             return scroll;
         }
 
@@ -1028,21 +954,6 @@ public class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER);
         box.setPadding(dp(24), dp(24), dp(24), dp(24));
-
-        TextView title = new TextView(this);
-        title.setText("5ch Search");
-        title.setTextColor(TEXT);
-        title.setTextSize(24);
-        title.setGravity(Gravity.CENTER);
-        box.addView(title);
-
-        TextView hint = new TextView(this);
-        hint.setText("Enter keywords in the address bar.");
-        hint.setTextColor(Color.rgb(79, 91, 103));
-        hint.setTextSize(15);
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, dp(8), 0, 0);
-        box.addView(hint);
         return box;
     }
 
@@ -1249,9 +1160,7 @@ public class MainActivity extends Activity {
         }
 
         if (is5chUrl(url)) {
-            if (open5chLinksInNewTab()) {
-                createTab(url, true, tabs.indexOf(sourceTab == null ? currentTab() : sourceTab));
-            } else {
+            if (isFindSearchUrl(url) || isFindHomeUrl(url)) {
                 CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
                 if (tab == null) {
                     createTab(url, true);
@@ -1262,33 +1171,33 @@ public class MainActivity extends Activity {
                     }
                     openInCurrentTab(url);
                 }
+                return true;
+            }
+            if (open5chLinksInNewTab() && isThreadUrl(url)) {
+                createTab(url, true, tabs.indexOf(sourceTab == null ? currentTab() : sourceTab));
+            } else if (isThreadUrl(url)) {
+                CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
+                if (tab == null) {
+                    createTab(url, true);
+                } else {
+                    int index = tabs.indexOf(tab);
+                    if (index >= 0) {
+                        switchToTab(index);
+                    }
+                    openInCurrentTab(url);
+                }
+            } else {
+                openExternal(url);
             }
             return true;
         }
 
-        if (openLinksInApp()) {
-            CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
-            if (tab == null) {
-                createTab(url, true);
-            } else {
-                int index = tabs.indexOf(tab);
-                if (index >= 0) {
-                    switchToTab(index);
-                }
-                openInCurrentTab(url);
-            }
-        } else {
-            openExternal(url);
-        }
+        openExternal(url);
         return true;
     }
 
     private boolean open5chLinksInNewTab() {
         return preferences.getBoolean(PREF_5CH_NEW_TAB, true);
-    }
-
-    private boolean openLinksInApp() {
-        return preferences.getBoolean(PREF_LINKS_IN_APP, false);
     }
 
     private void openExternal(String url) {
@@ -1306,17 +1215,9 @@ public class MainActivity extends Activity {
     }
 
     private void goBack() {
-        CuspTab tab = currentTab();
-        if (tab != null && !tab.readerMode && tab.webView.canGoBack()) {
-            tab.webView.goBack();
-        }
     }
 
     private void goForward() {
-        CuspTab tab = currentTab();
-        if (tab != null && !tab.readerMode && tab.webView.canGoForward()) {
-            tab.webView.goForward();
-        }
     }
 
     private void reload() {
@@ -1330,9 +1231,6 @@ public class MainActivity extends Activity {
             loadSearchResults(tab, tab.url);
         } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
             loadSearchHome(tab, tab.url);
-        } else {
-            progressBar.setVisibility(View.VISIBLE);
-            tab.webView.reload();
         }
     }
 
@@ -1349,8 +1247,7 @@ public class MainActivity extends Activity {
         }
         CuspTab closing = tabs.get(index);
         int returnToIndex = closing.returnToIndex;
-        CuspTab removed = tabs.remove(index);
-        removed.webView.destroy();
+        tabs.remove(index);
         for (CuspTab tab : tabs) {
             if (tab.returnToIndex == index) {
                 tab.returnToIndex = -1;
@@ -1745,29 +1642,77 @@ public class MainActivity extends Activity {
         return cleanText(value);
     }
 
-    private void addSearchHistory(String query) {
-        List<String> history = searchHistory();
-        history.remove(query);
-        history.add(0, query);
-        while (history.size() > 50) {
+    private void addThreadHistory(String url, String title) {
+        if (url == null || url.trim().isEmpty() || title == null || title.trim().isEmpty()) {
+            return;
+        }
+        List<ThreadHistoryItem> history = threadHistory();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            if (url.equals(history.get(i).url)) {
+                history.remove(i);
+            }
+        }
+        history.add(0, new ThreadHistoryItem(title, url));
+        while (history.size() > 100) {
             history.remove(history.size() - 1);
         }
-        preferences.edit().putString(PREF_HISTORY, new JSONArray(history).toString()).apply();
+        JSONArray array = new JSONArray();
+        try {
+            for (ThreadHistoryItem item : history) {
+                JSONObject object = new JSONObject();
+                object.put("title", item.title);
+                object.put("url", item.url);
+                array.put(object);
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_HISTORY, array.toString()).apply();
     }
 
-    private List<String> searchHistory() {
-        List<String> history = new ArrayList<>();
+    static List<ThreadHistoryItem> readThreadHistory(SharedPreferences preferences) {
+        List<ThreadHistoryItem> history = new ArrayList<>();
         try {
             JSONArray array = new JSONArray(preferences.getString(PREF_HISTORY, "[]"));
             for (int i = 0; i < array.length(); i++) {
-                String value = array.optString(i, "").trim();
-                if (!value.isEmpty()) {
-                    history.add(value);
+                JSONObject object = array.optJSONObject(i);
+                if (object == null) {
+                    continue;
+                }
+                String title = object.optString("title", "").trim();
+                String url = object.optString("url", "").trim();
+                if (!title.isEmpty() && !url.isEmpty()) {
+                    history.add(new ThreadHistoryItem(title, url));
                 }
             }
         } catch (Exception ignored) {
         }
         return history;
+    }
+
+    private List<ThreadHistoryItem> threadHistory() {
+        return readThreadHistory(preferences);
+    }
+
+    static void clearThreadHistory(SharedPreferences preferences) {
+        preferences.edit().remove(PREF_HISTORY).apply();
+    }
+
+    static void removeThreadHistory(SharedPreferences preferences, String url) {
+        List<ThreadHistoryItem> history = readThreadHistory(preferences);
+        JSONArray array = new JSONArray();
+        try {
+            for (ThreadHistoryItem item : history) {
+                if (item.url.equals(url)) {
+                    continue;
+                }
+                JSONObject object = new JSONObject();
+                object.put("title", item.title);
+                object.put("url", item.url);
+                array.put(object);
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_HISTORY, array.toString()).apply();
     }
 
     private boolean isThreadUrl(String url) {
@@ -1963,7 +1908,6 @@ public class MainActivity extends Activity {
     private static class CuspTab {
         String title;
         String url;
-        WebView webView;
         View readerView;
         ThreadPage threadPage;
         ScrollView threadScroll;
@@ -1971,6 +1915,16 @@ public class MainActivity extends Activity {
         String nativeKind;
         int returnToIndex = -1;
         boolean readerMode;
+    }
+
+    static class ThreadHistoryItem {
+        final String title;
+        final String url;
+
+        ThreadHistoryItem(String title, String url) {
+            this.title = title;
+            this.url = url;
+        }
     }
 
     private static class ThreadPage {
