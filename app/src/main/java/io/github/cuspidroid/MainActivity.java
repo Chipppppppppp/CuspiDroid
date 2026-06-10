@@ -272,7 +272,9 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         suggestionsPanel = new LinearLayout(this);
         suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
-        suggestionsPanel.setBackground(suggestionsBackground());
+        suggestionsPanel.setBackground(menuBackground());
+        suggestionsPanel.setPadding(dp(4), dp(4), dp(4), dp(4));
+        suggestionsPanel.setElevation(dp(12));
         suggestionsPanel.setVisibility(View.GONE);
         FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -367,7 +369,7 @@ public class MainActivity extends Activity {
         view.setTextColor(TEXT);
         view.setTextSize(14);
         view.setBackgroundColor(Color.WHITE);
-        view.setPadding(dp(14), dp(10), dp(14), dp(10));
+        view.setPadding(dp(12), dp(10), dp(12), dp(10));
         view.setMinHeight(dp(58));
         return view;
     }
@@ -482,6 +484,10 @@ public class MainActivity extends Activity {
                 addressBar.requestFocus();
                 showKeyboard();
                 updateSuggestions();
+                addressBar.postDelayed(() -> {
+                    addressBar.requestFocus();
+                    showKeyboard();
+                }, 180);
             });
         }
     }
@@ -498,14 +504,6 @@ public class MainActivity extends Activity {
         drawable.setColor(Color.rgb(241, 245, 249));
         drawable.setStroke(dp(1), BORDER);
         drawable.setCornerRadius(dp(20));
-        return drawable;
-    }
-
-    private GradientDrawable suggestionsBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.rgb(255, 255, 255));
-        drawable.setStroke(dp(2), Color.rgb(148, 163, 184));
-        drawable.setCornerRadius(dp(12));
         return drawable;
     }
 
@@ -1180,6 +1178,7 @@ public class MainActivity extends Activity {
         text.setLinkTextColor(TEAL);
         text.setTextSize(15);
         text.setLineSpacing(0, 1.15f);
+        text.setTextIsSelectable(true);
         text.setMovementMethod(LinkMovementMethod.getInstance());
         return text;
     }
