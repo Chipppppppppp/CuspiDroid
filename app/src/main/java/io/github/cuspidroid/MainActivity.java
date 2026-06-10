@@ -1,10 +1,10 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -31,15 +31,13 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.PopupWindow;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -63,10 +61,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
-    private static final String HOME_URL = "https://find.5ch.net/";
-    private static final String PREFS_NAME = "cuspidroid_settings";
-    private static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
-    private static final String PREF_LINKS_IN_APP = "open_links_in_app";
+    static final String HOME_URL = "https://find.5ch.io/";
+    static final String PREFS_NAME = "cuspidroid_settings";
+    static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
+    static final String PREF_LINKS_IN_APP = "open_links_in_app";
+    static final String PREF_SEARCH_TEMPLATE = "search_template";
+    static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
@@ -164,37 +164,37 @@ public class MainActivity extends Activity {
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
 
-        toolbar.addView(iconButton("<", v -> goBack()));
-        toolbar.addView(iconButton(">", v -> goForward()));
-        toolbar.addView(iconButton("R", v -> reload()));
+        toolbar.addView(iconButton(R.drawable.ic_arrow_back, "Back", v -> goBack()));
+        toolbar.addView(iconButton(R.drawable.ic_arrow_forward, "Forward", v -> goForward()));
+        toolbar.addView(iconButton(R.drawable.ic_refresh, "Reload", v -> reload()));
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
         addressBar.setTextSize(15);
         addressBar.setTextColor(TEXT);
-        addressBar.setHint("URL or search keywords");
+        addressBar.setHint("Search 5ch or enter URL");
         addressBar.setSelectAllOnFocus(true);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         addressBar.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        addressBar.setBackgroundColor(Color.rgb(241, 245, 249));
+        addressBar.setBackground(addressBarBackground());
+        addressBar.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
+        addressBar.setCompoundDrawablePadding(dp(8));
         addressBar.setPadding(dp(12), 0, dp(12), 0);
         addressBar.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
                     && event.getAction() == KeyEvent.ACTION_UP;
             if (actionId == EditorInfo.IME_ACTION_GO || enter) {
-                openFromAddressBar(false);
+                openFromAddressBar();
                 return true;
             }
             return false;
         });
         toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
-        toolbar.addView(iconButton("Go", v -> openFromAddressBar(false)));
-        toolbar.addView(iconButton("Find", v -> openFromAddressBar(true)));
-        toolbar.addView(iconButton("+", v -> createTab(HOME_URL, true)));
-        toolbar.addView(iconButton("X", v -> closeCurrentTab()));
-        toolbar.addView(iconButton("Opt", v -> showSettingsDialog()));
+        toolbar.addView(iconButton(R.drawable.ic_add, "New tab", v -> createTab(HOME_URL, true)));
+        toolbar.addView(iconButton(R.drawable.ic_close, "Close tab", v -> closeCurrentTab()));
+        toolbar.addView(iconButton(R.drawable.ic_settings, "Settings", v -> openSettings()));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
@@ -207,20 +207,34 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
     }
 
-    private Button iconButton(String label, View.OnClickListener listener) {
-        Button button = new Button(this);
-        button.setText(label);
-        button.setTextSize(13);
-        button.setTextColor(TEXT);
-        button.setAllCaps(false);
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setPadding(dp(6), 0, dp(6), 0);
+    private ImageButton iconButton(int iconRes, String description, View.OnClickListener listener) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(iconRes);
+        button.setContentDescription(description);
+        button.setColorFilter(TEXT);
+        button.setBackground(iconButtonBackground());
+        button.setPadding(dp(9), dp(9), dp(9), dp(9));
+        button.setScaleType(ImageButton.ScaleType.CENTER);
         button.setOnClickListener(listener);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(label.length() > 1 ? 44 : 34), dp(40));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(38), dp(40));
         params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
         return button;
+    }
+
+    private GradientDrawable iconButtonBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.TRANSPARENT);
+        drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable addressBarBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.rgb(241, 245, 249));
+        drawable.setStroke(dp(1), BORDER);
+        drawable.setCornerRadius(dp(20));
+        return drawable;
     }
 
     private void createTab(String url, boolean select) {
@@ -327,13 +341,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void openFromAddressBar(boolean forceSearch) {
+    private void openFromAddressBar() {
         String input = addressBar.getText().toString().trim();
         if (input.isEmpty()) {
             return;
         }
         hideKeyboard();
-        String url = forceSearch || !looksLikeUrl(input) ? searchUrl(input) : normalizeUrl(input);
+        String url = looksLikeUrl(input) ? normalizeUrl(input) : searchUrl(input);
         openInCurrentTab(url);
     }
 
@@ -683,49 +697,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showSettingsDialog() {
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(8), dp(20), 0);
-
-        CheckBox newTab = new CheckBox(this);
-        newTab.setText("5ch links open in a new tab");
-        newTab.setTextColor(TEXT);
-        newTab.setTextSize(15);
-        newTab.setChecked(open5chLinksInNewTab());
-        content.addView(newTab);
-
-        TextView label = new TextView(this);
-        label.setText("Other links open with");
-        label.setTextColor(TEXT);
-        label.setTextSize(14);
-        label.setPadding(0, dp(12), 0, 0);
-        content.addView(label);
-
-        RadioGroup group = new RadioGroup(this);
-        group.setOrientation(RadioGroup.VERTICAL);
-        RadioButton browser = new RadioButton(this);
-        browser.setText("Browser app");
-        browser.setTextColor(TEXT);
-        browser.setId(View.generateViewId());
-        RadioButton inApp = new RadioButton(this);
-        inApp.setText("This app");
-        inApp.setTextColor(TEXT);
-        inApp.setId(View.generateViewId());
-        group.addView(browser);
-        group.addView(inApp);
-        group.check(openLinksInApp() ? inApp.getId() : browser.getId());
-        content.addView(group);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Settings")
-                .setView(content)
-                .setPositiveButton("Save", (dialog, which) -> preferences.edit()
-                        .putBoolean(PREF_5CH_NEW_TAB, newTab.isChecked())
-                        .putBoolean(PREF_LINKS_IN_APP, group.getCheckedRadioButtonId() == inApp.getId())
-                        .apply())
-                .setNegativeButton("Cancel", null)
-                .show();
+    private void openSettings() {
+        startActivity(new Intent(this, SettingsActivity.class));
     }
 
     private void goBack() {
@@ -1124,9 +1097,16 @@ public class MainActivity extends Activity {
 
     private String searchUrl(String query) {
         try {
-            return "https://find.5ch.net/search?STR="
-                    + URLEncoder.encode(query, "UTF-8")
-                    + "&TYPE=TITLE&BBS=ALL";
+            String encoded = URLEncoder.encode(query, "UTF-8");
+            String template = preferences.getString(PREF_SEARCH_TEMPLATE, DEFAULT_SEARCH_TEMPLATE);
+            if (template == null || template.trim().isEmpty()) {
+                template = DEFAULT_SEARCH_TEMPLATE;
+            }
+            if (template.contains("%s")) {
+                return template.replace("%s", encoded);
+            }
+            String separator = template.contains("?") ? "&" : "?";
+            return template + separator + "q=" + encoded;
         } catch (Exception error) {
             return HOME_URL;
         }
