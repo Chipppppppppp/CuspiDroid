@@ -138,6 +138,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (addressBar != null && addressBar.hasFocus()) {
+            clearAddressFocus();
+            return;
+        }
         if (!replyPopups.isEmpty()) {
             dismissTopReplyPopup();
             return;
@@ -538,12 +542,12 @@ public class MainActivity extends Activity {
     private void createTab(String url, boolean select, int returnToIndex) {
         CuspTab tab = new CuspTab();
         tab.title = "New tab";
-        tab.url = normalizeUrl(url);
+        tab.url = "";
         tab.returnToIndex = returnToIndex;
         tabs.add(tab);
         if (select) {
             switchToTab(tabs.size() - 1);
-            openInCurrentTab(tab.url);
+            openInCurrentTab(normalizeUrl(url));
         }
         renderTabs();
     }
@@ -584,6 +588,7 @@ public class MainActivity extends Activity {
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
                 tab.threadBottomOffset = item.optInt("threadBottomOffset", 0);
+                restoreNavigationHistory(tab, item);
                 if (NATIVE_THREAD.equals(tab.nativeKind)) {
                     tab.threadPage = threadPageFromJson(item.optJSONObject("threadPage"));
                     if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
@@ -594,6 +599,10 @@ public class MainActivity extends Activity {
                 } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
                     tab.readerMode = true;
                     tab.readerView = buildSearchHomeView();
+                }
+                if (tab.navigationHistory.isEmpty() && url != null && !url.isEmpty()) {
+                    tab.navigationHistory.add(url);
+                    tab.navigationIndex = 0;
                 }
                 tab.returnToIndex = -1;
                 tabs.add(tab);
@@ -634,6 +643,12 @@ public class MainActivity extends Activity {
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
                 item.put("threadBottomOffset", tab.threadBottomOffset);
+                item.put("navigationIndex", tab.navigationIndex);
+                JSONArray history = new JSONArray();
+                for (String historyUrl : tab.navigationHistory) {
+                    history.put(historyUrl);
+                }
+                item.put("navigationHistory", history);
                 if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
                     item.put("threadPage", threadPageToJson(tab.threadPage));
                 }
@@ -690,6 +705,24 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    private void restoreNavigationHistory(CuspTab tab, JSONObject item) {
+        JSONArray history = item.optJSONArray("navigationHistory");
+        if (history != null) {
+            for (int j = 0; j < history.length(); j++) {
+                String url = history.optString(j, "");
+                if (!url.isEmpty()) {
+                    tab.navigationHistory.add(url);
+                }
+            }
+        }
+        if (tab.navigationHistory.isEmpty()) {
+            tab.navigationIndex = -1;
+        } else {
+            tab.navigationIndex = Math.max(0, Math.min(item.optInt("navigationIndex", tab.navigationHistory.size() - 1),
+                    tab.navigationHistory.size() - 1));
+        }
+    }
+
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) {
             return;
@@ -698,6 +731,7 @@ public class MainActivity extends Activity {
         if (previous != null) {
             rememberThreadScroll(previous);
         }
+        clearAddressFocus();
         if (index != currentIndex && !replyPopups.isEmpty()) {
             dismissThreadPopups();
         }
@@ -783,6 +817,10 @@ public class MainActivity extends Activity {
     }
 
     private void openInCurrentTab(String url) {
+        openInCurrentTab(url, true);
+    }
+
+    private void openInCurrentTab(String url, boolean addHistory) {
         CuspTab tab = currentTab();
         if (tab == null) {
             createTab(url, true);
@@ -790,18 +828,43 @@ public class MainActivity extends Activity {
         }
         url = normalizeUrl(url);
         if (isThreadUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
             loadThread(tab, url);
             return;
         }
         if (isFindSearchUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
             loadSearchResults(tab, url);
             return;
         }
         if (isFindHomeUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
             loadSearchHome(tab, url);
             return;
         }
         openExternal(url);
+    }
+
+    private void recordNavigation(CuspTab tab, String url) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        if (tab.navigationIndex >= 0
+                && tab.navigationIndex < tab.navigationHistory.size()
+                && url.equals(tab.navigationHistory.get(tab.navigationIndex))) {
+            return;
+        }
+        while (tab.navigationHistory.size() > tab.navigationIndex + 1) {
+            tab.navigationHistory.remove(tab.navigationHistory.size() - 1);
+        }
+        tab.navigationHistory.add(url);
+        tab.navigationIndex = tab.navigationHistory.size() - 1;
     }
 
     private void loadThread(CuspTab tab, String url) {
@@ -1708,9 +1771,25 @@ public class MainActivity extends Activity {
     }
 
     private void goBack() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.navigationIndex <= 0 || tab.navigationIndex > tab.navigationHistory.size() - 1) {
+            clearAddressFocus();
+            return;
+        }
+        clearAddressFocus();
+        tab.navigationIndex--;
+        openInCurrentTab(tab.navigationHistory.get(tab.navigationIndex), false);
     }
 
     private void goForward() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.navigationIndex < 0 || tab.navigationIndex >= tab.navigationHistory.size() - 1) {
+            clearAddressFocus();
+            return;
+        }
+        clearAddressFocus();
+        tab.navigationIndex++;
+        openInCurrentTab(tab.navigationHistory.get(tab.navigationIndex), false);
     }
 
     private void reload() {
@@ -1719,10 +1798,13 @@ public class MainActivity extends Activity {
             return;
         }
         if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
+            clearAddressFocus();
             loadThread(tab, tab.url);
         } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
+            clearAddressFocus();
             loadSearchResults(tab, tab.url);
         } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
+            clearAddressFocus();
             loadSearchHome(tab, tab.url);
         }
     }
@@ -2411,6 +2493,8 @@ public class MainActivity extends Activity {
         boolean restoreFromBottom;
         int returnToIndex = -1;
         boolean readerMode;
+        List<String> navigationHistory = new ArrayList<>();
+        int navigationIndex = -1;
     }
 
     static class ThreadHistoryItem {
