@@ -200,10 +200,19 @@ public class MainActivity extends Activity {
         addressBar.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
                     && event.getAction() == KeyEvent.ACTION_UP;
+            boolean enterDown = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == KeyEvent.ACTION_DOWN;
             if (actionId == EditorInfo.IME_ACTION_SEARCH
                     || actionId == EditorInfo.IME_ACTION_GO
                     || actionId == EditorInfo.IME_ACTION_DONE
                     || enter) {
+                openFromAddressBar();
+                return true;
+            }
+            return enterDown;
+        });
+        addressBar.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP) {
                 openFromAddressBar();
                 return true;
             }
@@ -217,7 +226,7 @@ public class MainActivity extends Activity {
         });
         toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
-        toolbar.addView(iconButton(R.drawable.ic_add, "New tab", v -> createTab(HOME_URL, true)));
+        toolbar.addView(iconButton(R.drawable.ic_add, "New tab", v -> createBlankTab()));
         toolbar.addView(iconButton(R.drawable.ic_settings, "Settings", v -> openSettings()));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -273,6 +282,21 @@ public class MainActivity extends Activity {
             switchToTab(tabs.size() - 1);
             openInCurrentTab(tab.url);
         }
+        renderTabs();
+    }
+
+    private void createBlankTab() {
+        CuspTab tab = new CuspTab();
+        tab.title = "New tab";
+        tab.url = "";
+        tab.webView = new WebView(this);
+        configureWebView(tab);
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_SEARCH_HOME;
+        tab.readerView = buildSearchHomeView();
+        tabs.add(tab);
+        switchToTab(tabs.size() - 1);
+        startAddressEntry();
         renderTabs();
     }
 
@@ -341,7 +365,7 @@ public class MainActivity extends Activity {
             contentFrame.addView(tab.webView, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
-        addressBar.setText(tab.url);
+        addressBar.setText(tab.url == null ? "" : tab.url);
         renderTabs();
     }
 
@@ -389,7 +413,7 @@ public class MainActivity extends Activity {
         add.setColorFilter(TEXT);
         add.setBackgroundColor(Color.TRANSPARENT);
         add.setPadding(dp(8), dp(8), dp(8), dp(8));
-        add.setOnClickListener(v -> createTab(HOME_URL, true));
+        add.setOnClickListener(v -> createBlankTab());
         LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(dp(40), dp(36));
         addParams.setMargins(dp(3), 0, dp(8), 0);
         tabStrip.addView(add, addParams);
@@ -742,6 +766,12 @@ public class MainActivity extends Activity {
         box.setFocusable(true);
         box.setClickable(true);
 
+        Button jump = new Button(this);
+        jump.setText(targets.size() == 1 ? "Jump to >>" + targets.get(0).number : "Jump to first");
+        jump.setAllCaps(false);
+        box.addView(jump, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+
         for (Post post : targets) {
             TextView meta = new TextView(this);
             meta.setText(">>" + post.number + "  " + post.name + "  " + post.date);
@@ -754,12 +784,6 @@ public class MainActivity extends Activity {
             box.addView(body);
         }
 
-        Button jump = new Button(this);
-        jump.setText(targets.size() == 1 ? "Jump to >>" + targets.get(0).number : "Jump to first");
-        jump.setAllCaps(false);
-        box.addView(jump, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
-
         int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420));
         PopupWindow popup = new PopupWindow(box, width, ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
@@ -771,7 +795,16 @@ public class MainActivity extends Activity {
             jumpToPost(targets.get(0).number);
         });
         replyPopups.add(popup);
-        popup.showAsDropDown(anchor, dp(8), -dp(4));
+        int[] anchorLocation = new int[2];
+        anchor.getLocationOnScreen(anchorLocation);
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int x = Math.max(dp(8), Math.min(anchorLocation[0] + dp(8), screenWidth - width - dp(8)));
+        box.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int measuredHeight = box.getMeasuredHeight();
+        int y = Math.max(dp(8), anchorLocation[1] - measuredHeight - dp(8));
+        popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
     }
 
     private void dismissThreadPopups() {
@@ -943,7 +976,7 @@ public class MainActivity extends Activity {
         CuspTab removed = tabs.remove(index);
         removed.webView.destroy();
         if (tabs.isEmpty()) {
-            createTab(HOME_URL, true);
+            createBlankTab();
             return;
         }
         if (index < currentIndex) {
@@ -1473,6 +1506,24 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             Toast.makeText(this, "Opening...", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void showKeyboard() {
+        try {
+            InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            manager.showSoftInput(addressBar, InputMethodManager.SHOW_IMPLICIT);
+        } catch (Exception ignored) {
+            Toast.makeText(this, "Ready to search.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void startAddressEntry() {
+        addressBar.setText("");
+        addressBar.requestFocus();
+        addressBar.post(() -> {
+            addressBar.requestFocus();
+            showKeyboard();
+        });
     }
 
     private void clearAddressFocus() {
