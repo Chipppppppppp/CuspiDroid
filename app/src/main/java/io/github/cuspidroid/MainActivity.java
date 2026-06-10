@@ -30,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -324,8 +325,11 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             ThreadPage page;
             try {
-                String html = download(url);
-                page = parseThread(url, html);
+                page = downloadDatThread(url);
+                if (page == null) {
+                    String html = download(url);
+                    page = parseThread(url, html);
+                }
             } catch (Exception error) {
                 page = ThreadPage.error(url, error.getMessage());
             }
@@ -465,12 +469,7 @@ public class MainActivity extends Activity {
     }
 
     private String download(String urlText) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(urlText).openConnection();
-        connection.setConnectTimeout(12000);
-        connection.setReadTimeout(16000);
-        connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("User-Agent",
-                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+        HttpURLConnection connection = openConnectionFollowingRedirects(urlText, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
         int code = connection.getResponseCode();
         InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
         if (stream == null) {
@@ -484,6 +483,42 @@ public class MainActivity extends Activity {
                 charset = Charset.forName(matcher.group(1).trim());
             }
         }
+        String body = readText(stream, charset);
+        if (code >= 400) {
+            throw new IllegalStateException("HTTP " + code + "\n" + stripTags(body));
+        }
+        return body;
+    }
+
+    private HttpURLConnection openConnectionFollowingRedirects(String urlText, String userAgent) throws Exception {
+        String current = urlText;
+        for (int i = 0; i < 8; i++) {
+            HttpURLConnection connection = (HttpURLConnection) new URL(current).openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(12000);
+            connection.setReadTimeout(16000);
+            connection.setRequestProperty("User-Agent", userAgent);
+            connection.setRequestProperty("Accept", "*/*");
+            int code = connection.getResponseCode();
+            if (code == HttpURLConnection.HTTP_MOVED_PERM
+                    || code == HttpURLConnection.HTTP_MOVED_TEMP
+                    || code == HttpURLConnection.HTTP_SEE_OTHER
+                    || code == 307
+                    || code == 308) {
+                String location = connection.getHeaderField("Location");
+                connection.disconnect();
+                if (location == null || location.trim().isEmpty()) {
+                    throw new IllegalStateException("Redirect without Location");
+                }
+                current = new URL(new URL(current), location).toString();
+                continue;
+            }
+            return connection;
+        }
+        throw new IllegalStateException("Too many redirects");
+    }
+
+    private String readText(InputStream stream, Charset charset) throws Exception {
         BufferedReader reader = new BufferedReader(new InputStreamReader(stream, charset));
         StringBuilder builder = new StringBuilder();
         String line;
@@ -491,10 +526,109 @@ public class MainActivity extends Activity {
             builder.append(line).append('\n');
         }
         reader.close();
-        if (code >= 400) {
-            throw new IllegalStateException("HTTP " + code + "\n" + stripTags(builder.toString()));
-        }
         return builder.toString();
+    }
+
+    private byte[] readBytes(InputStream stream) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = stream.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+        }
+        stream.close();
+        return out.toByteArray();
+    }
+
+    private ThreadPage downloadDatThread(String threadUrl) throws Exception {
+        DatAddress address = datAddress(threadUrl);
+        if (address == null) {
+            HttpURLConnection canonical = openConnectionFollowingRedirects(
+                    threadUrl,
+                    "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+            String canonicalUrl = canonical.getURL().toString();
+            canonical.disconnect();
+            address = datAddress(canonicalUrl);
+        }
+        if (address == null) {
+            return null;
+        }
+        HttpURLConnection connection = openConnectionFollowingRedirects(
+                address.url,
+                "Monazilla/1.00 CuspiDroid/0.1");
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        if (stream == null) {
+            throw new IllegalStateException("HTTP " + code);
+        }
+        byte[] bytes = readBytes(stream);
+        String body = new String(bytes, Charset.forName("MS932"));
+        if (code >= 400) {
+            throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
+        }
+        return parseDatThread(threadUrl, body);
+    }
+
+    private DatAddress datAddress(String threadUrl) {
+        Uri uri = Uri.parse(threadUrl);
+        String host = uri.getHost();
+        if (host == null) {
+            return null;
+        }
+        String[] segments = uri.getPath() == null ? new String[0] : uri.getPath().split("/");
+        List<String> parts = new ArrayList<>();
+        for (String segment : segments) {
+            if (!segment.isEmpty()) {
+                parts.add(segment);
+            }
+        }
+
+        int testIndex = parts.indexOf("test");
+        if (testIndex < 0 || testIndex + 3 >= parts.size() || !"read.cgi".equals(parts.get(testIndex + 1))) {
+            return null;
+        }
+
+        String board = parts.get(testIndex + 2);
+        String key = parts.get(testIndex + 3);
+        String server = host.split("\\.")[0];
+        if ("itest".equals(server) && testIndex > 0) {
+            server = parts.get(testIndex - 1);
+        }
+        if ("itest".equals(server) || server.trim().isEmpty()) {
+            return null;
+        }
+
+        DatAddress address = new DatAddress();
+        address.url = "https://" + server + ".5ch.io/" + board + "/dat/" + key + ".dat";
+        return address;
+    }
+
+    private ThreadPage parseDatThread(String threadUrl, String dat) {
+        ThreadPage page = new ThreadPage();
+        page.url = threadUrl;
+        page.title = hostTitle(threadUrl);
+        String[] lines = dat.split("\\r?\\n");
+        int number = 1;
+        for (String line : lines) {
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            String[] fields = line.split("<>", -1);
+            if (fields.length < 4) {
+                continue;
+            }
+            Post post = new Post();
+            post.number = String.valueOf(number);
+            post.name = cleanText(fields[0]);
+            post.date = cleanText(fields[2]);
+            post.body = cleanText(fields[3]);
+            page.posts.add(post);
+            if (number == 1 && fields.length >= 5 && !cleanText(fields[4]).isEmpty()) {
+                page.title = cleanText(fields[4]);
+            }
+            number++;
+        }
+        return page;
     }
 
     private ThreadPage parseThread(String url, String html) {
@@ -504,7 +638,7 @@ public class MainActivity extends Activity {
         if (page.title == null || page.title.trim().isEmpty()) {
             page.title = hostTitle(url);
         }
-        page.title = cleanText(page.title).replace("５ちゃんねる", "5ch");
+        page.title = cleanText(page.title);
 
         parseModernPosts(html, page.posts);
         if (page.posts.isEmpty()) {
@@ -677,6 +811,10 @@ public class MainActivity extends Activity {
             page.error = message == null ? "Unknown error" : message;
             return page;
         }
+    }
+
+    private static class DatAddress {
+        String url;
     }
 
     private static class Post {
