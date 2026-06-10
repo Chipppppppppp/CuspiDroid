@@ -1205,7 +1205,10 @@ public class MainActivity extends Activity {
         return (view, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN
                     || event.getAction() == MotionEvent.ACTION_MOVE
-                    || event.getAction() == MotionEvent.ACTION_UP) {
+                    || event.getAction() == MotionEvent.ACTION_UP
+                    || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                view.getParent().requestDisallowInterceptTouchEvent(true);
+                scroll.getParent().requestDisallowInterceptTouchEvent(true);
                 return handleScrubberDrag(event, scroll, frame, thumb);
             }
             return false;
@@ -1215,8 +1218,13 @@ public class MainActivity extends Activity {
     private boolean handleScrubberDrag(MotionEvent event, ScrollView scroll, View frame, View thumb) {
         if (event.getAction() != MotionEvent.ACTION_DOWN
                 && event.getAction() != MotionEvent.ACTION_MOVE
-                && event.getAction() != MotionEvent.ACTION_UP) {
+                && event.getAction() != MotionEvent.ACTION_UP
+                && event.getAction() != MotionEvent.ACTION_CANCEL) {
             return false;
+        }
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            scroll.fling(0);
+            scroll.requestFocus();
         }
         int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight();
         if (range <= 0) {
@@ -2261,7 +2269,6 @@ public class MainActivity extends Activity {
             return null;
         }
         List<String> candidates = datCandidates(address);
-        Exception lastError = null;
         for (String candidate : candidates) {
             try {
                 HttpURLConnection connection = openConnectionFollowingRedirects(
@@ -2279,11 +2286,7 @@ public class MainActivity extends Activity {
                 }
                 return parseDatThread(threadUrl, body);
             } catch (Exception error) {
-                lastError = error;
             }
-        }
-        if (lastError != null) {
-            throw lastError;
         }
         return null;
     }
@@ -2296,6 +2299,14 @@ public class MainActivity extends Activity {
             String bucket = address.key.substring(0, 4);
             candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
             candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
+            candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/kako/" + bucket + "/" + address.key + ".dat");
+            candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/kako/" + bucket + "/" + address.key + ".dat");
+        }
+        if (address.key.length() >= 5) {
+            String bucket4 = address.key.substring(0, 4);
+            String bucket5 = address.key.substring(0, 5);
+            candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
+            candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
         }
         return candidates;
     }
