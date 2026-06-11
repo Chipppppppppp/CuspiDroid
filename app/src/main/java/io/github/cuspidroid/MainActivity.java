@@ -15,8 +15,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.graphics.Rect;
-import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.text.Html;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -33,7 +31,6 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.LinearInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
@@ -1326,8 +1323,8 @@ public class MainActivity extends Activity {
                     hideCenterSpinner();
                 }
                 if (tab.threadBottomLoader != null) {
-                    stopBottomRefreshSpinner(tab.threadBottomLoader);
-                    tab.threadBottomLoader.animate().translationY(dp(96)).setDuration(140)
+                    setBottomRefreshSpinning(tab.threadBottomLoader, false);
+                    tab.threadBottomLoader.animate().translationY(dp(112)).setDuration(140)
                             .withEndAction(() -> {
                                 tab.threadBottomLoader.setVisibility(View.GONE);
                                 tab.threadBottomLoader.setRotation(0f);
@@ -1513,12 +1510,9 @@ public class MainActivity extends Activity {
         if (page.posts.isEmpty()) {
             list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
         }
-        ImageView bottomLoader = new ImageView(this);
-        bottomLoader.setImageResource(R.drawable.ic_refresh);
-        bottomLoader.setColorFilter(TEAL);
-        bottomLoader.setScaleType(ImageView.ScaleType.CENTER);
+        FrameLayout bottomLoader = bottomRefreshLoader();
         bottomLoader.setVisibility(View.GONE);
-        bottomLoader.setTranslationY(dp(96));
+        bottomLoader.setTranslationY(dp(112));
         tab.threadBottomLoader = bottomLoader;
 
         enableBottomPullRefresh(scroll, bottomLoader, () -> {
@@ -1527,7 +1521,7 @@ public class MainActivity extends Activity {
         FrameLayout frame = new FrameLayout(this);
         frame.addView(withScrollScrubber(scroll), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(42), dp(42),
+        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(58), dp(58),
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         loaderParams.setMargins(0, 0, 0, dp(8));
         frame.addView(bottomLoader, loaderParams);
@@ -1556,6 +1550,22 @@ public class MainActivity extends Activity {
         card.addView(postContent(post.body, page));
         list.addView(card, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
         tab.postViews.put(post.number, card);
+    }
+
+    private FrameLayout bottomRefreshLoader() {
+        FrameLayout loader = new FrameLayout(this);
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_refresh);
+        arrow.setColorFilter(TEAL);
+        arrow.setScaleType(ImageView.ScaleType.CENTER);
+        loader.addView(arrow, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER));
+
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        spinner.setVisibility(View.GONE);
+        loader.addView(spinner, new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.CENTER));
+        return loader;
     }
 
     private boolean matchesNgWord(Post post) {
@@ -1732,17 +1742,18 @@ public class MainActivity extends Activity {
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshing = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
-            int hiddenOffset = dp(96);
-            int settledOffset = -dp(42);
-            int maxPull = dp(148);
-            int triggerPull = dp(92);
+            int hiddenOffset = dp(112);
+            int maxOffset = -dp(70);
+            int maxPull = dp(164);
+            int triggerPull = maxPull / 2;
+            int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 downY[0] = event.getY();
                 pullDistance[0] = 0;
                 startedAtBottom[0] = !scroll.canScrollVertically(1);
                 dragging[0] = false;
                 if (!refreshing[0]) {
-                    stopBottomRefreshSpinner(loader);
+                    setBottomRefreshSpinning(loader, false);
                     loader.clearAnimation();
                     loader.setVisibility(View.GONE);
                     loader.setTranslationY(hiddenOffset);
@@ -1758,7 +1769,8 @@ public class MainActivity extends Activity {
                         loader.setVisibility(View.VISIBLE);
                         float clampedPull = Math.min(pull, maxPull);
                         float progress = clampedPull / maxPull;
-                        loader.setTranslationY(hiddenOffset + (settledOffset - hiddenOffset) * progress);
+                        setBottomRefreshSpinning(loader, false);
+                        loader.setTranslationY(hiddenOffset + (maxOffset - hiddenOffset) * progress);
                         loader.setRotation(progress * 270f);
                         return true;
                     }
@@ -1775,8 +1787,9 @@ public class MainActivity extends Activity {
                 if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= triggerPull) {
                     refreshing[0] = true;
                     loader.setVisibility(View.VISIBLE);
-                    loader.animate().translationY(settledOffset).setDuration(90).withEndAction(() -> {
-                        startBottomRefreshSpinner(loader);
+                    loader.setRotation(0f);
+                    setBottomRefreshSpinning(loader, true);
+                    loader.animate().translationY(triggerOffset).setDuration(110).withEndAction(() -> {
                         refresh.run();
                         refreshing[0] = false;
                     }).start();
@@ -1785,7 +1798,7 @@ public class MainActivity extends Activity {
                 if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
                     loader.animate().translationY(hiddenOffset).setDuration(140)
                             .withEndAction(() -> {
-                                stopBottomRefreshSpinner(loader);
+                                setBottomRefreshSpinning(loader, false);
                                 loader.setVisibility(View.GONE);
                                 loader.setRotation(0f);
                             }).start();
@@ -1796,22 +1809,16 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void startBottomRefreshSpinner(View loader) {
-        stopBottomRefreshSpinner(loader);
-        ObjectAnimator animator = ObjectAnimator.ofFloat(loader, View.ROTATION, loader.getRotation(), loader.getRotation() + 360f);
-        animator.setDuration(650);
-        animator.setRepeatCount(ValueAnimator.INFINITE);
-        animator.setInterpolator(new LinearInterpolator());
-        loader.setTag(animator);
-        animator.start();
-    }
-
-    private void stopBottomRefreshSpinner(View loader) {
-        Object tag = loader.getTag();
-        if (tag instanceof ObjectAnimator) {
-            ((ObjectAnimator) tag).cancel();
-            loader.setTag(null);
+    private void setBottomRefreshSpinning(View loader, boolean spinning) {
+        if (!(loader instanceof ViewGroup)) {
+            return;
         }
+        ViewGroup group = (ViewGroup) loader;
+        if (group.getChildCount() < 2) {
+            return;
+        }
+        group.getChildAt(0).setVisibility(spinning ? View.GONE : View.VISIBLE);
+        group.getChildAt(1).setVisibility(spinning ? View.VISIBLE : View.GONE);
     }
 
     private View buildSearchHomeView(boolean fullHistory) {
