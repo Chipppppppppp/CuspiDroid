@@ -41,7 +41,7 @@ public class AuthActivity extends Activity {
 
         String url = getIntent().getStringExtra(EXTRA_URL);
         if (url == null || url.trim().isEmpty()) {
-            Toast.makeText(this, "開くURLがありません / No URL to open.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, MainActivity.text("\u958b\u304fURL\u304c\u3042\u308a\u307e\u305b\u3093", "No URL to open."), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }

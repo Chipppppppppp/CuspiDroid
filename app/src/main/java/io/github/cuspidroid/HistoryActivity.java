@@ -52,16 +52,16 @@ public class HistoryActivity extends Activity {
         topBar.setPadding(dp(18), 0, dp(10), 0);
         topBar.setBackground(topBarBackground());
         TextView title = new TextView(this);
-        title.setText("スレ履歴 / Thread History");
+        title.setText(MainActivity.text("\u30b9\u30ec\u5c65\u6b74", "Thread History"));
         title.setTextColor(TEXT);
         title.setTextSize(22);
         topBar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
-        ImageButton clear = iconButton(R.drawable.ic_delete, "履歴を全削除 / Clear history");
+        ImageButton clear = iconButton(R.drawable.ic_delete, MainActivity.text("\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear history"));
         clear.setOnClickListener(v -> {
             MainActivity.clearThreadHistory(preferences);
             renderHistory();
-            Toast.makeText(this, "スレ履歴を削除 / Thread history cleared.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u524a\u9664", "Thread history cleared."), Toast.LENGTH_SHORT).show();
         });
         topBar.addView(clear, new LinearLayout.LayoutParams(dp(46), dp(44)));
         root.addView(topBar, new FrameLayout.LayoutParams(
@@ -72,7 +72,7 @@ public class HistoryActivity extends Activity {
         list.removeAllViews();
         List<MainActivity.ThreadHistoryItem> history = MainActivity.readThreadHistory(preferences);
         if (history.isEmpty()) {
-            TextView empty = helperText("スレ履歴なし / No thread history.");
+            TextView empty = helperText(MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history."));
             list.addView(empty);
             return;
         }
@@ -87,7 +87,7 @@ public class HistoryActivity extends Activity {
             text.setTextColor(TEXT);
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-            ImageButton delete = iconButton(R.drawable.ic_close, "履歴を削除 / Delete history item");
+            ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history item"));
             delete.setOnClickListener(v -> {
                 MainActivity.removeThreadHistory(preferences, item.url);
                 renderHistory();

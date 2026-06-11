@@ -121,6 +121,10 @@ public class MainActivity extends Activity {
     private boolean tabOverviewVisible;
     private View imageOverlay;
 
+    static String text(String ja, String en) {
+        return Locale.JAPANESE.getLanguage().equals(Locale.getDefault().getLanguage()) ? ja : en;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -231,15 +235,13 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         suggestionsPanel = new LinearLayout(this);
         suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
-        suggestionsPanel.setBackground(menuBackground());
-        suggestionsPanel.setPadding(dp(4), dp(4), dp(4), dp(4));
+        suggestionsPanel.setBackgroundColor(Color.WHITE);
+        suggestionsPanel.setPadding(dp(12), dp(12), dp(12), dp(12));
         suggestionsPanel.setElevation(dp(12));
         suggestionsPanel.setVisibility(View.GONE);
         FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        suggestionsParams.gravity = Gravity.BOTTOM;
-        suggestionsParams.leftMargin = dp(8);
-        suggestionsParams.rightMargin = dp(8);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        suggestionsParams.gravity = Gravity.TOP;
         overlayFrame.addView(suggestionsPanel, suggestionsParams);
         root.addView(overlayFrame, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -259,7 +261,7 @@ public class MainActivity extends Activity {
         bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
-        bottomWriteButton = iconButton(R.drawable.ic_edit, "書き込み / Write", v -> showWriteDialog());
+        bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
         root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
@@ -276,7 +278,7 @@ public class MainActivity extends Activity {
         addressBar.setSingleLine(true);
         addressBar.setTextSize(15);
         addressBar.setTextColor(TEXT);
-        addressBar.setHint("検索またはURL / Search or URL");
+        addressBar.setHint(text("\u691c\u7d22\u307e\u305f\u306fURL", "Search or URL"));
         addressBar.setSelectAllOnFocus(true);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         addressBar.setInputType(android.text.InputType.TYPE_CLASS_TEXT
@@ -338,8 +340,8 @@ public class MainActivity extends Activity {
         tabCountButton = tabCountButton();
         toolbarButtons.add(tabCountButton);
         bottomToolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        addToolbarButton(bottomToolbar, R.drawable.ic_add, "新規タブ / New tab", v -> createBlankTab());
-        addToolbarButton(bottomToolbar, R.drawable.ic_more_vert, "メニュー / Menu", v -> showThreadMenu(v));
+        addToolbarButton(bottomToolbar, R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
+        addToolbarButton(bottomToolbar, R.drawable.ic_more_vert, text("\u30e1\u30cb\u30e5\u30fc", "Menu"), v -> showThreadMenu(v));
     }
 
     private ImageButton iconButton(int iconRes, String description, View.OnClickListener listener) {
@@ -363,7 +365,7 @@ public class MainActivity extends Activity {
         view.setTextSize(13);
         view.setGravity(Gravity.CENTER);
         view.setSingleLine(true);
-        view.setContentDescription("タブ / Tabs");
+        view.setContentDescription(text("\u30bf\u30d6", "Tabs"));
         view.setBackground(tabCountBackground(false));
         view.setOnClickListener(v -> showTabOverview());
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(30), dp(32));
@@ -409,7 +411,7 @@ public class MainActivity extends Activity {
         String query = allSelected ? "" : addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
         String clipboardLink = query.isEmpty() ? clipboardLink() : null;
         if (clipboardLink != null) {
-            TextView item = suggestionItem("クリップボードのリンクを貼付 / Paste link from clipboard", clipboardLink);
+            TextView item = suggestionItem(text("\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u306e\u30ea\u30f3\u30af\u3092\u8cbc\u308a\u4ed8\u3051", "Paste link from clipboard"), clipboardLink);
             item.setOnClickListener(v -> {
                 addressBar.setText(clipboardLink);
                 addressBar.selectAll();
@@ -425,7 +427,7 @@ public class MainActivity extends Activity {
             int count = 0;
             for (ThreadHistoryItem history : threadHistory()) {
                 if (history.title.toLowerCase(Locale.ROOT).contains(query)) {
-                    TextView item = suggestionItem("Thread history", history.title);
+                    TextView item = suggestionItem(text("\u30b9\u30ec\u5c65\u6b74", "Thread history"), history.title);
                     item.setOnClickListener(v -> {
                         addressBar.setText(history.url);
                         addressBar.setSelection(addressBar.getText().length());
@@ -442,7 +444,11 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        suggestionsPanel.setVisibility(suggestionsPanel.getChildCount() == 0 ? View.GONE : View.VISIBLE);
+        if (suggestionsPanel.getChildCount() == 0) {
+            TextView empty = suggestionItem(text("\u5019\u88dc\u306a\u3057", "No suggestions"), text("\u691c\u7d22\u8a9e\u307e\u305f\u306fURL\u3092\u5165\u529b", "Enter a search term or URL"));
+            suggestionsPanel.addView(empty);
+        }
+        suggestionsPanel.setVisibility(View.VISIBLE);
     }
 
     private TextView suggestionItem(String label, String value) {
@@ -499,17 +505,17 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setElevation(dp(12));
 
-        menu.addView(menuItem("コピー / Copy", v -> {
+        menu.addView(menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
             copyAddressText();
             popup.dismiss();
         }));
         menu.addView(verticalDivider());
-        menu.addView(menuItem("貼り付け / Paste", v -> {
+        menu.addView(menuItem(text("\u8cbc\u308a\u4ed8\u3051", "Paste"), v -> {
             pasteIntoAddressBar(false);
             popup.dismiss();
         }));
         menu.addView(verticalDivider());
-        menu.addView(menuItem("貼り付けて移動 / Paste and go", v -> {
+        menu.addView(menuItem(text("\u8cbc\u308a\u4ed8\u3051\u3066\u79fb\u52d5", "Paste and go"), v -> {
             pasteIntoAddressBar(true);
             popup.dismiss();
         }));
@@ -540,12 +546,12 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setElevation(dp(12));
 
-        menu.addView(menuIconItem(R.drawable.ic_arrow_forward, "WebViewで開く / Open in WebView", v -> {
+        menu.addView(menuIconItem(R.drawable.ic_arrow_forward, text("WebView\u3067\u958b\u304f", "Open in WebView"), v -> {
             popup.dismiss();
             openCurrentThreadInWebView();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_share, "共有 / Share", v -> {
+        menu.addView(menuIconItem(R.drawable.ic_share, text("\u5171\u6709", "Share"), v -> {
             popup.dismiss();
             shareCurrentThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -556,26 +562,40 @@ public class MainActivity extends Activity {
             menu.getChildAt(2).setAlpha(0.45f);
         }
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_arrow_back, "戻る / Back", v -> {
-            popup.dismiss();
-            goBack();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_arrow_forward, "進む / Forward", v -> {
-            popup.dismiss();
-            goForward();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_refresh, "更新 / Reload", v -> {
-            popup.dismiss();
-            reload();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_settings, "設定 / Settings", v -> {
+        menu.addView(menuIconItem(R.drawable.ic_settings, text("\u8a2d\u5b9a", "Settings"), v -> {
             popup.dismiss();
             openSettings();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        popup.showAsDropDown(anchor, -dp(176), -dp(310));
+        menu.addView(horizontalDivider());
+        menu.addView(menuNavigationRow(popup), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        popup.showAsDropDown(anchor, -dp(176), -dp(230));
+    }
+
+    private LinearLayout menuNavigationRow(PopupWindow popup) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.addView(menuIconButton(R.drawable.ic_arrow_back, text("\u623b\u308b", "Back"), v -> {
+            popup.dismiss();
+            goBack();
+        }));
+        row.addView(menuIconButton(R.drawable.ic_arrow_forward, text("\u9032\u3080", "Forward"), v -> {
+            popup.dismiss();
+            goForward();
+        }));
+        row.addView(menuIconButton(R.drawable.ic_refresh, text("\u66f4\u65b0", "Reload"), v -> {
+            popup.dismiss();
+            reload();
+        }));
+        return row;
+    }
+
+    private ImageButton menuIconButton(int iconRes, String description, View.OnClickListener listener) {
+        ImageButton button = iconButton(iconRes, description, listener);
+        button.setBackgroundColor(Color.TRANSPARENT);
+        button.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        return button;
     }
 
     private LinearLayout menuIconItem(int iconRes, String text, View.OnClickListener listener) {
@@ -698,7 +718,7 @@ public class MainActivity extends Activity {
 
     private void createTab(String url, boolean select, int returnToIndex, boolean backToNewTab) {
         CuspTab tab = new CuspTab();
-        tab.title = "新規タブ / New tab";
+        tab.title = text("\u65b0\u898f\u30bf\u30d6", "New tab");
         tab.url = "";
         tab.returnToIndex = returnToIndex;
         tab.backToNewTab = backToNewTab;
@@ -776,7 +796,7 @@ public class MainActivity extends Activity {
                 JSONObject item = array.getJSONObject(i);
                 String url = item.optString("url", "");
                 CuspTab tab = new CuspTab();
-                tab.title = item.optString("title", "新規タブ / New tab");
+                tab.title = item.optString("title", text("\u65b0\u898f\u30bf\u30d6", "New tab"));
                 tab.url = url;
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
@@ -1013,12 +1033,12 @@ public class MainActivity extends Activity {
         if (tabOverviewVisible) {
             bottomThreadBar.setVisibility(View.GONE);
         } else if (pendingNewTab) {
-            bottomThreadTitle.setText("新規タブ / New tab");
+            bottomThreadTitle.setText(text("\u65b0\u898f\u30bf\u30d6", "New tab"));
             bottomWriteButton.setVisibility(View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else if (tab != null) {
             String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
-            bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? "タブ / Tab" : title);
+            bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title);
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
@@ -1199,7 +1219,7 @@ public class MainActivity extends Activity {
                 }
                 if (result.posts.size() <= oldCount) {
                     tab.threadPage = result;
-                    Toast.makeText(this, "新着なし / No new posts.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, text("\u65b0\u7740\u306a\u3057", "No new posts."), Toast.LENGTH_SHORT).show();
                     return;
                 }
                 int insertIndex = tab.threadList.getChildCount();
@@ -1258,7 +1278,7 @@ public class MainActivity extends Activity {
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH_HOME;
         tab.url = url;
-        tab.title = "5ch検索 / 5ch Search";
+        tab.title = text("5ch\u691c\u7d22", "5ch Search");
         tab.threadPage = null;
         tab.searchPage = null;
         tab.threadScroll = null;
@@ -1353,7 +1373,7 @@ public class MainActivity extends Activity {
         }
 
         if (page.posts.isEmpty()) {
-            list.addView(postText("書き込みを解析できません / No posts were parsed. Use reload or open another URL.", page));
+            list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
         }
         ProgressBar bottomLoader = new ProgressBar(this);
         bottomLoader.setIndeterminate(true);
@@ -1444,7 +1464,7 @@ public class MainActivity extends Activity {
         }
 
         if (page.results.isEmpty()) {
-            list.addView(postText("検索結果なし / No search results.", null));
+            list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
         }
         return withScrollScrubber(scroll);
     }
@@ -1582,17 +1602,17 @@ public class MainActivity extends Activity {
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        list.addView(sectionTitleView("履歴 / History"));
+        list.addView(sectionTitleView(text("\u5c65\u6b74", "History")));
         List<ThreadHistoryItem> history = threadHistory();
         int limit = fullHistory ? history.size() : Math.min(history.size(), 8);
         if (history.isEmpty()) {
-            list.addView(helperLine("スレ履歴なし / No thread history."));
+            list.addView(helperLine(text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history.")));
         } else {
             for (int i = 0; i < limit; i++) {
                 list.addView(historyRow(history.get(i)));
             }
             if (!fullHistory && history.size() > limit) {
-                TextView more = actionRow("履歴をもっと見る / More history");
+                TextView more = actionRow(text("\u5c65\u6b74\u3092\u3082\u3063\u3068\u898b\u308b", "More history"));
                 more.setOnClickListener(v -> {
                     if (pendingNewTab) {
                         showPendingNewTab(true);
@@ -1610,24 +1630,24 @@ public class MainActivity extends Activity {
         }
 
         list.addView(sectionTitleView("5ch"));
-        addBoardFolder(list, "\u30cb\u30e5\u30fc\u30b9 / News", new String[][]{
-                {"ニュース速報+", "https://asahi.5ch.net/newsplus/"},
-                {"芸スポ速報+", "https://hayabusa9.5ch.net/mnewsplus/"},
-                {"ニュース速報", "https://hayabusa9.5ch.net/news/"}
+        addBoardFolder(list, text("\u30cb\u30e5\u30fc\u30b9", "News"), new String[][]{
+                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831+", "News+"), "https://asahi.5ch.net/newsplus/"},
+                {text("\u82b8\u30b9\u30dd\u901f\u5831+", "Entertainment News+"), "https://hayabusa9.5ch.net/mnewsplus/"},
+                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831", "Breaking News"), "https://hayabusa9.5ch.net/news/"}
         });
-        addBoardFolder(list, "\u6587\u5316 / Culture", new String[][]{
-                {"映画一般", "https://lavender.5ch.net/movie/"},
-                {"音楽一般", "https://lavender.5ch.net/music/"},
-                {"読書", "https://mevius.5ch.net/books/"}
+        addBoardFolder(list, text("\u6587\u5316", "Culture"), new String[][]{
+                {text("\u6620\u753b\u4e00\u822c", "Movies"), "https://lavender.5ch.net/movie/"},
+                {text("\u97f3\u697d\u4e00\u822c", "Music"), "https://lavender.5ch.net/music/"},
+                {text("\u8aad\u66f8", "Books"), "https://mevius.5ch.net/books/"}
         });
-        addBoardFolder(list, "\u6280\u8853 / Technology", new String[][]{
-                {"プログラマー", "https://medaka.5ch.net/prog/"},
+        addBoardFolder(list, text("\u6280\u8853", "Technology"), new String[][]{
+                {text("\u30d7\u30ed\u30b0\u30e9\u30de\u30fc", "Programming"), "https://medaka.5ch.net/prog/"},
                 {"Linux", "https://mao.5ch.net/linux/"},
-                {"自作PC", "https://egg.5ch.net/jisaku/"}
+                {text("\u81ea\u4f5cPC", "Custom PC"), "https://egg.5ch.net/jisaku/"}
         });
         List<BbsLink> customLinks = readBbsLinks(preferences);
         if (!customLinks.isEmpty()) {
-            list.addView(sectionTitleView("カスタムBBS / Custom BBS"));
+            list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
             for (BbsLink link : customLinks) {
                 TextView row = actionRow(link.name);
                 row.setOnClickListener(v -> openBoardUrl(link.url));
@@ -1646,10 +1666,10 @@ public class MainActivity extends Activity {
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        list.addView(sectionTitleView("履歴 / History"));
+        list.addView(sectionTitleView(text("\u5c65\u6b74", "History")));
         List<ThreadHistoryItem> history = threadHistory();
         if (history.isEmpty()) {
-            list.addView(helperLine("スレ履歴なし / No thread history."));
+            list.addView(helperLine(text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history.")));
         } else {
             for (ThreadHistoryItem item : history) {
                 list.addView(historyRow(item));
@@ -1693,16 +1713,16 @@ public class MainActivity extends Activity {
         root.addView(withScrollScrubber(scroll), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        list.addView(sectionTitleView("タブ / Tabs"));
+        list.addView(sectionTitleView(text("\u30bf\u30d6", "Tabs")));
         if (tabs.isEmpty()) {
-            list.addView(helperLine("タブなし / No tabs."));
+            list.addView(helperLine(text("\u30bf\u30d6\u306a\u3057", "No tabs.")));
         } else {
             for (int i = 0; i < tabs.size(); i++) {
                 list.addView(tabOverviewRow(tabs.get(i), i));
             }
         }
 
-        ImageButton add = iconButton(R.drawable.ic_add, "新規タブ / New tab", v -> createBlankTab());
+        ImageButton add = iconButton(R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
         add.setBackground(roundedDrawable(TEAL, TEAL, dp(22)));
         add.setColorFilter(Color.WHITE);
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
@@ -1723,12 +1743,12 @@ public class MainActivity extends Activity {
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
-        title.setText(tab.title == null || tab.title.trim().isEmpty() ? "タブ / Tab" : tab.title);
+        title.setText(tab.title == null || tab.title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : tab.title);
         title.setTextColor(TEXT);
         title.setTextSize(15);
         title.setSingleLine(true);
         TextView url = new TextView(this);
-        url.setText(tab.url == null || tab.url.trim().isEmpty() ? "新規タブ / New tab" : tab.url);
+        url.setText(tab.url == null || tab.url.trim().isEmpty() ? text("\u65b0\u898f\u30bf\u30d6", "New tab") : tab.url);
         url.setTextColor(Color.rgb(79, 91, 103));
         url.setTextSize(12);
         url.setSingleLine(true);
@@ -1736,7 +1756,7 @@ public class MainActivity extends Activity {
         textBox.addView(url);
         row.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-        ImageButton close = iconButton(R.drawable.ic_close, "タブを閉じる / Close tab", v -> closeTabFromOverview(index));
+        ImageButton close = iconButton(R.drawable.ic_close, text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab"), v -> closeTabFromOverview(index));
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
         closeParams.setMargins(dp(8), 0, 0, 0);
         row.addView(close, closeParams);
@@ -1887,7 +1907,7 @@ public class MainActivity extends Activity {
         frame.addView(spinner, spinnerParams);
 
         TextView error = new TextView(this);
-        error.setText("imgur画像を開く / Open imgur image");
+        error.setText(text("imgur\u753b\u50cf\u3092\u958b\u304f", "Open imgur image"));
         error.setTextColor(TEAL);
         error.setTextSize(14);
         error.setGravity(Gravity.CENTER);
@@ -1971,7 +1991,7 @@ public class MainActivity extends Activity {
         spinnerParams.gravity = Gravity.CENTER;
         overlay.addView(spinner, spinnerParams);
 
-        ImageButton close = iconButton(R.drawable.ic_close, "画像を閉じる / Close image", v -> {
+        ImageButton close = iconButton(R.drawable.ic_close, text("\u753b\u50cf\u3092\u9589\u3058\u308b", "Close image"), v -> {
             closeImageViewer();
         });
         close.setColorFilter(Color.WHITE);
@@ -1981,7 +2001,7 @@ public class MainActivity extends Activity {
         closeParams.setMargins(0, dp(18), dp(14), 0);
         overlay.addView(close, closeParams);
 
-        ImageButton open = iconButton(R.drawable.ic_arrow_forward, "画像リンクを開く / Open image link", v -> openExternal(originalUrl));
+        ImageButton open = iconButton(R.drawable.ic_arrow_forward, text("\u753b\u50cf\u30ea\u30f3\u30af\u3092\u958b\u304f", "Open image link"), v -> openExternal(originalUrl));
         open.setColorFilter(Color.WHITE);
         open.setBackgroundColor(Color.argb(80, 0, 0, 0));
         FrameLayout.LayoutParams openParams = new FrameLayout.LayoutParams(dp(48), dp(48));
@@ -2419,7 +2439,7 @@ public class MainActivity extends Activity {
     private void jumpToPost(int number) {
         View target = visiblePostViews.get(number);
         if (target == null || visibleThreadScroll == null) {
-            Toast.makeText(this, "参照先が表示されていません / Referenced post is not visible.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u53c2\u7167\u5148\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "Referenced post is not visible."), Toast.LENGTH_SHORT).show();
             return;
         }
         visibleThreadScroll.post(() -> visibleThreadScroll.smoothScrollTo(0, Math.max(0, target.getTop() - dp(8))));
@@ -2465,7 +2485,7 @@ public class MainActivity extends Activity {
     private void showWriteDialog() {
         CuspTab tab = currentTab();
         if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
-            Toast.makeText(this, "ここからは書き込めません / This thread cannot be written from here.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u3053\u3053\u304b\u3089\u306f\u66f8\u304d\u8fbc\u3081\u307e\u305b\u3093", "This thread cannot be written from here."), Toast.LENGTH_SHORT).show();
             return;
         }
         clearAddressFocus();
@@ -2494,7 +2514,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(tab.threadPage == null ? "書き込み / Write" : tab.threadPage.title)
+                .setTitle(tab.threadPage == null ? text("\u66f8\u304d\u8fbc\u307f", "Write") : tab.threadPage.title)
                 .setView(form)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Post", null)
@@ -2522,32 +2542,30 @@ public class MainActivity extends Activity {
     private void submitPost(CuspTab tab, String name, String mail, String message) {
         DatAddress address = datAddress(tab.url);
         if (address == null) {
-            Toast.makeText(this, "書き込み先が見つかりません / Cannot find thread write target.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5148\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Cannot find thread write target."), Toast.LENGTH_SHORT).show();
             return;
         }
         progressBar.setVisibility(View.VISIBLE);
-        Toast.makeText(this, "書き込み中 / Posting...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u4e2d", "Posting..."), Toast.LENGTH_SHORT).show();
         ioExecutor.execute(() -> {
             String result;
             boolean success = false;
             try {
                 result = postToThreadWithCookieConfirm(tab.url, address, name, mail, message);
                 String plain = cleanText(result);
-                success = plain.contains("書きこみました")
-                        || plain.contains("書き込みました")
-                        || plain.toLowerCase(Locale.ROOT).contains("write done");
+                success = postSucceeded(plain);
                 if (!success) {
                     result = shorten(plain.replace('\n', ' '), 220);
                 }
             } catch (Exception error) {
-                result = error.getMessage() == null ? "書き込み失敗 / Post failed." : error.getMessage();
+                result = error.getMessage() == null ? text("\u66f8\u304d\u8fbc\u307f\u5931\u6557", "Post failed.") : error.getMessage();
             }
             String messageText = result;
             boolean posted = success;
             runOnUiThread(() -> {
                 progressBar.setVisibility(View.GONE);
                 if (posted) {
-                    Toast.makeText(this, "書き込み完了 / Posted.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5b8c\u4e86", "Posted."), Toast.LENGTH_SHORT).show();
                     rememberThreadScroll(tab);
                     loadThread(tab, tab.url, false);
                 } else {
@@ -2565,12 +2583,12 @@ public class MainActivity extends Activity {
         message.setTextIsSelectable(true);
         message.setPadding(dp(20), dp(12), dp(20), 0);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("書き込み失敗 / Post failed")
+                .setTitle(text("\u66f8\u304d\u8fbc\u307f\u5931\u6557", "Post failed"))
                 .setView(message)
-                .setNegativeButton("コピー / Copy", (dialog, which) -> {
+                .setNegativeButton(text("\u30b3\u30d4\u30fc", "Copy"), (dialog, which) -> {
                     ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     if (manager != null) {
-                        manager.setPrimaryClip(ClipData.newPlainText("書き込み失敗 / Post failed", messageText));
+                        manager.setPrimaryClip(ClipData.newPlainText(text("\u66f8\u304d\u8fbc\u307f\u5931\u6557", "Post failed"), messageText));
                     }
                 })
                 .setPositiveButton("OK", null);
@@ -2585,7 +2603,7 @@ public class MainActivity extends Activity {
                 + "&" + formField("FROM", name)
                 + "&" + formField("mail", mail)
                 + "&" + formField("MESSAGE", message)
-                + "&" + formField("submit", "書き込む");
+                + "&" + formField("submit", "\u66f8\u304d\u8fbc\u3080");
         byte[] body = payload.getBytes(Charset.forName("MS932"));
         HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
         connection.setConnectTimeout(12000);
@@ -2905,7 +2923,7 @@ public class MainActivity extends Activity {
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
             startActivity(intent);
         } catch (ActivityNotFoundException error) {
-            Toast.makeText(this, "開けるアプリがありません / No app can open this link.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u958b\u3051\u308b\u30a2\u30d7\u30ea\u304c\u3042\u308a\u307e\u305b\u3093", "No app can open this link."), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -2916,7 +2934,7 @@ public class MainActivity extends Activity {
     private void openCurrentThreadInWebView() {
         CuspTab tab = currentTab();
         if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
-            Toast.makeText(this, "開くURLがありません / No thread URL to open.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u958b\u304fURL\u304c\u3042\u308a\u307e\u305b\u3093", "No thread URL to open."), Toast.LENGTH_SHORT).show();
             return;
         }
         Intent intent = new Intent(this, AuthActivity.class);
@@ -2927,7 +2945,7 @@ public class MainActivity extends Activity {
     private void shareCurrentThread() {
         CuspTab tab = currentTab();
         if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
-            Toast.makeText(this, "共有するURLがありません / No thread URL to share.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u5171\u6709\u3059\u308bURL\u304c\u3042\u308a\u307e\u305b\u3093", "No thread URL to share."), Toast.LENGTH_SHORT).show();
             return;
         }
         String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
@@ -2935,7 +2953,7 @@ public class MainActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");
         intent.putExtra(Intent.EXTRA_TEXT, body);
-        startActivity(Intent.createChooser(intent, "スレを共有 / Share thread"));
+        startActivity(Intent.createChooser(intent, text("\u30b9\u30ec\u3092\u5171\u6709", "Share thread")));
     }
 
     private void goBack() {
@@ -3780,9 +3798,9 @@ public class MainActivity extends Activity {
             query = "";
         }
         if (query == null || query.trim().isEmpty()) {
-            return "5ch検索 / 5ch Search";
+            return text("5ch\u691c\u7d22", "5ch Search");
         }
-        return "検索 / Search: " + query.trim();
+        return text("\u691c\u7d22: ", "Search: ") + query.trim();
     }
 
     private String cleanTitle(String title, String url) {
@@ -3804,7 +3822,7 @@ public class MainActivity extends Activity {
             InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             manager.hideSoftInputFromWindow(addressBar.getWindowToken(), 0);
         } catch (Exception ignored) {
-            Toast.makeText(this, "開いています / Opening...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u958b\u3044\u3066\u3044\u307e\u3059", "Opening..."), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -3813,7 +3831,7 @@ public class MainActivity extends Activity {
             InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             manager.showSoftInput(addressBar, InputMethodManager.SHOW_IMPLICIT);
         } catch (Exception ignored) {
-            Toast.makeText(this, "検索できます / Ready to search.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, text("\u691c\u7d22\u3067\u304d\u307e\u3059", "Ready to search."), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -4002,7 +4020,7 @@ public class MainActivity extends Activity {
         static ThreadPage error(String url, String message) {
             ThreadPage page = new ThreadPage();
             page.url = url;
-            page.title = "読み込み失敗 / Load failed";
+            page.title = text("\u8aad\u307f\u8fbc\u307f\u5931\u6557", "Load failed");
             page.error = message == null ? "Unknown error" : message;
             return page;
         }
@@ -4017,7 +4035,7 @@ public class MainActivity extends Activity {
         static SearchPage error(String url, String message) {
             SearchPage page = new SearchPage();
             page.url = url;
-            page.title = "検索失敗 / Search failed";
+            page.title = text("\u691c\u7d22\u5931\u6557", "Search failed");
             page.error = message == null ? "Unknown error" : message;
             return page;
         }
