@@ -1324,7 +1324,7 @@ public class MainActivity extends Activity {
                 }
                 if (tab.threadBottomLoader != null) {
                     setBottomRefreshSpinning(tab.threadBottomLoader, false);
-                    tab.threadBottomLoader.animate().translationY(dp(112)).setDuration(140)
+                    tab.threadBottomLoader.animate().translationY(dp(58)).setDuration(140)
                             .withEndAction(() -> {
                                 tab.threadBottomLoader.setVisibility(View.GONE);
                                 tab.threadBottomLoader.setRotation(0f);
@@ -1512,7 +1512,7 @@ public class MainActivity extends Activity {
         }
         FrameLayout bottomLoader = bottomRefreshLoader();
         bottomLoader.setVisibility(View.GONE);
-        bottomLoader.setTranslationY(dp(112));
+        bottomLoader.setTranslationY(dp(58));
         tab.threadBottomLoader = bottomLoader;
 
         enableBottomPullRefresh(scroll, bottomLoader, () -> {
@@ -1521,9 +1521,9 @@ public class MainActivity extends Activity {
         FrameLayout frame = new FrameLayout(this);
         frame.addView(withScrollScrubber(scroll), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(58), dp(58),
+        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(60), dp(60),
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        loaderParams.setMargins(0, 0, 0, dp(8));
+        loaderParams.setMargins(0, 0, 0, dp(2));
         frame.addView(bottomLoader, loaderParams);
         return frame;
     }
@@ -1557,9 +1557,8 @@ public class MainActivity extends Activity {
         ImageView arrow = new ImageView(this);
         arrow.setImageResource(R.drawable.ic_refresh);
         arrow.setColorFilter(TEAL);
-        arrow.setScaleType(ImageView.ScaleType.CENTER);
-        loader.addView(arrow, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER));
+        arrow.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        loader.addView(arrow, new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.CENTER));
 
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
@@ -1742,8 +1741,8 @@ public class MainActivity extends Activity {
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshing = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
-            int hiddenOffset = dp(112);
-            int maxOffset = -dp(70);
+            int hiddenOffset = dp(58);
+            int maxOffset = -dp(86);
             int maxPull = dp(164);
             int triggerPull = maxPull / 2;
             int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
