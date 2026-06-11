@@ -83,7 +83,10 @@ public class HistoryActivity extends Activity {
             row.setPadding(dp(10), dp(8), dp(8), dp(8));
             row.setBackground(rowBackground());
 
-            TextView text = helperText(item.title + "\n" + item.url);
+            String viewedAt = item.lastViewedAt > 0
+                    ? "\n" + MainActivity.text("\u6700\u7d42\u95b2\u89a7: ", "Last viewed: ") + MainActivity.formatHistoryTime(item.lastViewedAt)
+                    : "";
+            TextView text = helperText(item.title + "\n" + item.url + viewedAt);
             text.setTextColor(TEXT);
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 

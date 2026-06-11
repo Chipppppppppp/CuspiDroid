@@ -58,6 +58,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.FileOutputStream;
+import java.text.DateFormat;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -65,6 +66,8 @@ import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -1521,7 +1524,7 @@ public class MainActivity extends Activity {
         FrameLayout frame = new FrameLayout(this);
         frame.addView(withScrollScrubber(scroll), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(60), dp(60),
+        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(66), dp(66),
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         loaderParams.setMargins(0, 0, 0, dp(2));
         frame.addView(bottomLoader, loaderParams);
@@ -1558,12 +1561,12 @@ public class MainActivity extends Activity {
         arrow.setImageResource(R.drawable.ic_refresh);
         arrow.setColorFilter(TEAL);
         arrow.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        loader.addView(arrow, new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.CENTER));
+        loader.addView(arrow, new FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER));
 
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
         spinner.setVisibility(View.GONE);
-        loader.addView(spinner, new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.CENTER));
+        loader.addView(spinner, new FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER));
         return loader;
     }
 
@@ -1839,33 +1842,6 @@ public class MainActivity extends Activity {
             }
         }
 
-        list.addView(sectionTitleView(text("\u5c65\u6b74", "History")));
-        List<ThreadHistoryItem> history = threadHistory();
-        int limit = fullHistory ? history.size() : Math.min(history.size(), 8);
-        if (history.isEmpty()) {
-            list.addView(helperLine(text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history.")));
-        } else {
-            for (int i = 0; i < limit; i++) {
-                list.addView(historyRow(history.get(i)));
-            }
-            if (!fullHistory && history.size() > limit) {
-                TextView more = actionRow(text("\u5c65\u6b74\u3092\u3082\u3063\u3068\u898b\u308b", "More history"));
-                more.setOnClickListener(v -> {
-                    if (pendingNewTab) {
-                        showPendingNewTab(true);
-                    } else {
-                        CuspTab tab = currentTab();
-                        if (tab != null) {
-                            tab.readerView = buildHistoryView();
-                            contentFrame.removeAllViews();
-                            contentFrame.addView(tab.readerView);
-                        }
-                    }
-                });
-                list.addView(more);
-            }
-        }
-
         list.addView(sectionTitleView("5ch"));
         addBoardFolder(list, text("\u30cb\u30e5\u30fc\u30b9", "News"), new String[][]{
                 {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831+", "News+"), "https://asahi.5ch.net/newsplus/"},
@@ -1891,7 +1867,37 @@ public class MainActivity extends Activity {
                 list.addView(row);
             }
         }
+        addHistorySection(list, fullHistory);
         return withScrollScrubber(scroll);
+    }
+
+    private void addHistorySection(LinearLayout list, boolean fullHistory) {
+        list.addView(sectionTitleView(text("\u5c65\u6b74", "History")));
+        List<ThreadHistoryItem> history = threadHistory();
+        int limit = fullHistory ? history.size() : Math.min(history.size(), 8);
+        if (history.isEmpty()) {
+            list.addView(helperLine(text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history.")));
+            return;
+        }
+        for (int i = 0; i < limit; i++) {
+            list.addView(historyRow(history.get(i)));
+        }
+        if (!fullHistory && history.size() > limit) {
+            TextView more = actionRow(text("\u5c65\u6b74\u3092\u3082\u3063\u3068\u898b\u308b", "More history"));
+            more.setOnClickListener(v -> {
+                if (pendingNewTab) {
+                    showPendingNewTab(true);
+                } else {
+                    CuspTab tab = currentTab();
+                    if (tab != null) {
+                        tab.readerView = buildHistoryView();
+                        contentFrame.removeAllViews();
+                        contentFrame.addView(tab.readerView);
+                    }
+                }
+            });
+            list.addView(more);
+        }
     }
 
     private View buildHistoryView() {
@@ -2063,7 +2069,22 @@ public class MainActivity extends Activity {
         url.setTextColor(Color.rgb(79, 91, 103));
         url.setTextSize(12);
         row.addView(url);
+        if (item.lastViewedAt > 0) {
+            TextView viewedAt = new TextView(this);
+            viewedAt.setText(text("\u6700\u7d42\u95b2\u89a7: ", "Last viewed: ") + formatHistoryTime(item.lastViewedAt));
+            viewedAt.setTextColor(Color.rgb(100, 116, 139));
+            viewedAt.setTextSize(12);
+            row.addView(viewedAt);
+        }
         return row;
+    }
+
+    static String formatHistoryTime(long time) {
+        if (time <= 0) {
+            return "";
+        }
+        DateFormat format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.getDefault());
+        return format.format(new Date(time));
     }
 
     private void addBoardFolder(LinearLayout list, String folder, String[][] boards) {
@@ -3875,7 +3896,7 @@ public class MainActivity extends Activity {
                 history.remove(i);
             }
         }
-        history.add(0, new ThreadHistoryItem(title, url));
+        history.add(0, new ThreadHistoryItem(title, url, System.currentTimeMillis()));
         while (history.size() > 100) {
             history.remove(history.size() - 1);
         }
@@ -3885,6 +3906,7 @@ public class MainActivity extends Activity {
                 JSONObject object = new JSONObject();
                 object.put("title", item.title);
                 object.put("url", item.url);
+                object.put("lastViewedAt", item.lastViewedAt);
                 array.put(object);
             }
         } catch (Exception ignored) {
@@ -3893,7 +3915,9 @@ public class MainActivity extends Activity {
     }
 
     static List<ThreadHistoryItem> readThreadHistory(SharedPreferences preferences) {
-        return readThreadItems(preferences, PREF_HISTORY);
+        List<ThreadHistoryItem> history = readThreadItems(preferences, PREF_HISTORY);
+        Collections.sort(history, (left, right) -> Long.compare(right.lastViewedAt, left.lastViewedAt));
+        return history;
     }
 
     private static List<ThreadHistoryItem> readThreadItems(SharedPreferences preferences, String key) {
@@ -3907,8 +3931,10 @@ public class MainActivity extends Activity {
                 }
                 String title = object.optString("title", "").trim();
                 String url = object.optString("url", "").trim();
+                long fallbackViewedAt = System.currentTimeMillis() - i;
+                long lastViewedAt = object.optLong("lastViewedAt", fallbackViewedAt);
                 if (!title.isEmpty() && !url.isEmpty()) {
-                    history.add(new ThreadHistoryItem(title, url));
+                    history.add(new ThreadHistoryItem(title, url, lastViewedAt));
                 }
             }
         } catch (Exception ignored) {
@@ -3935,6 +3961,7 @@ public class MainActivity extends Activity {
                 JSONObject object = new JSONObject();
                 object.put("title", item.title);
                 object.put("url", item.url);
+                object.put("lastViewedAt", item.lastViewedAt);
                 array.put(object);
             }
         } catch (Exception ignored) {
@@ -3953,12 +3980,14 @@ public class MainActivity extends Activity {
             JSONObject added = new JSONObject();
             added.put("title", title == null || title.trim().isEmpty() ? url : title.trim());
             added.put("url", url);
+            added.put("lastViewedAt", System.currentTimeMillis());
             array.put(added);
             for (ThreadHistoryItem item : favorites) {
                 if (!url.equals(item.url)) {
                     JSONObject object = new JSONObject();
                     object.put("title", item.title);
                     object.put("url", item.url);
+                    object.put("lastViewedAt", item.lastViewedAt);
                     array.put(object);
                 }
             }
@@ -3976,6 +4005,7 @@ public class MainActivity extends Activity {
                     JSONObject object = new JSONObject();
                     object.put("title", item.title);
                     object.put("url", item.url);
+                    object.put("lastViewedAt", item.lastViewedAt);
                     array.put(object);
                 }
             }
@@ -4435,10 +4465,16 @@ public class MainActivity extends Activity {
     static class ThreadHistoryItem {
         final String title;
         final String url;
+        final long lastViewedAt;
 
         ThreadHistoryItem(String title, String url) {
+            this(title, url, 0);
+        }
+
+        ThreadHistoryItem(String title, String url, long lastViewedAt) {
             this.title = title;
             this.url = url;
+            this.lastViewedAt = lastViewedAt;
         }
     }
 
