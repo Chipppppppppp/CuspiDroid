@@ -1326,11 +1326,12 @@ public class MainActivity extends Activity {
                     hideCenterSpinner();
                 }
                 if (tab.threadBottomLoader != null) {
-                    setBottomRefreshSpinning(tab.threadBottomLoader, false);
+                    setBottomRefreshSpinning(tab.threadBottomLoader, true);
                     tab.threadBottomLoader.animate().translationY(dp(58)).setDuration(140)
                             .withEndAction(() -> {
                                 tab.threadBottomLoader.setVisibility(View.GONE);
                                 tab.threadBottomLoader.setRotation(0f);
+                                setBottomRefreshSpinning(tab.threadBottomLoader, false);
                             }).start();
                 }
                 if (result.error != null) {
