@@ -15,6 +15,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.graphics.Rect;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.text.Html;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -31,6 +33,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.LinearInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
@@ -1323,13 +1326,11 @@ public class MainActivity extends Activity {
                     hideCenterSpinner();
                 }
                 if (tab.threadBottomLoader != null) {
-                    tab.threadBottomLoader.animate().translationY(dp(72)).setDuration(140)
+                    stopBottomRefreshSpinner(tab.threadBottomLoader);
+                    tab.threadBottomLoader.animate().translationY(dp(96)).setDuration(140)
                             .withEndAction(() -> {
                                 tab.threadBottomLoader.setVisibility(View.GONE);
                                 tab.threadBottomLoader.setRotation(0f);
-                                if (tab.threadBottomLoader instanceof ProgressBar) {
-                                    ((ProgressBar) tab.threadBottomLoader).setIndeterminate(false);
-                                }
                             }).start();
                 }
                 if (result.error != null) {
@@ -1512,10 +1513,12 @@ public class MainActivity extends Activity {
         if (page.posts.isEmpty()) {
             list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
         }
-        ProgressBar bottomLoader = new ProgressBar(this);
-        bottomLoader.setIndeterminate(false);
+        ImageView bottomLoader = new ImageView(this);
+        bottomLoader.setImageResource(R.drawable.ic_refresh);
+        bottomLoader.setColorFilter(TEAL);
+        bottomLoader.setScaleType(ImageView.ScaleType.CENTER);
         bottomLoader.setVisibility(View.GONE);
-        bottomLoader.setTranslationY(dp(72));
+        bottomLoader.setTranslationY(dp(96));
         tab.threadBottomLoader = bottomLoader;
 
         enableBottomPullRefresh(scroll, bottomLoader, () -> {
@@ -1729,22 +1732,21 @@ public class MainActivity extends Activity {
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshing = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
-            int hiddenOffset = dp(72);
-            int settledOffset = -dp(18);
-            int threshold = dp(128);
+            int hiddenOffset = dp(96);
+            int settledOffset = -dp(42);
+            int maxPull = dp(148);
+            int triggerPull = dp(92);
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 downY[0] = event.getY();
                 pullDistance[0] = 0;
                 startedAtBottom[0] = !scroll.canScrollVertically(1);
                 dragging[0] = false;
                 if (!refreshing[0]) {
+                    stopBottomRefreshSpinner(loader);
                     loader.clearAnimation();
                     loader.setVisibility(View.GONE);
                     loader.setTranslationY(hiddenOffset);
                     loader.setRotation(0f);
-                    if (loader instanceof ProgressBar) {
-                        ((ProgressBar) loader).setIndeterminate(false);
-                    }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (startedAtBottom[0] && !refreshing[0]) {
@@ -1754,8 +1756,8 @@ public class MainActivity extends Activity {
                         dragging[0] = true;
                         loader.clearAnimation();
                         loader.setVisibility(View.VISIBLE);
-                        float clampedPull = Math.min(pull, threshold);
-                        float progress = clampedPull / threshold;
+                        float clampedPull = Math.min(pull, maxPull);
+                        float progress = clampedPull / maxPull;
                         loader.setTranslationY(hiddenOffset + (settledOffset - hiddenOffset) * progress);
                         loader.setRotation(progress * 270f);
                         return true;
@@ -1770,13 +1772,11 @@ public class MainActivity extends Activity {
                 if (refreshing[0]) {
                     return true;
                 }
-                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= threshold) {
+                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= triggerPull) {
                     refreshing[0] = true;
                     loader.setVisibility(View.VISIBLE);
-                    if (loader instanceof ProgressBar) {
-                        ((ProgressBar) loader).setIndeterminate(true);
-                    }
                     loader.animate().translationY(settledOffset).setDuration(90).withEndAction(() -> {
+                        startBottomRefreshSpinner(loader);
                         refresh.run();
                         refreshing[0] = false;
                     }).start();
@@ -1785,6 +1785,7 @@ public class MainActivity extends Activity {
                 if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
                     loader.animate().translationY(hiddenOffset).setDuration(140)
                             .withEndAction(() -> {
+                                stopBottomRefreshSpinner(loader);
                                 loader.setVisibility(View.GONE);
                                 loader.setRotation(0f);
                             }).start();
@@ -1793,6 +1794,24 @@ public class MainActivity extends Activity {
             }
             return false;
         });
+    }
+
+    private void startBottomRefreshSpinner(View loader) {
+        stopBottomRefreshSpinner(loader);
+        ObjectAnimator animator = ObjectAnimator.ofFloat(loader, View.ROTATION, loader.getRotation(), loader.getRotation() + 360f);
+        animator.setDuration(650);
+        animator.setRepeatCount(ValueAnimator.INFINITE);
+        animator.setInterpolator(new LinearInterpolator());
+        loader.setTag(animator);
+        animator.start();
+    }
+
+    private void stopBottomRefreshSpinner(View loader) {
+        Object tag = loader.getTag();
+        if (tag instanceof ObjectAnimator) {
+            ((ObjectAnimator) tag).cancel();
+            loader.setTag(null);
+        }
     }
 
     private View buildSearchHomeView(boolean fullHistory) {
@@ -4394,7 +4413,7 @@ public class MainActivity extends Activity {
         SearchPage searchPage;
         ScrollView threadScroll;
         LinearLayout threadList;
-        ProgressBar threadBottomLoader;
+        View threadBottomLoader;
         Map<Integer, View> postViews;
         String nativeKind;
         float threadScrollRatio;
