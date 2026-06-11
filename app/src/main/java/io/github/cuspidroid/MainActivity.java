@@ -14,8 +14,11 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.graphics.Rect;
 import android.text.Html;
+import android.text.TextUtils;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.Editable;
@@ -104,6 +107,7 @@ public class MainActivity extends Activity {
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private LinearLayout suggestionsPanel;
     private FrameLayout overlayFrame;
@@ -131,6 +135,7 @@ public class MainActivity extends Activity {
     private boolean tabOverviewVisible;
     private boolean addressBarTop;
     private boolean updatingThreadSearchInput;
+    private Runnable threadSearchHighlightTask;
     private View imageOverlay;
 
     static String text(String ja, String en) {
@@ -342,6 +347,8 @@ public class MainActivity extends Activity {
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
+        addressBar.setHorizontallyScrolling(false);
+        addressBar.setEllipsize(TextUtils.TruncateAt.END);
         addressBar.setTextSize(15);
         addressBar.setTextColor(TEXT);
         addressBar.setHint(text("\u691c\u7d22\u307e\u305f\u306fURL", "Search or URL"));
@@ -398,6 +405,9 @@ public class MainActivity extends Activity {
             }
         });
         addressBar.setOnLongClickListener(v -> {
+            if (addressBar.hasFocus()) {
+                return true;
+            }
             showAddressEditMenu();
             return true;
         });
@@ -478,6 +488,13 @@ public class MainActivity extends Activity {
         for (View button : toolbarButtons) {
             button.setVisibility(focused ? View.GONE : View.VISIBLE);
         }
+        if (bottomThreadBar != null) {
+            if (focused) {
+                bottomThreadBar.setVisibility(View.GONE);
+            } else {
+                updateBottomThreadBar(currentTab());
+            }
+        }
         if (focused) {
             updateSuggestions();
         } else if (suggestionsPanel != null) {
@@ -496,19 +513,6 @@ public class MainActivity extends Activity {
                 && addressBar.getSelectionEnd() == addressBar.getText().length();
         String query = allSelected ? "" : addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
         String clipboardLink = query.isEmpty() ? clipboardLink() : null;
-        if (clipboardLink != null) {
-            TextView item = suggestionItem(text("\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u306e\u30ea\u30f3\u30af\u3092\u8cbc\u308a\u4ed8\u3051", "Paste link from clipboard"), clipboardLink);
-            item.setOnClickListener(v -> {
-                addressBar.setText(clipboardLink);
-                addressBar.selectAll();
-                updateSuggestions();
-            });
-            if (suggestionsPanel.getChildCount() > 0) {
-                suggestionsPanel.addView(suggestionDivider());
-            }
-            suggestionsPanel.addView(item);
-        }
-
         if (!query.isEmpty()) {
             int count = 0;
             for (ThreadHistoryItem history : threadHistory()) {
@@ -529,6 +533,18 @@ public class MainActivity extends Activity {
                     }
                 }
             }
+        }
+        if (clipboardLink != null) {
+            if (suggestionsPanel.getChildCount() > 0) {
+                suggestionsPanel.addView(suggestionDivider());
+            }
+            TextView item = suggestionItem(text("\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u306e\u30ea\u30f3\u30af\u3092\u5165\u529b", "Enter link from clipboard"), clipboardLink);
+            item.setOnClickListener(v -> {
+                addressBar.setText(clipboardLink);
+                addressBar.selectAll();
+                updateSuggestions();
+            });
+            suggestionsPanel.addView(item);
         }
         if (suggestionsPanel.getChildCount() == 0) {
             TextView empty = suggestionItem(text("\u5019\u88dc\u306a\u3057", "No suggestions"), text("\u691c\u7d22\u8a9e\u307e\u305f\u306fURL\u3092\u5165\u529b", "Enter a search term or URL"));
@@ -3371,22 +3387,31 @@ public class MainActivity extends Activity {
         String needle = tab.threadSearchQuery.trim().toLowerCase(Locale.ROOT);
         if (needle.isEmpty()) {
             tab.threadSearchIndex = -1;
-            rerenderThreadHighlights(tab);
+            tab.threadSearchLastQuery = "";
+            tab.threadSearchLastCandidates = new ArrayList<>();
+            scheduleThreadHighlightRender(tab);
             updateThreadSearchCount(tab);
             return;
         }
-        for (Post post : tab.threadPage.posts) {
-            String haystack = post.body.toLowerCase(Locale.ROOT);
+        List<Post> candidates = tab.threadSearchLastQuery != null
+                && !tab.threadSearchLastQuery.isEmpty()
+                && needle.startsWith(tab.threadSearchLastQuery)
+                ? tab.threadSearchLastCandidates : tab.threadPage.posts;
+        tab.threadSearchLastCandidates = new ArrayList<>();
+        for (Post post : candidates) {
+            String haystack = post.searchBody();
             if (haystack.contains(needle)) {
                 tab.threadSearchMatches.add(post.number);
+                tab.threadSearchLastCandidates.add(post);
             }
         }
+        tab.threadSearchLastQuery = needle;
         if (tab.threadSearchMatches.isEmpty()) {
             tab.threadSearchIndex = -1;
         } else if (resetIndex || tab.threadSearchIndex < 0 || tab.threadSearchIndex >= tab.threadSearchMatches.size()) {
             tab.threadSearchIndex = 0;
         }
-        rerenderThreadHighlights(tab);
+        scheduleThreadHighlightRender(tab);
         updateThreadSearchCount(tab);
         if (resetIndex && tab.threadSearchIndex >= 0) {
             jumpToPost(tab.threadSearchMatches.get(tab.threadSearchIndex));
@@ -3410,7 +3435,14 @@ public class MainActivity extends Activity {
             tab.threadSearchOpen = false;
             tab.threadSearchQuery = "";
             tab.threadSearchMatches.clear();
+            tab.threadSearchLastQuery = "";
+            tab.threadSearchLastCandidates = new ArrayList<>();
+            tab.threadSearchGeneration++;
             tab.threadSearchIndex = -1;
+            if (threadSearchHighlightTask != null) {
+                mainHandler.removeCallbacks(threadSearchHighlightTask);
+                threadSearchHighlightTask = null;
+            }
             rerenderThreadHighlights(tab);
         }
         if (threadSearchInput != null) {
@@ -3474,6 +3506,19 @@ public class MainActivity extends Activity {
             card.removeViewAt(1);
             card.addView(postContent(post.body, tab.threadPage, tab.threadSearchQuery), 1);
         }
+    }
+
+    private void scheduleThreadHighlightRender(CuspTab tab) {
+        if (threadSearchHighlightTask != null) {
+            mainHandler.removeCallbacks(threadSearchHighlightTask);
+        }
+        int generation = ++tab.threadSearchGeneration;
+        threadSearchHighlightTask = () -> {
+            if (tab == currentTab() && tab.threadSearchGeneration == generation) {
+                rerenderThreadHighlights(tab);
+            }
+        };
+        mainHandler.postDelayed(threadSearchHighlightTask, 180);
     }
 
     private void searchNextThread() {
@@ -4554,6 +4599,9 @@ public class MainActivity extends Activity {
         boolean threadSearchOpen;
         String threadSearchQuery = "";
         List<Integer> threadSearchMatches = new ArrayList<>();
+        String threadSearchLastQuery = "";
+        List<Post> threadSearchLastCandidates = new ArrayList<>();
+        int threadSearchGeneration;
         int threadSearchIndex = -1;
         int returnToIndex = -1;
         boolean backToNewTab;
@@ -4653,5 +4701,13 @@ public class MainActivity extends Activity {
         String name;
         String date;
         String body;
+        String cachedSearchBody;
+
+        String searchBody() {
+            if (cachedSearchBody == null) {
+                cachedSearchBody = body == null ? "" : body.toLowerCase(Locale.ROOT);
+            }
+            return cachedSearchBody;
+        }
     }
 }
