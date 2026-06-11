@@ -105,6 +105,7 @@ public class MainActivity extends Activity {
     private FrameLayout contentFrame;
     private ProgressBar progressBar;
     private LinearLayout bottomThreadBar;
+    private LinearLayout bottomToolbar;
     private TextView bottomThreadTitle;
     private ImageButton bottomWriteButton;
     private TextView tabCountButton;
@@ -158,17 +159,17 @@ public class MainActivity extends Activity {
             closeImageViewer();
             return;
         }
+        if (tabOverviewVisible) {
+            tabOverviewVisible = false;
+            switchToTab(currentIndex);
+            return;
+        }
         if (pendingNewTab) {
             if (pendingHistoryAll) {
                 showPendingNewTab(false);
                 return;
             }
             cancelPendingNewTab();
-            return;
-        }
-        if (tabOverviewVisible) {
-            tabOverviewVisible = false;
-            switchToTab(currentIndex);
             return;
         }
         if (addressBar != null && addressBar.hasFocus()) {
@@ -263,17 +264,17 @@ public class MainActivity extends Activity {
         root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
 
-        LinearLayout toolbar = new LinearLayout(this);
-        toolbar.setOrientation(LinearLayout.HORIZONTAL);
-        toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(dp(6), dp(5), dp(6), dp(5));
-        toolbar.setBackgroundColor(Color.rgb(242, 246, 249));
-        root.addView(toolbar, new LinearLayout.LayoutParams(
+        bottomToolbar = new LinearLayout(this);
+        bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomToolbar.setGravity(Gravity.CENTER_VERTICAL);
+        bottomToolbar.setPadding(dp(6), dp(5), dp(6), dp(5));
+        bottomToolbar.setBackgroundColor(Color.rgb(242, 246, 249));
+        root.addView(bottomToolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
 
-        addToolbarButton(toolbar, R.drawable.ic_arrow_back, "Back", v -> goBack());
-        addToolbarButton(toolbar, R.drawable.ic_arrow_forward, "Forward", v -> goForward());
-        addToolbarButton(toolbar, R.drawable.ic_refresh, "Reload", v -> reload());
+        addToolbarButton(bottomToolbar, R.drawable.ic_arrow_back, "Back", v -> goBack());
+        addToolbarButton(bottomToolbar, R.drawable.ic_arrow_forward, "Forward", v -> goForward());
+        addToolbarButton(bottomToolbar, R.drawable.ic_refresh, "Reload", v -> reload());
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
@@ -336,13 +337,13 @@ public class MainActivity extends Activity {
             showAddressEditMenu();
             return true;
         });
-        toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
+        bottomToolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
         tabCountButton = tabCountButton();
         toolbarButtons.add(tabCountButton);
-        toolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        addToolbarButton(toolbar, R.drawable.ic_add, "New tab", v -> createBlankTab());
-        addToolbarButton(toolbar, R.drawable.ic_more_vert, "Menu", v -> showThreadMenu(v));
+        bottomToolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        addToolbarButton(bottomToolbar, R.drawable.ic_add, "New tab", v -> createBlankTab());
+        addToolbarButton(bottomToolbar, R.drawable.ic_more_vert, "Menu", v -> showThreadMenu(v));
     }
 
     private ImageButton iconButton(int iconRes, String description, View.OnClickListener listener) {
@@ -354,7 +355,7 @@ public class MainActivity extends Activity {
         button.setPadding(dp(9), dp(9), dp(9), dp(9));
         button.setScaleType(ImageButton.ScaleType.CENTER);
         button.setOnClickListener(listener);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(38), dp(40));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(36));
         params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
         return button;
@@ -979,7 +980,9 @@ public class MainActivity extends Activity {
         if (bottomThreadBar == null || bottomThreadTitle == null || bottomWriteButton == null) {
             return;
         }
-        if (pendingNewTab) {
+        if (tabOverviewVisible) {
+            bottomThreadBar.setVisibility(View.GONE);
+        } else if (pendingNewTab) {
             bottomThreadTitle.setText("New tab");
             bottomWriteButton.setVisibility(View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
@@ -995,6 +998,9 @@ public class MainActivity extends Activity {
     }
 
     private void renderTabs() {
+        if (bottomToolbar != null) {
+            bottomToolbar.setVisibility(tabOverviewVisible ? View.GONE : View.VISIBLE);
+        }
         if (tabCountButton != null) {
             tabCountButton.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
             tabCountButton.setBackground(tabCountBackground(tabOverviewVisible));
@@ -1123,6 +1129,68 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void refreshThreadFromBottom(CuspTab tab) {
+        if (tab == null || tab.url == null || tab.url.isEmpty()) {
+            return;
+        }
+        progressBar.setVisibility(View.VISIBLE);
+        ioExecutor.execute(() -> {
+            ThreadPage page;
+            try {
+                page = downloadDatThread(tab.url);
+                if (page == null) {
+                    String html = download(tab.url);
+                    page = parseThread(tab.url, html);
+                }
+            } catch (Exception error) {
+                page = ThreadPage.error(tab.url, error.getMessage());
+            }
+            ThreadPage result = page;
+            runOnUiThread(() -> {
+                progressBar.setVisibility(View.GONE);
+                if (tab.threadBottomLoader != null) {
+                    tab.threadBottomLoader.animate().translationY(dp(56)).setDuration(140)
+                            .withEndAction(() -> tab.threadBottomLoader.setVisibility(View.GONE)).start();
+                }
+                if (result.error != null) {
+                    Toast.makeText(this, result.error, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                int oldCount = tab.threadPage == null ? 0 : tab.threadPage.posts.size();
+                if (oldCount <= 0 || tab.threadList == null || tab.postViews == null) {
+                    tab.threadPage = result;
+                    tab.postViews = new LinkedHashMap<>();
+                    tab.readerView = buildThreadView(result, tab);
+                    if (tab == currentTab()) {
+                        switchToTab(currentIndex);
+                        scrollCurrentThreadToBottom();
+                    }
+                    return;
+                }
+                if (result.posts.size() <= oldCount) {
+                    tab.threadPage = result;
+                    Toast.makeText(this, "No new posts.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                int insertIndex = tab.threadBottomLoader == null
+                        ? tab.threadList.getChildCount()
+                        : Math.max(0, tab.threadList.indexOfChild(tab.threadBottomLoader));
+                tab.threadPage = result;
+                for (int i = oldCount; i < result.posts.size(); i++) {
+                    addPostCard(tab.threadList, result, tab, result.posts.get(i), insertIndex++);
+                }
+                tab.title = result.title;
+                if (result.error == null && !result.posts.isEmpty()) {
+                    addThreadHistory(result.url, result.title);
+                }
+                if (tab == currentTab()) {
+                    scrollCurrentThreadToBottom();
+                }
+                renderTabs();
+            });
+        });
+    }
+
     private void loadSearchResults(CuspTab tab, String url) {
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH;
@@ -1233,6 +1301,7 @@ public class MainActivity extends Activity {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        tab.threadList = list;
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -1252,24 +1321,7 @@ public class MainActivity extends Activity {
         }
 
         for (Post post : page.posts) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(10), dp(8), dp(10), dp(10));
-            card.setBackgroundColor(Color.rgb(250, 251, 252));
-            LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            cardParams.setMargins(0, 0, 0, dp(8));
-
-            TextView meta = new TextView(this);
-            meta.setText(post.number + "  " + post.name + "  " + post.date);
-            meta.setTextColor(Color.rgb(79, 91, 103));
-            meta.setTextSize(12);
-            meta.setPadding(0, 0, 0, dp(5));
-            card.addView(meta);
-
-            card.addView(postContent(post.body, page));
-            list.addView(card, cardParams);
-            tab.postViews.put(post.number, card);
+            addPostCard(list, page, tab, post, list.getChildCount());
         }
 
         if (page.posts.isEmpty()) {
@@ -1278,17 +1330,38 @@ public class MainActivity extends Activity {
         ProgressBar bottomLoader = new ProgressBar(this);
         bottomLoader.setIndeterminate(true);
         bottomLoader.setVisibility(View.GONE);
+        bottomLoader.setTranslationY(dp(56));
+        tab.threadBottomLoader = bottomLoader;
         LinearLayout.LayoutParams loaderParams = new LinearLayout.LayoutParams(dp(42), dp(42));
         loaderParams.gravity = Gravity.CENTER_HORIZONTAL;
         loaderParams.setMargins(0, dp(4), 0, dp(8));
         list.addView(bottomLoader, loaderParams);
 
         enableBottomPullRefresh(scroll, list, bottomLoader, () -> {
-            rememberThreadScroll(tab);
-            tab.restoreFromBottom = true;
-            loadThread(tab, tab.url, false);
+            refreshThreadFromBottom(tab);
         });
         return withScrollScrubber(scroll);
+    }
+
+    private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(10), dp(8), dp(10), dp(10));
+        card.setBackgroundColor(Color.rgb(250, 251, 252));
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardParams.setMargins(0, 0, 0, dp(8));
+
+        TextView meta = new TextView(this);
+        meta.setText(post.number + "  " + post.name + "  " + post.date);
+        meta.setTextColor(Color.rgb(79, 91, 103));
+        meta.setTextSize(12);
+        meta.setPadding(0, 0, 0, dp(5));
+        card.addView(meta);
+
+        card.addView(postContent(post.body, page));
+        list.addView(card, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
+        tab.postViews.put(post.number, card);
     }
 
     private View buildSearchView(SearchPage page) {
@@ -1443,26 +1516,26 @@ public class MainActivity extends Activity {
                 startedAtBottom[0] = !scroll.canScrollVertically(1);
                 triggered[0] = false;
                 loader.setVisibility(View.GONE);
-                content.setTranslationY(0);
+                loader.setTranslationY(dp(56));
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (startedAtBottom[0]) {
                     float pull = Math.max(0, downY[0] - event.getY());
                     if (pull > dp(8)) {
                         loader.setVisibility(View.VISIBLE);
-                        content.setTranslationY(-Math.min(dp(72), pull * 0.45f));
+                        loader.setTranslationY(Math.max(0, dp(56) - pull * 0.55f));
                     }
                     if (!triggered[0] && pull > dp(116)) {
                         triggered[0] = true;
                         loader.setVisibility(View.VISIBLE);
-                        content.setTranslationY(-dp(72));
+                        loader.animate().translationY(0).setDuration(90).start();
                         refresh.run();
                         return true;
                     }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
                 if (!triggered[0]) {
-                    content.animate().translationY(0).setDuration(140).start();
-                    loader.setVisibility(View.GONE);
+                    loader.animate().translationY(dp(56)).setDuration(140)
+                            .withEndAction(() -> loader.setVisibility(View.GONE)).start();
                 }
             }
             return false;
@@ -2324,14 +2397,38 @@ public class MainActivity extends Activity {
     private void scrollCurrentThreadToBottom() {
         CuspTab tab = currentTab();
         ScrollView scroll = tab == null ? visibleThreadScroll : tab.threadScroll;
+        if (scroll == null && tab != null) {
+            scroll = findScrollView(tab.readerView);
+        }
+        if (scroll == null) {
+            scroll = findScrollView(contentFrame);
+        }
         if (scroll == null || scroll.getChildCount() == 0) {
             return;
         }
         clearAddressFocus();
-        scroll.post(() -> {
-            int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
-            scroll.smoothScrollTo(0, range);
+        final ScrollView targetScroll = scroll;
+        targetScroll.post(() -> {
+            int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
+            targetScroll.smoothScrollTo(0, range);
         });
+    }
+
+    private ScrollView findScrollView(View view) {
+        if (view instanceof ScrollView) {
+            return (ScrollView) view;
+        }
+        if (!(view instanceof ViewGroup)) {
+            return null;
+        }
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            ScrollView found = findScrollView(group.getChildAt(i));
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     private void showWriteDialog() {
@@ -3830,6 +3927,8 @@ public class MainActivity extends Activity {
         ThreadPage threadPage;
         SearchPage searchPage;
         ScrollView threadScroll;
+        LinearLayout threadList;
+        ProgressBar threadBottomLoader;
         Map<Integer, View> postViews;
         String nativeKind;
         float threadScrollRatio;
