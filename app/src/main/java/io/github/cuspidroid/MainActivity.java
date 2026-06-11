@@ -139,6 +139,7 @@ public class MainActivity extends Activity {
     private boolean updatingThreadSearchInput;
     private Runnable threadSearchHighlightTask;
     private View imageOverlay;
+    private View highlightedPostView;
 
     static String text(String ja, String en) {
         return Locale.JAPANESE.getLanguage().equals(Locale.getDefault().getLanguage()) ? ja : en;
@@ -236,6 +237,9 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            if (highlightedPostView != null) {
+                clearJumpHighlight();
+            }
             if (!replyPopups.isEmpty() && !isTouchInsideReplyPopup(event)) {
                 dismissTopReplyPopup();
                 return true;
@@ -1187,6 +1191,9 @@ public class MainActivity extends Activity {
         if (previous != null) {
             rememberThreadScroll(previous);
         }
+        if (highlightedPostView != null) {
+            clearJumpHighlight();
+        }
         clearAddressFocus();
         if (index != currentIndex && !replyPopups.isEmpty()) {
             dismissThreadPopups();
@@ -1411,10 +1418,10 @@ public class MainActivity extends Activity {
                 if (tab.threadBottomLoader != null) {
                     setBottomRefreshSpinning(tab.threadBottomLoader, true);
                     tab.threadBottomLoader.clearAnimation();
-                    tab.threadBottomLoader.setVisibility(View.GONE);
                     tab.threadBottomLoader.setTranslationY(dp(58));
                     tab.threadBottomLoader.setRotation(0f);
                     setBottomRefreshSpinning(tab.threadBottomLoader, false);
+                    tab.threadBottomLoader.setVisibility(View.GONE);
                 }
                 if (result.error != null) {
                     Toast.makeText(this, result.error, Toast.LENGTH_SHORT).show();
@@ -1479,17 +1486,25 @@ public class MainActivity extends Activity {
     }
 
     private void loadSearchResults(CuspTab tab, String url) {
+        loadSearchResults(tab, url, true);
+    }
+
+    private void loadSearchResults(CuspTab tab, String url, boolean foreground) {
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH;
         tab.url = url;
         tab.title = searchTitle(url);
-        tab.readerView = loadingView("");
+        if (foreground || tab.readerView == null) {
+            tab.readerView = loadingView("");
+        }
         tab.threadPage = null;
         tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
-        switchToTab(tabs.indexOf(tab));
-        progressBar.setVisibility(View.VISIBLE);
+        if (foreground) {
+            switchToTab(tabs.indexOf(tab));
+            progressBar.setVisibility(View.VISIBLE);
+        }
 
         ioExecutor.execute(() -> {
             SearchPage page;
@@ -1504,8 +1519,10 @@ public class MainActivity extends Activity {
                 tab.title = result.title;
                 tab.searchPage = result;
                 tab.readerView = buildSearchView(result);
-                progressBar.setVisibility(View.GONE);
-                if (tab == currentTab()) {
+                if (foreground) {
+                    progressBar.setVisibility(View.GONE);
+                }
+                if (tab == currentTab() && !tabOverviewVisible) {
                     switchToTab(currentIndex);
                 }
                 renderTabs();
@@ -1514,6 +1531,10 @@ public class MainActivity extends Activity {
     }
 
     private void loadSearchHome(CuspTab tab, String url) {
+        loadSearchHome(tab, url, true);
+    }
+
+    private void loadSearchHome(CuspTab tab, String url, boolean foreground) {
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH_HOME;
         tab.url = url;
@@ -1523,22 +1544,32 @@ public class MainActivity extends Activity {
         tab.threadScroll = null;
         tab.postViews = null;
         tab.readerView = buildSearchHomeView(true);
-        switchToTab(tabs.indexOf(tab));
+        if (foreground) {
+            switchToTab(tabs.indexOf(tab));
+        }
         renderTabs();
     }
 
     private void loadBoard(CuspTab tab, String url) {
+        loadBoard(tab, url, true);
+    }
+
+    private void loadBoard(CuspTab tab, String url, boolean foreground) {
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = url;
         tab.title = boardTitle(url);
-        tab.readerView = loadingView("");
+        if (foreground || tab.readerView == null) {
+            tab.readerView = loadingView("");
+        }
         tab.threadPage = null;
         tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
-        switchToTab(tabs.indexOf(tab));
-        progressBar.setVisibility(View.VISIBLE);
+        if (foreground) {
+            switchToTab(tabs.indexOf(tab));
+            progressBar.setVisibility(View.VISIBLE);
+        }
 
         ioExecutor.execute(() -> {
             SearchPage page;
@@ -1552,8 +1583,10 @@ public class MainActivity extends Activity {
                 tab.title = result.title;
                 tab.searchPage = result;
                 tab.readerView = buildSearchView(result);
-                progressBar.setVisibility(View.GONE);
-                if (tab == currentTab()) {
+                if (foreground) {
+                    progressBar.setVisibility(View.GONE);
+                }
+                if (tab == currentTab() && !tabOverviewVisible) {
                     switchToTab(currentIndex);
                 }
                 renderTabs();
@@ -2988,7 +3021,25 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u53c2\u7167\u5148\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "Referenced post is not visible."), Toast.LENGTH_SHORT).show();
             return;
         }
-        visibleThreadScroll.post(() -> visibleThreadScroll.smoothScrollTo(0, Math.max(0, target.getTop() - dp(8))));
+        visibleThreadScroll.post(() -> {
+            visibleThreadScroll.smoothScrollTo(0, Math.max(0, target.getTop() - dp(8)));
+            highlightPost(target);
+        });
+    }
+
+    private void highlightPost(View target) {
+        clearJumpHighlight();
+        highlightedPostView = target;
+        target.setBackgroundColor(Color.rgb(187, 247, 208));
+    }
+
+    private void clearJumpHighlight() {
+        if (highlightedPostView == null) {
+            return;
+        }
+        CuspTab tab = currentTab();
+        refreshUnreadColors(tab);
+        highlightedPostView = null;
     }
 
     private void scrollCurrentThreadToBottom() {
@@ -3767,11 +3818,11 @@ public class MainActivity extends Activity {
             if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
                 refreshThreadFromBottom(tab, false, true);
             } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
-                loadSearchResults(tab, tab.url);
+                loadSearchResults(tab, tab.url, false);
             } else if (tab.readerMode && NATIVE_BOARD.equals(tab.nativeKind)) {
-                loadBoard(tab, tab.url);
+                loadBoard(tab, tab.url, false);
             } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
-                loadSearchHome(tab, tab.url);
+                loadSearchHome(tab, tab.url, false);
             }
         }
         if (wasOverview) {
