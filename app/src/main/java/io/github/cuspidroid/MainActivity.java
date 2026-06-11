@@ -289,9 +289,7 @@ public class MainActivity extends Activity {
         threadSearchInput.setHint(text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"));
         threadSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         threadSearchInput.setBackground(addressBarBackground());
-        threadSearchInput.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
-        threadSearchInput.setCompoundDrawablePadding(dp(8));
-        threadSearchInput.setPadding(dp(10), 0, dp(10), 0);
+        threadSearchInput.setPadding(dp(12), 0, dp(12), 0);
         threadSearchInput.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -313,10 +311,10 @@ public class MainActivity extends Activity {
         threadSearchCount.setTextColor(Color.rgb(79, 91, 103));
         threadSearchCount.setTextSize(12);
         threadSearchCount.setGravity(Gravity.CENTER);
-        threadSearchBar.addView(threadSearchCount, new LinearLayout.LayoutParams(dp(52), dp(40)));
-        threadSearchBar.addView(menuIconButton(R.drawable.ic_arrow_back, text("\u524d\u3078", "Previous"), v -> moveThreadSearch(-1)));
-        threadSearchBar.addView(menuIconButton(R.drawable.ic_arrow_forward, text("\u6b21\u3078", "Next"), v -> moveThreadSearch(1)));
-        threadSearchBar.addView(menuIconButton(R.drawable.ic_close, text("\u9589\u3058\u308b", "Close"), v -> closeThreadSearch()));
+        threadSearchBar.addView(threadSearchCount, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        threadSearchBar.addView(threadSearchButton(R.drawable.ic_arrow_up, text("\u524d\u3078", "Previous"), v -> moveThreadSearch(-1)));
+        threadSearchBar.addView(threadSearchButton(R.drawable.ic_arrow_down, text("\u6b21\u3078", "Next"), v -> moveThreadSearch(1)));
+        threadSearchBar.addView(threadSearchButton(R.drawable.ic_close, text("\u9589\u3058\u308b", "Close"), v -> closeThreadSearch()));
 
         bottomThreadBar = new LinearLayout(this);
         bottomThreadBar.setOrientation(LinearLayout.HORIZONTAL);
@@ -747,6 +745,14 @@ public class MainActivity extends Activity {
         ImageButton button = iconButton(iconRes, description, listener);
         button.setBackgroundColor(Color.TRANSPARENT);
         button.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        return button;
+    }
+
+    private ImageButton threadSearchButton(int iconRes, String description, View.OnClickListener listener) {
+        ImageButton button = iconButton(iconRes, description, listener);
+        button.setBackgroundColor(Color.TRANSPARENT);
+        button.setPadding(dp(8), dp(8), dp(8), dp(8));
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(34), dp(40)));
         return button;
     }
 
