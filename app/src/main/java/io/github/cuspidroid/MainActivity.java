@@ -1323,8 +1323,14 @@ public class MainActivity extends Activity {
                     hideCenterSpinner();
                 }
                 if (tab.threadBottomLoader != null) {
-                    tab.threadBottomLoader.animate().translationY(dp(56)).setDuration(140)
-                            .withEndAction(() -> tab.threadBottomLoader.setVisibility(View.GONE)).start();
+                    tab.threadBottomLoader.animate().translationY(dp(72)).setDuration(140)
+                            .withEndAction(() -> {
+                                tab.threadBottomLoader.setVisibility(View.GONE);
+                                tab.threadBottomLoader.setRotation(0f);
+                                if (tab.threadBottomLoader instanceof ProgressBar) {
+                                    ((ProgressBar) tab.threadBottomLoader).setIndeterminate(false);
+                                }
+                            }).start();
                 }
                 if (result.error != null) {
                     Toast.makeText(this, result.error, Toast.LENGTH_SHORT).show();
@@ -1507,9 +1513,9 @@ public class MainActivity extends Activity {
             list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
         }
         ProgressBar bottomLoader = new ProgressBar(this);
-        bottomLoader.setIndeterminate(true);
+        bottomLoader.setIndeterminate(false);
         bottomLoader.setVisibility(View.GONE);
-        bottomLoader.setTranslationY(dp(56));
+        bottomLoader.setTranslationY(dp(72));
         tab.threadBottomLoader = bottomLoader;
 
         enableBottomPullRefresh(scroll, bottomLoader, () -> {
@@ -1723,6 +1729,9 @@ public class MainActivity extends Activity {
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshing = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
+            int hiddenOffset = dp(72);
+            int settledOffset = -dp(18);
+            int threshold = dp(128);
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 downY[0] = event.getY();
                 pullDistance[0] = 0;
@@ -1731,8 +1740,11 @@ public class MainActivity extends Activity {
                 if (!refreshing[0]) {
                     loader.clearAnimation();
                     loader.setVisibility(View.GONE);
-                    loader.setTranslationY(dp(56));
+                    loader.setTranslationY(hiddenOffset);
                     loader.setRotation(0f);
+                    if (loader instanceof ProgressBar) {
+                        ((ProgressBar) loader).setIndeterminate(false);
+                    }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (startedAtBottom[0] && !refreshing[0]) {
@@ -1742,13 +1754,14 @@ public class MainActivity extends Activity {
                         dragging[0] = true;
                         loader.clearAnimation();
                         loader.setVisibility(View.VISIBLE);
-                        float clampedPull = Math.min(pull, dp(116));
-                        loader.setTranslationY(Math.max(0, dp(56) - clampedPull * 0.55f));
-                        loader.setRotation(pull * 3.2f);
+                        float clampedPull = Math.min(pull, threshold);
+                        float progress = clampedPull / threshold;
+                        loader.setTranslationY(hiddenOffset + (settledOffset - hiddenOffset) * progress);
+                        loader.setRotation(progress * 270f);
                         return true;
                     }
                     if (dragging[0]) {
-                        loader.setTranslationY(dp(56));
+                        loader.setTranslationY(hiddenOffset);
                         loader.setRotation(0f);
                         return true;
                     }
@@ -1757,18 +1770,24 @@ public class MainActivity extends Activity {
                 if (refreshing[0]) {
                     return true;
                 }
-                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= dp(116)) {
+                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= threshold) {
                     refreshing[0] = true;
                     loader.setVisibility(View.VISIBLE);
-                    loader.animate().translationY(0).setDuration(90).withEndAction(() -> {
+                    if (loader instanceof ProgressBar) {
+                        ((ProgressBar) loader).setIndeterminate(true);
+                    }
+                    loader.animate().translationY(settledOffset).setDuration(90).withEndAction(() -> {
                         refresh.run();
                         refreshing[0] = false;
                     }).start();
                     return true;
                 }
                 if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
-                    loader.animate().translationY(dp(56)).setDuration(140)
-                            .withEndAction(() -> loader.setVisibility(View.GONE)).start();
+                    loader.animate().translationY(hiddenOffset).setDuration(140)
+                            .withEndAction(() -> {
+                                loader.setVisibility(View.GONE);
+                                loader.setRotation(0f);
+                            }).start();
                     return dragging[0];
                 }
             }
