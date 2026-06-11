@@ -112,6 +112,7 @@ public class MainActivity extends Activity {
     private TextView bottomThreadTitle;
     private ImageButton bottomWriteButton;
     private TextView tabCountButton;
+    private View centerSpinnerOverlay;
     private SharedPreferences preferences;
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
@@ -620,7 +621,7 @@ public class MainActivity extends Activity {
         menu.addView(horizontalDivider());
         menu.addView(menuNavigationRow(popup), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
-        popup.showAsDropDown(anchor, -dp(176), addressBarTop ? dp(2) : -dp(230));
+        showMenuWithinScreen(popup, menu, anchor);
     }
 
     private LinearLayout menuNavigationRow(PopupWindow popup) {
@@ -637,9 +638,62 @@ public class MainActivity extends Activity {
         }));
         row.addView(menuIconButton(R.drawable.ic_refresh, text("\u66f4\u65b0", "Reload"), v -> {
             popup.dismiss();
-            reload();
+            reloadFromMenu();
         }));
         return row;
+    }
+
+    private void showMenuWithinScreen(PopupWindow popup, View menu, View anchor) {
+        int width = dp(220);
+        menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = menu.getMeasuredHeight();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int margin = dp(8);
+        int[] anchorLocation = new int[2];
+        anchor.getLocationOnScreen(anchorLocation);
+
+        int x = anchorLocation[0] + anchor.getWidth() - width;
+        x = Math.max(frame.left + margin, Math.min(x, frame.right - width - margin));
+
+        int below = anchorLocation[1] + anchor.getHeight() + dp(2);
+        int above = anchorLocation[1] - height - dp(2);
+        int y = addressBarTop ? below : above;
+        if (y + height > frame.bottom - margin) {
+            y = above;
+        }
+        if (y < frame.top + margin) {
+            y = frame.top + margin;
+        }
+        if (height > frame.height() - margin * 2) {
+            y = frame.top + margin;
+        }
+        popup.setClippingEnabled(true);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+    }
+
+    private void showCenterSpinner() {
+        if (overlayFrame == null) {
+            return;
+        }
+        hideCenterSpinner();
+        FrameLayout shade = new FrameLayout(this);
+        shade.setClickable(false);
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER);
+        shade.addView(spinner, spinnerParams);
+        centerSpinnerOverlay = shade;
+        overlayFrame.addView(shade, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private void hideCenterSpinner() {
+        if (centerSpinnerOverlay != null && overlayFrame != null) {
+            overlayFrame.removeView(centerSpinnerOverlay);
+        }
+        centerSpinnerOverlay = null;
     }
 
     private ImageButton menuIconButton(int iconRes, String description, View.OnClickListener listener) {
@@ -1235,14 +1289,23 @@ public class MainActivity extends Activity {
     }
 
     private void refreshThreadFromBottom(CuspTab tab) {
-        refreshThreadFromBottom(tab, false);
+        refreshThreadFromBottom(tab, false, false);
     }
 
     private void refreshThreadFromBottom(CuspTab tab, boolean forceScrollToBottom) {
+        refreshThreadFromBottom(tab, forceScrollToBottom, false);
+    }
+
+    private void refreshThreadFromBottom(CuspTab tab, boolean forceScrollToBottom, boolean centerSpinner) {
         if (tab == null || tab.url == null || tab.url.isEmpty()) {
+            if (centerSpinner) {
+                hideCenterSpinner();
+            }
             return;
         }
-        progressBar.setVisibility(View.VISIBLE);
+        if (centerSpinner) {
+            showCenterSpinner();
+        }
         ioExecutor.execute(() -> {
             ThreadPage page;
             try {
@@ -1256,7 +1319,9 @@ public class MainActivity extends Activity {
             }
             ThreadPage result = page;
             runOnUiThread(() -> {
-                progressBar.setVisibility(View.GONE);
+                if (centerSpinner) {
+                    hideCenterSpinner();
+                }
                 if (tab.threadBottomLoader != null) {
                     tab.threadBottomLoader.animate().translationY(dp(56)).setDuration(140)
                             .withEndAction(() -> tab.threadBottomLoader.setVisibility(View.GONE)).start();
@@ -1653,34 +1718,58 @@ public class MainActivity extends Activity {
 
     private void enableBottomPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
         final float[] downY = new float[1];
+        final float[] pullDistance = new float[1];
         final boolean[] startedAtBottom = new boolean[1];
-        final boolean[] triggered = new boolean[1];
+        final boolean[] dragging = new boolean[1];
+        final boolean[] refreshing = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 downY[0] = event.getY();
+                pullDistance[0] = 0;
                 startedAtBottom[0] = !scroll.canScrollVertically(1);
-                triggered[0] = false;
-                loader.setVisibility(View.GONE);
-                loader.setTranslationY(dp(56));
+                dragging[0] = false;
+                if (!refreshing[0]) {
+                    loader.clearAnimation();
+                    loader.setVisibility(View.GONE);
+                    loader.setTranslationY(dp(56));
+                    loader.setRotation(0f);
+                }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                if (startedAtBottom[0]) {
+                if (startedAtBottom[0] && !refreshing[0]) {
                     float pull = Math.max(0, downY[0] - event.getY());
-                    if (pull > dp(8)) {
+                    pullDistance[0] = pull;
+                    if (pull > dp(4)) {
+                        dragging[0] = true;
+                        loader.clearAnimation();
                         loader.setVisibility(View.VISIBLE);
-                        loader.setTranslationY(Math.max(0, dp(56) - pull * 0.55f));
+                        float clampedPull = Math.min(pull, dp(116));
+                        loader.setTranslationY(Math.max(0, dp(56) - clampedPull * 0.55f));
+                        loader.setRotation(pull * 3.2f);
+                        return true;
                     }
-                    if (!triggered[0] && pull > dp(116)) {
-                        triggered[0] = true;
-                        loader.setVisibility(View.VISIBLE);
-                        loader.animate().translationY(0).setDuration(90).start();
-                        refresh.run();
+                    if (dragging[0]) {
+                        loader.setTranslationY(dp(56));
+                        loader.setRotation(0f);
                         return true;
                     }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                if (!triggered[0]) {
+                if (refreshing[0]) {
+                    return true;
+                }
+                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= dp(116)) {
+                    refreshing[0] = true;
+                    loader.setVisibility(View.VISIBLE);
+                    loader.animate().translationY(0).setDuration(90).withEndAction(() -> {
+                        refresh.run();
+                        refreshing[0] = false;
+                    }).start();
+                    return true;
+                }
+                if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
                     loader.animate().translationY(dp(56)).setDuration(140)
                             .withEndAction(() -> loader.setVisibility(View.GONE)).start();
+                    return dragging[0];
                 }
             }
             return false;
@@ -3240,6 +3329,19 @@ public class MainActivity extends Activity {
         } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
             clearAddressFocus();
             loadSearchHome(tab, tab.url);
+        }
+    }
+
+    private void reloadFromMenu() {
+        CuspTab tab = currentTab();
+        if (tab == null) {
+            return;
+        }
+        if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
+            clearAddressFocus();
+            refreshThreadFromBottom(tab, false, true);
+        } else {
+            reload();
         }
     }
 
