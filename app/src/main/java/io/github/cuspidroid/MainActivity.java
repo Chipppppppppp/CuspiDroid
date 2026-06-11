@@ -1180,6 +1180,10 @@ public class MainActivity extends Activity {
     }
 
     private void refreshThreadFromBottom(CuspTab tab) {
+        refreshThreadFromBottom(tab, false);
+    }
+
+    private void refreshThreadFromBottom(CuspTab tab, boolean forceScrollToBottom) {
         if (tab == null || tab.url == null || tab.url.isEmpty()) {
             return;
         }
@@ -1213,13 +1217,17 @@ public class MainActivity extends Activity {
                     tab.readerView = buildThreadView(result, tab);
                     if (tab == currentTab()) {
                         switchToTab(currentIndex);
-                        scrollCurrentThreadToBottom();
+                        if (forceScrollToBottom) {
+                            scrollCurrentThreadToBottom();
+                        }
                     }
                     return;
                 }
                 if (result.posts.size() <= oldCount) {
                     tab.threadPage = result;
-                    Toast.makeText(this, text("\u65b0\u7740\u306a\u3057", "No new posts."), Toast.LENGTH_SHORT).show();
+                    if (forceScrollToBottom) {
+                        scrollCurrentThreadToBottom();
+                    }
                     return;
                 }
                 int insertIndex = tab.threadList.getChildCount();
@@ -1231,7 +1239,7 @@ public class MainActivity extends Activity {
                 if (result.error == null && !result.posts.isEmpty()) {
                     addThreadHistory(result.url, result.title);
                 }
-                if (tab == currentTab()) {
+                if (tab == currentTab() && forceScrollToBottom) {
                     scrollCurrentThreadToBottom();
                 }
                 renderTabs();
@@ -1929,19 +1937,21 @@ public class MainActivity extends Activity {
         boolean blur = blurImgurImages();
         final boolean[] started = new boolean[1];
         Runnable load = () -> ioExecutor.execute(() -> {
-            Bitmap bitmap = downloadBitmap(imageUrl, getResources().getDisplayMetrics().widthPixels, dp(176));
+            ImageLoadResult loaded = downloadBitmap(imageUrl, getResources().getDisplayMetrics().widthPixels, dp(176));
             runOnUiThread(() -> {
                 if (!frame.isAttachedToWindow()) {
                     return;
                 }
                 spinner.setVisibility(View.GONE);
+                Bitmap bitmap = loaded == null ? null : loaded.bitmap;
                 if (bitmap == null) {
                     error.setVisibility(View.VISIBLE);
                     return;
                 }
-                image.setImageBitmap(blur ? blurredBitmap(bitmap) : bitmap);
+                boolean shouldBlur = blur && !loaded.missing;
+                image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
                 image.setVisibility(View.VISIBLE);
-                if (blur) {
+                if (shouldBlur) {
                     positionRevealButton(frame, reveal, bitmap);
                     reveal.setVisibility(View.VISIBLE);
                     reveal.setOnClickListener(v -> {
@@ -2013,11 +2023,12 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ioExecutor.execute(() -> {
-            Bitmap bitmap = downloadBitmap(imageUrl,
+            ImageLoadResult loaded = downloadBitmap(imageUrl,
                     getResources().getDisplayMetrics().widthPixels * 3,
                     getResources().getDisplayMetrics().heightPixels * 3);
             runOnUiThread(() -> {
                 spinner.setVisibility(View.GONE);
+                Bitmap bitmap = loaded == null ? null : loaded.bitmap;
                 if (bitmap == null) {
                     Toast.makeText(this, "Image failed to load.", Toast.LENGTH_SHORT).show();
                     closeImageViewer();
@@ -2054,24 +2065,24 @@ public class MainActivity extends Activity {
         });
     }
 
-    private Bitmap downloadBitmap(String url, int maxWidth, int maxHeight) {
-        Bitmap bitmap = downloadBitmapOnce(url, maxWidth, maxHeight);
-        if (bitmap != null) {
-            return bitmap;
+    private ImageLoadResult downloadBitmap(String url, int maxWidth, int maxHeight) {
+        ImageLoadResult result = downloadBitmapOnce(url, maxWidth, maxHeight);
+        if (result != null) {
+            return result;
         }
         if (url.startsWith("https://i.imgur.com/") && url.endsWith(".jpg")) {
             String base = url.substring(0, url.length() - 4);
-            bitmap = downloadBitmapOnce(base + ".png", maxWidth, maxHeight);
-            if (bitmap != null) {
-                return bitmap;
+            result = downloadBitmapOnce(base + ".png", maxWidth, maxHeight);
+            if (result != null) {
+                return result;
             }
             return downloadBitmapOnce(base + ".webp", maxWidth, maxHeight);
         }
         return null;
     }
 
-    private Bitmap downloadBitmapOnce(String url, int maxWidth, int maxHeight) {
-        Bitmap cached = cachedBitmap(url, maxWidth, maxHeight);
+    private ImageLoadResult downloadBitmapOnce(String url, int maxWidth, int maxHeight) {
+        ImageLoadResult cached = cachedBitmap(url, maxWidth, maxHeight);
         if (cached != null) {
             return cached;
         }
@@ -2082,10 +2093,21 @@ public class MainActivity extends Activity {
             connection.setReadTimeout(15000);
             connection.setInstanceFollowRedirects(true);
             connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+            int code = connection.getResponseCode();
+            String contentType = connection.getContentType();
+            if (code == HttpURLConnection.HTTP_NOT_FOUND || isImgurMissingResponse(connection, contentType)) {
+                Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
+                return missing == null ? null : new ImageLoadResult(missing, true);
+            }
             try (InputStream stream = connection.getInputStream()) {
                 byte[] bytes = readBytes(stream);
+                if (looksLikeImgurMissing(bytes, contentType)) {
+                    Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
+                    return missing == null ? null : new ImageLoadResult(missing, true);
+                }
                 cacheImageBytes(url, bytes);
-                return decodeBitmap(bytes, maxWidth, maxHeight);
+                Bitmap bitmap = decodeBitmap(bytes, maxWidth, maxHeight);
+                return bitmap == null ? null : new ImageLoadResult(bitmap, false);
             }
         } catch (Exception ignored) {
             return null;
@@ -2096,11 +2118,12 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Bitmap cachedBitmap(String url, int maxWidth, int maxHeight) {
+    private ImageLoadResult cachedBitmap(String url, int maxWidth, int maxHeight) {
         try {
             File file = imageCacheFile(url);
             if (file.exists() && file.length() > 0) {
-                return decodeBitmap(readFileBytes(file), maxWidth, maxHeight);
+                Bitmap bitmap = decodeBitmap(readFileBytes(file), maxWidth, maxHeight);
+                return bitmap == null ? null : new ImageLoadResult(bitmap, false);
             }
         } catch (Exception ignored) {
         }
@@ -2114,6 +2137,52 @@ public class MainActivity extends Activity {
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, maxWidth, maxHeight);
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+    }
+
+    private boolean isImgurMissingResponse(HttpURLConnection connection, String contentType) {
+        try {
+            String url = connection.getURL().toString().toLowerCase(Locale.ROOT);
+            return url.contains("imgur.com/removed") || url.contains("i.imgur.com/removed");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean looksLikeImgurMissing(byte[] bytes, String contentType) {
+        if (bytes == null || bytes.length == 0) {
+            return false;
+        }
+        String type = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+        if (!type.contains("text") && !type.contains("html")) {
+            return false;
+        }
+        try {
+            String text = new String(bytes, Charset.forName("UTF-8")).toLowerCase(Locale.ROOT);
+            return text.contains("the image you are requesting does not exist or is no longer available")
+                    || text.contains("no longer available");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Bitmap missingImgurBitmap(int maxWidth, int maxHeight) {
+        int width = Math.max(dp(220), Math.min(Math.max(1, maxWidth), dp(520)));
+        int height = Math.max(dp(120), Math.min(Math.max(1, maxHeight), dp(176)));
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+        android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(Color.rgb(245, 247, 250));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setStyle(android.graphics.Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1));
+        paint.setColor(Color.rgb(203, 213, 225));
+        canvas.drawRect(dp(1), dp(1), width - dp(1), height - dp(1), paint);
+        paint.setStyle(android.graphics.Paint.Style.FILL);
+        paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+        paint.setColor(Color.rgb(79, 91, 103));
+        paint.setTextSize(dp(14));
+        canvas.drawText(text("\u753b\u50cf\u306f\u5229\u7528\u3067\u304d\u307e\u305b\u3093", "Image not available"), width / 2f, height / 2f, paint);
+        return bitmap;
     }
 
     private int sampleSize(int width, int height, int maxWidth, int maxHeight) {
@@ -2566,8 +2635,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
                 if (posted) {
                     Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5b8c\u4e86", "Posted."), Toast.LENGTH_SHORT).show();
-                    rememberThreadScroll(tab);
-                    loadThread(tab, tab.url, false);
+                    refreshThreadFromBottom(tab, true);
                 } else {
                     showCopyablePostFailure(messageText);
                 }
@@ -4050,6 +4118,16 @@ public class MainActivity extends Activity {
     private static class PostResult {
         String body;
         List<String> cookies = new ArrayList<>();
+    }
+
+    private static class ImageLoadResult {
+        final Bitmap bitmap;
+        final boolean missing;
+
+        ImageLoadResult(Bitmap bitmap, boolean missing) {
+            this.bitmap = bitmap;
+            this.missing = missing;
+        }
     }
 
     private static class DatAddress {
