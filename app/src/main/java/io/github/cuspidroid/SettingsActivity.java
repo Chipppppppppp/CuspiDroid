@@ -60,31 +60,31 @@ public class SettingsActivity extends Activity {
         setContentView(scroll);
 
         TextView title = new TextView(this);
-        title.setText("Settings");
+        title.setText("設定 / Settings");
         title.setTextColor(TEXT);
         title.setTextSize(24);
         title.setGravity(Gravity.START);
         title.setPadding(0, 0, 0, dp(16));
         root.addView(title);
 
-        root.addView(sectionTitle("Links"));
+        root.addView(sectionTitle("リンク / Links"));
         open5chInNewTab = new CheckBox(this);
-        open5chInNewTab.setText("Open 5ch links in a new tab");
+        open5chInNewTab.setText("5chリンクを新規タブで開く / Open 5ch links in a new tab");
         open5chInNewTab.setTextColor(TEXT);
         open5chInNewTab.setTextSize(16);
         root.addView(open5chInNewTab);
 
         blurImgurImages = new CheckBox(this);
-        blurImgurImages.setText("Blur imgur image previews until shown");
+        blurImgurImages.setText("imgur画像を表示までぼかす / Blur imgur previews until shown");
         blurImgurImages.setTextColor(TEXT);
         blurImgurImages.setTextSize(16);
         root.addView(blurImgurImages);
 
-        root.addView(sectionTitle("Default Search Engine"));
+        root.addView(sectionTitle("標準検索エンジン / Default Search Engine"));
         RadioGroup searchGroup = new RadioGroup(this);
         searchGroup.setOrientation(RadioGroup.VERTICAL);
         searchFind5chIo = radio("find.5ch.io");
-        searchCustom = radio("Custom URL template");
+        searchCustom = radio("カスタムURLテンプレート / Custom URL template");
         searchGroup.addView(searchFind5chIo);
         searchGroup.addView(searchCustom);
         root.addView(searchGroup);
@@ -104,15 +104,15 @@ public class SettingsActivity extends Activity {
         fieldParams.setMargins(0, dp(4), 0, dp(8));
         root.addView(customTemplate, fieldParams);
 
-        TextView hint = helperText("Use %s where the encoded query should be inserted.");
+        TextView hint = helperText("検索語を入れる場所に %s を使う / Use %s where the encoded query should be inserted.");
         root.addView(hint);
 
-        root.addView(sectionTitle("BBS Links"));
+        root.addView(sectionTitle("BBSリンク / BBS Links"));
         bbsName = new EditText(this);
         bbsName.setSingleLine(true);
         bbsName.setTextSize(14);
         bbsName.setTextColor(TEXT);
-        bbsName.setHint("Name, e.g. Edge");
+        bbsName.setHint("名前 例: Edge / Name, e.g. Edge");
         bbsName.setBackground(roundedField());
         bbsName.setPadding(dp(12), 0, dp(12), 0);
         root.addView(bbsName, fieldParams());
@@ -121,7 +121,7 @@ public class SettingsActivity extends Activity {
         bbsUrl.setSingleLine(true);
         bbsUrl.setTextSize(14);
         bbsUrl.setTextColor(TEXT);
-        bbsUrl.setHint("Board URL, e.g. https://example.net/live/");
+        bbsUrl.setHint("板URL 例: https://example.net/live/ / Board URL");
         bbsUrl.setImeOptions(EditorInfo.IME_ACTION_DONE);
         bbsUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
@@ -130,7 +130,7 @@ public class SettingsActivity extends Activity {
         root.addView(bbsUrl, fieldParams());
 
         addBbsButton = new Button(this);
-        addBbsButton.setText("Add BBS link");
+        addBbsButton.setText("BBSリンクを追加 / Add BBS link");
         addBbsButton.setAllCaps(false);
         addBbsButton.setOnClickListener(v -> addBbsLink());
         root.addView(addBbsButton, new LinearLayout.LayoutParams(
@@ -141,9 +141,9 @@ public class SettingsActivity extends Activity {
         root.addView(bbsList);
         renderBbsLinks();
 
-        root.addView(sectionTitle("Thread History"));
+        root.addView(sectionTitle("スレ履歴 / Thread History"));
         Button openHistory = new Button(this);
-        openHistory.setText("Manage thread history");
+        openHistory.setText("スレ履歴を管理 / Manage thread history");
         openHistory.setAllCaps(false);
         openHistory.setOnClickListener(v -> startActivity(new Intent(this, HistoryActivity.class)));
         root.addView(openHistory, new LinearLayout.LayoutParams(
@@ -214,7 +214,7 @@ public class SettingsActivity extends Activity {
             template = customTemplate.getText().toString().trim();
             if (template.isEmpty() || !template.contains("%s")) {
                 if (showError) {
-                    Toast.makeText(this, "Enter a custom search URL template containing %s.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "%s を含む検索URLテンプレートを入力 / Enter a search URL template containing %s.", Toast.LENGTH_SHORT).show();
                 }
                 return;
             }
@@ -264,7 +264,7 @@ public class SettingsActivity extends Activity {
         String name = bbsName.getText().toString().trim();
         String url = bbsUrl.getText().toString().trim();
         if (name.isEmpty() || url.isEmpty()) {
-            Toast.makeText(this, "Enter a BBS name and board URL.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "BBS名と板URLを入力 / Enter a BBS name and board URL.", Toast.LENGTH_SHORT).show();
             return;
         }
         if (editingBbsUrl != null) {
@@ -274,7 +274,7 @@ public class SettingsActivity extends Activity {
         editingBbsUrl = null;
         bbsName.setText("");
         bbsUrl.setText("");
-        addBbsButton.setText("Add BBS link");
+        addBbsButton.setText("BBSリンクを追加 / Add BBS link");
         renderBbsLinks();
     }
 
@@ -285,7 +285,7 @@ public class SettingsActivity extends Activity {
         bbsList.removeAllViews();
         java.util.List<MainActivity.BbsLink> links = MainActivity.readBbsLinks(preferences);
         if (links.isEmpty()) {
-            bbsList.addView(helperText("No BBS links."));
+            bbsList.addView(helperText("BBSリンクなし / No BBS links."));
             return;
         }
         for (MainActivity.BbsLink link : links) {
@@ -297,7 +297,7 @@ public class SettingsActivity extends Activity {
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             ImageButton edit = new ImageButton(this);
             edit.setImageResource(R.drawable.ic_edit);
-            edit.setContentDescription("Edit BBS link");
+            edit.setContentDescription("BBSリンクを編集 / Edit BBS link");
             edit.setColorFilter(TEXT);
             edit.setBackground(roundedField());
             edit.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -306,14 +306,14 @@ public class SettingsActivity extends Activity {
                 editingBbsUrl = link.url;
                 bbsName.setText(link.name);
                 bbsUrl.setText(link.url);
-                addBbsButton.setText("Update BBS link");
+                addBbsButton.setText("BBSリンクを更新 / Update BBS link");
             });
             LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(dp(46), dp(44));
             editParams.setMargins(dp(8), 0, 0, 0);
             row.addView(edit, editParams);
             ImageButton delete = new ImageButton(this);
             delete.setImageResource(R.drawable.ic_delete);
-            delete.setContentDescription("Delete BBS link");
+            delete.setContentDescription("BBSリンクを削除 / Delete BBS link");
             delete.setColorFilter(TEXT);
             delete.setBackground(roundedField());
             delete.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -324,7 +324,7 @@ public class SettingsActivity extends Activity {
                     editingBbsUrl = null;
                     bbsName.setText("");
                     bbsUrl.setText("");
-                    addBbsButton.setText("Add BBS link");
+                    addBbsButton.setText("BBSリンクを追加 / Add BBS link");
                 }
                 renderBbsLinks();
             });
