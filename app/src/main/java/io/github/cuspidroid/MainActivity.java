@@ -117,6 +117,7 @@ public class MainActivity extends Activity {
     private int currentIndex = -1;
     private boolean pendingNewTab;
     private boolean pendingHistoryAll;
+    private View imageOverlay;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -152,6 +153,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (imageOverlay != null) {
+            closeImageViewer();
+            return;
+        }
         if (pendingNewTab) {
             if (pendingHistoryAll) {
                 showPendingNewTab(false);
@@ -166,6 +171,12 @@ public class MainActivity extends Activity {
         }
         if (!replyPopups.isEmpty()) {
             dismissTopReplyPopup();
+            return;
+        }
+        CuspTab tab = currentTab();
+        if (tab != null && tab.backToNewTab && tab.navigationIndex <= 0) {
+            closeCurrentTab();
+            showPendingNewTab();
             return;
         }
         if (tabs.size() > 1) {
@@ -591,14 +602,19 @@ public class MainActivity extends Activity {
     }
 
     private void createTab(String url, boolean select) {
-        createTab(url, select, -1);
+        createTab(url, select, -1, false);
     }
 
     private void createTab(String url, boolean select, int returnToIndex) {
+        createTab(url, select, returnToIndex, false);
+    }
+
+    private void createTab(String url, boolean select, int returnToIndex, boolean backToNewTab) {
         CuspTab tab = new CuspTab();
         tab.title = "New tab";
         tab.url = "";
         tab.returnToIndex = returnToIndex;
+        tab.backToNewTab = backToNewTab;
         tabs.add(tab);
         if (select) {
             switchToTab(tabs.size() - 1);
@@ -972,7 +988,7 @@ public class MainActivity extends Activity {
         String url = urlLike ? normalizeUrl(input) : searchUrl(input);
         if (pendingNewTab) {
             pendingNewTab = false;
-            createTab(url, true);
+            createTab(url, true, -1, true);
             return;
         }
         openInCurrentTab(url);
@@ -1579,7 +1595,7 @@ public class MainActivity extends Activity {
     private void openBoardUrl(String url) {
         if (pendingNewTab) {
             pendingNewTab = false;
-            createTab(url, true);
+            createTab(url, true, -1, true);
         } else {
             openInCurrentTab(url);
         }
@@ -1677,6 +1693,7 @@ public class MainActivity extends Activity {
                 image.setImageBitmap(blur ? blurredBitmap(bitmap) : bitmap);
                 image.setVisibility(View.VISIBLE);
                 if (blur) {
+                    positionRevealButton(frame, reveal, bitmap);
                     reveal.setVisibility(View.VISIBLE);
                     reveal.setOnClickListener(v -> {
                         image.setImageBitmap(bitmap);
@@ -1711,6 +1728,7 @@ public class MainActivity extends Activity {
     private void showImageViewer(String originalUrl, String imageUrl) {
         clearAddressFocus();
         FrameLayout overlay = new FrameLayout(this);
+        imageOverlay = overlay;
         overlay.setBackgroundColor(Color.BLACK);
         overlay.setClickable(true);
 
@@ -1725,10 +1743,7 @@ public class MainActivity extends Activity {
         overlay.addView(spinner, spinnerParams);
 
         ImageButton close = iconButton(R.drawable.ic_close, "Close image", v -> {
-            ViewGroup parent = (ViewGroup) overlay.getParent();
-            if (parent != null) {
-                parent.removeView(overlay);
-            }
+            closeImageViewer();
         });
         close.setColorFilter(Color.WHITE);
         close.setBackgroundColor(Color.argb(80, 0, 0, 0));
@@ -1756,14 +1771,37 @@ public class MainActivity extends Activity {
                 spinner.setVisibility(View.GONE);
                 if (bitmap == null) {
                     Toast.makeText(this, "Image failed to load.", Toast.LENGTH_SHORT).show();
-                    ViewGroup parent = (ViewGroup) overlay.getParent();
-                    if (parent != null) {
-                        parent.removeView(overlay);
-                    }
+                    closeImageViewer();
                     return;
                 }
                 image.setImageBitmap(bitmap);
             });
+        });
+    }
+
+    private void closeImageViewer() {
+        if (imageOverlay == null) {
+            return;
+        }
+        ViewGroup parent = (ViewGroup) imageOverlay.getParent();
+        if (parent != null) {
+            parent.removeView(imageOverlay);
+        }
+        imageOverlay = null;
+    }
+
+    private void positionRevealButton(FrameLayout frame, Button reveal, Bitmap bitmap) {
+        frame.post(() -> {
+            int frameWidth = Math.max(1, frame.getWidth());
+            int frameHeight = Math.max(1, frame.getHeight());
+            float scale = Math.min(frameWidth / (float) bitmap.getWidth(), frameHeight / (float) bitmap.getHeight());
+            int imageWidth = Math.max(1, (int) (bitmap.getWidth() * scale));
+            int imageHeight = Math.max(1, (int) (bitmap.getHeight() * scale));
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) reveal.getLayoutParams();
+            params.gravity = Gravity.NO_GRAVITY;
+            params.leftMargin = Math.max(0, (imageWidth - params.width) / 2);
+            params.topMargin = Math.max(0, (imageHeight - params.height) / 2);
+            reveal.setLayoutParams(params);
         });
     }
 
@@ -1874,10 +1912,10 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap blurredBitmap(Bitmap bitmap) {
-        int smallWidth = Math.max(1, bitmap.getWidth() / 32);
-        int smallHeight = Math.max(1, bitmap.getHeight() / 32);
+        int smallWidth = Math.max(1, bitmap.getWidth() / 22);
+        int smallHeight = Math.max(1, bitmap.getHeight() / 22);
         Bitmap small = Bitmap.createScaledBitmap(bitmap, smallWidth, smallHeight, true);
-        small = boxBlur(small, 4);
+        small = boxBlur(small, 2);
         return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
     }
 
@@ -2305,15 +2343,46 @@ public class MainActivity extends Activity {
     private void openWebWriteAuth(String threadUrl, DatAddress address, String name, String mail, String message) {
         try {
             String endpoint = postEndpoint(address);
-            String payload = postPayload(postFields(address, name, mail, message), "\u66f8\u304d\u8fbc\u3080");
             Intent intent = new Intent(this, AuthActivity.class);
             intent.putExtra(AuthActivity.EXTRA_URL, endpoint);
-            intent.putExtra(AuthActivity.EXTRA_POST_BODY, payload);
             intent.putExtra(AuthActivity.EXTRA_REFERER, threadUrl);
+            intent.putExtra(AuthActivity.EXTRA_FORM_HTML, webWriteForm(endpoint, address, name, mail, message));
             startActivity(intent);
         } catch (Exception error) {
             Toast.makeText(this, "Could not open web write.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String webWriteForm(String endpoint, DatAddress address, String name, String mail, String message) {
+        return "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                + "<style>body{font-family:sans-serif;padding:16px;background:#fff;color:#1f2937}"
+                + "input,textarea,button{box-sizing:border-box;width:100%;font-size:16px;margin:8px 0;padding:10px}"
+                + "textarea{min-height:180px}button{background:#0f766e;color:white;border:0;border-radius:6px}</style>"
+                + "</head><body><h3>Web write/auth</h3>"
+                + "<p>Submit here, then complete the authentication shown by the BBS.</p>"
+                + "<form method=\"post\" action=\"" + htmlEscape(endpoint) + "\" accept-charset=\"Shift_JIS\">"
+                + hiddenInput("bbs", address.board)
+                + hiddenInput("key", address.key)
+                + hiddenInput("time", String.valueOf(System.currentTimeMillis() / 1000L))
+                + "<label>Name<input name=\"FROM\" value=\"" + htmlEscape(name) + "\"></label>"
+                + "<label>Mail<input name=\"mail\" value=\"" + htmlEscape(mail) + "\"></label>"
+                + "<label>Message<textarea name=\"MESSAGE\">" + htmlEscape(message) + "</textarea></label>"
+                + "<button type=\"submit\" name=\"submit\" value=\"\u66f8\u304d\u8fbc\u3080\">\u66f8\u304d\u8fbc\u3080</button>"
+                + "</form></body></html>";
+    }
+
+    private String hiddenInput(String name, String value) {
+        return "<input type=\"hidden\" name=\"" + htmlEscape(name) + "\" value=\"" + htmlEscape(value) + "\">";
+    }
+
+    private String htmlEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;")
+                .replace("\"", "&quot;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
@@ -2656,6 +2725,10 @@ public class MainActivity extends Activity {
         CuspTab tab = currentTab();
         if (tab == null || tab.navigationIndex <= 0 || tab.navigationIndex > tab.navigationHistory.size() - 1) {
             clearAddressFocus();
+            if (tab != null && tab.backToNewTab) {
+                closeCurrentTab();
+                showPendingNewTab();
+            }
             return;
         }
         clearAddressFocus();
@@ -3674,6 +3747,7 @@ public class MainActivity extends Activity {
         int threadBottomOffset;
         boolean restoreFromBottom;
         int returnToIndex = -1;
+        boolean backToNewTab;
         boolean readerMode;
         List<String> navigationHistory = new ArrayList<>();
         int navigationIndex = -1;

@@ -18,6 +18,7 @@ public class AuthActivity extends Activity {
     public static final String EXTRA_USER_AGENT = "auth_user_agent";
     public static final String EXTRA_POST_BODY = "auth_post_body";
     public static final String EXTRA_REFERER = "auth_referer";
+    public static final String EXTRA_FORM_HTML = "auth_form_html";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,6 +56,11 @@ public class AuthActivity extends Activity {
             return;
         }
         String normalized = normalize(url);
+        String html = getIntent().getStringExtra(EXTRA_FORM_HTML);
+        if (html != null && !html.isEmpty()) {
+            webView.loadDataWithBaseURL(normalized, html, "text/html", "UTF-8", normalized);
+            return;
+        }
         String postBody = getIntent().getStringExtra(EXTRA_POST_BODY);
         if (postBody != null && !postBody.isEmpty()) {
             webView.postUrl(normalized, postBody.getBytes(Charset.forName("MS932")));
