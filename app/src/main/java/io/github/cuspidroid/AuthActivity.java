@@ -11,10 +11,13 @@ import android.widget.Toast;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.nio.charset.Charset;
 
 public class AuthActivity extends Activity {
     public static final String EXTRA_URL = "auth_url";
     public static final String EXTRA_USER_AGENT = "auth_user_agent";
+    public static final String EXTRA_POST_BODY = "auth_post_body";
+    public static final String EXTRA_REFERER = "auth_referer";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,10 +55,19 @@ public class AuthActivity extends Activity {
             return;
         }
         String normalized = normalize(url);
+        String postBody = getIntent().getStringExtra(EXTRA_POST_BODY);
+        if (postBody != null && !postBody.isEmpty()) {
+            webView.postUrl(normalized, postBody.getBytes(Charset.forName("MS932")));
+            return;
+        }
         Map<String, String> headers = new HashMap<>();
         String cookie = cookieManager.getCookie(normalized);
         if (cookie != null && !cookie.trim().isEmpty()) {
             headers.put("Cookie", cookie);
+        }
+        String referer = getIntent().getStringExtra(EXTRA_REFERER);
+        if (referer != null && !referer.trim().isEmpty()) {
+            headers.put("Referer", referer);
         }
         webView.loadUrl(normalized, headers);
     }

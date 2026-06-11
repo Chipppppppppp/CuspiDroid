@@ -2260,20 +2260,19 @@ public class MainActivity extends Activity {
                     rememberThreadScroll(tab);
                     loadThread(tab, tab.url, false);
                 } else {
-                    showCopyablePostFailure(messageText);
+                    showCopyablePostFailure(messageText, tab.url, address, name, mail, message);
                 }
             });
         });
     }
 
-    private void showCopyablePostFailure(String messageText) {
+    private void showCopyablePostFailure(String messageText, String threadUrl, DatAddress address, String name, String mail, String body) {
         TextView message = new TextView(this);
         message.setText(messageText);
         message.setTextColor(TEXT);
         message.setTextSize(14);
         message.setTextIsSelectable(true);
         message.setPadding(dp(20), dp(12), dp(20), 0);
-        String authUrl = firstUrl(messageText);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle("Post failed")
                 .setView(message)
@@ -2284,9 +2283,7 @@ public class MainActivity extends Activity {
                     }
                 })
                 .setPositiveButton("OK", null);
-        if (authUrl != null) {
-            builder.setNeutralButton("Open auth", (dialog, which) -> openAuthUrl(authUrl));
-        }
+        builder.setNeutralButton("Web write/auth", (dialog, which) -> openWebWriteAuth(threadUrl, address, name, mail, body));
         builder.show();
     }
 
@@ -2303,6 +2300,20 @@ public class MainActivity extends Activity {
         intent.putExtra(AuthActivity.EXTRA_URL, url);
         intent.putExtra(AuthActivity.EXTRA_USER_AGENT, "Monazilla/1.00 CuspiDroid/0.1");
         startActivity(intent);
+    }
+
+    private void openWebWriteAuth(String threadUrl, DatAddress address, String name, String mail, String message) {
+        try {
+            String endpoint = postEndpoint(address);
+            String payload = postPayload(postFields(address, name, mail, message), "\u66f8\u304d\u8fbc\u3080");
+            Intent intent = new Intent(this, AuthActivity.class);
+            intent.putExtra(AuthActivity.EXTRA_URL, endpoint);
+            intent.putExtra(AuthActivity.EXTRA_POST_BODY, payload);
+            intent.putExtra(AuthActivity.EXTRA_REFERER, threadUrl);
+            startActivity(intent);
+        } catch (Exception error) {
+            Toast.makeText(this, "Could not open web write.", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
@@ -2339,7 +2350,7 @@ public class MainActivity extends Activity {
     }
 
     private String postToThreadWithCookieConfirm(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
-        String endpoint = (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/test/bbs.cgi";
+        String endpoint = postEndpoint(address);
         Map<String, String> fields = postFields(address, name, mail, message);
         String payload = postPayload(fields, "\u66f8\u304d\u8fbc\u3080");
 
@@ -2370,6 +2381,10 @@ public class MainActivity extends Activity {
         fields.put("mail", mail);
         fields.put("MESSAGE", message);
         return fields;
+    }
+
+    private String postEndpoint(DatAddress address) {
+        return (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/test/bbs.cgi";
     }
 
     private String confirmPostPayload(String html, Map<String, String> originalFields) throws Exception {
