@@ -2298,13 +2298,13 @@ public class MainActivity extends Activity {
                     rememberThreadScroll(tab);
                     loadThread(tab, tab.url, false);
                 } else {
-                    showCopyablePostFailure(messageText, tab.url, address, name, mail, message);
+                    showCopyablePostFailure(messageText);
                 }
             });
         });
     }
 
-    private void showCopyablePostFailure(String messageText, String threadUrl, DatAddress address, String name, String mail, String body) {
+    private void showCopyablePostFailure(String messageText) {
         TextView message = new TextView(this);
         message.setText(messageText);
         message.setTextColor(TEXT);
@@ -2321,68 +2321,7 @@ public class MainActivity extends Activity {
                     }
                 })
                 .setPositiveButton("OK", null);
-        builder.setNeutralButton("Web write/auth", (dialog, which) -> openWebWriteAuth(threadUrl, address, name, mail, body));
         builder.show();
-    }
-
-    private String firstUrl(String text) {
-        Matcher matcher = URL_TEXT_PATTERN.matcher(text);
-        if (!matcher.find()) {
-            return null;
-        }
-        return stripTrailingUrlPunctuation(matcher.group());
-    }
-
-    private void openAuthUrl(String url) {
-        Intent intent = new Intent(this, AuthActivity.class);
-        intent.putExtra(AuthActivity.EXTRA_URL, url);
-        intent.putExtra(AuthActivity.EXTRA_USER_AGENT, "Monazilla/1.00 CuspiDroid/0.1");
-        startActivity(intent);
-    }
-
-    private void openWebWriteAuth(String threadUrl, DatAddress address, String name, String mail, String message) {
-        try {
-            String endpoint = postEndpoint(address);
-            Intent intent = new Intent(this, AuthActivity.class);
-            intent.putExtra(AuthActivity.EXTRA_URL, endpoint);
-            intent.putExtra(AuthActivity.EXTRA_REFERER, threadUrl);
-            intent.putExtra(AuthActivity.EXTRA_FORM_HTML, webWriteForm(endpoint, address, name, mail, message));
-            startActivity(intent);
-        } catch (Exception error) {
-            Toast.makeText(this, "Could not open web write.", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private String webWriteForm(String endpoint, DatAddress address, String name, String mail, String message) {
-        return "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                + "<style>body{font-family:sans-serif;padding:16px;background:#fff;color:#1f2937}"
-                + "input,textarea,button{box-sizing:border-box;width:100%;font-size:16px;margin:8px 0;padding:10px}"
-                + "textarea{min-height:180px}button{background:#0f766e;color:white;border:0;border-radius:6px}</style>"
-                + "</head><body><h3>Web write/auth</h3>"
-                + "<p>Submit here, then complete the authentication shown by the BBS.</p>"
-                + "<form method=\"post\" action=\"" + htmlEscape(endpoint) + "\" accept-charset=\"Shift_JIS\">"
-                + hiddenInput("bbs", address.board)
-                + hiddenInput("key", address.key)
-                + hiddenInput("time", String.valueOf(System.currentTimeMillis() / 1000L))
-                + "<label>Name<input name=\"FROM\" value=\"" + htmlEscape(name) + "\"></label>"
-                + "<label>Mail<input name=\"mail\" value=\"" + htmlEscape(mail) + "\"></label>"
-                + "<label>Message<textarea name=\"MESSAGE\">" + htmlEscape(message) + "</textarea></label>"
-                + "<button type=\"submit\" name=\"submit\" value=\"\u66f8\u304d\u8fbc\u3080\">\u66f8\u304d\u8fbc\u3080</button>"
-                + "</form></body></html>";
-    }
-
-    private String hiddenInput(String name, String value) {
-        return "<input type=\"hidden\" name=\"" + htmlEscape(name) + "\" value=\"" + htmlEscape(value) + "\">";
-    }
-
-    private String htmlEscape(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.replace("&", "&amp;")
-                .replace("\"", "&quot;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {

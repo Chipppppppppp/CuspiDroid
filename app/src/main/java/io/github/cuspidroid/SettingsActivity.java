@@ -146,16 +146,23 @@ public class SettingsActivity extends Activity {
         authUrl.setSingleLine(true);
         authUrl.setTextSize(14);
         authUrl.setTextColor(TEXT);
-        authUrl.setHint("Auth URL");
+        authUrl.setHint("Auth or thread URL");
         authUrl.setImeOptions(EditorInfo.IME_ACTION_GO);
         authUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         authUrl.setBackground(roundedField());
         authUrl.setPadding(dp(12), 0, dp(12), 0);
+        authUrl.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_GO) {
+                openAuthWebView();
+                return true;
+            }
+            return false;
+        });
         root.addView(authUrl, fieldParams());
 
         Button openAuth = new Button(this);
-        openAuth.setText("Open auth webview");
+        openAuth.setText("Open auth/write webview");
         openAuth.setAllCaps(false);
         openAuth.setOnClickListener(v -> openAuthWebView());
         root.addView(openAuth, new LinearLayout.LayoutParams(
@@ -305,7 +312,7 @@ public class SettingsActivity extends Activity {
     private void openAuthWebView() {
         String url = authUrl.getText().toString().trim();
         if (url.isEmpty()) {
-            Toast.makeText(this, "Enter an auth URL.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Enter an auth or thread URL.", Toast.LENGTH_SHORT).show();
             return;
         }
         Intent intent = new Intent(this, AuthActivity.class);
