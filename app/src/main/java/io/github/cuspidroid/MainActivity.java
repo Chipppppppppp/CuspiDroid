@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_BBS_LINKS = "bbs_links";
     static final String PREF_NG_WORDS = "ng_words";
+    static final String PREF_READ_POSTS = "read_posts";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -103,7 +104,8 @@ public class MainActivity extends Activity {
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
     private static final int TEXT = Color.rgb(31, 41, 55);
-    private static final Pattern URL_TEXT_PATTERN = Pattern.compile("https?://\\S+");
+    private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?://|ttps?://|ttp://)\\S+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -329,8 +331,10 @@ public class MainActivity extends Activity {
 
         bottomThreadTitle = new TextView(this);
         bottomThreadTitle.setTextColor(TEXT);
-        bottomThreadTitle.setTextSize(14);
-        bottomThreadTitle.setSingleLine(true);
+        bottomThreadTitle.setTextSize(12);
+        bottomThreadTitle.setSingleLine(false);
+        bottomThreadTitle.setMaxLines(2);
+        bottomThreadTitle.setEllipsize(TextUtils.TruncateAt.END);
         bottomThreadTitle.setGravity(Gravity.CENTER_VERTICAL);
         bottomThreadTitle.setOnClickListener(v -> scrollCurrentThreadToBottom());
         bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
@@ -347,7 +351,9 @@ public class MainActivity extends Activity {
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
-        addressBar.setHorizontallyScrolling(false);
+        addressBar.setMaxLines(1);
+        addressBar.setMinLines(1);
+        addressBar.setHorizontallyScrolling(true);
         addressBar.setEllipsize(TextUtils.TruncateAt.END);
         addressBar.setTextSize(15);
         addressBar.setTextColor(TEXT);
@@ -356,6 +362,11 @@ public class MainActivity extends Activity {
         addressBar.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         addressBar.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        addressBar.setSingleLine(true);
+        addressBar.setMaxLines(1);
+        addressBar.setMinLines(1);
+        addressBar.setHorizontallyScrolling(false);
+        addressBar.setEllipsize(TextUtils.TruncateAt.END);
         addressBar.setBackground(addressBarBackground());
         addressBar.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
         addressBar.setCompoundDrawablePadding(dp(8));
@@ -981,6 +992,7 @@ public class MainActivity extends Activity {
                     tab.threadPage = threadPageFromJson(item.optJSONObject("threadPage"));
                     if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                         tab.readerMode = true;
+                        tab.readPostNumber = readPostNumber(preferences, tab.threadPage.url);
                         tab.postViews = new LinkedHashMap<>();
                         tab.readerView = buildThreadView(tab.threadPage, tab);
                     }
@@ -1339,10 +1351,11 @@ public class MainActivity extends Activity {
             } catch (Exception error) {
                 page = ThreadPage.error(url, error.getMessage());
             }
-            ThreadPage result = page;
+                ThreadPage result = page;
             runOnUiThread(() -> {
                 tab.title = result.title;
                 tab.threadPage = result;
+                tab.readPostNumber = readPostNumber(preferences, result.url);
                 tab.postViews = new LinkedHashMap<>();
                 tab.readerView = buildThreadView(result, tab);
                 if (result.error == null && !result.posts.isEmpty()) {
@@ -1410,6 +1423,7 @@ public class MainActivity extends Activity {
                 int oldCount = tab.threadPage == null ? 0 : tab.threadPage.posts.size();
                 if (oldCount <= 0 || tab.threadList == null || tab.postViews == null) {
                     tab.threadPage = result;
+                    tab.readPostNumber = readPostNumber(preferences, result.url);
                     tab.postViews = new LinkedHashMap<>();
                     tab.readerView = buildThreadView(result, tab);
                     if (tab == currentTab()) {
@@ -1425,6 +1439,11 @@ public class MainActivity extends Activity {
                 }
                 if (result.posts.size() <= oldCount) {
                     tab.threadPage = result;
+                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
+                    if (!centerSpinner && !forceScrollToBottom) {
+                        markReadTo(tab, maxPostNumber(result), false);
+                        renderTabs();
+                    }
                     if (tab == currentTab() && tab.threadSearchOpen
                             && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                         updateThreadSearch(tab.threadSearchQuery, false);
@@ -1436,6 +1455,10 @@ public class MainActivity extends Activity {
                 }
                 int insertIndex = tab.threadList.getChildCount();
                 tab.threadPage = result;
+                tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
+                if (!centerSpinner && !forceScrollToBottom) {
+                    markReadTo(tab, maxPostNumber(result), false);
+                }
                 for (int i = oldCount; i < result.posts.size(); i++) {
                     addPostCard(tab.threadList, result, tab, result.posts.get(i), insertIndex++);
                 }
@@ -1619,17 +1642,16 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackgroundColor(Color.rgb(250, 251, 252));
+        card.setBackgroundColor(post.number > tab.readPostNumber ? Color.rgb(255, 251, 235) : Color.rgb(250, 251, 252));
+        card.setOnLongClickListener(v -> {
+            showPostActionMenu(card, tab, post);
+            return true;
+        });
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(0, 0, 0, dp(8));
 
-        TextView meta = new TextView(this);
-        meta.setText(post.number + "  " + post.name + "  " + post.date);
-        meta.setTextColor(Color.rgb(79, 91, 103));
-        meta.setTextSize(12);
-        meta.setPadding(0, 0, 0, dp(5));
-        card.addView(meta);
+        card.addView(postMetaText(post, page));
 
         card.addView(postContent(post.body, page, tab.threadSearchQuery));
         list.addView(card, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
@@ -1649,6 +1671,57 @@ public class MainActivity extends Activity {
         spinner.setVisibility(View.GONE);
         loader.addView(spinner, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
         return loader;
+    }
+
+    private TextView postMetaText(Post post, ThreadPage page) {
+        TextView meta = new TextView(this);
+        String value = post.number + "  " + post.name + "  " + post.date;
+        SpannableString text = new SpannableString(value);
+        Matcher matcher = POST_ID_PATTERN.matcher(value);
+        while (matcher.find()) {
+            String id = matcher.group(1);
+            text.setSpan(new ClickableSpan() {
+                @Override
+                public void onClick(View widget) {
+                    showIdPopup(widget, page, id);
+                }
+
+                @Override
+                public void updateDrawState(TextPaint ds) {
+                    super.updateDrawState(ds);
+                    ds.setColor(TEAL);
+                    ds.setUnderlineText(false);
+                }
+            }, matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        meta.setText(text);
+        meta.setTextColor(Color.rgb(79, 91, 103));
+        meta.setLinkTextColor(TEAL);
+        meta.setTextSize(12);
+        meta.setPadding(0, 0, 0, dp(5));
+        meta.setMovementMethod(LinkMovementMethod.getInstance());
+        return meta;
+    }
+
+    private void showPostActionMenu(View anchor, CuspTab tab, Post post) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        popup.setElevation(dp(10));
+        menu.addView(menuIconItem(R.drawable.ic_edit, text("\u8fd4\u4fe1", "Reply"), v -> {
+            popup.dismiss();
+            showWriteDialog(">>" + post.number + "\n");
+        }));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_jump_arrow, text("\u3053\u3053\u307e\u3067\u3092\u65e2\u8aad\u306b\u3059\u308b", "Mark read to here"), v -> {
+            popup.dismiss();
+            markReadTo(tab, post.number);
+        }));
+        showMenuWithinScreen(popup, menu, anchor);
     }
 
     private boolean matchesNgWord(Post post) {
@@ -2039,6 +2112,12 @@ public class MainActivity extends Activity {
             }
         }
 
+        ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs());
+        reloadAll.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(22)));
+        FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
+        reloadParams.setMargins(0, 0, dp(84), dp(18));
+        root.addView(reloadAll, reloadParams);
+
         ImageButton add = iconButton(R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
         add.setBackground(roundedDrawable(TEAL, TEAL, dp(22)));
         add.setColorFilter(Color.WHITE);
@@ -2072,6 +2151,19 @@ public class MainActivity extends Activity {
         textBox.addView(title);
         textBox.addView(url);
         row.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        int unread = unreadCount(tab);
+        if (unread > 0) {
+            TextView unreadBadge = new TextView(this);
+            unreadBadge.setText(String.valueOf(unread));
+            unreadBadge.setTextColor(Color.WHITE);
+            unreadBadge.setTextSize(12);
+            unreadBadge.setGravity(Gravity.CENTER);
+            unreadBadge.setBackground(roundedDrawable(Color.rgb(220, 38, 38), Color.rgb(220, 38, 38), dp(12)));
+            LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(34), dp(24));
+            unreadParams.setMargins(dp(8), 0, 0, 0);
+            row.addView(unreadBadge, unreadParams);
+        }
 
         ImageButton close = iconButton(R.drawable.ic_close, text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab"), v -> closeTabFromOverview(index));
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
@@ -2191,6 +2283,7 @@ public class MainActivity extends Activity {
         SpannableString linkedText = new SpannableString(value);
         applySearchHighlights(linkedText, highlight);
         Linkify.addLinks(linkedText, Linkify.WEB_URLS);
+        addLooseUrlSpans(linkedText);
         replaceUrlSpans(linkedText);
         replaceReplySpans(linkedText, page);
         text.setText(linkedText);
@@ -2739,7 +2832,26 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Referenced post not found.", Toast.LENGTH_SHORT).show();
             return;
         }
+        showPostsPopup(anchor, page, targets);
+    }
 
+    private void showIdPopup(View anchor, ThreadPage page, String id) {
+        if (page == null || id == null || id.isEmpty()) {
+            return;
+        }
+        List<Post> targets = new ArrayList<>();
+        for (Post post : page.posts) {
+            if (id.equals(post.id())) {
+                targets.add(post);
+            }
+        }
+        if (targets.isEmpty()) {
+            return;
+        }
+        showPostsPopup(anchor, page, targets);
+    }
+
+    private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets) {
         FrameLayout popupRoot = new FrameLayout(this);
         popupRoot.setBackgroundColor(Color.WHITE);
         popupRoot.setFocusable(true);
@@ -2899,6 +3011,27 @@ public class MainActivity extends Activity {
     }
 
     private void showWriteDialog() {
+        showWriteDialog("");
+    }
+
+    private void addLooseUrlSpans(SpannableString text) {
+        Matcher matcher = URL_TEXT_PATTERN.matcher(text);
+        while (matcher.find()) {
+            if (text.getSpans(matcher.start(), matcher.end(), URLSpan.class).length > 0) {
+                continue;
+            }
+            String raw = stripTrailingUrlPunctuation(matcher.group());
+            int end = matcher.start() + raw.length();
+            text.setSpan(new URLSpan(normalizeUrl(raw)) {
+                @Override
+                public void onClick(View widget) {
+                    routeLink(getURL(), currentTab());
+                }
+            }, matcher.start(), end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+    }
+
+    private void showWriteDialog(String initialMessage) {
         CuspTab tab = currentTab();
         if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
             Toast.makeText(this, text("\u3053\u3053\u304b\u3089\u306f\u66f8\u304d\u8fbc\u3081\u307e\u305b\u3093", "This thread cannot be written from here."), Toast.LENGTH_SHORT).show();
@@ -2926,6 +3059,8 @@ public class MainActivity extends Activity {
         message.setMinLines(5);
         message.setGravity(Gravity.TOP | Gravity.START);
         message.setHint("Message");
+        message.setText(initialMessage == null ? "" : initialMessage);
+        message.setSelection(message.getText().length());
         form.addView(message, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
 
@@ -3605,6 +3740,34 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void reloadAllTabs() {
+        boolean wasOverview = tabOverviewVisible;
+        for (CuspTab tab : new ArrayList<>(tabs)) {
+            if (tab == null || tab.url == null || tab.url.isEmpty()) {
+                continue;
+            }
+            if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
+                refreshThreadFromBottom(tab, false, true);
+            } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
+                loadSearchResults(tab, tab.url);
+            } else if (tab.readerMode && NATIVE_BOARD.equals(tab.nativeKind)) {
+                loadBoard(tab, tab.url);
+            } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
+                loadSearchHome(tab, tab.url);
+            }
+        }
+        if (wasOverview) {
+            tabOverviewVisible = true;
+            mainHandler.postDelayed(() -> {
+                if (tabOverviewVisible) {
+                    contentFrame.removeAllViews();
+                    contentFrame.addView(buildTabOverviewView());
+                    renderTabs();
+                }
+            }, 500);
+        }
+    }
+
     private void closeCurrentTab() {
         if (tabs.isEmpty()) {
             return;
@@ -4141,6 +4304,86 @@ public class MainActivity extends Activity {
         return readThreadHistory(preferences);
     }
 
+    private static int readPostNumber(SharedPreferences preferences, String url) {
+        if (url == null || url.isEmpty()) {
+            return 0;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_READ_POSTS, "{}"));
+            return object.optInt(url, 0);
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private static void saveReadPostNumber(SharedPreferences preferences, String url, int number) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_READ_POSTS, "{}"));
+            object.put(url, Math.max(0, number));
+            preferences.edit().putString(PREF_READ_POSTS, object.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void markReadTo(CuspTab tab, int number) {
+        markReadTo(tab, number, true);
+    }
+
+    private void markReadTo(CuspTab tab, int number, boolean refreshOverview) {
+        if (tab == null || tab.threadPage == null || tab.threadPage.url == null) {
+            return;
+        }
+        tab.readPostNumber = Math.max(tab.readPostNumber, number);
+        saveReadPostNumber(preferences, tab.threadPage.url, tab.readPostNumber);
+        refreshUnreadColors(tab);
+        if (refreshOverview) {
+            renderTabs();
+            if (tabOverviewVisible) {
+                contentFrame.removeAllViews();
+                contentFrame.addView(buildTabOverviewView());
+            }
+        }
+    }
+
+    private int unreadCount(CuspTab tab) {
+        if (tab == null || tab.threadPage == null) {
+            return 0;
+        }
+        int count = 0;
+        for (Post post : tab.threadPage.posts) {
+            if (post.number > tab.readPostNumber) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int maxPostNumber(ThreadPage page) {
+        int max = 0;
+        if (page != null) {
+            for (Post post : page.posts) {
+                max = Math.max(max, post.number);
+            }
+        }
+        return max;
+    }
+
+    private void refreshUnreadColors(CuspTab tab) {
+        if (tab == null || tab.threadPage == null || tab.postViews == null) {
+            return;
+        }
+        for (Post post : tab.threadPage.posts) {
+            View card = tab.postViews.get(post.number);
+            if (card != null) {
+                card.setBackgroundColor(post.number > tab.readPostNumber
+                        ? Color.rgb(255, 251, 235) : Color.rgb(250, 251, 252));
+            }
+        }
+    }
+
     static void clearThreadHistory(SharedPreferences preferences) {
         preferences.edit().remove(PREF_HISTORY).apply();
     }
@@ -4340,6 +4583,8 @@ public class MainActivity extends Activity {
         String lower = input.toLowerCase(Locale.ROOT);
         return lower.startsWith("http://")
                 || lower.startsWith("https://")
+                || lower.startsWith("ttp://")
+                || lower.startsWith("ttps://")
                 || lower.contains(".5ch.net/")
                 || lower.contains(".io/")
                 || lower.matches("^[a-z0-9.-]+\\.[a-z]{2,}(/.*)?$");
@@ -4356,6 +4601,13 @@ public class MainActivity extends Activity {
         String value = input.trim();
         if (value.startsWith("//")) {
             return "https:" + value;
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("ttps://")) {
+            return "h" + value;
+        }
+        if (lower.startsWith("ttp://")) {
+            return "h" + value;
         }
         if (value.startsWith("http://") || value.startsWith("https://")) {
             return value;
@@ -4595,6 +4847,7 @@ public class MainActivity extends Activity {
         String nativeKind;
         float threadScrollRatio;
         int threadBottomOffset;
+        int readPostNumber;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
         String threadSearchQuery = "";
@@ -4708,6 +4961,11 @@ public class MainActivity extends Activity {
                 cachedSearchBody = body == null ? "" : body.toLowerCase(Locale.ROOT);
             }
             return cachedSearchBody;
+        }
+
+        String id() {
+            Matcher matcher = POST_ID_PATTERN.matcher(date == null ? "" : date);
+            return matcher.find() ? matcher.group(1) : "";
         }
     }
 }
