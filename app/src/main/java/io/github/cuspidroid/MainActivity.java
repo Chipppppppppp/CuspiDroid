@@ -1566,7 +1566,7 @@ public class MainActivity extends Activity {
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
         spinner.setVisibility(View.GONE);
-        loader.addView(spinner, new FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER));
+        loader.addView(spinner, new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.CENTER));
         return loader;
     }
 
