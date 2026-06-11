@@ -1566,7 +1566,7 @@ public class MainActivity extends Activity {
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
         spinner.setVisibility(View.GONE);
-        loader.addView(spinner, new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.CENTER));
+        loader.addView(spinner, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
         return loader;
     }
 
@@ -1749,6 +1749,13 @@ public class MainActivity extends Activity {
             int maxPull = dp(164);
             int triggerPull = maxPull / 2;
             int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
+            if (refreshing[0]) {
+                if (loader.getVisibility() == View.GONE) {
+                    refreshing[0] = false;
+                } else {
+                    return false;
+                }
+            }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 downY[0] = event.getY();
                 pullDistance[0] = 0;
@@ -1783,9 +1790,6 @@ public class MainActivity extends Activity {
                     }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                if (refreshing[0]) {
-                    return true;
-                }
                 if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= triggerPull) {
                     refreshing[0] = true;
                     loader.setVisibility(View.VISIBLE);
@@ -1793,7 +1797,6 @@ public class MainActivity extends Activity {
                     setBottomRefreshSpinning(loader, true);
                     loader.animate().translationY(triggerOffset).setDuration(110).withEndAction(() -> {
                         refresh.run();
-                        refreshing[0] = false;
                     }).start();
                     return true;
                 }
