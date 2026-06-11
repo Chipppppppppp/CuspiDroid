@@ -38,7 +38,6 @@ import android.content.Intent;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -100,7 +99,6 @@ public class MainActivity extends Activity {
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
-    private LinearLayout tabStrip;
     private LinearLayout suggestionsPanel;
     private FrameLayout overlayFrame;
     private EditText addressBar;
@@ -108,6 +106,8 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private LinearLayout bottomThreadBar;
     private TextView bottomThreadTitle;
+    private ImageButton bottomWriteButton;
+    private TextView tabCountButton;
     private SharedPreferences preferences;
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
@@ -117,6 +117,7 @@ public class MainActivity extends Activity {
     private int currentIndex = -1;
     private boolean pendingNewTab;
     private boolean pendingHistoryAll;
+    private boolean tabOverviewVisible;
     private View imageOverlay;
 
     @Override
@@ -165,6 +166,11 @@ public class MainActivity extends Activity {
             cancelPendingNewTab();
             return;
         }
+        if (tabOverviewVisible) {
+            tabOverviewVisible = false;
+            switchToTab(currentIndex);
+            return;
+        }
         if (addressBar != null && addressBar.hasFocus()) {
             clearAddressFocus();
             return;
@@ -211,17 +217,51 @@ public class MainActivity extends Activity {
         root.requestFocus();
         setContentView(root);
 
-        HorizontalScrollView tabScroll = new HorizontalScrollView(this);
-        tabScroll.setHorizontalScrollBarEnabled(false);
-        tabScroll.setFillViewport(false);
-        tabScroll.setBackgroundColor(SURFACE);
-        tabStrip = new LinearLayout(this);
-        tabStrip.setOrientation(LinearLayout.HORIZONTAL);
-        tabStrip.setPadding(dp(6), dp(4), dp(6), dp(0));
-        tabScroll.addView(tabStrip, new HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)));
-        root.addView(tabScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setIndeterminate(true);
+        progressBar.setVisibility(View.GONE);
+        root.addView(progressBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
+
+        contentFrame = new FrameLayout(this);
+        contentFrame.setFocusableInTouchMode(true);
+        overlayFrame = new FrameLayout(this);
+        overlayFrame.addView(contentFrame, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        suggestionsPanel = new LinearLayout(this);
+        suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
+        suggestionsPanel.setBackground(menuBackground());
+        suggestionsPanel.setPadding(dp(4), dp(4), dp(4), dp(4));
+        suggestionsPanel.setElevation(dp(12));
+        suggestionsPanel.setVisibility(View.GONE);
+        FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        suggestionsParams.gravity = Gravity.BOTTOM;
+        suggestionsParams.leftMargin = dp(8);
+        suggestionsParams.rightMargin = dp(8);
+        overlayFrame.addView(suggestionsPanel, suggestionsParams);
+        root.addView(overlayFrame, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        bottomThreadBar = new LinearLayout(this);
+        bottomThreadBar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomThreadBar.setGravity(Gravity.CENTER_VERTICAL);
+        bottomThreadBar.setPadding(dp(10), dp(4), dp(6), dp(4));
+        bottomThreadBar.setBackground(bottomBarBackground());
+
+        bottomThreadTitle = new TextView(this);
+        bottomThreadTitle.setTextColor(TEXT);
+        bottomThreadTitle.setTextSize(14);
+        bottomThreadTitle.setSingleLine(true);
+        bottomThreadTitle.setGravity(Gravity.CENTER_VERTICAL);
+        bottomThreadTitle.setOnClickListener(v -> scrollCurrentThreadToBottom());
+        bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+
+        bottomWriteButton = iconButton(R.drawable.ic_edit, "Write", v -> showWriteDialog());
+        bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
 
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setOrientation(LinearLayout.HORIZONTAL);
@@ -298,61 +338,11 @@ public class MainActivity extends Activity {
         });
         toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
+        tabCountButton = tabCountButton();
+        toolbarButtons.add(tabCountButton);
+        toolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(40), dp(40)));
         addToolbarButton(toolbar, R.drawable.ic_add, "New tab", v -> createBlankTab());
-
-        View toolbarDivider = new View(this);
-        toolbarDivider.setBackgroundColor(Color.rgb(176, 188, 199));
-        root.addView(toolbarDivider, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
-
-        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progressBar.setIndeterminate(true);
-        progressBar.setVisibility(View.GONE);
-        root.addView(progressBar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
-
-        contentFrame = new FrameLayout(this);
-        contentFrame.setFocusableInTouchMode(true);
-        overlayFrame = new FrameLayout(this);
-        overlayFrame.addView(contentFrame, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        suggestionsPanel = new LinearLayout(this);
-        suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
-        suggestionsPanel.setBackground(menuBackground());
-        suggestionsPanel.setPadding(dp(4), dp(4), dp(4), dp(4));
-        suggestionsPanel.setElevation(dp(12));
-        suggestionsPanel.setVisibility(View.GONE);
-        FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        suggestionsParams.gravity = Gravity.TOP;
-        suggestionsParams.leftMargin = dp(8);
-        suggestionsParams.rightMargin = dp(8);
-        overlayFrame.addView(suggestionsPanel, suggestionsParams);
-        root.addView(overlayFrame, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-
-        bottomThreadBar = new LinearLayout(this);
-        bottomThreadBar.setOrientation(LinearLayout.HORIZONTAL);
-        bottomThreadBar.setGravity(Gravity.CENTER_VERTICAL);
-        bottomThreadBar.setPadding(dp(10), dp(4), dp(6), dp(4));
-        bottomThreadBar.setBackground(bottomBarBackground());
-        bottomThreadBar.setVisibility(View.GONE);
-
-        bottomThreadTitle = new TextView(this);
-        bottomThreadTitle.setTextColor(TEXT);
-        bottomThreadTitle.setTextSize(14);
-        bottomThreadTitle.setSingleLine(true);
-        bottomThreadTitle.setGravity(Gravity.CENTER_VERTICAL);
-        bottomThreadTitle.setOnClickListener(v -> scrollCurrentThreadToBottom());
-        bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-
-        ImageButton write = iconButton(R.drawable.ic_edit, "Write", v -> showWriteDialog());
-        bottomThreadBar.addView(write, new LinearLayout.LayoutParams(dp(42), dp(40)));
-        ImageButton more = iconButton(R.drawable.ic_more_vert, "Thread menu", v -> showThreadMenu(v));
-        bottomThreadBar.addView(more, new LinearLayout.LayoutParams(dp(42), dp(40)));
-        root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        addToolbarButton(toolbar, R.drawable.ic_more_vert, "Menu", v -> showThreadMenu(v));
     }
 
     private ImageButton iconButton(int iconRes, String description, View.OnClickListener listener) {
@@ -368,6 +358,29 @@ public class MainActivity extends Activity {
         params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
         return button;
+    }
+
+    private TextView tabCountButton() {
+        TextView view = new TextView(this);
+        view.setTextColor(TEXT);
+        view.setTextSize(13);
+        view.setGravity(Gravity.CENTER);
+        view.setSingleLine(true);
+        view.setContentDescription("Tabs");
+        view.setBackground(tabCountBackground(false));
+        view.setOnClickListener(v -> showTabOverview());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(38), dp(40));
+        params.setMargins(dp(2), 0, dp(2), 0);
+        view.setLayoutParams(params);
+        return view;
+    }
+
+    private GradientDrawable tabCountBackground(boolean selected) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(selected ? Color.rgb(231, 247, 244) : Color.TRANSPARENT);
+        drawable.setStroke(dp(2), selected ? TEAL : TEXT);
+        drawable.setCornerRadius(dp(5));
+        return drawable;
     }
 
     private void addToolbarButton(LinearLayout toolbar, int iconRes, String description, View.OnClickListener listener) {
@@ -520,9 +533,7 @@ public class MainActivity extends Activity {
 
     private void showThreadMenu(View anchor) {
         CuspTab tab = currentTab();
-        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
-            return;
-        }
+        boolean hasUrl = tab != null && tab.url != null && !tab.url.trim().isEmpty();
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
@@ -541,6 +552,12 @@ public class MainActivity extends Activity {
             popup.dismiss();
             shareCurrentThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (!hasUrl) {
+            menu.getChildAt(0).setEnabled(false);
+            menu.getChildAt(0).setAlpha(0.45f);
+            menu.getChildAt(2).setEnabled(false);
+            menu.getChildAt(2).setAlpha(0.45f);
+        }
         menu.addView(horizontalDivider());
         menu.addView(menuItem("Settings", v -> {
             popup.dismiss();
@@ -676,6 +693,7 @@ public class MainActivity extends Activity {
         }
         pendingNewTab = true;
         pendingHistoryAll = false;
+        tabOverviewVisible = false;
         contentFrame.removeAllViews();
         visibleThreadPage = null;
         visibleThreadScroll = null;
@@ -693,6 +711,7 @@ public class MainActivity extends Activity {
             return;
         }
         pendingHistoryAll = fullHistory;
+        tabOverviewVisible = false;
         contentFrame.removeAllViews();
         contentFrame.addView(fullHistory ? buildHistoryView() : buildSearchHomeView(false));
         addressBar.setText("");
@@ -924,6 +943,7 @@ public class MainActivity extends Activity {
         if (index < 0 || index >= tabs.size()) {
             return;
         }
+        tabOverviewVisible = false;
         pendingNewTab = false;
         pendingHistoryAll = false;
         CuspTab previous = currentTab();
@@ -956,11 +976,18 @@ public class MainActivity extends Activity {
     }
 
     private void updateBottomThreadBar(CuspTab tab) {
-        if (bottomThreadBar == null || bottomThreadTitle == null) {
+        if (bottomThreadBar == null || bottomThreadTitle == null || bottomWriteButton == null) {
             return;
         }
-        if (tab != null && NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
-            bottomThreadTitle.setText(tab.threadPage.title == null ? tab.title : tab.threadPage.title);
+        if (pendingNewTab) {
+            bottomThreadTitle.setText("New tab");
+            bottomWriteButton.setVisibility(View.GONE);
+            bottomThreadBar.setVisibility(View.VISIBLE);
+        } else if (tab != null) {
+            String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
+            bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? "Tab" : title);
+            boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
+            bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
@@ -968,53 +995,11 @@ public class MainActivity extends Activity {
     }
 
     private void renderTabs() {
-        if (tabStrip == null) {
-            return;
+        if (tabCountButton != null) {
+            tabCountButton.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
+            tabCountButton.setBackground(tabCountBackground(tabOverviewVisible));
         }
-        tabStrip.removeAllViews();
-        for (int i = 0; i < tabs.size(); i++) {
-            CuspTab tab = tabs.get(i);
-            LinearLayout tabBox = new LinearLayout(this);
-            tabBox.setOrientation(LinearLayout.HORIZONTAL);
-            tabBox.setGravity(Gravity.CENTER_VERTICAL);
-            tabBox.setBackgroundColor(!pendingNewTab && i == currentIndex ? TEAL : Color.rgb(229, 233, 238));
-            tabBox.setPadding(dp(8), 0, dp(4), 0);
-            int target = i;
-            tabBox.setOnClickListener(v -> switchToTab(target));
-
-            TextView tabView = new TextView(this);
-            tabView.setText(shorten(tab.title == null ? "Tab" : tab.title, 22));
-            tabView.setGravity(Gravity.CENTER_VERTICAL);
-            tabView.setTextSize(13);
-            tabView.setSingleLine(true);
-            tabView.setTextColor(!pendingNewTab && i == currentIndex ? Color.WHITE : TEXT);
-            tabView.setOnClickListener(v -> switchToTab(target));
-            tabBox.addView(tabView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-
-            ImageButton close = new ImageButton(this);
-            close.setImageResource(R.drawable.ic_close);
-            close.setContentDescription("Close tab");
-            close.setColorFilter(i == currentIndex ? Color.WHITE : TEXT);
-            close.setBackgroundColor(Color.TRANSPARENT);
-            close.setPadding(dp(7), dp(7), dp(7), dp(7));
-            close.setOnClickListener(v -> closeTab(target));
-            tabBox.addView(close, new LinearLayout.LayoutParams(dp(30), dp(34)));
-
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(166), dp(36));
-            params.setMargins(dp(3), 0, dp(3), 0);
-            tabStrip.addView(tabBox, params);
-        }
-
-        ImageButton add = new ImageButton(this);
-        add.setImageResource(R.drawable.ic_add);
-        add.setContentDescription("New tab");
-        add.setColorFilter(TEXT);
-        add.setBackgroundColor(Color.TRANSPARENT);
-        add.setPadding(dp(8), dp(8), dp(8), dp(8));
-        add.setOnClickListener(v -> createBlankTab());
-        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(dp(40), dp(36));
-        addParams.setMargins(dp(3), 0, dp(8), 0);
-        tabStrip.addView(add, addParams);
+        updateBottomThreadBar(pendingNewTab ? null : currentTab());
     }
 
     private void openFromAddressBar() {
@@ -1567,6 +1552,107 @@ public class MainActivity extends Activity {
             }
         }
         return withScrollScrubber(scroll);
+    }
+
+    private void showTabOverview() {
+        CuspTab current = currentTab();
+        if (current != null) {
+            rememberThreadScroll(current);
+        }
+        clearAddressFocus();
+        if (!replyPopups.isEmpty()) {
+            dismissThreadPopups();
+        }
+        pendingNewTab = false;
+        pendingHistoryAll = false;
+        tabOverviewVisible = true;
+        contentFrame.removeAllViews();
+        visibleThreadPage = null;
+        visibleThreadScroll = null;
+        visiblePostViews.clear();
+        contentFrame.addView(buildTabOverviewView());
+        updateBottomThreadBar(currentTab());
+        renderTabs();
+    }
+
+    private View buildTabOverviewView() {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.WHITE);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(84));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(withScrollScrubber(scroll), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        list.addView(sectionTitleView("Tabs"));
+        if (tabs.isEmpty()) {
+            list.addView(helperLine("No tabs."));
+        } else {
+            for (int i = 0; i < tabs.size(); i++) {
+                list.addView(tabOverviewRow(tabs.get(i), i));
+            }
+        }
+
+        ImageButton add = iconButton(R.drawable.ic_add, "New tab", v -> createBlankTab());
+        add.setBackground(roundedDrawable(TEAL, TEAL, dp(22)));
+        add.setColorFilter(Color.WHITE);
+        FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
+        addParams.setMargins(0, 0, dp(18), dp(18));
+        root.addView(add, addParams);
+        return root;
+    }
+
+    private View tabOverviewRow(CuspTab tab, int index) {
+        boolean selected = !pendingNewTab && index == currentIndex;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(9), dp(8), dp(9));
+        row.setBackground(roundedDrawable(Color.rgb(250, 251, 252), selected ? TEAL : Color.rgb(226, 232, 240), dp(8)));
+        row.setOnClickListener(v -> switchToTab(index));
+
+        LinearLayout textBox = new LinearLayout(this);
+        textBox.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText(tab.title == null || tab.title.trim().isEmpty() ? "Tab" : tab.title);
+        title.setTextColor(TEXT);
+        title.setTextSize(15);
+        title.setSingleLine(true);
+        TextView url = new TextView(this);
+        url.setText(tab.url == null || tab.url.trim().isEmpty() ? "New tab" : tab.url);
+        url.setTextColor(Color.rgb(79, 91, 103));
+        url.setTextSize(12);
+        url.setSingleLine(true);
+        textBox.addView(title);
+        textBox.addView(url);
+        row.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        ImageButton close = iconButton(R.drawable.ic_close, "Close tab", v -> closeTabFromOverview(index));
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
+        closeParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(close, closeParams);
+
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowParams);
+        return row;
+    }
+
+    private void closeTabFromOverview(int index) {
+        closeTab(index);
+        if (!tabs.isEmpty()) {
+            tabOverviewVisible = true;
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
+            updateBottomThreadBar(currentTab());
+            renderTabs();
+        }
     }
 
     private TextView sectionTitleView(String value) {
