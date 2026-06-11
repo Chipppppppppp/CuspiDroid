@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
+    static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_BBS_LINKS = "bbs_links";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
@@ -119,6 +120,7 @@ public class MainActivity extends Activity {
     private boolean pendingNewTab;
     private boolean pendingHistoryAll;
     private boolean tabOverviewVisible;
+    private boolean addressBarTop;
     private View imageOverlay;
 
     static String text(String ja, String en) {
@@ -149,6 +151,23 @@ public class MainActivity extends Activity {
     protected void onPause() {
         saveTabs();
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (bottomToolbar != null && addressBarTop != addressBarOnTop()) {
+            CuspTab tab = currentTab();
+            if (tab != null) {
+                rememberThreadScroll(tab);
+            }
+            buildLayout();
+            if (pendingNewTab) {
+                showPendingNewTab(pendingHistoryAll);
+            } else if (currentIndex >= 0 && currentIndex < tabs.size()) {
+                switchToTab(currentIndex);
+            }
+        }
     }
 
     @Override
@@ -215,6 +234,8 @@ public class MainActivity extends Activity {
     }
 
     private void buildLayout() {
+        addressBarTop = addressBarOnTop();
+        toolbarButtons.clear();
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.WHITE);
@@ -243,8 +264,6 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         suggestionsParams.gravity = Gravity.TOP;
         overlayFrame.addView(suggestionsPanel, suggestionsParams);
-        root.addView(overlayFrame, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         bottomThreadBar = new LinearLayout(this);
         bottomThreadBar.setOrientation(LinearLayout.HORIZONTAL);
@@ -263,16 +282,12 @@ public class MainActivity extends Activity {
 
         bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
-        root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
 
         bottomToolbar = new LinearLayout(this);
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
         bottomToolbar.setGravity(Gravity.CENTER_VERTICAL);
         bottomToolbar.setPadding(dp(6), dp(5), dp(6), dp(5));
         bottomToolbar.setBackgroundColor(Color.rgb(242, 246, 249));
-        root.addView(bottomToolbar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
@@ -342,6 +357,22 @@ public class MainActivity extends Activity {
         bottomToolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(32), dp(32)));
         addToolbarButton(bottomToolbar, R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
         addToolbarButton(bottomToolbar, R.drawable.ic_more_vert, text("\u30e1\u30cb\u30e5\u30fc", "Menu"), v -> showThreadMenu(v));
+
+        if (addressBarTop) {
+            root.addView(bottomToolbar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+            root.addView(overlayFrame, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        } else {
+            root.addView(overlayFrame, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+            root.addView(bottomToolbar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+        }
     }
 
     private ImageButton iconButton(int iconRes, String description, View.OnClickListener listener) {
@@ -519,7 +550,8 @@ public class MainActivity extends Activity {
             pasteIntoAddressBar(true);
             popup.dismiss();
         }));
-        popup.showAsDropDown(addressBar, dp(8), dp(2));
+        int yOffset = addressBarTop ? dp(2) : -addressBar.getHeight() - dp(54);
+        popup.showAsDropDown(addressBar, dp(8), yOffset);
     }
 
     private TextView menuItem(String text, View.OnClickListener listener) {
@@ -569,7 +601,7 @@ public class MainActivity extends Activity {
         menu.addView(horizontalDivider());
         menu.addView(menuNavigationRow(popup), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
-        popup.showAsDropDown(anchor, -dp(176), -dp(230));
+        popup.showAsDropDown(anchor, -dp(176), addressBarTop ? dp(2) : -dp(230));
     }
 
     private LinearLayout menuNavigationRow(PopupWindow popup) {
@@ -1012,6 +1044,10 @@ public class MainActivity extends Activity {
         visibleThreadScroll = null;
         visiblePostViews.clear();
         if (tab.readerView != null) {
+            ViewGroup oldParent = (ViewGroup) tab.readerView.getParent();
+            if (oldParent != null) {
+                oldParent.removeView(tab.readerView);
+            }
             contentFrame.addView(tab.readerView);
             if (NATIVE_THREAD.equals(tab.nativeKind)) {
                 visibleThreadPage = tab.threadPage;
@@ -2985,6 +3021,10 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_BLUR_IMGUR, true);
     }
 
+    private boolean addressBarOnTop() {
+        return preferences.getBoolean(PREF_ADDRESS_BAR_TOP, false);
+    }
+
     private void openExternal(String url) {
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -3016,11 +3056,9 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u5171\u6709\u3059\u308bURL\u304c\u3042\u308a\u307e\u305b\u3093", "No thread URL to share."), Toast.LENGTH_SHORT).show();
             return;
         }
-        String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
-        String body = (title == null || title.trim().isEmpty()) ? tab.url : title + "\n" + tab.url;
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_TEXT, body);
+        intent.putExtra(Intent.EXTRA_TEXT, tab.url);
         startActivity(Intent.createChooser(intent, text("\u30b9\u30ec\u3092\u5171\u6709", "Share thread")));
     }
 

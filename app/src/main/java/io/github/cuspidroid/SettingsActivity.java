@@ -31,6 +31,7 @@ public class SettingsActivity extends Activity {
     private SharedPreferences preferences;
     private CheckBox open5chInNewTab;
     private CheckBox blurImgurImages;
+    private CheckBox addressBarTop;
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
@@ -79,6 +80,12 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setTextColor(TEXT);
         blurImgurImages.setTextSize(16);
         root.addView(blurImgurImages);
+
+        addressBarTop = new CheckBox(this);
+        addressBarTop.setText(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0a\u306b\u8868\u793a", "Show address bar at top"));
+        addressBarTop.setTextColor(TEXT);
+        addressBarTop.setTextSize(16);
+        root.addView(addressBarTop);
 
         root.addView(sectionTitle(MainActivity.text("\u6a19\u6e96\u691c\u7d22\u30a8\u30f3\u30b8\u30f3", "Default Search Engine")));
         RadioGroup searchGroup = new RadioGroup(this);
@@ -154,6 +161,7 @@ public class SettingsActivity extends Activity {
     private void loadSettings() {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
+        addressBarTop.setChecked(preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false));
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
@@ -169,6 +177,7 @@ public class SettingsActivity extends Activity {
     private void setupAutoSave() {
         open5chInNewTab.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         searchFind5chIo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
                 saveSettings(false);
@@ -223,6 +232,7 @@ public class SettingsActivity extends Activity {
         preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
+                .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
     }
