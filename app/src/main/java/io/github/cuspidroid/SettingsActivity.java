@@ -35,6 +35,7 @@ public class SettingsActivity extends Activity {
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
+    private EditText ngWords;
     private EditText bbsName;
     private EditText bbsUrl;
     private Button addBbsButton;
@@ -114,6 +115,21 @@ public class SettingsActivity extends Activity {
         TextView hint = helperText(MainActivity.text("\u691c\u7d22\u8a9e\u3092\u5165\u308c\u308b\u5834\u6240\u306b %s \u3092\u4f7f\u3046", "Use %s where the encoded query should be inserted."));
         root.addView(hint);
 
+        root.addView(sectionTitle(MainActivity.text("NG\u30ef\u30fc\u30c9", "NG Words")));
+        ngWords = new EditText(this);
+        ngWords.setMinLines(3);
+        ngWords.setGravity(Gravity.TOP | Gravity.START);
+        ngWords.setTextSize(14);
+        ngWords.setTextColor(TEXT);
+        ngWords.setHint(MainActivity.text("1\u884c\u306b1\u8a9e", "One word per line"));
+        ngWords.setBackground(roundedField());
+        ngWords.setPadding(dp(12), dp(8), dp(12), dp(8));
+        root.addView(ngWords, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(104)));
+        root.addView(helperText(MainActivity.text(
+                "\u540d\u524d\u30fb\u65e5\u4ed8\u30fb\u672c\u6587\u306b\u542b\u307e\u308c\u308b\u30ec\u30b9\u3092\u975e\u8868\u793a",
+                "Hides posts containing these words in name, date, or body.")));
+
         root.addView(sectionTitle(MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links")));
         bbsName = new EditText(this);
         bbsName.setSingleLine(true);
@@ -165,6 +181,7 @@ public class SettingsActivity extends Activity {
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
+        ngWords.setText(preferences.getString(MainActivity.PREF_NG_WORDS, ""));
         if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template)
                 || MainActivity.LEGACY_FIND_IO_TEMPLATE.equals(template)
                 || MainActivity.FIND_NET_TEMPLATE.equals(template)) {
@@ -213,6 +230,20 @@ public class SettingsActivity extends Activity {
             public void afterTextChanged(Editable s) {
             }
         });
+        ngWords.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                saveSettings(false);
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
     }
 
     private void saveSettings(boolean showError) {
@@ -234,6 +265,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
+                .putString(MainActivity.PREF_NG_WORDS, ngWords.getText().toString())
                 .apply();
     }
 

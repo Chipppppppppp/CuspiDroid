@@ -82,6 +82,8 @@ public class MainActivity extends Activity {
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_BBS_LINKS = "bbs_links";
+    static final String PREF_FAVORITES = "favorites";
+    static final String PREF_NG_WORDS = "ng_words";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -593,6 +595,23 @@ public class MainActivity extends Activity {
             menu.getChildAt(2).setEnabled(false);
             menu.getChildAt(2).setAlpha(0.45f);
         }
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_search, text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"), v -> {
+            popup.dismiss();
+            showThreadSearchDialog();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_star, isCurrentFavorite()
+                ? text("\u304a\u6c17\u306b\u5165\u308a\u89e3\u9664", "Remove favorite")
+                : text("\u304a\u6c17\u306b\u5165\u308a", "Add favorite"), v -> {
+            popup.dismiss();
+            toggleCurrentFavorite();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_search, text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread"), v -> {
+            popup.dismiss();
+            searchNextThread();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_settings, text("\u8a2d\u5b9a", "Settings"), v -> {
             popup.dismiss();
@@ -1413,6 +1432,9 @@ public class MainActivity extends Activity {
         }
 
         for (Post post : page.posts) {
+            if (matchesNgWord(post)) {
+                continue;
+            }
             addPostCard(list, page, tab, post, list.getChildCount());
         }
 
@@ -1439,6 +1461,9 @@ public class MainActivity extends Activity {
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index) {
+        if (matchesNgWord(post)) {
+            return;
+        }
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
@@ -1457,6 +1482,31 @@ public class MainActivity extends Activity {
         card.addView(postContent(post.body, page));
         list.addView(card, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
         tab.postViews.put(post.number, card);
+    }
+
+    private boolean matchesNgWord(Post post) {
+        if (post == null) {
+            return false;
+        }
+        String haystack = (post.name + "\n" + post.date + "\n" + post.body).toLowerCase(Locale.ROOT);
+        for (String word : ngWords()) {
+            if (!word.isEmpty() && haystack.contains(word.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<String> ngWords() {
+        List<String> words = new ArrayList<>();
+        String saved = preferences.getString(PREF_NG_WORDS, "");
+        for (String line : saved.split("\\r?\\n")) {
+            String word = line.trim();
+            if (!word.isEmpty()) {
+                words.add(word);
+            }
+        }
+        return words;
     }
 
     private View buildSearchView(SearchPage page) {
@@ -1645,6 +1695,16 @@ public class MainActivity extends Activity {
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        List<ThreadHistoryItem> favorites = readFavorites(preferences);
+        list.addView(sectionTitleView(text("\u304a\u6c17\u306b\u5165\u308a", "Favorites")));
+        if (favorites.isEmpty()) {
+            list.addView(helperLine(text("\u304a\u6c17\u306b\u5165\u308a\u306a\u3057", "No favorites.")));
+        } else {
+            for (ThreadHistoryItem item : favorites) {
+                list.addView(historyRow(item));
+            }
+        }
 
         list.addView(sectionTitleView(text("\u5c65\u6b74", "History")));
         List<ThreadHistoryItem> history = threadHistory();
@@ -3050,6 +3110,81 @@ public class MainActivity extends Activity {
         startActivity(intent);
     }
 
+    private void showThreadSearchDialog() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty()) {
+            Toast.makeText(this, text("\u691c\u7d22\u3067\u304d\u308b\u30b9\u30ec\u304c\u3042\u308a\u307e\u305b\u3093", "No searchable thread."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint(text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"));
+        new AlertDialog.Builder(this)
+                .setTitle(text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"))
+                .setView(input)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u691c\u7d22", "Find"), (dialog, which) -> searchCurrentThread(input.getText().toString()))
+                .show();
+    }
+
+    private void searchCurrentThread(String query) {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.threadPage == null || query == null || query.trim().isEmpty()) {
+            return;
+        }
+        String needle = query.trim().toLowerCase(Locale.ROOT);
+        int matches = 0;
+        int first = -1;
+        for (Post post : tab.threadPage.posts) {
+            String haystack = (post.name + "\n" + post.date + "\n" + post.body).toLowerCase(Locale.ROOT);
+            if (haystack.contains(needle)) {
+                matches++;
+                if (first < 0) {
+                    first = post.number;
+                }
+            }
+        }
+        if (first >= 0) {
+            jumpToPost(first);
+            Toast.makeText(this, text("\u30d2\u30c3\u30c8: ", "Matches: ") + matches, Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, text("\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No matches."), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private boolean isCurrentFavorite() {
+        CuspTab tab = currentTab();
+        return tab != null && tab.url != null && isFavorite(preferences, tab.url);
+    }
+
+    private void toggleCurrentFavorite() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
+            return;
+        }
+        if (isFavorite(preferences, tab.url)) {
+            removeFavorite(preferences, tab.url);
+            Toast.makeText(this, text("\u304a\u6c17\u306b\u5165\u308a\u89e3\u9664", "Favorite removed."), Toast.LENGTH_SHORT).show();
+        } else {
+            String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
+            addFavorite(preferences, tab.url, title == null ? tab.url : title);
+            Toast.makeText(this, text("\u304a\u6c17\u306b\u5165\u308a\u8ffd\u52a0", "Favorite added."), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void searchNextThread() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.threadPage == null || tab.threadPage.title == null) {
+            Toast.makeText(this, text("\u691c\u7d22\u3067\u304d\u308b\u30b9\u30ec\u540d\u304c\u3042\u308a\u307e\u305b\u3093", "No thread title to search."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        openInCurrentTab(searchUrl(nextThreadQuery(tab.threadPage.title)));
+    }
+
+    private String nextThreadQuery(String title) {
+        return title.replaceAll("(?i)\\s*(part|vol\\.?|#)?\\s*[0-9\uff10-\uff19]+\\s*$", "").trim();
+    }
+
     private void shareCurrentThread() {
         CuspTab tab = currentTab();
         if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
@@ -3612,9 +3747,13 @@ public class MainActivity extends Activity {
     }
 
     static List<ThreadHistoryItem> readThreadHistory(SharedPreferences preferences) {
+        return readThreadItems(preferences, PREF_HISTORY);
+    }
+
+    private static List<ThreadHistoryItem> readThreadItems(SharedPreferences preferences, String key) {
         List<ThreadHistoryItem> history = new ArrayList<>();
         try {
-            JSONArray array = new JSONArray(preferences.getString(PREF_HISTORY, "[]"));
+            JSONArray array = new JSONArray(preferences.getString(key, "[]"));
             for (int i = 0; i < array.length(); i++) {
                 JSONObject object = array.optJSONObject(i);
                 if (object == null) {
@@ -3655,6 +3794,57 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         preferences.edit().putString(PREF_HISTORY, array.toString()).apply();
+    }
+
+    static List<ThreadHistoryItem> readFavorites(SharedPreferences preferences) {
+        return readThreadItems(preferences, PREF_FAVORITES);
+    }
+
+    static void addFavorite(SharedPreferences preferences, String url, String title) {
+        List<ThreadHistoryItem> favorites = readFavorites(preferences);
+        JSONArray array = new JSONArray();
+        try {
+            JSONObject added = new JSONObject();
+            added.put("title", title == null || title.trim().isEmpty() ? url : title.trim());
+            added.put("url", url);
+            array.put(added);
+            for (ThreadHistoryItem item : favorites) {
+                if (!url.equals(item.url)) {
+                    JSONObject object = new JSONObject();
+                    object.put("title", item.title);
+                    object.put("url", item.url);
+                    array.put(object);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_FAVORITES, array.toString()).apply();
+    }
+
+    static void removeFavorite(SharedPreferences preferences, String url) {
+        List<ThreadHistoryItem> favorites = readFavorites(preferences);
+        JSONArray array = new JSONArray();
+        try {
+            for (ThreadHistoryItem item : favorites) {
+                if (!url.equals(item.url)) {
+                    JSONObject object = new JSONObject();
+                    object.put("title", item.title);
+                    object.put("url", item.url);
+                    array.put(object);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_FAVORITES, array.toString()).apply();
+    }
+
+    static boolean isFavorite(SharedPreferences preferences, String url) {
+        for (ThreadHistoryItem item : readFavorites(preferences)) {
+            if (url.equals(item.url)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static List<BbsLink> readBbsLinks(SharedPreferences preferences) {
