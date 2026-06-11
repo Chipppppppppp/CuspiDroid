@@ -41,7 +41,7 @@ public class AuthActivity extends Activity {
 
         String url = getIntent().getStringExtra(EXTRA_URL);
         if (url == null || url.trim().isEmpty()) {
-            Toast.makeText(this, "Enter an auth URL in Settings.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No URL to open.", Toast.LENGTH_SHORT).show();
             finish();
             return;
         }

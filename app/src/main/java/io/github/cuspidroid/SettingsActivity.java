@@ -36,9 +36,9 @@ public class SettingsActivity extends Activity {
     private EditText customTemplate;
     private EditText bbsName;
     private EditText bbsUrl;
-    private EditText authUrl;
+    private Button addBbsButton;
     private LinearLayout bbsList;
-    private LinearLayout historyList;
+    private String editingBbsUrl;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -129,11 +129,11 @@ public class SettingsActivity extends Activity {
         bbsUrl.setPadding(dp(12), 0, dp(12), 0);
         root.addView(bbsUrl, fieldParams());
 
-        Button addBbs = new Button(this);
-        addBbs.setText("Add BBS link");
-        addBbs.setAllCaps(false);
-        addBbs.setOnClickListener(v -> addBbsLink());
-        root.addView(addBbs, new LinearLayout.LayoutParams(
+        addBbsButton = new Button(this);
+        addBbsButton.setText("Add BBS link");
+        addBbsButton.setAllCaps(false);
+        addBbsButton.setOnClickListener(v -> addBbsLink());
+        root.addView(addBbsButton, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
         bbsList = new LinearLayout(this);
@@ -141,48 +141,12 @@ public class SettingsActivity extends Activity {
         root.addView(bbsList);
         renderBbsLinks();
 
-        root.addView(sectionTitle("BBS Auth"));
-        authUrl = new EditText(this);
-        authUrl.setSingleLine(true);
-        authUrl.setTextSize(14);
-        authUrl.setTextColor(TEXT);
-        authUrl.setHint("Auth or thread URL");
-        authUrl.setImeOptions(EditorInfo.IME_ACTION_GO);
-        authUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        authUrl.setBackground(roundedField());
-        authUrl.setPadding(dp(12), 0, dp(12), 0);
-        authUrl.setOnEditorActionListener((view, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_GO) {
-                openAuthWebView();
-                return true;
-            }
-            return false;
-        });
-        root.addView(authUrl, fieldParams());
-
-        Button openAuth = new Button(this);
-        openAuth.setText("Open auth/write webview");
-        openAuth.setAllCaps(false);
-        openAuth.setOnClickListener(v -> openAuthWebView());
-        root.addView(openAuth, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-
         root.addView(sectionTitle("Thread History"));
-        historyList = new LinearLayout(this);
-        historyList.setOrientation(LinearLayout.VERTICAL);
-        root.addView(historyList);
-        renderHistory();
-
-        Button clearHistory = new Button(this);
-        clearHistory.setText("Clear thread history");
-        clearHistory.setAllCaps(false);
-        clearHistory.setOnClickListener(v -> {
-            MainActivity.clearThreadHistory(preferences);
-            renderHistory();
-            Toast.makeText(this, "Thread history cleared.", Toast.LENGTH_SHORT).show();
-        });
-        root.addView(clearHistory, new LinearLayout.LayoutParams(
+        Button openHistory = new Button(this);
+        openHistory.setText("Manage thread history");
+        openHistory.setAllCaps(false);
+        openHistory.setOnClickListener(v -> startActivity(new Intent(this, HistoryActivity.class)));
+        root.addView(openHistory, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
     }
@@ -303,21 +267,15 @@ public class SettingsActivity extends Activity {
             Toast.makeText(this, "Enter a BBS name and board URL.", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (editingBbsUrl != null) {
+            MainActivity.removeBbsLink(preferences, editingBbsUrl);
+        }
         MainActivity.addBbsLink(preferences, name, url);
+        editingBbsUrl = null;
         bbsName.setText("");
         bbsUrl.setText("");
+        addBbsButton.setText("Add BBS link");
         renderBbsLinks();
-    }
-
-    private void openAuthWebView() {
-        String url = authUrl.getText().toString().trim();
-        if (url.isEmpty()) {
-            Toast.makeText(this, "Enter an auth or thread URL.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        Intent intent = new Intent(this, AuthActivity.class);
-        intent.putExtra(AuthActivity.EXTRA_URL, url);
-        startActivity(intent);
     }
 
     private void renderBbsLinks() {
@@ -337,6 +295,22 @@ public class SettingsActivity extends Activity {
             TextView text = helperText(link.name + "\n" + link.url);
             text.setTextColor(TEXT);
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            ImageButton edit = new ImageButton(this);
+            edit.setImageResource(R.drawable.ic_edit);
+            edit.setContentDescription("Edit BBS link");
+            edit.setColorFilter(TEXT);
+            edit.setBackground(roundedField());
+            edit.setPadding(dp(10), dp(10), dp(10), dp(10));
+            edit.setScaleType(ImageButton.ScaleType.CENTER);
+            edit.setOnClickListener(v -> {
+                editingBbsUrl = link.url;
+                bbsName.setText(link.name);
+                bbsUrl.setText(link.url);
+                addBbsButton.setText("Update BBS link");
+            });
+            LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(dp(46), dp(44));
+            editParams.setMargins(dp(8), 0, 0, 0);
+            row.addView(edit, editParams);
             ImageButton delete = new ImageButton(this);
             delete.setImageResource(R.drawable.ic_delete);
             delete.setContentDescription("Delete BBS link");
@@ -346,47 +320,18 @@ public class SettingsActivity extends Activity {
             delete.setScaleType(ImageButton.ScaleType.CENTER);
             delete.setOnClickListener(v -> {
                 MainActivity.removeBbsLink(preferences, link.url);
+                if (link.url.equals(editingBbsUrl)) {
+                    editingBbsUrl = null;
+                    bbsName.setText("");
+                    bbsUrl.setText("");
+                    addBbsButton.setText("Add BBS link");
+                }
                 renderBbsLinks();
             });
             LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(46), dp(44));
             deleteParams.setMargins(dp(8), 0, 0, 0);
             row.addView(delete, deleteParams);
             bbsList.addView(row);
-        }
-    }
-
-    private void renderHistory() {
-        if (historyList == null) {
-            return;
-        }
-        historyList.removeAllViews();
-        java.util.List<MainActivity.ThreadHistoryItem> history = MainActivity.readThreadHistory(preferences);
-        if (history.isEmpty()) {
-            historyList.addView(helperText("No thread history."));
-            return;
-        }
-        for (MainActivity.ThreadHistoryItem item : history) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView text = helperText(item.title + "\n" + item.url);
-            text.setTextColor(TEXT);
-            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            ImageButton delete = new ImageButton(this);
-            delete.setImageResource(R.drawable.ic_delete);
-            delete.setContentDescription("Delete history item");
-            delete.setColorFilter(TEXT);
-            delete.setBackground(roundedField());
-            delete.setPadding(dp(10), dp(10), dp(10), dp(10));
-            delete.setScaleType(ImageButton.ScaleType.CENTER);
-            delete.setOnClickListener(v -> {
-                MainActivity.removeThreadHistory(preferences, item.url);
-                renderHistory();
-            });
-            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(46), dp(44));
-            deleteParams.setMargins(dp(8), 0, 0, 0);
-            row.addView(delete, deleteParams);
-            historyList.addView(row);
         }
     }
 

@@ -299,7 +299,6 @@ public class MainActivity extends Activity {
         toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
 
         addToolbarButton(toolbar, R.drawable.ic_add, "New tab", v -> createBlankTab());
-        addToolbarButton(toolbar, R.drawable.ic_settings, "Settings", v -> openSettings());
 
         View toolbarDivider = new View(this);
         toolbarDivider.setBackgroundColor(Color.rgb(176, 188, 199));
@@ -350,6 +349,8 @@ public class MainActivity extends Activity {
 
         ImageButton write = iconButton(R.drawable.ic_edit, "Write", v -> showWriteDialog());
         bottomThreadBar.addView(write, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        ImageButton more = iconButton(R.drawable.ic_more_vert, "Thread menu", v -> showThreadMenu(v));
+        bottomThreadBar.addView(more, new LinearLayout.LayoutParams(dp(42), dp(40)));
         root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
     }
@@ -517,10 +518,48 @@ public class MainActivity extends Activity {
         return view;
     }
 
+    private void showThreadMenu(View anchor) {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
+            return;
+        }
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        popup.setElevation(dp(12));
+
+        menu.addView(menuItem("Open in WebView", v -> {
+            popup.dismiss();
+            openCurrentThreadInWebView();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuItem("Share", v -> {
+            popup.dismiss();
+            shareCurrentThread();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuItem("Settings", v -> {
+            popup.dismiss();
+            openSettings();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        popup.showAsDropDown(anchor, -dp(176), -dp(174));
+    }
+
     private View verticalDivider() {
         View divider = new View(this);
         divider.setBackgroundColor(BORDER);
         divider.setLayoutParams(new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT));
+        return divider;
+    }
+
+    private View horizontalDivider() {
+        View divider = new View(this);
+        divider.setBackgroundColor(BORDER);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
     }
 
@@ -2658,6 +2697,31 @@ public class MainActivity extends Activity {
 
     private void openSettings() {
         startActivity(new Intent(this, SettingsActivity.class));
+    }
+
+    private void openCurrentThreadInWebView() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
+            Toast.makeText(this, "No thread URL to open.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(this, AuthActivity.class);
+        intent.putExtra(AuthActivity.EXTRA_URL, tab.url);
+        startActivity(intent);
+    }
+
+    private void shareCurrentThread() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
+            Toast.makeText(this, "No thread URL to share.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
+        String body = (title == null || title.trim().isEmpty()) ? tab.url : title + "\n" + tab.url;
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TEXT, body);
+        startActivity(Intent.createChooser(intent, "Share thread"));
     }
 
     private void goBack() {
