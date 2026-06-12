@@ -1675,6 +1675,14 @@ public class MainActivity extends Activity {
         if (matchesNgWord(post)) {
             return;
         }
+        FrameLayout shell = new FrameLayout(this);
+        shell.setClipChildren(false);
+        shell.setBackgroundColor(Color.rgb(238, 244, 247));
+        ImageView readAction = swipeActionIcon(R.drawable.ic_check, Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        shell.addView(readAction);
+        shell.addView(replyAction);
+
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
@@ -1683,15 +1691,90 @@ public class MainActivity extends Activity {
             showPostActionMenu(card, tab, post);
             return true;
         });
+        attachPostSwipe(card, card, readAction, replyAction, tab, post);
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(0, 0, 0, dp(8));
 
-        card.addView(postMetaText(post, page));
+        View metaView = postMetaText(post, page, () -> showPostActionMenu(card, tab, post));
+        card.addView(metaView);
 
-        card.addView(postBodyView(card, page, tab, post));
-        list.addView(card, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
+        View bodyView = postBodyView(card, page, tab, post);
+        card.addView(bodyView);
+        attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
+        attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
+        shell.addView(card, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        list.addView(shell, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
         tab.postViews.put(post.number, card);
+    }
+
+    private ImageView swipeActionIcon(int iconRes, int gravity) {
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(TEAL);
+        icon.setAlpha(0f);
+        icon.setPadding(dp(12), dp(12), dp(12), dp(12));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(56), dp(56), gravity);
+        icon.setLayoutParams(params);
+        return icon;
+    }
+
+    private void attachPostSwipeDeep(View trigger, View card, View readAction, View replyAction, CuspTab tab, Post post) {
+        attachPostSwipe(trigger, card, readAction, replyAction, tab, post);
+        if (trigger instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) trigger;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                attachPostSwipeDeep(group.getChildAt(i), card, readAction, replyAction, tab, post);
+            }
+        }
+    }
+
+    private void attachPostSwipe(View trigger, View card, View readAction, View replyAction, CuspTab tab, Post post) {
+        final float[] downX = new float[1];
+        final float[] downY = new float[1];
+        final boolean[] dragging = new boolean[1];
+        trigger.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downX[0] = event.getRawX();
+                downY[0] = event.getRawY();
+                dragging[0] = false;
+                card.clearAnimation();
+                return false;
+            }
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                float dx = event.getRawX() - downX[0];
+                float dy = event.getRawY() - downY[0];
+                if (!dragging[0] && Math.abs(dx) > dp(12) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
+                    dragging[0] = true;
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                if (dragging[0]) {
+                    float translation = Math.max(-dp(92), Math.min(dp(92), dx * 0.55f));
+                    card.setTranslationX(translation);
+                    readAction.setAlpha(Math.max(0f, Math.min(1f, translation / dp(64))));
+                    replyAction.setAlpha(Math.max(0f, Math.min(1f, -translation / dp(64))));
+                    return true;
+                }
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (dragging[0]) {
+                    float tx = card.getTranslationX();
+                    card.animate().translationX(0).setDuration(130).start();
+                    readAction.animate().alpha(0f).setDuration(130).start();
+                    replyAction.animate().alpha(0f).setDuration(130).start();
+                    if (event.getAction() == MotionEvent.ACTION_UP) {
+                        if (tx <= -dp(54)) {
+                            showWriteDialog(">>" + post.number + "\n");
+                        } else if (tx >= dp(54)) {
+                            markReadTo(tab, post.number);
+                        }
+                    }
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     private FrameLayout bottomRefreshLoader() {
@@ -1709,7 +1792,7 @@ public class MainActivity extends Activity {
         return loader;
     }
 
-    private TextView postMetaText(Post post, ThreadPage page) {
+    private TextView postMetaText(Post post, ThreadPage page, Runnable longClickAction) {
         TextView meta = new TextView(this);
         String value = post.number + "  " + post.name + "  " + post.date;
         SpannableString text = new SpannableString(value);
@@ -1736,6 +1819,13 @@ public class MainActivity extends Activity {
         meta.setTextSize(12);
         meta.setPadding(0, 0, 0, dp(5));
         meta.setMovementMethod(LinkMovementMethod.getInstance());
+        meta.setOnLongClickListener(v -> {
+            if (longClickAction != null) {
+                longClickAction.run();
+                return true;
+            }
+            return false;
+        });
         return meta;
     }
 
@@ -1749,37 +1839,46 @@ public class MainActivity extends Activity {
                 .setView(menu)
                 .create();
 
-        menu.addView(dialogAction(text("\u8fd4\u4fe1", "Reply"), () -> {
+        menu.addView(dialogAction(R.drawable.ic_reply, text("\u8fd4\u4fe1", "Reply"), () -> {
             dialog.dismiss();
             showWriteDialog(">>" + post.number + "\n");
         }));
-        menu.addView(dialogAction(text("\u3053\u3053\u307e\u3067\u3092\u65e2\u8aad\u306b\u3059\u308b", "Mark read to here"), () -> {
+        menu.addView(dialogAction(R.drawable.ic_check, text("\u3053\u3053\u307e\u3067\u3092\u65e2\u8aad\u306b\u3059\u308b", "Mark read to here"), () -> {
             dialog.dismiss();
             markReadTo(tab, post.number);
         }));
-        menu.addView(dialogAction(post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
+        menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
             dialog.dismiss();
             toggleAaMode(tab, post);
         }));
-        menu.addView(dialogAction(text("\u30b3\u30d4\u30fc", "Copy"), () -> {
+        menu.addView(dialogAction(R.drawable.ic_copy, text("\u30b3\u30d4\u30fc", "Copy"), () -> {
             dialog.dismiss();
             showPostCopyDialog(post);
         }));
         dialog.show();
     }
 
-    private TextView dialogAction(String label, Runnable action) {
-        TextView view = new TextView(this);
-        view.setText(label);
-        view.setTextColor(TEXT);
-        view.setTextSize(16);
+    private View dialogAction(int iconRes, String label, Runnable action) {
+        LinearLayout view = new LinearLayout(this);
+        view.setOrientation(LinearLayout.HORIZONTAL);
         view.setGravity(Gravity.CENTER_VERTICAL);
-        view.setPadding(dp(12), dp(12), dp(12), dp(12));
+        view.setPadding(dp(12), 0, dp(12), 0);
         view.setBackground(roundedDrawable(Color.rgb(250, 251, 252), BORDER, dp(8)));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         params.setMargins(0, 0, 0, dp(8));
         view.setLayoutParams(params);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(TEAL);
+        view.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        TextView textView = new TextView(this);
+        textView.setText(label);
+        textView.setTextColor(TEXT);
+        textView.setTextSize(16);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        textParams.setMargins(dp(12), 0, 0, 0);
+        view.addView(textView, textParams);
         view.setOnClickListener(v -> action.run());
         return view;
     }
@@ -3850,7 +3949,13 @@ public class MainActivity extends Activity {
                 continue;
             }
             card.removeViewAt(1);
-            card.addView(postBodyView(card, tab.threadPage, tab, post), 1);
+            View bodyView = postBodyView(card, tab.threadPage, tab, post);
+            card.addView(bodyView, 1);
+            View parent = (View) card.getParent();
+            if (parent instanceof ViewGroup && ((ViewGroup) parent).getChildCount() >= 3) {
+                ViewGroup shell = (ViewGroup) parent;
+                attachPostSwipeDeep(bodyView, card, shell.getChildAt(0), shell.getChildAt(1), tab, post);
+            }
         }
     }
 
