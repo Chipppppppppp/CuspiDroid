@@ -231,6 +231,10 @@ public class MainActivity extends Activity {
             return;
         }
         CuspTab tab = currentTab();
+        if (canGoBackInCurrentTab(tab)) {
+            goBack();
+            return;
+        }
         if (tab != null && tab.backToNewTab && tab.navigationIndex <= 0) {
             closeCurrentTab();
             showPendingNewTab();
@@ -1387,11 +1391,12 @@ public class MainActivity extends Activity {
     }
 
     private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
+        final String loadUrl = url;
         rememberThreadScroll(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
-        tab.url = url;
-        tab.title = hostTitle(url);
+        tab.url = loadUrl;
+        tab.title = hostTitle(loadUrl);
         tab.searchPage = null;
         if (showFullLoading || tab.readerView == null) {
             tab.readerView = loadingView("");
@@ -1402,12 +1407,18 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             ThreadPage page;
             try {
-                page = downloadThreadPage(url);
+                page = downloadThreadPage(loadUrl);
             } catch (Exception error) {
-                page = ThreadPage.error(url, error.getMessage());
+                page = ThreadPage.error(loadUrl, error.getMessage());
             }
                 ThreadPage result = page;
             runOnUiThread(() -> {
+                if (!loadUrl.equals(tab.url)) {
+                    if (tab == currentTab()) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
                 tab.title = result.title;
                 tab.threadPage = result;
                 tab.readPostNumber = readPostNumber(preferences, result.url);
@@ -1536,10 +1547,11 @@ public class MainActivity extends Activity {
     }
 
     private void loadSearchResults(CuspTab tab, String url, boolean foreground) {
+        final String loadUrl = url;
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH;
-        tab.url = url;
-        tab.title = searchTitle(url);
+        tab.url = loadUrl;
+        tab.title = searchTitle(loadUrl);
         if (foreground || tab.readerView == null) {
             tab.readerView = loadingView("");
         }
@@ -1555,13 +1567,19 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                String html = download(url);
-                page = parseSearchPage(url, html);
+                String html = download(loadUrl);
+                page = parseSearchPage(loadUrl, html);
             } catch (Exception error) {
-                page = SearchPage.error(url, error.getMessage());
+                page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
             runOnUiThread(() -> {
+                if (!loadUrl.equals(tab.url)) {
+                    if (foreground && tab == currentTab()) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
                 tab.title = result.title;
                 tab.searchPage = result;
                 tab.readerView = buildSearchView(result);
@@ -1624,10 +1642,11 @@ public class MainActivity extends Activity {
     }
 
     private void loadBoard(CuspTab tab, String url, boolean foreground) {
+        final String loadUrl = url;
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
-        tab.url = url;
-        tab.title = boardTitle(url);
+        tab.url = loadUrl;
+        tab.title = boardTitle(loadUrl);
         if (foreground || tab.readerView == null) {
             tab.readerView = loadingView("");
         }
@@ -1643,12 +1662,18 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                page = downloadBoard(url);
+                page = downloadBoard(loadUrl);
             } catch (Exception error) {
-                page = SearchPage.error(url, error.getMessage());
+                page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
             runOnUiThread(() -> {
+                if (!loadUrl.equals(tab.url)) {
+                    if (foreground && tab == currentTab()) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
                 tab.title = result.title;
                 tab.searchPage = result;
                 tab.readerView = buildSearchView(result);
@@ -3425,7 +3450,8 @@ public class MainActivity extends Activity {
         anchor.getLocationOnScreen(anchorLocation);
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         int x = Math.max(dp(8), Math.min(anchorLocation[0] + dp(8), screenWidth - width - dp(8)));
-        int availableAbove = Math.max(dp(140), anchorLocation[1]);
+        int popupOverlap = dp(12);
+        int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap);
         int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - dp(64), availableAbove);
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -3433,7 +3459,7 @@ public class MainActivity extends Activity {
         int desiredHeight = popupPosts.getMeasuredHeight() + (jumpEachPost ? dp(32) : dp(18));
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(desiredHeight > maxHeight);
-        int y = Math.max(dp(8), anchorLocation[1] - popupHeight);
+        int y = Math.max(dp(8), anchorLocation[1] - popupHeight + popupOverlap);
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
@@ -4424,6 +4450,12 @@ public class MainActivity extends Activity {
             if (tab != null && tab.backToNewTab) {
                 closeCurrentTab();
                 showPendingNewTab();
+            } else if (tab != null && tab.returnToIndex >= 0) {
+                int returnIndex = Math.max(0, Math.min(tab.returnToIndex, tabs.size() - 1));
+                closeCurrentTab();
+                if (!pendingNewTab && !tabs.isEmpty()) {
+                    switchToTab(Math.max(0, Math.min(returnIndex, tabs.size() - 1)));
+                }
             }
             return;
         }
@@ -4453,6 +4485,11 @@ public class MainActivity extends Activity {
         }
         String url = tab.navigationHistory.get(tab.navigationIndex);
         openInCurrentTab(url, false);
+    }
+
+    private boolean canGoBackInCurrentTab(CuspTab tab) {
+        return tab != null
+                && (tab.navigationIndex > 0 || tab.backToNewTab || tab.returnToIndex >= 0);
     }
 
     private void reload() {
