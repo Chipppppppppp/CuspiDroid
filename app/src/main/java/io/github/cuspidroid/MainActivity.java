@@ -1977,7 +1977,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        scrollParams.height = Math.min(dp(240), previewBodyHeight(post));
+        scrollParams.height = Math.min(dp(380), previewBodyHeight(post));
         card.addView(scroll, scrollParams);
         return card;
     }
@@ -3391,7 +3391,7 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
         FrameLayout popupRoot = new FrameLayout(this);
-        popupRoot.setPadding(dp(3), dp(3), dp(3), dp(3));
+        popupRoot.setPadding(dp(8), dp(8), dp(8), dp(8));
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setElevation(dp(12));
         popupRoot.setFocusable(true);
@@ -3400,6 +3400,11 @@ public class MainActivity extends Activity {
         ScrollView popupScroll = new ScrollView(this);
         popupScroll.setVerticalScrollBarEnabled(false);
         popupScroll.setScrollbarFadingEnabled(true);
+        if (jumpEachPost) {
+            popupScroll.setPadding(dp(8), dp(8), dp(8), dp(8));
+            popupScroll.setBackground(roundedFill(Color.WHITE, dp(12)));
+            popupScroll.setElevation(dp(12));
+        }
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
         popupPosts.setPadding(0, 0, 0, 0);
@@ -3422,7 +3427,7 @@ public class MainActivity extends Activity {
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int desiredHeight = popupPosts.getMeasuredHeight() + dp(18);
+        int desiredHeight = popupPosts.getMeasuredHeight() + (jumpEachPost ? dp(32) : dp(18));
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(desiredHeight > maxHeight);
         int y = Math.max(dp(8), anchorLocation[1] - popupHeight - dp(8));
