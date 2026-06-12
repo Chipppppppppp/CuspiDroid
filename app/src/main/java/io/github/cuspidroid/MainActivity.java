@@ -3393,6 +3393,7 @@ public class MainActivity extends Activity {
         FrameLayout popupRoot = new FrameLayout(this);
         popupRoot.setPadding(dp(8), dp(8), dp(8), dp(8));
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
+        popupRoot.setElevation(dp(12));
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
 
@@ -3402,6 +3403,7 @@ public class MainActivity extends Activity {
         if (jumpEachPost) {
             popupScroll.setPadding(dp(8), dp(8), dp(8), dp(8));
             popupScroll.setBackground(roundedFill(Color.WHITE, dp(12)));
+            popupScroll.setElevation(dp(12));
         }
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
@@ -3432,7 +3434,7 @@ public class MainActivity extends Activity {
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setElevation(0);
+        popup.setElevation(dp(12));
         popup.setOnDismissListener(() -> replyPopups.remove(popup));
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
@@ -3445,13 +3447,7 @@ public class MainActivity extends Activity {
         }
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
-        shell.setClipToPadding(false);
-        shell.setPadding(dp(5), dp(5), dp(5), dp(5));
         shell.setBackgroundColor(Color.TRANSPARENT);
-        View shadow = new View(this);
-        shadow.setBackground(roundedFill(Color.argb(54, 15, 23, 42), dp(16)));
-        shell.addView(shadow, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         ImageView readAction = swipeActionIcon(R.drawable.ic_check, Gravity.LEFT | Gravity.CENTER_VERTICAL);
         ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
@@ -3501,17 +3497,15 @@ public class MainActivity extends Activity {
             attachPostSwipeDeep(metaRow, card, readAction, replyAction, tab, post);
             attachPostSwipeDeep(body, card, readAction, replyAction, tab, post);
         }
-        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardParams.setMargins(dp(3), dp(3), dp(3), dp(3));
-        shell.addView(card, cardParams);
+        shell.addView(card, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return shell;
     }
 
     private LinearLayout.LayoutParams popupPostParams(boolean compact) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 0, 0, compact ? 0 : dp(4));
+        params.setMargins(dp(4), dp(4), dp(4), compact ? 0 : dp(8));
         return params;
     }
 
