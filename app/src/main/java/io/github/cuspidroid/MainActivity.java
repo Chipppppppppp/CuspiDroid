@@ -10,6 +10,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Matrix;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -42,6 +43,7 @@ import android.content.Intent;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -1739,22 +1741,103 @@ public class MainActivity extends Activity {
     private void showPostActionMenu(View anchor, CuspTab tab, Post post) {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setBackground(menuBackground());
-        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
-        popup.setOutsideTouchable(true);
-        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setElevation(dp(10));
-        menu.addView(menuIconItem(R.drawable.ic_edit, text("\u8fd4\u4fe1", "Reply"), v -> {
-            popup.dismiss();
+        menu.setPadding(dp(18), dp(8), dp(18), 0);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(">>" + post.number)
+                .setView(menu)
+                .create();
+
+        menu.addView(dialogAction(text("\u8fd4\u4fe1", "Reply"), () -> {
+            dialog.dismiss();
             showWriteDialog(">>" + post.number + "\n");
         }));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_jump_arrow, text("\u3053\u3053\u307e\u3067\u3092\u65e2\u8aad\u306b\u3059\u308b", "Mark read to here"), v -> {
-            popup.dismiss();
+        menu.addView(dialogAction(text("\u3053\u3053\u307e\u3067\u3092\u65e2\u8aad\u306b\u3059\u308b", "Mark read to here"), () -> {
+            dialog.dismiss();
             markReadTo(tab, post.number);
         }));
-        showMenuWithinScreen(popup, menu, anchor);
+        menu.addView(dialogAction(text("AA\u8868\u793a", "AA view"), () -> {
+            dialog.dismiss();
+            showAaDialog(post);
+        }));
+        menu.addView(dialogAction(text("\u30b3\u30d4\u30fc", "Copy"), () -> {
+            dialog.dismiss();
+            showPostCopyDialog(post);
+        }));
+        dialog.show();
+    }
+
+    private TextView dialogAction(String label, Runnable action) {
+        TextView view = new TextView(this);
+        view.setText(label);
+        view.setTextColor(TEXT);
+        view.setTextSize(16);
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        view.setPadding(dp(12), dp(12), dp(12), dp(12));
+        view.setBackground(roundedDrawable(Color.rgb(250, 251, 252), BORDER, dp(8)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        params.setMargins(0, 0, 0, dp(8));
+        view.setLayoutParams(params);
+        view.setOnClickListener(v -> action.run());
+        return view;
+    }
+
+    private void showAaDialog(Post post) {
+        HorizontalScrollView horizontal = new HorizontalScrollView(this);
+        ScrollView vertical = new ScrollView(this);
+        TextView body = new TextView(this);
+        body.setText(post.body);
+        body.setTextColor(TEXT);
+        body.setTextSize(13);
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setIncludeFontPadding(false);
+        body.setLineSpacing(0, 1.0f);
+        body.setPadding(dp(12), dp(12), dp(12), dp(12));
+        vertical.addView(body, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        horizontal.addView(vertical, new HorizontalScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(420)));
+        new AlertDialog.Builder(this)
+                .setTitle(text("AA\u8868\u793a", "AA view") + " >>" + post.number)
+                .setView(horizontal)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    private void showPostCopyDialog(Post post) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(8), dp(18), 0);
+        TextView body = new TextView(this);
+        body.setText(post.body);
+        body.setTextColor(TEXT);
+        body.setTextSize(15);
+        body.setTextIsSelectable(true);
+        body.setPadding(dp(10), dp(10), dp(10), dp(10));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(body, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(320)));
+        Button copyAll = new Button(this);
+        copyAll.setText(text("\u5168\u4f53\u3092\u30b3\u30d4\u30fc", "Copy all"));
+        copyAll.setAllCaps(false);
+        root.addView(copyAll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u66f8\u304d\u8fbc\u307f\u3092\u30b3\u30d4\u30fc", "Copy post") + " >>" + post.number)
+                .setView(root)
+                .setPositiveButton("OK", null)
+                .create();
+        copyAll.setOnClickListener(v -> {
+            ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (manager != null) {
+                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid post", post.body));
+                Toast.makeText(this, text("\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Copied."), Toast.LENGTH_SHORT).show();
+            }
+        });
+        dialog.show();
     }
 
     private boolean matchesNgWord(Post post) {
