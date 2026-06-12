@@ -441,12 +441,19 @@ public class MainActivity extends Activity {
             showAddressEditMenu();
             return true;
         });
-        bottomToolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(40), 1));
+        addressBar.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            if (scrollX != 0 || scrollY != 0) {
+                addressBar.scrollTo(0, 0);
+            }
+        });
+        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(40), 1);
+        addressParams.setMargins(0, 0, dp(8), 0);
+        bottomToolbar.addView(addressBar, addressParams);
 
+        addToolbarButton(bottomToolbar, R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
         tabCountButton = tabCountButton();
         toolbarButtons.add(tabCountButton);
         bottomToolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        addToolbarButton(bottomToolbar, R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
         addToolbarButton(bottomToolbar, R.drawable.ic_more_vert, text("\u30e1\u30cb\u30e5\u30fc", "Menu"), v -> showThreadMenu(v));
 
         if (addressBarTop) {
@@ -2138,6 +2145,7 @@ public class MainActivity extends Activity {
         markers.removeAllViews();
         int contentHeight = Math.max(1, tab.threadScroll.getChildAt(0).getHeight());
         int frameHeight = Math.max(1, tab.scrollScrubber.getHeight());
+        int firstUnreadTop = -1;
         for (Post post : tab.threadPage.posts) {
             if (post.number <= tab.readPostNumber) {
                 continue;
@@ -2147,17 +2155,19 @@ public class MainActivity extends Activity {
                 continue;
             }
             View markerSource = (View) card.getParent();
-            int top = Math.max(0, markerSource.getTop());
-            int height = Math.max(dp(3), markerSource.getHeight());
-            int markerTop = Math.max(0, Math.min(frameHeight - dp(2), top * frameHeight / contentHeight));
-            int markerHeight = Math.max(dp(2), Math.min(dp(12), height * frameHeight / contentHeight));
-            View marker = new View(this);
-            marker.setBackgroundColor(Color.argb(120, 20, 184, 166));
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, markerHeight);
-            params.topMargin = markerTop;
-            markers.addView(marker, params);
+            firstUnreadTop = Math.max(0, markerSource.getTop());
+            break;
         }
+        if (firstUnreadTop < 0) {
+            return;
+        }
+        int markerTop = Math.max(0, Math.min(frameHeight - dp(2), firstUnreadTop * frameHeight / contentHeight));
+        View marker = new View(this);
+        marker.setBackgroundColor(Color.argb(95, 20, 184, 166));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(dp(2), frameHeight - markerTop));
+        params.topMargin = markerTop;
+        markers.addView(marker, params);
     }
 
     private View.OnTouchListener scrubberTouchListener(ScrollView scroll, View frame, View thumb) {
