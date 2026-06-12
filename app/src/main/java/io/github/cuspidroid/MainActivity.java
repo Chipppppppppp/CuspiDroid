@@ -903,7 +903,7 @@ public class MainActivity extends Activity {
     }
 
     private GradientDrawable postBackground(boolean unread) {
-        return roundedFill(unread ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252), dp(8));
+        return roundedFill(unread ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252), dp(12));
     }
 
     private GradientDrawable addressBarBackground() {
@@ -1848,6 +1848,7 @@ public class MainActivity extends Activity {
                             showWriteDialog(">>" + post.number + "\n");
                         } else if (tx >= dp(54)) {
                             setReadThrough(tab, post.number);
+                            card.setBackground(postBackground(false));
                         }
                     }
                     return true;
@@ -1919,9 +1920,9 @@ public class MainActivity extends Activity {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(18), dp(8), dp(18), 0);
+        menu.addView(postActionPreview(tab == null ? null : tab.threadPage, post));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(">>" + post.number)
                 .setView(menu)
                 .create();
 
@@ -1935,13 +1936,56 @@ public class MainActivity extends Activity {
         }));
         menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
             dialog.dismiss();
-            toggleAaMode(tab, post);
+            toggleAaMode(tab, post, anchor);
         }));
         menu.addView(dialogAction(R.drawable.ic_copy, text("\u30b3\u30d4\u30fc", "Copy"), () -> {
             dialog.dismiss();
             showPostCopyDialog(post);
         }));
         dialog.show();
+    }
+
+    private View postActionPreview(ThreadPage page, Post post) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(10), dp(8), dp(10), dp(10));
+        card.setBackground(roundedFill(Color.rgb(250, 251, 252), dp(12)));
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardParams.setMargins(0, 0, 0, dp(10));
+        card.setLayoutParams(cardParams);
+
+        LinearLayout metaRow = new LinearLayout(this);
+        metaRow.setOrientation(LinearLayout.HORIZONTAL);
+        metaRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView meta = new TextView(this);
+        meta.setText(">>" + post.number + "  " + post.name + "  " + post.date);
+        meta.setTextColor(Color.rgb(79, 91, 103));
+        meta.setTextSize(12);
+        metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton copy = iconButton(R.drawable.ic_copy, text("\u5168\u4f53\u3092\u30b3\u30d4\u30fc", "Copy all"), v -> copyPostBody(post));
+        copy.setColorFilter(TEAL);
+        copy.setBackgroundColor(Color.TRANSPARENT);
+        metaRow.addView(copy, new LinearLayout.LayoutParams(dp(36), dp(34)));
+        card.addView(metaRow);
+
+        TextView body = new TextView(this);
+        body.setText(post.body);
+        body.setTextColor(TEXT);
+        body.setTextSize(15);
+        body.setLineSpacing(0, 1.15f);
+        body.setTextIsSelectable(true);
+        body.setPadding(0, dp(4), 0, 0);
+        card.addView(body);
+        return card;
+    }
+
+    private void copyPostBody(Post post) {
+        ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (manager != null) {
+            manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid post", post.body));
+            Toast.makeText(this, text("\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Copied."), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private View dialogAction(int iconRes, String label, Runnable action) {
@@ -2728,7 +2772,9 @@ public class MainActivity extends Activity {
         body.setLineSpacing(0, 1.0f);
         body.setSingleLine(false);
         body.setHorizontallyScrolling(true);
-        body.setPadding(0, dp(4), 0, dp(6));
+        body.setPadding(0, 0, 0, 0);
+        body.setMinHeight(0);
+        body.setMinimumHeight(0);
         body.setOnLongClickListener(v -> {
             longClick.run();
             return true;
@@ -2765,10 +2811,15 @@ public class MainActivity extends Activity {
     }
 
     private void toggleAaMode(CuspTab tab, Post post) {
-        if (tab == null || post == null || tab.postViews == null) {
+        toggleAaMode(tab, post, null);
+    }
+
+    private void toggleAaMode(CuspTab tab, Post post, View preferredCard) {
+        if (tab == null || post == null) {
             return;
         }
-        View cardView = tab.postViews.get(post.number);
+        View cardView = preferredCard instanceof LinearLayout ? preferredCard
+                : (tab.postViews == null ? null : tab.postViews.get(post.number));
         if (!(cardView instanceof LinearLayout)) {
             return;
         }
@@ -3314,75 +3365,25 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
         FrameLayout popupRoot = new FrameLayout(this);
-        popupRoot.setPadding(dp(3), dp(3), dp(3), dp(3));
-        popupRoot.setBackground(roundedFill(Color.WHITE, dp(10)));
+        popupRoot.setPadding(0, 0, 0, 0);
+        popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setElevation(dp(10));
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(10), dp(8), dp(10), dp(10));
-        box.setBackground(roundedFill(Color.WHITE, dp(8)));
-        popupRoot.addView(box, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ScrollView popupScroll = new ScrollView(this);
         popupScroll.setVerticalScrollBarEnabled(false);
         popupScroll.setScrollbarFadingEnabled(true);
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
-        popupPosts.setPadding(0, jumpEachPost ? 0 : dp(36), 0, 0);
+        popupPosts.setPadding(0, 0, 0, 0);
         popupScroll.addView(popupPosts, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        box.addView(popupScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-
-        ImageButton jump = iconButton(R.drawable.ic_arrow_forward, targets.size() == 1
-                ? "Jump to >>" + targets.get(0).number : "Jump to first", null);
-        jump.setColorFilter(TEAL);
-        jump.setBackgroundColor(Color.TRANSPARENT);
-        FrameLayout.LayoutParams jumpParams = new FrameLayout.LayoutParams(dp(38), dp(38));
-        jumpParams.gravity = Gravity.RIGHT | Gravity.TOP;
-        jumpParams.setMargins(0, dp(6), dp(6), 0);
-        if (!jumpEachPost) {
-            popupRoot.addView(jump, jumpParams);
-        }
+        popupRoot.addView(popupScroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         for (Post post : targets) {
-            LinearLayout postBox = new LinearLayout(this);
-            postBox.setOrientation(LinearLayout.VERTICAL);
-            postBox.setPadding(dp(8), dp(6), dp(8), dp(7));
-            postBox.setBackground(roundedFill(Color.rgb(250, 251, 252), dp(8)));
-            postBox.setElevation(dp(1));
-            LinearLayout.LayoutParams postBoxParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            postBoxParams.setMargins(0, 0, 0, dp(8));
-            LinearLayout metaRow = new LinearLayout(this);
-            metaRow.setOrientation(LinearLayout.HORIZONTAL);
-            metaRow.setGravity(Gravity.CENTER_VERTICAL);
-            TextView meta = new TextView(this);
-            meta.setText(">>" + post.number + "  " + post.name + "  " + post.date);
-            meta.setTextColor(Color.rgb(79, 91, 103));
-            meta.setTextSize(12);
-            metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            if (jumpEachPost) {
-                ImageButton postJump = iconButton(R.drawable.ic_arrow_forward, "Jump to >>" + post.number, null);
-                postJump.setColorFilter(TEAL);
-                postJump.setBackgroundColor(Color.TRANSPARENT);
-                postJump.setPadding(dp(8), dp(8), dp(8), dp(8));
-                postJump.setOnClickListener(v -> {
-                    dismissThreadPopups();
-                    jumpToPost(post.number);
-                });
-                metaRow.addView(postJump, new LinearLayout.LayoutParams(dp(34), dp(34)));
-            }
-            postBox.addView(metaRow);
-
-            View body = postContent(post.body, page);
-            body.setPadding(0, dp(4), 0, dp(6));
-            postBox.addView(body);
-            popupPosts.addView(postBox, postBoxParams);
+            popupPosts.addView(popupPostCard(page, post), popupPostParams());
         }
 
         int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420));
@@ -3404,14 +3405,77 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setElevation(dp(8));
         popup.setOnDismissListener(() -> replyPopups.remove(popup));
-        if (!jumpEachPost) {
-            jump.setOnClickListener(v -> {
-                dismissThreadPopups();
-                jumpToPost(targets.get(0).number);
-            });
-        }
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
+    }
+
+    private View popupPostCard(ThreadPage page, Post post) {
+        CuspTab tab = currentTab();
+        if (tab != null) {
+            post.aaMode = isAaPost(preferences, page.url, post.number);
+        }
+        FrameLayout shell = new FrameLayout(this);
+        shell.setClipChildren(false);
+        shell.setBackgroundColor(Color.TRANSPARENT);
+        ImageView readAction = swipeActionIcon(R.drawable.ic_check, Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        shell.addView(readAction);
+        shell.addView(replyAction);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(10), dp(8), dp(10), dp(10));
+        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber));
+        card.setElevation(dp(8));
+        card.setOnLongClickListener(v -> {
+            if (isPostSwipeBlocked(post)) {
+                return true;
+            }
+            showPostActionMenu(card, tab, post);
+            return true;
+        });
+        if (tab != null) {
+            attachPostSwipe(card, card, readAction, replyAction, tab, post);
+        }
+
+        LinearLayout metaRow = new LinearLayout(this);
+        metaRow.setOrientation(LinearLayout.HORIZONTAL);
+        metaRow.setGravity(Gravity.CENTER_VERTICAL);
+        View meta = postMetaText(post, page, () -> {
+            if (!isPostSwipeBlocked(post)) {
+                showPostActionMenu(card, tab, post);
+            }
+        });
+        metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton postJump = iconButton(R.drawable.ic_arrow_forward, "Jump to >>" + post.number, null);
+        postJump.setColorFilter(TEAL);
+        postJump.setBackgroundColor(Color.TRANSPARENT);
+        postJump.setPadding(dp(8), dp(8), dp(8), dp(8));
+        postJump.setOnClickListener(v -> {
+            dismissThreadPopups();
+            jumpToPost(post.number);
+        });
+        metaRow.addView(postJump, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        card.addView(metaRow);
+
+        View body = tab == null ? postContent(post.body, page, null, () -> showPostActionMenu(card, null, post))
+                : postBodyView(card, page, tab, post);
+        body.setPadding(0, dp(4), 0, 0);
+        card.addView(body);
+        if (tab != null) {
+            attachPostSwipeDeep(metaRow, card, readAction, replyAction, tab, post);
+            attachPostSwipeDeep(body, card, readAction, replyAction, tab, post);
+        }
+        shell.addView(card, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return shell;
+    }
+
+    private LinearLayout.LayoutParams popupPostParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(dp(4), dp(4), dp(4), dp(8));
+        return params;
     }
 
     private void dismissThreadPopups() {
