@@ -2241,6 +2241,13 @@ public class MainActivity extends Activity {
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (startedAtBottom[0] && !refreshing[0]) {
+                    if (scroll.canScrollVertically(1)) {
+                        startedAtBottom[0] = false;
+                        dragging[0] = false;
+                        pullDistance[0] = 0;
+                        resetBottomRefreshLoader(loader);
+                        return false;
+                    }
                     float pull = Math.max(0, downY[0] - event.getY());
                     pullDistance[0] = pull;
                     if (pull > dp(4)) {
@@ -2263,6 +2270,9 @@ public class MainActivity extends Activity {
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
                 if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= triggerPull) {
                     refreshing[0] = true;
+                    startedAtBottom[0] = false;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
                     loader.setVisibility(View.VISIBLE);
                     loader.setRotation(0f);
                     setBottomRefreshSpinning(loader, true);
