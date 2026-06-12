@@ -3400,17 +3400,24 @@ public class MainActivity extends Activity {
         if (jumpEachPost) {
             popupScroll.setPadding(dp(8), dp(8), dp(8), dp(8));
             popupScroll.setBackground(roundedFill(Color.WHITE, dp(12)));
+            popupRoot.addView(popupPostShadowLayer(Color.argb(28, 15, 23, 42)), popupPostShadowParams(0));
+            popupRoot.addView(popupPostShadowLayer(Color.argb(22, 15, 23, 42)), popupPostShadowParams(dp(2)));
+            popupRoot.addView(popupPostShadowLayer(Color.argb(18, 15, 23, 42)), popupPostShadowParams(dp(4)));
         }
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
         popupPosts.setPadding(0, 0, 0, 0);
         popupScroll.addView(popupPosts, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        popupRoot.addView(popupScroll, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout.LayoutParams scrollParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        if (jumpEachPost) {
+            scrollParams.setMargins(dp(7), dp(7), dp(7), dp(7));
+        }
+        popupRoot.addView(popupScroll, scrollParams);
 
         for (Post post : targets) {
-            popupPosts.addView(popupPostCard(page, post), popupPostParams(jumpEachPost));
+            popupPosts.addView(popupPostCard(page, post, !jumpEachPost), popupPostParams(jumpEachPost));
         }
 
         int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420));
@@ -3435,7 +3442,7 @@ public class MainActivity extends Activity {
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
     }
 
-    private View popupPostCard(ThreadPage page, Post post) {
+    private View popupPostCard(ThreadPage page, Post post, boolean showShadow) {
         CuspTab tab = currentTab();
         if (tab != null) {
             post.aaMode = isAaPost(preferences, page.url, post.number);
@@ -3444,12 +3451,18 @@ public class MainActivity extends Activity {
         shell.setClipChildren(false);
         shell.setClipToPadding(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
-        View shadowOuter = popupPostShadowLayer(Color.argb(28, 15, 23, 42));
-        shell.addView(shadowOuter, popupPostShadowParams(0));
-        View shadowMiddle = popupPostShadowLayer(Color.argb(22, 15, 23, 42));
-        shell.addView(shadowMiddle, popupPostShadowParams(dp(2)));
-        View shadowInner = popupPostShadowLayer(Color.argb(18, 15, 23, 42));
-        shell.addView(shadowInner, popupPostShadowParams(dp(4)));
+        if (showShadow) {
+            shell.addView(popupPostShadowLayer(Color.argb(28, 15, 23, 42)), popupPostShadowParams(0));
+            shell.addView(popupPostShadowLayer(Color.argb(22, 15, 23, 42)), popupPostShadowParams(dp(2)));
+            shell.addView(popupPostShadowLayer(Color.argb(18, 15, 23, 42)), popupPostShadowParams(dp(4)));
+        }
+        int cardInset = showShadow ? dp(7) : 0;
+        View swipeBackground = new View(this);
+        swipeBackground.setBackground(roundedFill(Color.WHITE, dp(12)));
+        FrameLayout.LayoutParams swipeBackgroundParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        swipeBackgroundParams.setMargins(cardInset, cardInset, cardInset, cardInset);
+        shell.addView(swipeBackground, swipeBackgroundParams);
         ImageView readAction = swipeActionIcon(R.drawable.ic_check, Gravity.LEFT | Gravity.CENTER_VERTICAL);
         ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
@@ -3500,7 +3513,7 @@ public class MainActivity extends Activity {
         }
         FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardParams.setMargins(dp(7), dp(7), dp(7), dp(7));
+        cardParams.setMargins(cardInset, cardInset, cardInset, cardInset);
         shell.addView(card, cardParams);
         return shell;
     }
