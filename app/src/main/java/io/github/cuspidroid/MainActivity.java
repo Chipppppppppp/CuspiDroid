@@ -21,11 +21,13 @@ import android.graphics.Rect;
 import android.text.Html;
 import android.text.TextUtils;
 import android.text.SpannableString;
+import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.text.TextPaint;
 import android.text.style.BackgroundColorSpan;
+import android.text.style.ForegroundColorSpan;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
@@ -79,6 +81,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -108,7 +112,7 @@ public class MainActivity extends Activity {
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
     private static final int TEXT = Color.rgb(31, 41, 55);
-    private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?://|ttps?://|ttp://)\\S+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?[;:]//|ttps?[;:]//|ttp[;:]//)\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
 
     private final List<CuspTab> tabs = new ArrayList<>();
@@ -141,6 +145,7 @@ public class MainActivity extends Activity {
     private boolean tabOverviewVisible;
     private boolean addressBarTop;
     private boolean updatingThreadSearchInput;
+    private Runnable threadSearchTask;
     private Runnable threadSearchHighlightTask;
     private View imageOverlay;
     private View highlightedPostView;
@@ -313,7 +318,7 @@ public class MainActivity extends Activity {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 if (!updatingThreadSearchInput) {
-                    updateThreadSearch(s.toString(), true);
+                    scheduleThreadSearch(s.toString(), true);
                 }
             }
 
@@ -1087,6 +1092,7 @@ public class MainActivity extends Activity {
         JSONObject object = new JSONObject();
         object.put("url", page.url);
         object.put("title", page.title);
+        object.put("archived", page.archived);
         JSONArray posts = new JSONArray();
         for (Post post : page.posts) {
             JSONObject item = new JSONObject();
@@ -1107,6 +1113,7 @@ public class MainActivity extends Activity {
         ThreadPage page = new ThreadPage();
         page.url = object.optString("url", "");
         page.title = object.optString("title", hostTitle(page.url));
+        page.archived = object.optBoolean("archived", false);
         JSONArray posts = object.optJSONArray("posts");
         if (posts != null) {
             for (int i = 0; i < posts.length(); i++) {
@@ -1240,13 +1247,33 @@ public class MainActivity extends Activity {
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else if (tab != null) {
             String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
-            bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title);
+            if (tab.threadPage != null) {
+                setThreadTitleText(bottomThreadTitle, tab.threadPage, title);
+            } else {
+                bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title);
+            }
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
         }
+    }
+
+    private void setThreadTitleText(TextView view, ThreadPage page, String fallback) {
+        String title = page != null && page.title != null && !page.title.trim().isEmpty()
+                ? page.title : (fallback == null || fallback.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : fallback);
+        if (page == null || !page.archived) {
+            view.setText(title);
+            return;
+        }
+        String badge = "  " + text("DAT\u843d\u3061", "Archived");
+        SpannableStringBuilder builder = new SpannableStringBuilder(title).append(badge);
+        int start = builder.length() - badge.trim().length();
+        int end = builder.length();
+        builder.setSpan(new BackgroundColorSpan(Color.rgb(219, 234, 254)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        builder.setSpan(new ForegroundColorSpan(Color.rgb(29, 78, 216)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        view.setText(builder);
     }
 
     private void renderTabs() {
@@ -1354,11 +1381,7 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             ThreadPage page;
             try {
-                page = downloadDatThread(url);
-                if (page == null) {
-                    String html = download(url);
-                    page = parseThread(url, html);
-                }
+                page = downloadThreadPage(url);
             } catch (Exception error) {
                 page = ThreadPage.error(url, error.getMessage());
             }
@@ -1419,13 +1442,11 @@ public class MainActivity extends Activity {
                 if (centerSpinner) {
                     hideCenterSpinner();
                 }
+                if (tab.threadPage != null && tab.threadPage.archived) {
+                    result.archived = true;
+                }
                 if (tab.threadBottomLoader != null) {
-                    setBottomRefreshSpinning(tab.threadBottomLoader, true);
-                    tab.threadBottomLoader.clearAnimation();
-                    tab.threadBottomLoader.setTranslationY(dp(58));
-                    tab.threadBottomLoader.setRotation(0f);
-                    setBottomRefreshSpinning(tab.threadBottomLoader, false);
-                    tab.threadBottomLoader.setVisibility(View.GONE);
+                    resetBottomRefreshLoader(tab.threadBottomLoader);
                 }
                 if (result.error != null) {
                     Toast.makeText(this, result.error, Toast.LENGTH_SHORT).show();
@@ -1534,6 +1555,29 @@ public class MainActivity extends Activity {
         });
     }
 
+    private ThreadPage downloadThreadPage(String url) throws Exception {
+        ThreadPage htmlPage = null;
+        Exception htmlError = null;
+        try {
+            String html = download(url);
+            htmlPage = parseThread(url, html);
+            if (!htmlPage.posts.isEmpty()) {
+                return htmlPage;
+            }
+        } catch (Exception error) {
+            htmlError = error;
+        }
+        ThreadPage datPage = downloadDatThread(url);
+        if (datPage != null && !datPage.posts.isEmpty()) {
+            datPage.archived = true;
+            return datPage;
+        }
+        if (htmlPage != null) {
+            return htmlPage;
+        }
+        throw htmlError == null ? new IllegalStateException("No posts were parsed.") : htmlError;
+    }
+
     private void loadSearchHome(CuspTab tab, String url) {
         loadSearchHome(tab, url, true);
     }
@@ -1630,7 +1674,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText(page.title);
+        setThreadTitleText(title, page, page.title);
         title.setTextColor(TEXT);
         title.setTextSize(20);
         title.setGravity(Gravity.START);
@@ -2129,11 +2173,7 @@ public class MainActivity extends Activity {
                 startedAtBottom[0] = !scroll.canScrollVertically(1);
                 dragging[0] = false;
                 if (!refreshing[0]) {
-                    setBottomRefreshSpinning(loader, false);
-                    loader.clearAnimation();
-                    loader.setVisibility(View.GONE);
-                    loader.setTranslationY(hiddenOffset);
-                    loader.setRotation(0f);
+                    resetBottomRefreshLoader(loader);
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (startedAtBottom[0] && !refreshing[0]) {
@@ -2170,15 +2210,22 @@ public class MainActivity extends Activity {
                 if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
                     loader.animate().translationY(hiddenOffset).setDuration(140)
                             .withEndAction(() -> {
-                                setBottomRefreshSpinning(loader, false);
-                                loader.setVisibility(View.GONE);
-                                loader.setRotation(0f);
+                                resetBottomRefreshLoader(loader);
                             }).start();
                     return dragging[0];
                 }
             }
             return false;
         });
+    }
+
+    private void resetBottomRefreshLoader(View loader) {
+        loader.clearAnimation();
+        loader.animate().cancel();
+        setBottomRefreshSpinning(loader, false);
+        loader.setTranslationY(dp(58));
+        loader.setRotation(0f);
+        loader.setVisibility(View.GONE);
     }
 
     private void setBottomRefreshSpinning(View loader, boolean spinning) {
@@ -2495,6 +2542,7 @@ public class MainActivity extends Activity {
         TextView text = new TextView(this);
         SpannableString linkedText = new SpannableString(value);
         applySearchHighlights(linkedText, highlight);
+        addLooseUrlSpans(linkedText);
         Linkify.addLinks(linkedText, Linkify.WEB_URLS);
         addLooseUrlSpans(linkedText);
         replaceUrlSpans(linkedText);
@@ -2559,6 +2607,7 @@ public class MainActivity extends Activity {
         }
         TextView body = new TextView(this);
         SpannableString aaText = new SpannableString(post.body);
+        addLooseUrlSpans(aaText);
         Linkify.addLinks(aaText, Linkify.WEB_URLS);
         addLooseUrlSpans(aaText);
         replaceUrlSpans(aaText);
@@ -3084,7 +3133,7 @@ public class MainActivity extends Activity {
             int flags = text.getSpanFlags(span);
             String url = span.getURL();
             text.removeSpan(span);
-            text.setSpan(new URLSpan(url) {
+            text.setSpan(new URLSpan(normalizeUrl(url)) {
                 @Override
                 public void onClick(View widget) {
                     routeLink(getURL(), currentTab());
@@ -3852,19 +3901,38 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void scheduleThreadSearch(String query, boolean resetIndex) {
+        if (threadSearchTask != null) {
+            mainHandler.removeCallbacks(threadSearchTask);
+        }
+        CuspTab tab = currentTab();
+        if (tab == null) {
+            return;
+        }
+        int generation = ++tab.threadSearchGeneration;
+        threadSearchTask = () -> {
+            if (tab == currentTab() && tab.threadSearchGeneration == generation) {
+                updateThreadSearch(query, resetIndex);
+            }
+        };
+        mainHandler.postDelayed(threadSearchTask, 90);
+    }
+
     private void updateThreadSearch(String query, boolean resetIndex) {
         CuspTab tab = currentTab();
         if (tab == null || tab.threadPage == null) {
             return;
         }
         tab.threadSearchQuery = query == null ? "" : query;
+        Set<Integer> previousHighlights = new LinkedHashSet<>(tab.threadSearchHighlightedPosts);
         tab.threadSearchMatches.clear();
         String needle = tab.threadSearchQuery.trim().toLowerCase(Locale.ROOT);
         if (needle.isEmpty()) {
             tab.threadSearchIndex = -1;
             tab.threadSearchLastQuery = "";
             tab.threadSearchLastCandidates = new ArrayList<>();
-            scheduleThreadHighlightRender(tab);
+            tab.threadSearchHighlightedPosts.clear();
+            scheduleThreadHighlightRender(tab, previousHighlights);
             updateThreadSearchCount(tab);
             return;
         }
@@ -3875,18 +3943,21 @@ public class MainActivity extends Activity {
         tab.threadSearchLastCandidates = new ArrayList<>();
         for (Post post : candidates) {
             String haystack = post.searchBody();
-            if (haystack.contains(needle)) {
+            if (fastContains(haystack, needle)) {
                 tab.threadSearchMatches.add(post.number);
                 tab.threadSearchLastCandidates.add(post);
             }
         }
         tab.threadSearchLastQuery = needle;
+        tab.threadSearchHighlightedPosts = new LinkedHashSet<>(tab.threadSearchMatches);
         if (tab.threadSearchMatches.isEmpty()) {
             tab.threadSearchIndex = -1;
         } else if (resetIndex || tab.threadSearchIndex < 0 || tab.threadSearchIndex >= tab.threadSearchMatches.size()) {
             tab.threadSearchIndex = 0;
         }
-        scheduleThreadHighlightRender(tab);
+        Set<Integer> rerenderTargets = new LinkedHashSet<>(previousHighlights);
+        rerenderTargets.addAll(tab.threadSearchHighlightedPosts);
+        scheduleThreadHighlightRender(tab, rerenderTargets);
         updateThreadSearchCount(tab);
         if (resetIndex && tab.threadSearchIndex >= 0) {
             jumpToPost(tab.threadSearchMatches.get(tab.threadSearchIndex));
@@ -3907,18 +3978,24 @@ public class MainActivity extends Activity {
     private void closeThreadSearch() {
         CuspTab tab = currentTab();
         if (tab != null) {
+            Set<Integer> previousHighlights = new LinkedHashSet<>(tab.threadSearchHighlightedPosts);
             tab.threadSearchOpen = false;
             tab.threadSearchQuery = "";
             tab.threadSearchMatches.clear();
             tab.threadSearchLastQuery = "";
             tab.threadSearchLastCandidates = new ArrayList<>();
+            tab.threadSearchHighlightedPosts.clear();
             tab.threadSearchGeneration++;
+            if (threadSearchTask != null) {
+                mainHandler.removeCallbacks(threadSearchTask);
+                threadSearchTask = null;
+            }
             tab.threadSearchIndex = -1;
             if (threadSearchHighlightTask != null) {
                 mainHandler.removeCallbacks(threadSearchHighlightTask);
                 threadSearchHighlightTask = null;
             }
-            rerenderThreadHighlights(tab);
+            rerenderThreadHighlights(tab, previousHighlights);
         }
         if (threadSearchInput != null) {
             InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -3966,10 +4043,20 @@ public class MainActivity extends Activity {
     }
 
     private void rerenderThreadHighlights(CuspTab tab) {
+        if (tab == null) {
+            return;
+        }
+        rerenderThreadHighlights(tab, new LinkedHashSet<>(tab.threadSearchHighlightedPosts));
+    }
+
+    private void rerenderThreadHighlights(CuspTab tab, Set<Integer> targets) {
         if (tab == null || tab.threadPage == null || tab.postViews == null) {
             return;
         }
         for (Post post : tab.threadPage.posts) {
+            if (targets != null && !targets.isEmpty() && !targets.contains(post.number)) {
+                continue;
+            }
             View cardView = tab.postViews.get(post.number);
             if (!(cardView instanceof LinearLayout)) {
                 continue;
@@ -3989,14 +4076,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void scheduleThreadHighlightRender(CuspTab tab) {
+    private void scheduleThreadHighlightRender(CuspTab tab, Set<Integer> targets) {
         if (threadSearchHighlightTask != null) {
             mainHandler.removeCallbacks(threadSearchHighlightTask);
         }
         int generation = ++tab.threadSearchGeneration;
+        Set<Integer> renderTargets = targets == null ? new LinkedHashSet<>() : new LinkedHashSet<>(targets);
         threadSearchHighlightTask = () -> {
             if (tab == currentTab() && tab.threadSearchGeneration == generation) {
-                rerenderThreadHighlights(tab);
+                rerenderThreadHighlights(tab, renderTargets);
             }
         };
         mainHandler.postDelayed(threadSearchHighlightTask, 180);
@@ -4973,7 +5061,7 @@ public class MainActivity extends Activity {
         if (input == null || input.trim().isEmpty()) {
             return HOME_URL;
         }
-        String value = input.trim();
+        String value = input.trim().replaceFirst("(?i)^(h?ttps?|ttps?);//", "$1://");
         if (value.startsWith("//")) {
             return "https:" + value;
         }
@@ -5041,6 +5129,39 @@ public class MainActivity extends Activity {
             return text("5ch\u691c\u7d22", "5ch Search");
         }
         return text("\u691c\u7d22: ", "Search: ") + query.trim();
+    }
+
+    private boolean fastContains(String haystack, String needle) {
+        if (haystack == null || needle == null) {
+            return false;
+        }
+        int n = haystack.length();
+        int m = needle.length();
+        if (m == 0) {
+            return true;
+        }
+        if (m < 4 || n < 96) {
+            return haystack.contains(needle);
+        }
+        int[] skip = new int[256];
+        for (int i = 0; i < skip.length; i++) {
+            skip[i] = m;
+        }
+        for (int i = 0; i < m - 1; i++) {
+            skip[needle.charAt(i) & 0xff] = m - 1 - i;
+        }
+        int index = 0;
+        while (index <= n - m) {
+            int j = m - 1;
+            while (j >= 0 && haystack.charAt(index + j) == needle.charAt(j)) {
+                j--;
+            }
+            if (j < 0) {
+                return true;
+            }
+            index += Math.max(1, skip[haystack.charAt(index + m - 1) & 0xff]);
+        }
+        return false;
     }
 
     private String cleanTitle(String title, String url) {
@@ -5229,6 +5350,7 @@ public class MainActivity extends Activity {
         List<Integer> threadSearchMatches = new ArrayList<>();
         String threadSearchLastQuery = "";
         List<Post> threadSearchLastCandidates = new ArrayList<>();
+        Set<Integer> threadSearchHighlightedPosts = new LinkedHashSet<>();
         int threadSearchGeneration;
         int threadSearchIndex = -1;
         int returnToIndex = -1;
@@ -5268,6 +5390,7 @@ public class MainActivity extends Activity {
         String url;
         String title;
         String error;
+        boolean archived;
         List<Post> posts = new ArrayList<>();
         Map<Integer, Post> postsByNumber = new LinkedHashMap<>();
 
