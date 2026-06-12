@@ -501,7 +501,7 @@ public class MainActivity extends Activity {
         view.setBackground(tabCountBackground(false));
         view.setOnClickListener(v -> showTabOverview());
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(30), dp(32));
-        params.setMargins(dp(4), 0, dp(4), 0);
+        params.setMargins(dp(7), 0, dp(7), 0);
         view.setLayoutParams(params);
         return view;
     }
@@ -517,7 +517,7 @@ public class MainActivity extends Activity {
     private void addToolbarButton(LinearLayout toolbar, int iconRes, String description, View.OnClickListener listener) {
         ImageButton button = iconButton(iconRes, description, listener);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(36));
-        params.setMargins(dp(4), 0, dp(4), 0);
+        params.setMargins(dp(7), 0, dp(7), 0);
         button.setLayoutParams(params);
         toolbarButtons.add(button);
         toolbar.addView(button);
@@ -1918,13 +1918,9 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             showWriteDialog(">>" + post.number + "\n");
         }));
-        menu.addView(dialogAction(R.drawable.ic_check, text("\u3053\u3053\u307e\u3067\u3092\u65e2\u8aad\u306b\u3059\u308b", "Mark read to here"), () -> {
+        menu.addView(dialogAction(R.drawable.ic_check, text("\u3053\u3053\u307e\u3067\u8aad\u3093\u3060", "Read to here"), () -> {
             dialog.dismiss();
-            markReadTo(tab, post.number);
-        }));
-        menu.addView(dialogAction(R.drawable.ic_close, text("\u3053\u308c\u4ee5\u964d\u3092\u672a\u8aad\u306b\u3059\u308b", "Mark unread from here"), () -> {
-            dialog.dismiss();
-            markUnreadFrom(tab, post.number);
+            setReadThrough(tab, post.number);
         }));
         menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
             dialog.dismiss();
@@ -4914,11 +4910,11 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void markUnreadFrom(CuspTab tab, int number) {
+    private void setReadThrough(CuspTab tab, int number) {
         if (tab == null || tab.threadPage == null || tab.threadPage.url == null) {
             return;
         }
-        tab.readPostNumber = Math.max(0, number - 1);
+        tab.readPostNumber = Math.max(0, number);
         saveReadPostNumber(preferences, tab.threadPage.url, tab.readPostNumber);
         refreshUnreadColors(tab);
         renderTabs();
