@@ -30,6 +30,7 @@ import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
 import android.text.util.Linkify;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -1688,7 +1689,7 @@ public class MainActivity extends Activity {
 
         card.addView(postMetaText(post, page));
 
-        card.addView(postContent(post.body, page, tab.threadSearchQuery, () -> showPostActionMenu(card, tab, post)));
+        card.addView(postBodyView(card, page, tab, post));
         list.addView(card, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
         tab.postViews.put(post.number, card);
     }
@@ -1756,9 +1757,9 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             markReadTo(tab, post.number);
         }));
-        menu.addView(dialogAction(text("AA\u8868\u793a", "AA view"), () -> {
+        menu.addView(dialogAction(post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
             dialog.dismiss();
-            showAaDialog(post);
+            toggleAaMode(tab, post);
         }));
         menu.addView(dialogAction(text("\u30b3\u30d4\u30fc", "Copy"), () -> {
             dialog.dismiss();
@@ -1781,28 +1782,6 @@ public class MainActivity extends Activity {
         view.setLayoutParams(params);
         view.setOnClickListener(v -> action.run());
         return view;
-    }
-
-    private void showAaDialog(Post post) {
-        HorizontalScrollView horizontal = new HorizontalScrollView(this);
-        ScrollView vertical = new ScrollView(this);
-        TextView body = new TextView(this);
-        body.setText(post.body);
-        body.setTextColor(TEXT);
-        body.setTextSize(13);
-        body.setTypeface(Typeface.MONOSPACE);
-        body.setIncludeFontPadding(false);
-        body.setLineSpacing(0, 1.0f);
-        body.setPadding(dp(12), dp(12), dp(12), dp(12));
-        vertical.addView(body, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        horizontal.addView(vertical, new HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(420)));
-        new AlertDialog.Builder(this)
-                .setTitle(text("AA\u8868\u793a", "AA view") + " >>" + post.number)
-                .setView(horizontal)
-                .setPositiveButton("OK", null)
-                .show();
     }
 
     private void showPostCopyDialog(Post post) {
@@ -2449,6 +2428,71 @@ public class MainActivity extends Activity {
             added.add(imageUrl);
         }
         return box;
+    }
+
+    private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post) {
+        Runnable longClick = () -> showPostActionMenu(card, tab, post);
+        if (!post.aaMode) {
+            return postContent(post.body, page, tab.threadSearchQuery, longClick);
+        }
+        TextView body = new TextView(this);
+        body.setText(post.body);
+        body.setTextColor(TEXT);
+        body.setTextSize(13);
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setIncludeFontPadding(false);
+        body.setLineSpacing(0, 1.0f);
+        body.setSingleLine(false);
+        body.setHorizontallyScrolling(true);
+        body.setPadding(0, dp(4), 0, dp(6));
+        body.setOnLongClickListener(v -> {
+            longClick.run();
+            return true;
+        });
+        body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitAaTextSize(body));
+        body.post(() -> fitAaTextSize(body));
+        return body;
+    }
+
+    private void fitAaTextSize(TextView body) {
+        int available = body.getWidth() - body.getPaddingLeft() - body.getPaddingRight();
+        if (available <= 0) {
+            return;
+        }
+        String[] lines = body.getText().toString().split("\\n", -1);
+        float longest = 0f;
+        for (String line : lines) {
+            longest = Math.max(longest, body.getPaint().measureText(line));
+        }
+        if (longest <= 0f) {
+            return;
+        }
+        float size = body.getTextSize();
+        float min = dp(7);
+        while (longest > available && size > min) {
+            size = Math.max(min, size * 0.92f);
+            body.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
+            longest = 0f;
+            for (String line : lines) {
+                longest = Math.max(longest, body.getPaint().measureText(line));
+            }
+        }
+    }
+
+    private void toggleAaMode(CuspTab tab, Post post) {
+        if (tab == null || post == null || tab.postViews == null) {
+            return;
+        }
+        View cardView = tab.postViews.get(post.number);
+        if (!(cardView instanceof LinearLayout)) {
+            return;
+        }
+        post.aaMode = !post.aaMode;
+        LinearLayout card = (LinearLayout) cardView;
+        if (card.getChildCount() >= 2) {
+            card.removeViewAt(1);
+            card.addView(postBodyView(card, tab.threadPage, tab, post), 1);
+        }
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
@@ -3806,8 +3850,7 @@ public class MainActivity extends Activity {
                 continue;
             }
             card.removeViewAt(1);
-            card.addView(postContent(post.body, tab.threadPage, tab.threadSearchQuery,
-                    () -> showPostActionMenu(card, tab, post)), 1);
+            card.addView(postBodyView(card, tab.threadPage, tab, post), 1);
         }
     }
 
@@ -5123,6 +5166,7 @@ public class MainActivity extends Activity {
         String date;
         String body;
         String cachedSearchBody;
+        boolean aaMode;
 
         String searchBody() {
             if (cachedSearchBody == null) {
