@@ -1688,7 +1688,7 @@ public class MainActivity extends Activity {
 
         card.addView(postMetaText(post, page));
 
-        card.addView(postContent(post.body, page, tab.threadSearchQuery));
+        card.addView(postContent(post.body, page, tab.threadSearchQuery, () -> showPostActionMenu(card, tab, post)));
         list.addView(card, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
         tab.postViews.put(post.number, card);
     }
@@ -2275,7 +2275,7 @@ public class MainActivity extends Activity {
             unreadBadge.setTextColor(Color.WHITE);
             unreadBadge.setTextSize(12);
             unreadBadge.setGravity(Gravity.CENTER);
-            unreadBadge.setBackground(roundedDrawable(Color.rgb(220, 38, 38), Color.rgb(220, 38, 38), dp(12)));
+            unreadBadge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(12)));
             LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(34), dp(24));
             unreadParams.setMargins(dp(8), 0, 0, 0);
             row.addView(unreadBadge, unreadParams);
@@ -2417,9 +2417,24 @@ public class MainActivity extends Activity {
     }
 
     private View postContent(String value, ThreadPage page, String highlight) {
+        return postContent(value, page, highlight, null);
+    }
+
+    private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.addView(postText(value, page, highlight));
+        TextView bodyText = postText(value, page, highlight);
+        if (longClickAction != null) {
+            bodyText.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+            box.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
+        box.addView(bodyText);
 
         Matcher matcher = URL_TEXT_PATTERN.matcher(value);
         List<String> added = new ArrayList<>();
@@ -2444,7 +2459,7 @@ public class MainActivity extends Activity {
         String needle = query.trim().toLowerCase(Locale.ROOT);
         int index = haystack.indexOf(needle);
         while (index >= 0) {
-            text.setSpan(new BackgroundColorSpan(Color.rgb(253, 224, 71)),
+            text.setSpan(new BackgroundColorSpan(Color.rgb(187, 247, 208)),
                     index, index + needle.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             index = haystack.indexOf(needle, index + needle.length());
         }
@@ -3791,7 +3806,8 @@ public class MainActivity extends Activity {
                 continue;
             }
             card.removeViewAt(1);
-            card.addView(postContent(post.body, tab.threadPage, tab.threadSearchQuery), 1);
+            card.addView(postContent(post.body, tab.threadPage, tab.threadSearchQuery,
+                    () -> showPostActionMenu(card, tab, post)), 1);
         }
     }
 
