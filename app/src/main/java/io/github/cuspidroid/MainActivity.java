@@ -94,6 +94,7 @@ public class MainActivity extends Activity {
     static final String PREF_BBS_LINKS = "bbs_links";
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_READ_POSTS = "read_posts";
+    static final String PREF_AA_POSTS = "aa_posts";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -1675,6 +1676,7 @@ public class MainActivity extends Activity {
         if (matchesNgWord(post)) {
             return;
         }
+        post.aaMode = isAaPost(preferences, page.url, post.number);
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.rgb(238, 244, 247));
@@ -1688,6 +1690,9 @@ public class MainActivity extends Activity {
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackgroundColor(post.number > tab.readPostNumber ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252));
         card.setOnLongClickListener(v -> {
+            if (isPostSwipeBlocked(post)) {
+                return true;
+            }
             showPostActionMenu(card, tab, post);
             return true;
         });
@@ -1696,7 +1701,11 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(0, 0, 0, dp(8));
 
-        View metaView = postMetaText(post, page, () -> showPostActionMenu(card, tab, post));
+        View metaView = postMetaText(post, page, () -> {
+            if (!isPostSwipeBlocked(post)) {
+                showPostActionMenu(card, tab, post);
+            }
+        });
         card.addView(metaView);
 
         View bodyView = postBodyView(card, page, tab, post);
@@ -1747,6 +1756,8 @@ public class MainActivity extends Activity {
                 float dy = event.getRawY() - downY[0];
                 if (!dragging[0] && Math.abs(dx) > dp(12) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
                     dragging[0] = true;
+                    post.swiping = true;
+                    post.lastSwipeAt = System.currentTimeMillis();
                     v.getParent().requestDisallowInterceptTouchEvent(true);
                 }
                 if (dragging[0]) {
@@ -1760,9 +1771,11 @@ public class MainActivity extends Activity {
             if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
                 if (dragging[0]) {
                     float tx = card.getTranslationX();
+                    post.lastSwipeAt = System.currentTimeMillis();
                     card.animate().translationX(0).setDuration(130).start();
                     readAction.animate().alpha(0f).setDuration(130).start();
                     replyAction.animate().alpha(0f).setDuration(130).start();
+                    mainHandler.postDelayed(() -> post.swiping = false, 220);
                     if (event.getAction() == MotionEvent.ACTION_UP) {
                         if (tx <= -dp(54)) {
                             showWriteDialog(">>" + post.number + "\n");
@@ -1772,9 +1785,15 @@ public class MainActivity extends Activity {
                     }
                     return true;
                 }
+                post.swiping = false;
+                post.lastSwipeAt = System.currentTimeMillis();
             }
             return false;
         });
+    }
+
+    private boolean isPostSwipeBlocked(Post post) {
+        return post != null && (post.swiping || System.currentTimeMillis() - post.lastSwipeAt < 650);
     }
 
     private FrameLayout bottomRefreshLoader() {
@@ -2530,12 +2549,21 @@ public class MainActivity extends Activity {
     }
 
     private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post) {
-        Runnable longClick = () -> showPostActionMenu(card, tab, post);
+        Runnable longClick = () -> {
+            if (!isPostSwipeBlocked(post)) {
+                showPostActionMenu(card, tab, post);
+            }
+        };
         if (!post.aaMode) {
             return postContent(post.body, page, tab.threadSearchQuery, longClick);
         }
         TextView body = new TextView(this);
-        body.setText(post.body);
+        SpannableString aaText = new SpannableString(post.body);
+        Linkify.addLinks(aaText, Linkify.WEB_URLS);
+        addLooseUrlSpans(aaText);
+        replaceUrlSpans(aaText);
+        replaceReplySpans(aaText, page);
+        body.setText(aaText);
         body.setTextColor(TEXT);
         body.setTextSize(13);
         body.setTypeface(Typeface.MONOSPACE);
@@ -2548,6 +2576,7 @@ public class MainActivity extends Activity {
             longClick.run();
             return true;
         });
+        body.setMovementMethod(LinkMovementMethod.getInstance());
         body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitAaTextSize(body));
         body.post(() -> fitAaTextSize(body));
         return body;
@@ -2587,6 +2616,7 @@ public class MainActivity extends Activity {
             return;
         }
         post.aaMode = !post.aaMode;
+        saveAaPost(preferences, tab.threadPage.url, post.number, post.aaMode);
         LinearLayout card = (LinearLayout) cardView;
         if (card.getChildCount() >= 2) {
             card.removeViewAt(1);
@@ -4644,6 +4674,35 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static boolean isAaPost(SharedPreferences preferences, String url, int number) {
+        if (url == null || url.isEmpty()) {
+            return false;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_AA_POSTS, "{}"));
+            return object.optBoolean(url + "#" + number, false);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void saveAaPost(SharedPreferences preferences, String url, int number, boolean enabled) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_AA_POSTS, "{}"));
+            String key = url + "#" + number;
+            if (enabled) {
+                object.put(key, true);
+            } else {
+                object.remove(key);
+            }
+            preferences.edit().putString(PREF_AA_POSTS, object.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
     private void markReadTo(CuspTab tab, int number) {
         markReadTo(tab, number, true);
     }
@@ -5272,6 +5331,8 @@ public class MainActivity extends Activity {
         String body;
         String cachedSearchBody;
         boolean aaMode;
+        boolean swiping;
+        long lastSwipeAt;
 
         String searchBody() {
             if (cachedSearchBody == null) {
