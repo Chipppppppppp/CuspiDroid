@@ -288,7 +288,6 @@ public class MainActivity extends Activity {
         suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
         suggestionsPanel.setBackgroundColor(Color.WHITE);
         suggestionsPanel.setPadding(dp(12), dp(12), dp(12), dp(12));
-        suggestionsPanel.setElevation(dp(12));
         suggestionsPanel.setVisibility(View.GONE);
         FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -344,10 +343,11 @@ public class MainActivity extends Activity {
 
         bottomThreadTitle = new TextView(this);
         bottomThreadTitle.setTextColor(TEXT);
-        bottomThreadTitle.setTextSize(12);
+        bottomThreadTitle.setTextSize(14);
         bottomThreadTitle.setSingleLine(false);
         bottomThreadTitle.setMaxLines(2);
         bottomThreadTitle.setEllipsize(TextUtils.TruncateAt.END);
+        bottomThreadTitle.setIncludeFontPadding(false);
         bottomThreadTitle.setGravity(Gravity.CENTER_VERTICAL);
         bottomThreadTitle.setOnClickListener(v -> scrollCurrentThreadToBottom());
         bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
@@ -644,7 +644,6 @@ public class MainActivity extends Activity {
         PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setElevation(dp(12));
 
         menu.addView(menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
             copyAddressText();
@@ -686,7 +685,6 @@ public class MainActivity extends Activity {
         PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setElevation(dp(12));
 
         menu.addView(menuIconItem(R.drawable.ic_arrow_forward, text("WebView\u3067\u958b\u304f", "Open in WebView"), v -> {
             popup.dismiss();
@@ -3393,7 +3391,6 @@ public class MainActivity extends Activity {
         FrameLayout popupRoot = new FrameLayout(this);
         popupRoot.setPadding(dp(8), dp(8), dp(8), dp(8));
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
-        popupRoot.setElevation(dp(12));
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
 
@@ -3403,7 +3400,6 @@ public class MainActivity extends Activity {
         if (jumpEachPost) {
             popupScroll.setPadding(dp(8), dp(8), dp(8), dp(8));
             popupScroll.setBackground(roundedFill(Color.WHITE, dp(12)));
-            popupScroll.setElevation(dp(12));
         }
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
@@ -3434,7 +3430,6 @@ public class MainActivity extends Activity {
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setElevation(dp(12));
         popup.setOnDismissListener(() -> replyPopups.remove(popup));
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
@@ -3447,7 +3442,14 @@ public class MainActivity extends Activity {
         }
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
+        shell.setClipToPadding(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
+        View shadowOuter = popupPostShadowLayer(Color.argb(28, 15, 23, 42));
+        shell.addView(shadowOuter, popupPostShadowParams(0));
+        View shadowMiddle = popupPostShadowLayer(Color.argb(22, 15, 23, 42));
+        shell.addView(shadowMiddle, popupPostShadowParams(dp(2)));
+        View shadowInner = popupPostShadowLayer(Color.argb(18, 15, 23, 42));
+        shell.addView(shadowInner, popupPostShadowParams(dp(4)));
         ImageView readAction = swipeActionIcon(R.drawable.ic_check, Gravity.LEFT | Gravity.CENTER_VERTICAL);
         ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
@@ -3457,7 +3459,6 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber));
-        card.setElevation(0);
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
                 return true;
@@ -3497,15 +3498,30 @@ public class MainActivity extends Activity {
             attachPostSwipeDeep(metaRow, card, readAction, replyAction, tab, post);
             attachPostSwipeDeep(body, card, readAction, replyAction, tab, post);
         }
-        shell.addView(card, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardParams.setMargins(dp(7), dp(7), dp(7), dp(7));
+        shell.addView(card, cardParams);
         return shell;
+    }
+
+    private View popupPostShadowLayer(int color) {
+        View shadow = new View(this);
+        shadow.setBackground(roundedFill(color, dp(18)));
+        return shadow;
+    }
+
+    private FrameLayout.LayoutParams popupPostShadowParams(int inset) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        params.setMargins(inset, inset, inset, inset);
+        return params;
     }
 
     private LinearLayout.LayoutParams popupPostParams(boolean compact) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(dp(4), dp(4), dp(4), compact ? 0 : dp(8));
+        params.setMargins(dp(2), dp(2), dp(2), compact ? 0 : dp(4));
         return params;
     }
 
