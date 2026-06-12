@@ -3425,7 +3425,7 @@ public class MainActivity extends Activity {
         anchor.getLocationOnScreen(anchorLocation);
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         int x = Math.max(dp(8), Math.min(anchorLocation[0] + dp(8), screenWidth - width - dp(8)));
-        int availableAbove = Math.max(dp(140), anchorLocation[1] - dp(16));
+        int availableAbove = Math.max(dp(140), anchorLocation[1]);
         int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - dp(64), availableAbove);
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -3433,7 +3433,7 @@ public class MainActivity extends Activity {
         int desiredHeight = popupPosts.getMeasuredHeight() + (jumpEachPost ? dp(32) : dp(18));
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(desiredHeight > maxHeight);
-        int y = Math.max(dp(8), anchorLocation[1] - popupHeight - dp(8));
+        int y = Math.max(dp(8), anchorLocation[1] - popupHeight);
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
