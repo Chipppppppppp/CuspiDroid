@@ -1711,7 +1711,7 @@ public class MainActivity extends Activity {
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
         scroll.setVerticalScrollBarEnabled(false);
-        scroll.setOnClickListener(v -> dismissThreadPopups());
+        scroll.setOnClickListener(v -> dismissTopReplyPopup());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
@@ -3461,7 +3461,7 @@ public class MainActivity extends Activity {
         popupScroll.setVerticalScrollBarEnabled(desiredHeight > maxHeight);
         int y = Math.max(dp(8), anchorLocation[1] - popupHeight + popupOverlap);
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
-        popup.setOutsideTouchable(true);
+        popup.setOutsideTouchable(false);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setOnDismissListener(() -> replyPopups.remove(popup));
         replyPopups.add(popup);
