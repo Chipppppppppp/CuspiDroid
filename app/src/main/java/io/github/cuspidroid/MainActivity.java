@@ -447,7 +447,6 @@ public class MainActivity extends Activity {
             }
         });
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(40), 1);
-        addressParams.setMargins(0, 0, dp(8), 0);
         bottomToolbar.addView(addressBar, addressParams);
 
         addToolbarButton(bottomToolbar, R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
@@ -2461,10 +2460,20 @@ public class MainActivity extends Activity {
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
-        title.setText(tab.title == null || tab.title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : tab.title);
+        String rowTitle = tab.title == null || tab.title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : tab.title;
+        if (tab.threadPage != null) {
+            setThreadTitleText(title, tab.threadPage, rowTitle);
+        } else {
+            title.setText(rowTitle);
+        }
         title.setTextColor(TEXT);
-        title.setTextSize(15);
-        title.setSingleLine(true);
+        title.setTextSize(14);
+        title.setSingleLine(false);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            title.setAutoSizeTextTypeUniformWithConfiguration(11, 14, 1, TypedValue.COMPLEX_UNIT_SP);
+        }
         TextView url = new TextView(this);
         url.setText(tab.url == null || tab.url.trim().isEmpty() ? text("\u65b0\u898f\u30bf\u30d6", "New tab") : tab.url);
         url.setTextColor(Color.rgb(79, 91, 103));
@@ -3468,17 +3477,23 @@ public class MainActivity extends Activity {
     private void addLooseUrlSpans(SpannableString text) {
         Matcher matcher = URL_TEXT_PATTERN.matcher(text);
         while (matcher.find()) {
-            if (text.getSpans(matcher.start(), matcher.end(), URLSpan.class).length > 0) {
-                continue;
-            }
             String raw = stripTrailingUrlPunctuation(matcher.group());
+            int start = matcher.start();
             int end = matcher.start() + raw.length();
+            URLSpan[] overlapping = text.getSpans(start, end, URLSpan.class);
+            for (URLSpan span : overlapping) {
+                int spanStart = text.getSpanStart(span);
+                int spanEnd = text.getSpanEnd(span);
+                if (spanStart < end && spanEnd > start) {
+                    text.removeSpan(span);
+                }
+            }
             text.setSpan(new URLSpan(normalizeUrl(raw)) {
                 @Override
                 public void onClick(View widget) {
                     routeLink(getURL(), currentTab());
                 }
-            }, matcher.start(), end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
     }
 
