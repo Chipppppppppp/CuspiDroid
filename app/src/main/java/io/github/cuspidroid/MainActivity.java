@@ -1920,7 +1920,7 @@ public class MainActivity extends Activity {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(18), dp(8), dp(18), 0);
-        menu.addView(postActionPreview(tab == null ? null : tab.threadPage, post));
+        menu.addView(postActionPreview(tab, post));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(menu)
@@ -1945,11 +1945,11 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
-    private View postActionPreview(ThreadPage page, Post post) {
+    private View postActionPreview(CuspTab tab, Post post) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(roundedFill(Color.rgb(250, 251, 252), dp(12)));
+        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(0, 0, 0, dp(10));
@@ -1969,15 +1969,41 @@ public class MainActivity extends Activity {
         metaRow.addView(copy, new LinearLayout.LayoutParams(dp(36), dp(34)));
         card.addView(metaRow);
 
+        TextView body = postActionPreviewBody(tab, post);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setScrollbarFadingEnabled(true);
+        scroll.addView(body, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        scrollParams.height = Math.min(dp(240), previewBodyHeight(post));
+        card.addView(scroll, scrollParams);
+        return card;
+    }
+
+    private TextView postActionPreviewBody(CuspTab tab, Post post) {
+        boolean aa = tab != null && tab.threadPage != null
+                && isAaPost(preferences, tab.threadPage.url, post.number);
         TextView body = new TextView(this);
         body.setText(post.body);
         body.setTextColor(TEXT);
-        body.setTextSize(15);
-        body.setLineSpacing(0, 1.15f);
+        body.setTextSize(aa ? 13 : 15);
+        body.setTypeface(aa ? Typeface.MONOSPACE : Typeface.DEFAULT);
+        body.setIncludeFontPadding(!aa);
+        body.setLineSpacing(0, aa ? 1.0f : 1.15f);
         body.setTextIsSelectable(true);
         body.setPadding(0, dp(4), 0, 0);
-        card.addView(body);
-        return card;
+        if (aa) {
+            body.setHorizontallyScrolling(true);
+            body.post(() -> fitAaTextSize(body));
+        }
+        return body;
+    }
+
+    private int previewBodyHeight(Post post) {
+        int lines = Math.max(1, (post.body == null ? "" : post.body).split("\\n", -1).length);
+        return dp(20 + Math.min(lines, 12) * 22);
     }
 
     private void copyPostBody(Post post) {
@@ -3365,9 +3391,9 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
         FrameLayout popupRoot = new FrameLayout(this);
-        popupRoot.setPadding(0, 0, 0, 0);
+        popupRoot.setPadding(dp(3), dp(3), dp(3), dp(3));
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
-        popupRoot.setElevation(dp(10));
+        popupRoot.setElevation(dp(12));
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
 
@@ -3383,7 +3409,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         for (Post post : targets) {
-            popupPosts.addView(popupPostCard(page, post), popupPostParams());
+            popupPosts.addView(popupPostCard(page, post), popupPostParams(jumpEachPost));
         }
 
         int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420));
@@ -3403,7 +3429,7 @@ public class MainActivity extends Activity {
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setElevation(dp(8));
+        popup.setElevation(dp(12));
         popup.setOnDismissListener(() -> replyPopups.remove(popup));
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
@@ -3426,7 +3452,7 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber));
-        card.setElevation(dp(8));
+        card.setElevation(0);
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
                 return true;
@@ -3471,10 +3497,10 @@ public class MainActivity extends Activity {
         return shell;
     }
 
-    private LinearLayout.LayoutParams popupPostParams() {
+    private LinearLayout.LayoutParams popupPostParams(boolean compact) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(dp(4), dp(4), dp(4), dp(8));
+        params.setMargins(dp(4), dp(4), dp(4), compact ? 0 : dp(8));
         return params;
     }
 
