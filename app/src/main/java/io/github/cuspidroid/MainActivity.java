@@ -3449,7 +3449,7 @@ public class MainActivity extends Activity {
         int[] anchorLocation = new int[2];
         anchor.getLocationOnScreen(anchorLocation);
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        int x = Math.max(dp(8), Math.min(anchorLocation[0] + dp(8), screenWidth - width - dp(8)));
+        int x = Math.max(dp(8), Math.min(anchorLocation[0] - dp(8), screenWidth - width - dp(8)));
         int popupOverlap = jumpEachPost ? dp(36) : dp(12);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap);
         int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - dp(64), availableAbove);
@@ -3457,8 +3457,10 @@ public class MainActivity extends Activity {
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int desiredHeight = popupPosts.getMeasuredHeight() + (jumpEachPost ? dp(32) : dp(18));
+        boolean popupScrollable = desiredHeight > maxHeight;
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
-        popupScroll.setVerticalScrollBarEnabled(desiredHeight > maxHeight);
+        popupScroll.setVerticalScrollBarEnabled(popupScrollable);
+        popupScroll.setOverScrollMode(popupScrollable ? View.OVER_SCROLL_IF_CONTENT_SCROLLS : View.OVER_SCROLL_NEVER);
         int y = Math.max(dp(8), anchorLocation[1] - popupHeight + popupOverlap);
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(false);
