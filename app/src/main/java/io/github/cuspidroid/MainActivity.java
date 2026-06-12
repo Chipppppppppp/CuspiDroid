@@ -366,9 +366,13 @@ public class MainActivity extends Activity {
         addressBar.setSingleLine(true);
         addressBar.setMaxLines(1);
         addressBar.setMinLines(1);
+        addressBar.setLines(1);
         addressBar.setHorizontallyScrolling(true);
+        addressBar.setHorizontalScrollBarEnabled(false);
         addressBar.setEllipsize(TextUtils.TruncateAt.END);
         addressBar.setTextSize(15);
+        addressBar.setIncludeFontPadding(false);
+        addressBar.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         addressBar.setTextColor(TEXT);
         addressBar.setHint(text("\u691c\u7d22\u307e\u305f\u306fURL", "Search or URL"));
         addressBar.setSelectAllOnFocus(true);
@@ -378,7 +382,9 @@ public class MainActivity extends Activity {
         addressBar.setSingleLine(true);
         addressBar.setMaxLines(1);
         addressBar.setMinLines(1);
-        addressBar.setHorizontallyScrolling(false);
+        addressBar.setLines(1);
+        addressBar.setHorizontallyScrolling(true);
+        addressBar.setHorizontalScrollBarEnabled(false);
         addressBar.setEllipsize(TextUtils.TruncateAt.END);
         addressBar.setBackground(addressBarBackground());
         addressBar.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
@@ -677,16 +683,9 @@ public class MainActivity extends Activity {
             popup.dismiss();
             openCurrentThreadInWebView();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_share, text("\u5171\u6709", "Share"), v -> {
-            popup.dismiss();
-            shareCurrentThread();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (!hasUrl) {
             menu.getChildAt(0).setEnabled(false);
             menu.getChildAt(0).setAlpha(0.45f);
-            menu.getChildAt(2).setEnabled(false);
-            menu.getChildAt(2).setAlpha(0.45f);
         }
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_search, text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"), v -> {
@@ -720,6 +719,10 @@ public class MainActivity extends Activity {
         row.addView(menuIconButton(R.drawable.ic_arrow_forward, text("\u9032\u3080", "Forward"), v -> {
             popup.dismiss();
             goForward();
+        }));
+        row.addView(menuIconButton(R.drawable.ic_share, text("\u5171\u6709", "Share"), v -> {
+            popup.dismiss();
+            shareCurrentThread();
         }));
         row.addView(menuIconButton(R.drawable.ic_refresh, text("\u66f4\u65b0", "Reload"), v -> {
             popup.dismiss();
@@ -1707,7 +1710,7 @@ public class MainActivity extends Activity {
             refreshThreadFromBottom(tab);
         });
         FrameLayout frame = new FrameLayout(this);
-        frame.addView(withScrollScrubber(scroll), new FrameLayout.LayoutParams(
+        frame.addView(withScrollScrubber(scroll, tab), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(66), dp(66),
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
@@ -2061,12 +2064,19 @@ public class MainActivity extends Activity {
     }
 
     private View withScrollScrubber(ScrollView scroll) {
+        return withScrollScrubber(scroll, null);
+    }
+
+    private View withScrollScrubber(ScrollView scroll, CuspTab tab) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL);
         root.addView(scroll, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
         FrameLayout scrubber = new FrameLayout(this);
+        if (tab != null) {
+            tab.scrollScrubber = scrubber;
+        }
         root.addView(scrubber, new LinearLayout.LayoutParams(
                 dp(34), ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -2075,6 +2085,13 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         scrubber.addView(rail, railParams);
+
+        FrameLayout unreadMarkers = new FrameLayout(this);
+        if (tab != null) {
+            tab.unreadMarkerLayer = unreadMarkers;
+        }
+        scrubber.addView(unreadMarkers, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         View thumb = new View(this);
         GradientDrawable thumbBackground = new GradientDrawable();
@@ -2103,9 +2120,44 @@ public class MainActivity extends Activity {
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> updateThumb.run());
         scrubber.post(updateThumb);
+        if (tab != null) {
+            scrubber.post(() -> updateUnreadScrollMarkers(tab));
+        }
         rail.setOnTouchListener(scrubberTouchListener(scroll, scrubber, thumb));
         thumb.setOnTouchListener(scrubberTouchListener(scroll, scrubber, thumb));
         return root;
+    }
+
+    private void updateUnreadScrollMarkers(CuspTab tab) {
+        if (tab == null || tab.threadPage == null || tab.postViews == null
+                || tab.unreadMarkerLayer == null || tab.scrollScrubber == null
+                || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
+            return;
+        }
+        ViewGroup markers = tab.unreadMarkerLayer;
+        markers.removeAllViews();
+        int contentHeight = Math.max(1, tab.threadScroll.getChildAt(0).getHeight());
+        int frameHeight = Math.max(1, tab.scrollScrubber.getHeight());
+        for (Post post : tab.threadPage.posts) {
+            if (post.number <= tab.readPostNumber) {
+                continue;
+            }
+            View card = tab.postViews.get(post.number);
+            if (card == null || card.getParent() == null) {
+                continue;
+            }
+            View markerSource = (View) card.getParent();
+            int top = Math.max(0, markerSource.getTop());
+            int height = Math.max(dp(3), markerSource.getHeight());
+            int markerTop = Math.max(0, Math.min(frameHeight - dp(2), top * frameHeight / contentHeight));
+            int markerHeight = Math.max(dp(2), Math.min(dp(12), height * frameHeight / contentHeight));
+            View marker = new View(this);
+            marker.setBackgroundColor(Color.argb(120, 20, 184, 166));
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, markerHeight);
+            params.topMargin = markerTop;
+            markers.addView(marker, params);
+        }
     }
 
     private View.OnTouchListener scrubberTouchListener(ScrollView scroll, View frame, View thumb) {
@@ -2360,7 +2412,7 @@ public class MainActivity extends Activity {
         list.setPadding(dp(12), dp(12), dp(12), dp(84));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(withScrollScrubber(scroll), new FrameLayout.LayoutParams(
+        root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         list.addView(sectionTitleView(text("\u30bf\u30d6", "Tabs")));
@@ -4127,7 +4179,7 @@ public class MainActivity extends Activity {
         }
         clearAddressFocus();
         tab.navigationIndex--;
-        openInCurrentTab(tab.navigationHistory.get(tab.navigationIndex), false);
+        navigateHistory(tab);
     }
 
     private void goForward() {
@@ -4138,7 +4190,19 @@ public class MainActivity extends Activity {
         }
         clearAddressFocus();
         tab.navigationIndex++;
-        openInCurrentTab(tab.navigationHistory.get(tab.navigationIndex), false);
+        navigateHistory(tab);
+    }
+
+    private void navigateHistory(CuspTab tab) {
+        if (tab == null || tab.navigationIndex < 0 || tab.navigationIndex >= tab.navigationHistory.size()) {
+            return;
+        }
+        int tabIndex = tabs.indexOf(tab);
+        if (tabIndex >= 0 && tabIndex != currentIndex) {
+            switchToTab(tabIndex);
+        }
+        String url = tab.navigationHistory.get(tab.navigationIndex);
+        openInCurrentTab(url, false);
     }
 
     private void reload() {
@@ -4845,6 +4909,7 @@ public class MainActivity extends Activity {
                         ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252));
             }
         }
+        updateUnreadScrollMarkers(tab);
     }
 
     static void clearThreadHistory(SharedPreferences preferences) {
@@ -5339,6 +5404,8 @@ public class MainActivity extends Activity {
         ScrollView threadScroll;
         LinearLayout threadList;
         View threadBottomLoader;
+        FrameLayout scrollScrubber;
+        ViewGroup unreadMarkerLayer;
         Map<Integer, View> postViews;
         String nativeKind;
         float threadScrollRatio;
