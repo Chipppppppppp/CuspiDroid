@@ -1737,7 +1737,7 @@ public class MainActivity extends Activity {
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.rgb(238, 244, 247));
         ImageView readAction = swipeActionIcon(R.drawable.ic_check, Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        ImageView replyAction = swipeActionIcon(R.drawable.ic_check, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
         shell.addView(replyAction);
 
@@ -1834,9 +1834,9 @@ public class MainActivity extends Activity {
                     mainHandler.postDelayed(() -> post.swiping = false, 220);
                     if (event.getAction() == MotionEvent.ACTION_UP) {
                         if (tx <= -dp(54)) {
-                            showWriteDialog(">>" + post.number + "\n");
+                            setReadThrough(tab, post.number);
                         } else if (tx >= dp(54)) {
-                            markReadTo(tab, post.number);
+                            setReadThrough(tab, post.number);
                         }
                     }
                     return true;
@@ -3287,21 +3287,22 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
         FrameLayout popupRoot = new FrameLayout(this);
-        popupRoot.setBackgroundColor(Color.WHITE);
+        popupRoot.setPadding(dp(2), dp(2), dp(2), dp(2));
+        popupRoot.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(10)));
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(10), dp(8), dp(10), dp(10));
-        box.setBackgroundColor(Color.WHITE);
+        box.setBackground(roundedDrawable(Color.WHITE, Color.rgb(203, 213, 225), dp(8)));
         popupRoot.addView(box, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ScrollView popupScroll = new ScrollView(this);
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
-        popupPosts.setPadding(0, 0, 0, 0);
+        popupPosts.setPadding(0, jumpEachPost ? 0 : dp(36), 0, 0);
         popupScroll.addView(popupPosts, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         box.addView(popupScroll, new LinearLayout.LayoutParams(
@@ -3310,13 +3311,20 @@ public class MainActivity extends Activity {
         ImageButton jump = iconButton(R.drawable.ic_arrow_up, targets.size() == 1
                 ? "Jump to >>" + targets.get(0).number : "Jump to first", null);
         FrameLayout.LayoutParams jumpParams = new FrameLayout.LayoutParams(dp(38), dp(38));
-        jumpParams.gravity = Gravity.RIGHT | Gravity.BOTTOM;
-        jumpParams.setMargins(0, 0, dp(6), dp(6));
+        jumpParams.gravity = Gravity.RIGHT | Gravity.TOP;
+        jumpParams.setMargins(0, dp(6), dp(6), 0);
         if (!jumpEachPost) {
             popupRoot.addView(jump, jumpParams);
         }
 
         for (Post post : targets) {
+            LinearLayout postBox = new LinearLayout(this);
+            postBox.setOrientation(LinearLayout.VERTICAL);
+            postBox.setPadding(dp(8), dp(6), dp(8), dp(7));
+            postBox.setBackground(roundedDrawable(Color.rgb(250, 251, 252), BORDER, dp(8)));
+            LinearLayout.LayoutParams postBoxParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            postBoxParams.setMargins(0, 0, 0, dp(8));
             LinearLayout metaRow = new LinearLayout(this);
             metaRow.setOrientation(LinearLayout.HORIZONTAL);
             metaRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -3335,11 +3343,12 @@ public class MainActivity extends Activity {
                 });
                 metaRow.addView(postJump, new LinearLayout.LayoutParams(dp(34), dp(34)));
             }
-            popupPosts.addView(metaRow);
+            postBox.addView(metaRow);
 
             View body = postContent(post.body, page);
             body.setPadding(0, dp(4), 0, dp(6));
-            popupPosts.addView(body);
+            postBox.addView(body);
+            popupPosts.addView(postBox, postBoxParams);
         }
 
         int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420));
@@ -3374,7 +3383,7 @@ public class MainActivity extends Activity {
         List<PopupWindow> popups = new ArrayList<>(replyPopups);
         replyPopups.clear();
         for (PopupWindow popup : popups) {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
         }
     }
 
@@ -3383,7 +3392,29 @@ public class MainActivity extends Activity {
             return;
         }
         PopupWindow popup = replyPopups.get(replyPopups.size() - 1);
-        popup.dismiss();
+        replyPopups.remove(popup);
+        dismissPopupAnimated(popup);
+    }
+
+    private void dismissPopupAnimated(PopupWindow popup) {
+        if (popup == null || !popup.isShowing()) {
+            return;
+        }
+        View content = popup.getContentView();
+        if (content == null) {
+            popup.dismiss();
+            return;
+        }
+        content.animate().cancel();
+        content.setPivotX(content.getWidth() / 2f);
+        content.setPivotY(content.getHeight());
+        content.animate()
+                .scaleX(0.94f)
+                .scaleY(0.94f)
+                .alpha(0f)
+                .setDuration(120)
+                .withEndAction(popup::dismiss)
+                .start();
     }
 
     private boolean isTouchInsideReplyPopup(MotionEvent event) {
