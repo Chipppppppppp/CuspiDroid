@@ -501,7 +501,7 @@ public class MainActivity extends Activity {
         view.setBackground(tabCountBackground(false));
         view.setOnClickListener(v -> showTabOverview());
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(30), dp(32));
-        params.setMargins(dp(2), 0, dp(2), 0);
+        params.setMargins(dp(4), 0, dp(4), 0);
         view.setLayoutParams(params);
         return view;
     }
@@ -516,6 +516,9 @@ public class MainActivity extends Activity {
 
     private void addToolbarButton(LinearLayout toolbar, int iconRes, String description, View.OnClickListener listener) {
         ImageButton button = iconButton(iconRes, description, listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(36));
+        params.setMargins(dp(4), 0, dp(4), 0);
+        button.setLayoutParams(params);
         toolbarButtons.add(button);
         toolbar.addView(button);
     }
@@ -1919,6 +1922,10 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             markReadTo(tab, post.number);
         }));
+        menu.addView(dialogAction(R.drawable.ic_close, text("\u3053\u308c\u4ee5\u964d\u3092\u672a\u8aad\u306b\u3059\u308b", "Mark unread from here"), () -> {
+            dialog.dismiss();
+            markUnreadFrom(tab, post.number);
+        }));
         menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
             dialog.dismiss();
             toggleAaMode(tab, post);
@@ -2453,7 +2460,8 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10), dp(9), dp(8), dp(9));
+        row.setPadding(dp(10), dp(7), dp(8), dp(7));
+        row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(Color.rgb(250, 251, 252), selected ? TEAL : Color.rgb(226, 232, 240), dp(8)));
         row.setOnClickListener(v -> switchToTab(index));
 
@@ -2471,6 +2479,8 @@ public class MainActivity extends Activity {
         title.setSingleLine(false);
         title.setMaxLines(2);
         title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        title.setIncludeFontPadding(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             title.setAutoSizeTextTypeUniformWithConfiguration(11, 14, 1, TypedValue.COMPLEX_UNIT_SP);
         }
@@ -2479,9 +2489,13 @@ public class MainActivity extends Activity {
         url.setTextColor(Color.rgb(79, 91, 103));
         url.setTextSize(12);
         url.setSingleLine(true);
-        textBox.addView(title);
-        textBox.addView(url);
-        row.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        url.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        url.setIncludeFontPadding(false);
+        textBox.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
+        textBox.addView(url, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
+        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(56), 1));
 
         int unread = unreadCount(tab);
         if (unread > 0) {
@@ -2502,7 +2516,7 @@ public class MainActivity extends Activity {
         row.addView(close, closeParams);
 
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(78));
         rowParams.setMargins(0, 0, 0, dp(8));
         row.setLayoutParams(rowParams);
         return row;
@@ -4897,6 +4911,20 @@ public class MainActivity extends Activity {
                 contentFrame.removeAllViews();
                 contentFrame.addView(buildTabOverviewView());
             }
+        }
+    }
+
+    private void markUnreadFrom(CuspTab tab, int number) {
+        if (tab == null || tab.threadPage == null || tab.threadPage.url == null) {
+            return;
+        }
+        tab.readPostNumber = Math.max(0, number - 1);
+        saveReadPostNumber(preferences, tab.threadPage.url, tab.readPostNumber);
+        refreshUnreadColors(tab);
+        renderTabs();
+        if (tabOverviewVisible) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
         }
     }
 
