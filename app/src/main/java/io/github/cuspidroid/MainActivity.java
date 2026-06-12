@@ -1746,9 +1746,9 @@ public class MainActivity extends Activity {
         post.aaMode = isAaPost(preferences, page.url, post.number);
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
-        shell.setBackgroundColor(Color.rgb(238, 244, 247));
+        shell.setBackgroundColor(Color.TRANSPARENT);
         ImageView readAction = swipeActionIcon(R.drawable.ic_check, Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        ImageView replyAction = swipeActionIcon(R.drawable.ic_check, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
         shell.addView(replyAction);
 
@@ -1845,7 +1845,7 @@ public class MainActivity extends Activity {
                     mainHandler.postDelayed(() -> post.swiping = false, 220);
                     if (event.getAction() == MotionEvent.ACTION_UP) {
                         if (tx <= -dp(54)) {
-                            setReadThrough(tab, post.number);
+                            showWriteDialog(">>" + post.number + "\n");
                         } else if (tx >= dp(54)) {
                             setReadThrough(tab, post.number);
                         }
