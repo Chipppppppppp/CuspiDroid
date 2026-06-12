@@ -3450,7 +3450,7 @@ public class MainActivity extends Activity {
         anchor.getLocationOnScreen(anchorLocation);
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         int x = Math.max(dp(8), Math.min(anchorLocation[0] + dp(8), screenWidth - width - dp(8)));
-        int popupOverlap = dp(12);
+        int popupOverlap = jumpEachPost ? dp(36) : dp(12);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap);
         int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - dp(64), availableAbove);
         popupPosts.measure(
