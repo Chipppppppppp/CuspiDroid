@@ -902,6 +902,10 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
+    private GradientDrawable postBackground(boolean unread) {
+        return roundedFill(unread ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252), dp(8));
+    }
+
     private GradientDrawable addressBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.rgb(241, 245, 249));
@@ -1751,7 +1755,7 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackgroundColor(post.number > tab.readPostNumber ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252));
+        card.setBackground(postBackground(post.number > tab.readPostNumber));
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
                 return true;
@@ -3324,6 +3328,8 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ScrollView popupScroll = new ScrollView(this);
+        popupScroll.setVerticalScrollBarEnabled(false);
+        popupScroll.setScrollbarFadingEnabled(true);
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
         popupPosts.setPadding(0, jumpEachPost ? 0 : dp(36), 0, 0);
@@ -3334,8 +3340,8 @@ public class MainActivity extends Activity {
 
         ImageButton jump = iconButton(R.drawable.ic_arrow_forward, targets.size() == 1
                 ? "Jump to >>" + targets.get(0).number : "Jump to first", null);
-        jump.setColorFilter(Color.WHITE);
-        jump.setBackground(roundedFill(TEAL, dp(18)));
+        jump.setColorFilter(TEAL);
+        jump.setBackgroundColor(Color.TRANSPARENT);
         FrameLayout.LayoutParams jumpParams = new FrameLayout.LayoutParams(dp(38), dp(38));
         jumpParams.gravity = Gravity.RIGHT | Gravity.TOP;
         jumpParams.setMargins(0, dp(6), dp(6), 0);
@@ -3362,8 +3368,8 @@ public class MainActivity extends Activity {
             metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             if (jumpEachPost) {
                 ImageButton postJump = iconButton(R.drawable.ic_arrow_forward, "Jump to >>" + post.number, null);
-                postJump.setColorFilter(Color.WHITE);
-                postJump.setBackground(roundedFill(TEAL, dp(16)));
+                postJump.setColorFilter(TEAL);
+                postJump.setBackgroundColor(Color.TRANSPARENT);
                 postJump.setPadding(dp(8), dp(8), dp(8), dp(8));
                 postJump.setOnClickListener(v -> {
                     dismissThreadPopups();
@@ -3391,6 +3397,7 @@ public class MainActivity extends Activity {
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int desiredHeight = popupPosts.getMeasuredHeight() + dp(18);
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
+        popupScroll.setVerticalScrollBarEnabled(desiredHeight > maxHeight);
         int y = Math.max(dp(8), anchorLocation[1] - popupHeight - dp(8));
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(true);
@@ -5038,8 +5045,7 @@ public class MainActivity extends Activity {
         for (Post post : tab.threadPage.posts) {
             View card = tab.postViews.get(post.number);
             if (card != null) {
-                card.setBackgroundColor(post.number > tab.readPostNumber
-                        ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252));
+                card.setBackground(postBackground(post.number > tab.readPostNumber));
             }
         }
         updateUnreadScrollMarkers(tab);
