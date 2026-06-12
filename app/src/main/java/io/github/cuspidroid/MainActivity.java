@@ -1961,10 +1961,6 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             toggleAaMode(tab, post, anchor);
         }));
-        menu.addView(dialogAction(R.drawable.ic_copy, text("\u30b3\u30d4\u30fc", "Copy"), () -> {
-            dialog.dismiss();
-            showPostCopyDialog(post);
-        }));
         dialog.show();
     }
 
@@ -3452,7 +3448,9 @@ public class MainActivity extends Activity {
         int x = Math.max(dp(8), Math.min(anchorLocation[0] - dp(8), screenWidth - width - dp(8)));
         int popupOverlap = jumpEachPost ? dp(36) : dp(12);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap);
-        int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - dp(64), availableAbove);
+        int extraListHeight = jumpEachPost ? dp(48) : 0;
+        int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - dp(64),
+                availableAbove + extraListHeight);
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
