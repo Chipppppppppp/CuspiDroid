@@ -895,6 +895,13 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
+    private GradientDrawable roundedFill(int fill, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(radius);
+        return drawable;
+    }
+
     private GradientDrawable addressBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.rgb(241, 245, 249));
@@ -2240,6 +2247,12 @@ public class MainActivity extends Activity {
                     resetBottomRefreshLoader(loader);
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                if (!startedAtBottom[0] && !dragging[0] && !refreshing[0]
+                        && !scroll.canScrollVertically(1)) {
+                    startedAtBottom[0] = true;
+                    downY[0] = event.getY();
+                    pullDistance[0] = 0;
+                }
                 if (startedAtBottom[0] && !refreshing[0]) {
                     if (scroll.canScrollVertically(1)) {
                         startedAtBottom[0] = false;
@@ -3297,15 +3310,16 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
         FrameLayout popupRoot = new FrameLayout(this);
-        popupRoot.setPadding(dp(2), dp(2), dp(2), dp(2));
-        popupRoot.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(10)));
+        popupRoot.setPadding(dp(3), dp(3), dp(3), dp(3));
+        popupRoot.setBackground(roundedFill(Color.WHITE, dp(10)));
+        popupRoot.setElevation(dp(10));
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(10), dp(8), dp(10), dp(10));
-        box.setBackground(roundedDrawable(Color.WHITE, Color.rgb(203, 213, 225), dp(8)));
+        box.setBackground(roundedFill(Color.WHITE, dp(8)));
         popupRoot.addView(box, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -3318,8 +3332,10 @@ public class MainActivity extends Activity {
         box.addView(popupScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        ImageButton jump = iconButton(R.drawable.ic_arrow_up, targets.size() == 1
+        ImageButton jump = iconButton(R.drawable.ic_arrow_forward, targets.size() == 1
                 ? "Jump to >>" + targets.get(0).number : "Jump to first", null);
+        jump.setColorFilter(Color.WHITE);
+        jump.setBackground(roundedFill(TEAL, dp(18)));
         FrameLayout.LayoutParams jumpParams = new FrameLayout.LayoutParams(dp(38), dp(38));
         jumpParams.gravity = Gravity.RIGHT | Gravity.TOP;
         jumpParams.setMargins(0, dp(6), dp(6), 0);
@@ -3331,7 +3347,8 @@ public class MainActivity extends Activity {
             LinearLayout postBox = new LinearLayout(this);
             postBox.setOrientation(LinearLayout.VERTICAL);
             postBox.setPadding(dp(8), dp(6), dp(8), dp(7));
-            postBox.setBackground(roundedDrawable(Color.rgb(250, 251, 252), BORDER, dp(8)));
+            postBox.setBackground(roundedFill(Color.rgb(250, 251, 252), dp(8)));
+            postBox.setElevation(dp(1));
             LinearLayout.LayoutParams postBoxParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             postBoxParams.setMargins(0, 0, 0, dp(8));
@@ -3344,8 +3361,9 @@ public class MainActivity extends Activity {
             meta.setTextSize(12);
             metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             if (jumpEachPost) {
-                ImageButton postJump = iconButton(R.drawable.ic_arrow_up, "Jump to >>" + post.number, null);
-                postJump.setBackgroundColor(Color.TRANSPARENT);
+                ImageButton postJump = iconButton(R.drawable.ic_arrow_forward, "Jump to >>" + post.number, null);
+                postJump.setColorFilter(Color.WHITE);
+                postJump.setBackground(roundedFill(TEAL, dp(16)));
                 postJump.setPadding(dp(8), dp(8), dp(8), dp(8));
                 postJump.setOnClickListener(v -> {
                     dismissThreadPopups();
@@ -3459,20 +3477,45 @@ public class MainActivity extends Activity {
 
     private void jumpToPost(int number) {
         View target = visiblePostViews.get(number);
-        if (target == null || visibleThreadScroll == null) {
+        if (target == null || visibleThreadScroll == null || visibleThreadScroll.getChildCount() == 0) {
             Toast.makeText(this, text("\u53c2\u7167\u5148\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "Referenced post is not visible."), Toast.LENGTH_SHORT).show();
             return;
         }
         visibleThreadScroll.post(() -> {
-            visibleThreadScroll.smoothScrollTo(0, Math.max(0, target.getTop() - dp(8)));
+            int top = descendantTopWithin(target, visibleThreadScroll.getChildAt(0));
+            visibleThreadScroll.smoothScrollTo(0, Math.max(0, top - dp(8)));
             highlightPost(target);
         });
+    }
+
+    private int descendantTopWithin(View target, View ancestor) {
+        int top = 0;
+        View current = target;
+        while (current != null && current != ancestor) {
+            top += current.getTop();
+            if (!(current.getParent() instanceof View)) {
+                break;
+            }
+            current = (View) current.getParent();
+        }
+        return top;
     }
 
     private void highlightPost(View target) {
         clearJumpHighlight();
         highlightedPostView = target;
-        target.setBackgroundColor(Color.rgb(187, 247, 208));
+        CuspTab tab = currentTab();
+        boolean unread = false;
+        if (tab != null && tab.threadPage != null) {
+            for (Post post : tab.threadPage.posts) {
+                if (tab.postViews != null && tab.postViews.get(post.number) == target) {
+                    unread = post.number > tab.readPostNumber;
+                    break;
+                }
+            }
+        }
+        int fill = unread ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252);
+        target.setBackground(roundedDrawable(fill, TEAL, dp(8)));
     }
 
     private void clearJumpHighlight() {
