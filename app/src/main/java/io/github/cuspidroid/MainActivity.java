@@ -754,7 +754,7 @@ public class MainActivity extends Activity {
         row.setGravity(Gravity.CENTER);
         row.addView(menuIconButton(R.drawable.ic_arrow_back, text("\u623b\u308b", "Back"), v -> {
             popup.dismiss();
-            goBack();
+            onBackPressed();
         }));
         row.addView(menuIconButton(R.drawable.ic_arrow_forward, text("\u9032\u3080", "Forward"), v -> {
             popup.dismiss();
@@ -1535,6 +1535,7 @@ public class MainActivity extends Activity {
         }
         tab.navigationHistory.add(url);
         tab.navigationIndex = tab.navigationHistory.size() - 1;
+        requestSaveTabsSoon();
     }
 
     private void loadThread(CuspTab tab, String url) {
@@ -4939,6 +4940,7 @@ public class MainActivity extends Activity {
         }
         clearAddressFocus();
         tab.navigationIndex--;
+        requestSaveTabsSoon();
         navigateHistory(tab);
     }
 
@@ -4949,7 +4951,9 @@ public class MainActivity extends Activity {
             return;
         }
         clearAddressFocus();
-        tab.navigationIndex++;
+        int nextIndex = tab.navigationIndex + 1;
+        tab.navigationIndex = nextIndex;
+        requestSaveTabsSoon();
         navigateHistory(tab);
     }
 
