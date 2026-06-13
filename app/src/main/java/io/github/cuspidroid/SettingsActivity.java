@@ -32,6 +32,7 @@ public class SettingsActivity extends Activity {
     private CheckBox open5chInNewTab;
     private CheckBox blurImgurImages;
     private CheckBox addressBarTop;
+    private CheckBox treeView;
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
@@ -86,6 +87,12 @@ public class SettingsActivity extends Activity {
         addressBarTop.setTextColor(TEXT);
         addressBarTop.setTextSize(16);
         root.addView(addressBarTop);
+
+        treeView = new CheckBox(this);
+        treeView.setText(MainActivity.text("\u30c4\u30ea\u30fc\u8868\u793a", "Tree view"));
+        treeView.setTextColor(TEXT);
+        treeView.setTextSize(16);
+        root.addView(treeView);
 
         root.addView(sectionTitle(MainActivity.text("\u6a19\u6e96\u691c\u7d22\u30a8\u30f3\u30b8\u30f3", "Default Search Engine")));
         RadioGroup searchGroup = new RadioGroup(this);
@@ -178,6 +185,7 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
         addressBarTop.setChecked(preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false));
+        treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, false));
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
@@ -194,6 +202,7 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        treeView.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         searchFind5chIo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
                 saveSettings(false);
@@ -249,6 +258,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
+                .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
     }

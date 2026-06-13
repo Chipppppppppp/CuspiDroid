@@ -103,6 +103,7 @@ public class MainActivity extends Activity {
     static final String PREF_SEARCH_TEMPLATE = "search_template";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
+    static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_BBS_LINKS = "bbs_links";
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_NG_RULES = "ng_rules";
@@ -1714,6 +1715,29 @@ public class MainActivity extends Activity {
                     }
                     return;
                 }
+                if (treeViewEnabled()) {
+                    tab.threadPage = result;
+                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
+                    if (!centerSpinner && !forceScrollToBottom) {
+                        markReadTo(tab, maxPostNumber(result), false);
+                    }
+                    tab.postViews = new LinkedHashMap<>();
+                    tab.readerView = buildThreadView(result, tab);
+                    tab.title = result.title;
+                    cacheThreadPage(result);
+                    addThreadHistory(result.url, result.title);
+                    if (tab == currentTab()) {
+                        switchToTab(currentIndex);
+                        if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
+                            updateThreadSearch(tab.threadSearchQuery, false);
+                        }
+                        if (forceScrollToBottom) {
+                            scrollCurrentThreadToBottom();
+                        }
+                    }
+                    renderTabs();
+                    return;
+                }
                 int insertIndex = tab.threadList.getChildCount();
                 tab.threadPage = result;
                 tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
@@ -1937,11 +1961,15 @@ public class MainActivity extends Activity {
             return withScrollScrubber(scroll, tab);
         }
 
-        for (Post post : page.posts) {
-            if (matchesNgPost(post)) {
-                continue;
+        if (treeViewEnabled()) {
+            addTreePostCards(list, page, tab);
+        } else {
+            for (Post post : page.posts) {
+                if (matchesNgPost(post)) {
+                    continue;
+                }
+                addPostCard(list, page, tab, post, list.getChildCount());
             }
-            addPostCard(list, page, tab, post, list.getChildCount());
         }
 
         if (page.posts.isEmpty()) {
@@ -1966,6 +1994,10 @@ public class MainActivity extends Activity {
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index) {
+        addPostCard(list, page, tab, post, index, 0);
+    }
+
+    private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index, int depth) {
         if (matchesNgPost(post)) {
             return;
         }
@@ -1992,7 +2024,7 @@ public class MainActivity extends Activity {
         attachPostSwipe(card, card, readAction, replyAction, tab, post);
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardParams.setMargins(0, 0, 0, dp(8));
+        cardParams.setMargins(dp(Math.min(depth, 8) * 18), 0, 0, dp(8));
 
         View metaView = postMetaText(post, page, () -> {
             if (!isPostSwipeBlocked(post)) {
@@ -2009,6 +2041,75 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         list.addView(shell, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
         tab.postViews.put(post.number, card);
+    }
+
+    private void addTreePostCards(LinearLayout list, ThreadPage page, CuspTab tab) {
+        List<Post> visible = new ArrayList<>();
+        Set<Integer> visibleNumbers = new LinkedHashSet<>();
+        for (Post post : page.posts) {
+            if (!matchesNgPost(post)) {
+                visible.add(post);
+                visibleNumbers.add(post.number);
+            }
+        }
+        Map<Integer, List<Post>> children = new LinkedHashMap<>();
+        List<Post> roots = new ArrayList<>();
+        for (Post post : visible) {
+            int parent = firstQuotedParent(post, visibleNumbers);
+            if (parent > 0) {
+                List<Post> items = children.get(parent);
+                if (items == null) {
+                    items = new ArrayList<>();
+                    children.put(parent, items);
+                }
+                items.add(post);
+            } else {
+                roots.add(post);
+            }
+        }
+        Set<Integer> rendered = new LinkedHashSet<>();
+        for (Post post : roots) {
+            addTreePostCard(list, page, tab, post, children, rendered, 0);
+        }
+        for (Post post : visible) {
+            if (!rendered.contains(post.number)) {
+                addTreePostCard(list, page, tab, post, children, rendered, 0);
+            }
+        }
+    }
+
+    private void addTreePostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post,
+                                 Map<Integer, List<Post>> children, Set<Integer> rendered, int depth) {
+        if (!rendered.add(post.number)) {
+            return;
+        }
+        addPostCard(list, page, tab, post, list.getChildCount(), depth);
+        List<Post> replies = children.get(post.number);
+        if (replies == null) {
+            return;
+        }
+        for (Post child : replies) {
+            addTreePostCard(list, page, tab, child, children, rendered, depth + 1);
+        }
+    }
+
+    private int firstQuotedParent(Post post, Set<Integer> visibleNumbers) {
+        if (post == null || post.body == null) {
+            return 0;
+        }
+        Matcher matcher = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\u2010-\u2015]\\s*(\\d{1,5}))?").matcher(post.body);
+        while (matcher.find()) {
+            int from = parsePositiveInt(matcher.group(1), -1);
+            int to = matcher.group(2) == null ? from : parsePositiveInt(matcher.group(2), from);
+            int first = Math.min(from, to);
+            int last = Math.max(from, to);
+            for (int number = first; number <= last; number++) {
+                if (number > 0 && number < post.number && visibleNumbers.contains(number)) {
+                    return number;
+                }
+            }
+        }
+        return 0;
     }
 
     private ImageView swipeActionIcon(int iconRes, int gravity) {
@@ -4770,6 +4871,10 @@ public class MainActivity extends Activity {
 
     private boolean addressBarOnTop() {
         return preferences.getBoolean(PREF_ADDRESS_BAR_TOP, false);
+    }
+
+    private boolean treeViewEnabled() {
+        return preferences.getBoolean(PREF_TREE_VIEW, false);
     }
 
     private void openExternal(String url) {
