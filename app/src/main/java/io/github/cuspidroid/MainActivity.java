@@ -156,8 +156,6 @@ public class MainActivity extends Activity {
     private Runnable threadSearchHighlightTask;
     private View imageOverlay;
     private View highlightedPostView;
-    private Interpreter nsfwInterpreter;
-    private boolean nsfwModelLoadAttempted;
     private Interpreter graphicViolenceInterpreter;
     private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
@@ -3037,8 +3035,7 @@ public class MainActivity extends Activity {
                     scheduleLazyImgurLoads();
                     return;
                 }
-                boolean sensitive = !loaded.missing
-                        && (isNsfwImage(bitmap) || isGraphicViolenceImage(bitmap));
+                boolean sensitive = !loaded.missing && isGraphicViolenceImage(bitmap);
                 boolean shouldBlur = blurImgurImages() && !loaded.missing;
                 preview.image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
                 preview.image.setVisibility(View.VISIBLE);
@@ -3311,46 +3308,21 @@ public class MainActivity extends Activity {
         return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
     }
 
-    private boolean isNsfwImage(Bitmap bitmap) {
-        Interpreter interpreter = nsfwInterpreter();
-        if (interpreter == null || bitmap == null) {
-            return false;
-        }
-        try {
-            float[][] output = new float[1][2];
-            interpreter.run(nsfwInput(bitmap), output);
-            return output[0][1] >= 0.75f;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private Interpreter nsfwInterpreter() {
-        if (nsfwInterpreter != null) {
-            return nsfwInterpreter;
-        }
-        if (nsfwModelLoadAttempted) {
-            return null;
-        }
-        nsfwModelLoadAttempted = true;
-        try {
-            nsfwInterpreter = new Interpreter(loadMappedAsset("nsfw.tflite"));
-            return nsfwInterpreter;
-        } catch (Throwable ignored) {
-            nsfwInterpreter = null;
-            return null;
-        }
-    }
-
     private boolean isGraphicViolenceImage(Bitmap bitmap) {
         Interpreter interpreter = graphicViolenceInterpreter();
         if (interpreter == null || bitmap == null) {
             return false;
         }
         try {
-            float[][] output = new float[1][2];
-            interpreter.run(imageNetInput(bitmap), output);
-            return output[0][1] >= 0.65f;
+            float[][] output = new float[1][3];
+            interpreter.run(graphicViolenceInput(bitmap), output);
+            int winner = 0;
+            for (int i = 1; i < output[0].length; i++) {
+                if (output[0][i] > output[0][winner]) {
+                    winner = i;
+                }
+            }
+            return winner != 2 && output[0][winner] >= 0.995f;
         } catch (Throwable ignored) {
             return false;
         }
@@ -3381,47 +3353,32 @@ public class MainActivity extends Activity {
         }
     }
 
-    private ByteBuffer nsfwInput(Bitmap bitmap) {
-        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 256, 256, true);
-        ByteBuffer data = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4);
+    private ByteBuffer graphicViolenceInput(Bitmap bitmap) {
+        int cropSize = Math.min(bitmap.getWidth(), bitmap.getHeight());
+        Bitmap cropped = Bitmap.createBitmap(bitmap,
+                Math.max(0, (bitmap.getWidth() - cropSize) / 2),
+                Math.max(0, (bitmap.getHeight() - cropSize) / 2),
+                cropSize,
+                cropSize);
+        Bitmap scaled = Bitmap.createScaledBitmap(cropped, 320, 320, true);
+        if (cropped != bitmap) {
+            cropped.recycle();
+        }
+        ByteBuffer data = ByteBuffer.allocateDirect(1 * 320 * 320 * 3 * 4);
         data.order(ByteOrder.LITTLE_ENDIAN);
-        int[] pixels = new int[224 * 224];
-        scaled.getPixels(pixels, 0, 224, 16, 16, 224, 224);
+        int[] pixels = new int[320 * 320];
+        scaled.getPixels(pixels, 0, 320, 0, 0, 320, 320);
         for (int color : pixels) {
-            data.putFloat(Color.blue(color) - 103.939f);
-            data.putFloat(Color.green(color) - 116.779f);
-            data.putFloat(Color.red(color) - 123.68f);
+            data.putFloat(Color.red(color));
+            data.putFloat(Color.green(color));
+            data.putFloat(Color.blue(color));
         }
         data.rewind();
-        if (scaled != bitmap) {
-            scaled.recycle();
-        }
-        return data;
-    }
-
-    private ByteBuffer imageNetInput(Bitmap bitmap) {
-        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 224, 224, true);
-        ByteBuffer data = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4);
-        data.order(ByteOrder.LITTLE_ENDIAN);
-        int[] pixels = new int[224 * 224];
-        scaled.getPixels(pixels, 0, 224, 0, 0, 224, 224);
-        for (int color : pixels) {
-            data.putFloat(((Color.red(color) / 255f) - 0.485f) / 0.229f);
-            data.putFloat(((Color.green(color) / 255f) - 0.456f) / 0.224f);
-            data.putFloat(((Color.blue(color) / 255f) - 0.406f) / 0.225f);
-        }
-        data.rewind();
-        if (scaled != bitmap) {
-            scaled.recycle();
-        }
+        scaled.recycle();
         return data;
     }
 
     private void closeImageClassifiers() {
-        if (nsfwInterpreter != null) {
-            nsfwInterpreter.close();
-            nsfwInterpreter = null;
-        }
         if (graphicViolenceInterpreter != null) {
             graphicViolenceInterpreter.close();
             graphicViolenceInterpreter = null;
