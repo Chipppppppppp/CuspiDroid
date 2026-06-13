@@ -105,6 +105,7 @@ public class MainActivity extends Activity {
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_BBS_LINKS = "bbs_links";
     static final String PREF_NG_WORDS = "ng_words";
+    static final String PREF_NG_RULES = "ng_rules";
     static final String PREF_READ_POSTS = "read_posts";
     static final String PREF_AA_POSTS = "aa_posts";
     static final String PREF_IMGUR_META = "imgur_meta";
@@ -1931,8 +1932,13 @@ public class MainActivity extends Activity {
             return scroll;
         }
 
+        if (matchesNgThread(page.title)) {
+            list.addView(postText(text("NGThread\u306b\u3088\u308a\u975e\u8868\u793a", "Hidden by NGThread."), page));
+            return withScrollScrubber(scroll, tab);
+        }
+
         for (Post post : page.posts) {
-            if (matchesNgWord(post)) {
+            if (matchesNgPost(post)) {
                 continue;
             }
             addPostCard(list, page, tab, post, list.getChildCount());
@@ -1960,7 +1966,7 @@ public class MainActivity extends Activity {
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index) {
-        if (matchesNgWord(post)) {
+        if (matchesNgPost(post)) {
             return;
         }
         post.aaMode = isAaPost(preferences, page.url, post.number);
@@ -2290,29 +2296,105 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
-    private boolean matchesNgWord(Post post) {
+    private boolean matchesNgPost(Post post) {
         if (post == null) {
             return false;
         }
-        String haystack = (post.name + "\n" + post.date + "\n" + post.body).toLowerCase(Locale.ROOT);
-        for (String word : ngWords()) {
-            if (!word.isEmpty() && haystack.contains(word.toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-        }
-        return false;
+        NgRules rules = ngRules();
+        return rules.matches("NGWord", post.body)
+                || rules.matches("NGName", post.name)
+                || rules.matches("NGID", post.id())
+                || rules.matches("NGBe", post.be());
     }
 
-    private List<String> ngWords() {
-        List<String> words = new ArrayList<>();
-        String saved = preferences.getString(PREF_NG_WORDS, "");
+    private boolean matchesNgThread(String title) {
+        return ngRules().matches("NGThread", title);
+    }
+
+    private NgRules ngRules() {
+        NgRules rules = new NgRules();
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_NG_RULES, "{}"));
+            for (String category : NgRules.CATEGORIES) {
+                JSONObject item = root.optJSONObject(category);
+                if (item != null) {
+                    rules.addText(category, item.optString("text", ""));
+                    rules.addRegex(category, item.optString("regex", ""));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        rules.addText("NGWord", preferences.getString(PREF_NG_WORDS, ""));
+        return rules;
+    }
+
+    private static List<String> ruleLines(String saved) {
+        List<String> lines = new ArrayList<>();
+        if (saved == null) {
+            return lines;
+        }
         for (String line : saved.split("\\r?\\n")) {
-            String word = line.trim();
-            if (!word.isEmpty()) {
-                words.add(word);
+            String value = line.trim();
+            if (!value.isEmpty()) {
+                lines.add(value);
             }
         }
-        return words;
+        return lines;
+    }
+
+    private static class NgRules {
+        static final String[] CATEGORIES = {"NGWord", "NGName", "NGID", "NGBe", "NGThread"};
+        final Map<String, List<String>> texts = new LinkedHashMap<>();
+        final Map<String, List<Pattern>> regexes = new LinkedHashMap<>();
+
+        void addText(String category, String saved) {
+            List<String> values = texts.get(category);
+            if (values == null) {
+                values = new ArrayList<>();
+                texts.put(category, values);
+            }
+            for (String line : ruleLines(saved)) {
+                values.add(line.toLowerCase(Locale.ROOT));
+            }
+        }
+
+        void addRegex(String category, String saved) {
+            List<Pattern> values = regexes.get(category);
+            if (values == null) {
+                values = new ArrayList<>();
+                regexes.put(category, values);
+            }
+            for (String line : ruleLines(saved)) {
+                try {
+                    values.add(Pattern.compile(line, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        boolean matches(String category, String value) {
+            if (value == null || value.isEmpty()) {
+                return false;
+            }
+            String lower = value.toLowerCase(Locale.ROOT);
+            List<String> textRules = texts.get(category);
+            if (textRules != null) {
+                for (String rule : textRules) {
+                    if (!rule.isEmpty() && lower.contains(rule)) {
+                        return true;
+                    }
+                }
+            }
+            List<Pattern> regexRules = regexes.get(category);
+            if (regexRules != null) {
+                for (Pattern rule : regexRules) {
+                    if (rule.matcher(value).find()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
     }
 
     private View buildSearchView(SearchPage page) {
@@ -2339,6 +2421,9 @@ public class MainActivity extends Activity {
         }
 
         for (SearchResult result : page.results) {
+            if (matchesNgThread(result.title)) {
+                continue;
+            }
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.VERTICAL);
             row.setPadding(dp(10), dp(9), dp(10), dp(9));
@@ -6367,6 +6452,12 @@ public class MainActivity extends Activity {
 
         String id() {
             Matcher matcher = POST_ID_PATTERN.matcher(date == null ? "" : date);
+            return matcher.find() ? matcher.group(1) : "";
+        }
+
+        String be() {
+            Matcher matcher = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE)
+                    .matcher(date == null ? "" : date);
             return matcher.find() ? matcher.group(1) : "";
         }
     }

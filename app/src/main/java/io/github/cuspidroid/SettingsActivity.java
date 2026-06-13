@@ -22,11 +22,17 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 public class SettingsActivity extends Activity {
     private static final int TEXT = Color.rgb(31, 41, 55);
     private static final int MUTED = Color.rgb(79, 91, 103);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
+    private static final String[] NG_CATEGORIES = {"NGWord", "NGName", "NGID", "NGBe", "NGThread"};
 
     private SharedPreferences preferences;
     private CheckBox open5chInNewTab;
@@ -35,7 +41,8 @@ public class SettingsActivity extends Activity {
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
-    private EditText ngWords;
+    private final Map<String, EditText> ngTextFields = new LinkedHashMap<>();
+    private final Map<String, EditText> ngRegexFields = new LinkedHashMap<>();
     private EditText bbsName;
     private EditText bbsUrl;
     private Button addBbsButton;
@@ -115,27 +122,19 @@ public class SettingsActivity extends Activity {
         TextView hint = helperText(MainActivity.text("\u691c\u7d22\u8a9e\u3092\u5165\u308c\u308b\u5834\u6240\u306b %s \u3092\u4f7f\u3046", "Use %s where the encoded query should be inserted."));
         root.addView(hint);
 
-        root.addView(sectionTitle(MainActivity.text("NG\u30ef\u30fc\u30c9", "NG Words")));
-        ngWords = new EditText(this);
-        ngWords.setMinLines(3);
-        ngWords.setGravity(Gravity.TOP | Gravity.START);
-        ngWords.setTextSize(14);
-        ngWords.setTextColor(TEXT);
-        ngWords.setHint(MainActivity.text("1\u884c\u306b1\u8a9e", "One word per line"));
-        ngWords.setBackground(roundedField());
-        ngWords.setPadding(dp(12), dp(8), dp(12), dp(8));
-        root.addView(ngWords, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(104)));
-        root.addView(helperText(MainActivity.text(
-                "\u540d\u524d\u30fb\u65e5\u4ed8\u30fb\u672c\u6587\u306b\u542b\u307e\u308c\u308b\u30ec\u30b9\u3092\u975e\u8868\u793a",
-                "Hides posts containing these words in name, date, or body.")));
+        root.addView(sectionTitle(MainActivity.text("NG\u8a2d\u5b9a", "NG Rules")));
+        addNgSection(root, "NGWord", MainActivity.text("\u672c\u6587", "Body"));
+        addNgSection(root, "NGName", MainActivity.text("\u540d\u524d", "Name"));
+        addNgSection(root, "NGID", "ID");
+        addNgSection(root, "NGBe", "BE");
+        addNgSection(root, "NGThread", MainActivity.text("\u30b9\u30ec\u30bf\u30a4", "Thread title"));
 
         root.addView(sectionTitle(MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links")));
         bbsName = new EditText(this);
         bbsName.setSingleLine(true);
         bbsName.setTextSize(14);
         bbsName.setTextColor(TEXT);
-        bbsName.setHint(MainActivity.text("\u540d\u524d \u4f8b: Edge", "Name, e.g. Edge"));
+        bbsName.setHint(MainActivity.text("\u540d\u524d", "Name"));
         bbsName.setBackground(roundedField());
         bbsName.setPadding(dp(12), 0, dp(12), 0);
         root.addView(bbsName, fieldParams());
@@ -144,7 +143,7 @@ public class SettingsActivity extends Activity {
         bbsUrl.setSingleLine(true);
         bbsUrl.setTextSize(14);
         bbsUrl.setTextColor(TEXT);
-        bbsUrl.setHint(MainActivity.text("\u677fURL \u4f8b: https://example.net/live/", "Board URL, e.g. https://example.net/live/"));
+        bbsUrl.setHint(MainActivity.text("\u677fURL", "Board URL"));
         bbsUrl.setImeOptions(EditorInfo.IME_ACTION_DONE);
         bbsUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
@@ -181,7 +180,7 @@ public class SettingsActivity extends Activity {
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
-        ngWords.setText(preferences.getString(MainActivity.PREF_NG_WORDS, ""));
+        loadNgRules();
         if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template)
                 || MainActivity.LEGACY_FIND_IO_TEMPLATE.equals(template)
                 || MainActivity.FIND_NET_TEMPLATE.equals(template)) {
@@ -230,20 +229,12 @@ public class SettingsActivity extends Activity {
             public void afterTextChanged(Editable s) {
             }
         });
-        ngWords.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                saveSettings(false);
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-            }
-        });
+        for (EditText field : ngTextFields.values()) {
+            field.addTextChangedListener(autoSaveWatcher());
+        }
+        for (EditText field : ngRegexFields.values()) {
+            field.addTextChangedListener(autoSaveWatcher());
+        }
     }
 
     private void saveSettings(boolean showError) {
@@ -265,8 +256,104 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
-                .putString(MainActivity.PREF_NG_WORDS, ngWords.getText().toString())
+                .putString(MainActivity.PREF_NG_RULES, ngRulesJson().toString())
+                .putString(MainActivity.PREF_NG_WORDS, "")
                 .apply();
+    }
+
+    private void addNgSection(LinearLayout root, String category, String label) {
+        TextView title = helperText(category + " - " + label);
+        title.setTextColor(TEXT);
+        title.setPadding(0, dp(8), 0, dp(4));
+        root.addView(title);
+
+        EditText text = multilineField(MainActivity.text("\u6587\u5b57\u5217 (1\u884c\u306b1\u4ef6)", "Text (one per line)"));
+        ngTextFields.put(category, text);
+        root.addView(text, ngFieldParams());
+
+        EditText regex = multilineField(MainActivity.text("\u6b63\u898f\u8868\u73fe (1\u884c\u306b1\u4ef6)", "Regex (one per line)"));
+        ngRegexFields.put(category, regex);
+        root.addView(regex, ngFieldParams());
+    }
+
+    private EditText multilineField(String hint) {
+        EditText field = new EditText(this);
+        field.setMinLines(2);
+        field.setGravity(Gravity.TOP | Gravity.START);
+        field.setTextSize(14);
+        field.setTextColor(TEXT);
+        field.setHint(hint);
+        field.setBackground(roundedField());
+        field.setPadding(dp(12), dp(8), dp(12), dp(8));
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        return field;
+    }
+
+    private LinearLayout.LayoutParams ngFieldParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(76));
+        params.setMargins(0, 0, 0, dp(6));
+        return params;
+    }
+
+    private void loadNgRules() {
+        try {
+            JSONObject root = new JSONObject(preferences.getString(MainActivity.PREF_NG_RULES, "{}"));
+            for (String category : NG_CATEGORIES) {
+                JSONObject item = root.optJSONObject(category);
+                EditText text = ngTextFields.get(category);
+                EditText regex = ngRegexFields.get(category);
+                if (text != null) {
+                    String legacy = "NGWord".equals(category)
+                            ? preferences.getString(MainActivity.PREF_NG_WORDS, "")
+                            : "";
+                    text.setText(item == null ? legacy : item.optString("text", legacy));
+                }
+                if (regex != null) {
+                    regex.setText(item == null ? "" : item.optString("regex", ""));
+                }
+            }
+        } catch (Exception ignored) {
+            EditText word = ngTextFields.get("NGWord");
+            if (word != null) {
+                word.setText(preferences.getString(MainActivity.PREF_NG_WORDS, ""));
+            }
+        }
+    }
+
+    private JSONObject ngRulesJson() {
+        JSONObject root = new JSONObject();
+        try {
+            for (String category : NG_CATEGORIES) {
+                JSONObject item = new JSONObject();
+                EditText text = ngTextFields.get(category);
+                EditText regex = ngRegexFields.get(category);
+                item.put("text", text == null ? "" : text.getText().toString());
+                item.put("regex", regex == null ? "" : regex.getText().toString());
+                root.put(category, item);
+            }
+        } catch (Exception ignored) {
+        }
+        return root;
+    }
+
+    private TextWatcher autoSaveWatcher() {
+        return new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                saveSettings(false);
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        };
     }
 
     private TextView sectionTitle(String value) {
