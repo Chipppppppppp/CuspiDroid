@@ -1058,22 +1058,13 @@ public class MainActivity extends Activity {
                 tab.threadScrollUrl = item.optString("threadScrollUrl", url);
                 tab.hasSavedThreadScroll = item.optBoolean("hasSavedThreadScroll", false);
                 restoreNavigationHistory(tab, item);
+                tab.readerMode = tab.nativeKind != null || url.isEmpty();
+                tab.readerView = loadingView("");
                 if (NATIVE_THREAD.equals(tab.nativeKind)) {
-                    tab.threadPage = threadPageFromJson(item.optJSONObject("threadPage"));
-                    if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
-                        tab.readerMode = true;
-                        tab.readPostNumber = readPostNumber(preferences, tab.threadPage.url);
-                        tab.postViews = new LinkedHashMap<>();
-                        tab.readerView = buildThreadView(tab.threadPage, tab);
-                    }
+                    tab.savedThreadPageJson = item.optJSONObject("threadPage");
                 } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
-                    tab.searchPage = searchPageFromJson(item.optJSONObject("searchPage"));
-                    if (tab.searchPage != null) {
-                        tab.readerMode = true;
-                        tab.readerView = buildSearchView(tab.searchPage);
-                    }
+                    tab.savedSearchPageJson = item.optJSONObject("searchPage");
                 } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
-                    tab.readerMode = true;
                     tab.readerView = buildSearchHomeView(true);
                 }
                 if (tab.navigationHistory.isEmpty() && url != null && !url.isEmpty()) {
@@ -1084,28 +1075,88 @@ public class MainActivity extends Activity {
                 tabs.add(tab);
             }
             switchToTab(selected);
-            CuspTab tab = currentTab();
-            if (tab != null) {
-                if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
-                    restoreThreadScroll(tab);
-                } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) && tab.searchPage != null) {
-                    tab.readerMode = true;
-                    tab.readerView = buildSearchView(tab.searchPage);
-                    switchToTab(selected);
-                } else if (tab.url == null || tab.url.isEmpty()) {
-                    tab.readerMode = true;
-                    tab.nativeKind = NATIVE_SEARCH_HOME;
-                    tab.readerView = buildSearchHomeView(true);
-                    switchToTab(selected);
-                    clearAddressFocus();
-                } else {
-                    openInCurrentTab(tab.url);
-                }
-            }
             renderTabs();
+            mainHandler.post(() -> hydrateRestoredTabs(selected));
             return true;
         } catch (Exception error) {
             return false;
+        }
+    }
+
+    private void hydrateRestoredTabs(int selected) {
+        List<Integer> order = new ArrayList<>();
+        if (selected >= 0 && selected < tabs.size()) {
+            order.add(selected);
+        }
+        for (int i = 0; i < tabs.size(); i++) {
+            if (i != selected) {
+                order.add(i);
+            }
+        }
+        hydrateRestoredTabs(order, 0);
+    }
+
+    private void hydrateRestoredTabs(List<Integer> order, int position) {
+        if (position >= order.size()) {
+            renderTabs();
+            return;
+        }
+        int i = order.get(position);
+        if (i >= 0 && i < tabs.size()) {
+            CuspTab tab = tabs.get(i);
+            if (NATIVE_THREAD.equals(tab.nativeKind)) {
+                if (tab.savedThreadPageJson != null) {
+                    tab.threadPage = threadPageFromJson(tab.savedThreadPageJson);
+                    tab.savedThreadPageJson = null;
+                }
+                if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                    tab.readerMode = true;
+                    tab.readPostNumber = readPostNumber(preferences, tab.threadPage.url);
+                    tab.postViews = new LinkedHashMap<>();
+                    tab.readerView = buildThreadView(tab.threadPage, tab);
+                } else if (tab.url != null && !tab.url.isEmpty()) {
+                    openInTab(tab, tab.url, false);
+                }
+            } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
+                if (tab.savedSearchPageJson != null) {
+                    tab.searchPage = searchPageFromJson(tab.savedSearchPageJson);
+                    tab.savedSearchPageJson = null;
+                }
+                if (tab.searchPage != null) {
+                    tab.readerMode = true;
+                    tab.readerView = buildSearchView(tab.searchPage);
+                } else if (tab.url != null && !tab.url.isEmpty()) {
+                    openInTab(tab, tab.url, false);
+                }
+            } else if (tab.url == null || tab.url.isEmpty()) {
+                tab.readerMode = true;
+                tab.nativeKind = NATIVE_SEARCH_HOME;
+                tab.readerView = buildSearchHomeView(true);
+            } else if (tab.readerView == null) {
+                openInTab(tab, tab.url, false);
+            }
+            if (i == currentIndex && !tabOverviewVisible && !pendingNewTab) {
+                switchToTab(i);
+                if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                    restoreThreadScroll(tab);
+                }
+            }
+        }
+        renderTabs();
+        mainHandler.post(() -> hydrateRestoredTabs(order, position + 1));
+    }
+
+    private void openInTab(CuspTab tab, String url, boolean addHistory) {
+        int oldIndex = currentIndex;
+        int index = tabs.indexOf(tab);
+        if (index < 0) {
+            return;
+        }
+        currentIndex = index;
+        openInCurrentTab(url, addHistory);
+        currentIndex = Math.max(0, Math.min(oldIndex, tabs.size() - 1));
+        if (currentIndex != index && contentFrame.getChildCount() > 0 && currentTab() != null && currentTab().readerView != null) {
+            switchToTab(currentIndex);
         }
     }
 
@@ -6094,6 +6145,8 @@ public class MainActivity extends Activity {
         View readerView;
         ThreadPage threadPage;
         SearchPage searchPage;
+        JSONObject savedThreadPageJson;
+        JSONObject savedSearchPageJson;
         ScrollView threadScroll;
         LinearLayout threadList;
         View threadBottomLoader;
