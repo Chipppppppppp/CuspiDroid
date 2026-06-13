@@ -1406,6 +1406,9 @@ public class MainActivity extends Activity {
 
     private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
         final String loadUrl = url;
+        boolean restoreExistingScroll = NATIVE_THREAD.equals(tab.nativeKind)
+                && loadUrl.equals(tab.url)
+                && tab.threadScroll != null;
         rememberThreadScroll(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
@@ -1438,7 +1441,7 @@ public class MainActivity extends Activity {
                 tab.readPostNumber = readPostNumber(preferences, result.url);
                 tab.postViews = new LinkedHashMap<>();
                 tab.readerView = buildThreadView(result, tab);
-                tab.hasSavedThreadScroll = false;
+                tab.hasSavedThreadScroll = restoreExistingScroll && tab.hasSavedThreadScroll;
                 if (result.error == null && !result.posts.isEmpty()) {
                     addThreadHistory(result.url, result.title);
                 }
