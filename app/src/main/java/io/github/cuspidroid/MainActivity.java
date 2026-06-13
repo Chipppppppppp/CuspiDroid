@@ -1398,6 +1398,9 @@ public class MainActivity extends Activity {
             if (NATIVE_THREAD.equals(tab.nativeKind) && tab.postViews != null) {
                 visiblePostViews.putAll(tab.postViews);
             }
+            if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                restoreThreadScroll(tab);
+            }
         }
         addressBar.setText(tab.url == null ? "" : tab.url);
         updateBottomThreadBar(tab);
