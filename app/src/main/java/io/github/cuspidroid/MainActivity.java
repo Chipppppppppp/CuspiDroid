@@ -40,6 +40,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
@@ -1037,6 +1038,7 @@ public class MainActivity extends Activity {
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
                 tab.threadBottomOffset = item.optInt("threadBottomOffset", 0);
+                tab.hasSavedThreadScroll = item.optBoolean("hasSavedThreadScroll", false);
                 restoreNavigationHistory(tab, item);
                 if (NATIVE_THREAD.equals(tab.nativeKind)) {
                     tab.threadPage = threadPageFromJson(item.optJSONObject("threadPage"));
@@ -1091,9 +1093,8 @@ public class MainActivity extends Activity {
 
     private void saveTabs() {
         try {
-            CuspTab current = currentTab();
-            if (current != null) {
-                rememberThreadScroll(current);
+            for (CuspTab tab : tabs) {
+                rememberThreadScroll(tab);
             }
             JSONArray array = new JSONArray();
             for (CuspTab tab : tabs) {
@@ -1103,6 +1104,7 @@ public class MainActivity extends Activity {
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
                 item.put("threadBottomOffset", tab.threadBottomOffset);
+                item.put("hasSavedThreadScroll", tab.hasSavedThreadScroll);
                 item.put("navigationIndex", tab.navigationIndex);
                 JSONArray history = new JSONArray();
                 for (String historyUrl : tab.navigationHistory) {
@@ -1436,6 +1438,7 @@ public class MainActivity extends Activity {
                 tab.readPostNumber = readPostNumber(preferences, result.url);
                 tab.postViews = new LinkedHashMap<>();
                 tab.readerView = buildThreadView(result, tab);
+                tab.hasSavedThreadScroll = false;
                 if (result.error == null && !result.posts.isEmpty()) {
                     addThreadHistory(result.url, result.title);
                 }
@@ -4250,6 +4253,7 @@ public class MainActivity extends Activity {
         int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
         tab.threadScrollRatio = range <= 0 ? 0f : Math.max(0f, Math.min(1f, tab.threadScroll.getScrollY() / (float) range));
         tab.threadBottomOffset = range <= 0 ? 0 : Math.max(0, range - tab.threadScroll.getScrollY());
+        tab.hasSavedThreadScroll = true;
     }
 
     private void restoreThreadScroll(CuspTab tab) {
@@ -4261,15 +4265,47 @@ public class MainActivity extends Activity {
                 return;
             }
             int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
-            if (range > 0) {
-                if (tab.restoreFromBottom) {
-                    tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
-                    tab.restoreFromBottom = false;
-                } else {
-                    tab.threadScroll.scrollTo(0, (int) (range * tab.threadScrollRatio));
-                }
+            if (range <= 0) {
+                return;
+            }
+            if (tab.restoreFromBottom) {
+                tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
+                tab.restoreFromBottom = false;
+            } else if (tab.hasSavedThreadScroll) {
+                tab.threadScroll.scrollTo(0, (int) (range * tab.threadScrollRatio));
+            } else {
+                scrollToUnreadBoundary(tab);
             }
         });
+    }
+
+    private void scrollToUnreadBoundary(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null || tab.threadPage == null || tab.postViews == null) {
+            return;
+        }
+        View target = null;
+        for (Post post : tab.threadPage.posts) {
+            if (post.number > tab.readPostNumber) {
+                target = tab.postViews.get(post.number);
+                break;
+            }
+        }
+        if (target == null && !tab.threadPage.posts.isEmpty()) {
+            target = tab.postViews.get(tab.threadPage.posts.get(tab.threadPage.posts.size() - 1).number);
+        }
+        if (target == null) {
+            return;
+        }
+        View scrollChild = tab.threadScroll.getChildAt(0);
+        int y = 0;
+        View current = target;
+        while (current != null && current != scrollChild) {
+            y += current.getTop();
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+        int maxY = Math.max(0, scrollChild.getHeight() - tab.threadScroll.getHeight());
+        tab.threadScroll.scrollTo(0, Math.max(0, Math.min(y - dp(8), maxY)));
     }
 
     private boolean routeLink(String rawUrl, CuspTab sourceTab) {
@@ -5886,6 +5922,7 @@ public class MainActivity extends Activity {
         float threadScrollRatio;
         int threadBottomOffset;
         int readPostNumber;
+        boolean hasSavedThreadScroll;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
         String threadSearchQuery = "";
