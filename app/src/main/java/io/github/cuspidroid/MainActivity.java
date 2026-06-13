@@ -107,6 +107,7 @@ public class MainActivity extends Activity {
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_READ_POSTS = "read_posts";
     static final String PREF_AA_POSTS = "aa_posts";
+    static final String PREF_IMGUR_META = "imgur_meta";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -1210,6 +1211,45 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    private void cacheThreadPage(ThreadPage page) {
+        if (page == null || page.url == null || page.url.isEmpty() || page.error != null || page.posts.isEmpty()) {
+            return;
+        }
+        try {
+            File dir = threadCacheDir();
+            if (!dir.exists() && !dir.mkdirs()) {
+                return;
+            }
+            try (FileOutputStream out = new FileOutputStream(threadCacheFile(page.url))) {
+                out.write(threadPageToJson(page).toString().getBytes(Charset.forName("UTF-8")));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private ThreadPage readCachedThreadPage(String url) {
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        try {
+            File file = threadCacheFile(url);
+            if (!file.exists() || file.length() <= 0) {
+                return null;
+            }
+            return threadPageFromJson(new JSONObject(new String(readFileBytes(file), Charset.forName("UTF-8"))));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private File threadCacheDir() {
+        return new File(getCacheDir(), "threads");
+    }
+
+    private File threadCacheFile(String url) throws Exception {
+        return new File(threadCacheDir(), cacheKey(url) + ".json");
+    }
+
     private JSONObject searchPageToJson(SearchPage page) throws Exception {
         JSONObject object = new JSONObject();
         object.put("url", page.url);
@@ -1451,7 +1491,18 @@ public class MainActivity extends Activity {
         tab.url = loadUrl;
         tab.title = hostTitle(loadUrl);
         tab.searchPage = null;
-        if (showFullLoading || tab.readerView == null) {
+        ThreadPage cached = readCachedThreadPage(loadUrl);
+        if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
+            tab.title = cached.title;
+            tab.threadPage = cached;
+            tab.readPostNumber = readPostNumber(preferences, cached.url);
+            tab.postViews = new LinkedHashMap<>();
+            tab.readerView = buildThreadView(cached, tab);
+            if (showFullLoading || tab == currentTab()) {
+                switchToTab(tabs.indexOf(tab));
+                restoreThreadScroll(tab);
+            }
+        } else if (showFullLoading || tab.readerView == null) {
             tab.readerView = loadingView("");
             switchToTab(tabs.indexOf(tab));
         }
@@ -1479,6 +1530,7 @@ public class MainActivity extends Activity {
                 tab.readerView = buildThreadView(result, tab);
                 tab.hasSavedThreadScroll = keepExistingScroll;
                 if (result.error == null && !result.posts.isEmpty()) {
+                    cacheThreadPage(result);
                     addThreadHistory(result.url, result.title);
                 }
                 progressBar.setVisibility(View.GONE);
@@ -1544,6 +1596,7 @@ public class MainActivity extends Activity {
                     tab.readPostNumber = readPostNumber(preferences, result.url);
                     tab.postViews = new LinkedHashMap<>();
                     tab.readerView = buildThreadView(result, tab);
+                    cacheThreadPage(result);
                     if (tab == currentTab()) {
                         switchToTab(currentIndex);
                         if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
@@ -1557,6 +1610,7 @@ public class MainActivity extends Activity {
                 }
                 if (result.posts.size() <= oldCount) {
                     tab.threadPage = result;
+                    cacheThreadPage(result);
                     tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
                     if (!centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
@@ -1582,6 +1636,7 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 if (result.error == null && !result.posts.isEmpty()) {
+                    cacheThreadPage(result);
                     addThreadHistory(result.url, result.title);
                 }
                 if (tab == currentTab() && tab.threadSearchOpen
@@ -3081,7 +3136,16 @@ public class MainActivity extends Activity {
                     scheduleLazyImgurLoads();
                     return;
                 }
-                boolean sensitive = !loaded.missing && isGraphicViolenceImage(bitmap);
+                Boolean cachedSensitive = readCachedImageSensitive(preview.imageUrl);
+                boolean sensitive;
+                if (loaded.missing) {
+                    sensitive = false;
+                } else if (cachedSensitive != null) {
+                    sensitive = cachedSensitive;
+                } else {
+                    sensitive = isGraphicViolenceImage(bitmap);
+                    saveImageSensitive(preview.imageUrl, sensitive);
+                }
                 boolean shouldBlur = blurImgurImages() && sensitive;
                 preview.image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
                 preview.image.setVisibility(View.VISIBLE);
@@ -3213,12 +3277,14 @@ public class MainActivity extends Activity {
             int code = connection.getResponseCode();
             String contentType = connection.getContentType();
             if (code == HttpURLConnection.HTTP_NOT_FOUND || isImgurMissingResponse(connection, contentType)) {
+                saveImageMissing(url);
                 Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
                 return missing == null ? null : new ImageLoadResult(missing, true);
             }
             try (InputStream stream = connection.getInputStream()) {
                 byte[] bytes = readBytes(stream);
                 if (looksLikeImgurMissing(bytes, contentType)) {
+                    saveImageMissing(url);
                     Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
                     return missing == null ? null : new ImageLoadResult(missing, true);
                 }
@@ -3237,6 +3303,10 @@ public class MainActivity extends Activity {
 
     private ImageLoadResult cachedBitmap(String url, int maxWidth, int maxHeight) {
         try {
+            if (isCachedImageMissing(url)) {
+                Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
+                return missing == null ? null : new ImageLoadResult(missing, true);
+            }
             File file = imageCacheFile(url);
             if (file.exists() && file.length() > 0) {
                 Bitmap bitmap = decodeBitmap(readFileBytes(file), maxWidth, maxHeight);
@@ -3332,18 +3402,76 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isCachedImageMissing(String url) {
+        JSONObject item = imageMeta(url);
+        return item != null && item.optBoolean("missing", false);
+    }
+
+    private void saveImageMissing(String url) {
+        saveImageMeta(url, true, null);
+    }
+
+    private Boolean readCachedImageSensitive(String url) {
+        JSONObject item = imageMeta(url);
+        if (item == null || !item.has("sensitive")) {
+            return null;
+        }
+        return item.optBoolean("sensitive", false);
+    }
+
+    private void saveImageSensitive(String url, boolean sensitive) {
+        saveImageMeta(url, false, sensitive);
+    }
+
+    private JSONObject imageMeta(String url) {
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_IMGUR_META, "{}"));
+            return root.optJSONObject(url);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void saveImageMeta(String url, boolean missing, Boolean sensitive) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_IMGUR_META, "{}"));
+            JSONObject item = root.optJSONObject(url);
+            if (item == null) {
+                item = new JSONObject();
+            }
+            item.put("missing", missing);
+            if (sensitive != null) {
+                item.put("sensitive", sensitive);
+            }
+            item.put("savedAt", System.currentTimeMillis());
+            root.put(url, item);
+            preferences.edit().putString(PREF_IMGUR_META, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
     private File imageCacheDir() {
         return new File(getCacheDir(), "imgur");
     }
 
     private File imageCacheFile(String url) throws Exception {
+        return new File(imageCacheDir(), cacheKey(url) + ".img");
+    }
+
+    private String cacheKey(String url) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         byte[] hash = digest.digest(url.getBytes(Charset.forName("UTF-8")));
         StringBuilder name = new StringBuilder();
         for (byte value : hash) {
             name.append(String.format(Locale.ROOT, "%02x", value));
         }
-        return new File(imageCacheDir(), name.toString() + ".img");
+        return name.toString();
     }
 
     private Bitmap blurredBitmap(Bitmap bitmap) {
