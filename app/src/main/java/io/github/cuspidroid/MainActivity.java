@@ -158,6 +158,8 @@ public class MainActivity extends Activity {
     private View highlightedPostView;
     private Interpreter nsfwInterpreter;
     private boolean nsfwModelLoadAttempted;
+    private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
+    private boolean imgurLoadInFlight;
 
     static String text(String ja, String en) {
         return Locale.JAPANESE.getLanguage().equals(Locale.getDefault().getLanguage()) ? ja : en;
@@ -2237,8 +2239,14 @@ public class MainActivity extends Activity {
             thumb.setLayoutParams(params);
         };
 
-        scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> updateThumb.run());
-        scrubber.post(updateThumb);
+        scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            updateThumb.run();
+            scheduleLazyImgurLoads();
+        });
+        scrubber.post(() -> {
+            updateThumb.run();
+            scheduleLazyImgurLoads();
+        });
         if (tab != null) {
             scrubber.post(() -> updateUnreadScrollMarkers(tab));
         }
@@ -2955,54 +2963,96 @@ public class MainActivity extends Activity {
         revealParams.gravity = Gravity.CENTER;
         frame.addView(reveal, revealParams);
 
-        boolean blur = blurImgurImages();
-        final boolean[] started = new boolean[1];
-        Runnable load = () -> ioExecutor.execute(() -> {
-            ImageLoadResult loaded = downloadBitmap(imageUrl, getResources().getDisplayMetrics().widthPixels, dp(176));
-            runOnUiThread(() -> {
-                if (!frame.isAttachedToWindow()) {
-                    return;
-                }
-                spinner.setVisibility(View.GONE);
-                Bitmap bitmap = loaded == null ? null : loaded.bitmap;
-                if (bitmap == null) {
-                    error.setVisibility(View.VISIBLE);
-                    return;
-                }
-                boolean shouldBlur = blur && !loaded.missing && isNsfwImage(bitmap);
-                image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
-                image.setVisibility(View.VISIBLE);
-                if (shouldBlur) {
-                    positionRevealButton(frame, reveal, bitmap);
-                    reveal.setVisibility(View.VISIBLE);
-                    reveal.setOnClickListener(v -> {
-                        image.setImageBitmap(bitmap);
-                        image.setOnClickListener(click -> showImageViewer(originalUrl, imageUrl));
-                        reveal.setVisibility(View.GONE);
-                    });
-                } else {
-                    image.setOnClickListener(v -> showImageViewer(originalUrl, imageUrl));
-                }
-            });
-        });
+        LazyImgurPreview preview = new LazyImgurPreview(originalUrl, imageUrl, frame, image, spinner, error, reveal);
         frame.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
-                if (!started[0]) {
-                    started[0] = true;
-                    load.run();
+                if (!lazyImgurPreviews.contains(preview)) {
+                    lazyImgurPreviews.add(preview);
                 }
+                scheduleLazyImgurLoads();
             }
 
             @Override
             public void onViewDetachedFromWindow(View view) {
+                lazyImgurPreviews.remove(preview);
             }
         });
         if (frame.isAttachedToWindow()) {
-            started[0] = true;
-            load.run();
+            lazyImgurPreviews.add(preview);
+            scheduleLazyImgurLoads();
         }
         return frame;
+    }
+
+    private void scheduleLazyImgurLoads() {
+        if (imgurLoadInFlight) {
+            return;
+        }
+        for (int i = lazyImgurPreviews.size() - 1; i >= 0; i--) {
+            LazyImgurPreview preview = lazyImgurPreviews.get(i);
+            if (!preview.frame.isAttachedToWindow()) {
+                lazyImgurPreviews.remove(i);
+            }
+        }
+        for (LazyImgurPreview preview : new ArrayList<>(lazyImgurPreviews)) {
+            if (!preview.started && isNearViewport(preview.frame)) {
+                startLazyImgurLoad(preview);
+                return;
+            }
+        }
+    }
+
+    private boolean isNearViewport(View view) {
+        if (view == null || !view.isShown()) {
+            return false;
+        }
+        Rect visible = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(visible);
+        int buffer = Math.max(dp(240), visible.height() / 2);
+        visible.top -= buffer;
+        visible.bottom += buffer;
+        Rect bounds = new Rect();
+        return view.getGlobalVisibleRect(bounds) && Rect.intersects(visible, bounds);
+    }
+
+    private void startLazyImgurLoad(LazyImgurPreview preview) {
+        preview.started = true;
+        imgurLoadInFlight = true;
+        ioExecutor.execute(() -> {
+            ImageLoadResult loaded = downloadBitmap(preview.imageUrl, getResources().getDisplayMetrics().widthPixels, dp(176));
+            runOnUiThread(() -> {
+                imgurLoadInFlight = false;
+                if (!preview.frame.isAttachedToWindow()) {
+                    lazyImgurPreviews.remove(preview);
+                    scheduleLazyImgurLoads();
+                    return;
+                }
+                preview.spinner.setVisibility(View.GONE);
+                Bitmap bitmap = loaded == null ? null : loaded.bitmap;
+                if (bitmap == null) {
+                    preview.error.setVisibility(View.VISIBLE);
+                    scheduleLazyImgurLoads();
+                    return;
+                }
+                boolean shouldBlur = blurImgurImages() && !loaded.missing
+                        && (isNsfwImage(bitmap) || looksGoreLike(bitmap));
+                preview.image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
+                preview.image.setVisibility(View.VISIBLE);
+                if (shouldBlur) {
+                    positionRevealButton(preview.frame, preview.reveal, bitmap);
+                    preview.reveal.setVisibility(View.VISIBLE);
+                    preview.reveal.setOnClickListener(v -> {
+                        preview.image.setImageBitmap(bitmap);
+                        preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
+                        preview.reveal.setVisibility(View.GONE);
+                    });
+                } else {
+                    preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
+                }
+                scheduleLazyImgurLoads();
+            });
+        });
     }
 
     private void showImageViewer(String originalUrl, String imageUrl) {
@@ -3270,6 +3320,49 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private boolean looksGoreLike(Bitmap bitmap) {
+        if (bitmap == null) {
+            return false;
+        }
+        int sampleWidth = 64;
+        int sampleHeight = Math.max(1, bitmap.getHeight() * sampleWidth / Math.max(1, bitmap.getWidth()));
+        sampleHeight = Math.max(32, Math.min(96, sampleHeight));
+        Bitmap sample = Bitmap.createScaledBitmap(bitmap, sampleWidth, sampleHeight, true);
+        int[] pixels = new int[sampleWidth * sampleHeight];
+        sample.getPixels(pixels, 0, sampleWidth, 0, 0, sampleWidth, sampleHeight);
+        if (sample != bitmap) {
+            sample.recycle();
+        }
+        int redBlood = 0;
+        int darkBlood = 0;
+        int skinLike = 0;
+        int vividRed = 0;
+        for (int color : pixels) {
+            int r = Color.red(color);
+            int g = Color.green(color);
+            int b = Color.blue(color);
+            int max = Math.max(r, Math.max(g, b));
+            int min = Math.min(r, Math.min(g, b));
+            if (r > 95 && r > g * 1.55f && r > b * 1.45f && g < 105 && b < 105) {
+                redBlood++;
+            }
+            if (r > 55 && r > g * 1.35f && r > b * 1.25f && max - min > 35 && g < 90 && b < 90) {
+                darkBlood++;
+            }
+            if (r > 120 && g > 70 && b > 45 && r > g && g > b && r - b > 45) {
+                skinLike++;
+            }
+            if (r > 150 && g < 80 && b < 80) {
+                vividRed++;
+            }
+        }
+        float total = Math.max(1, pixels.length);
+        float bloodRatio = (redBlood + darkBlood) / total;
+        float vividRatio = vividRed / total;
+        float skinRatio = skinLike / total;
+        return bloodRatio >= 0.075f || (bloodRatio >= 0.045f && vividRatio >= 0.018f && skinRatio >= 0.035f);
     }
 
     private Interpreter nsfwInterpreter() {
@@ -5672,6 +5765,28 @@ public class MainActivity extends Activity {
 
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static class LazyImgurPreview {
+        final String originalUrl;
+        final String imageUrl;
+        final FrameLayout frame;
+        final ImageView image;
+        final ProgressBar spinner;
+        final TextView error;
+        final Button reveal;
+        boolean started;
+
+        LazyImgurPreview(String originalUrl, String imageUrl, FrameLayout frame,
+                         ImageView image, ProgressBar spinner, TextView error, Button reveal) {
+            this.originalUrl = originalUrl;
+            this.imageUrl = imageUrl;
+            this.frame = frame;
+            this.image = image;
+            this.spinner = spinner;
+            this.error = error;
+            this.reveal = reveal;
+        }
     }
 
     private static class ZoomImageView extends ImageView {
