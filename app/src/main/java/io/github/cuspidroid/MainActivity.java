@@ -158,6 +158,8 @@ public class MainActivity extends Activity {
     private View highlightedPostView;
     private Interpreter nsfwInterpreter;
     private boolean nsfwModelLoadAttempted;
+    private Interpreter graphicViolenceInterpreter;
+    private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private boolean imgurLoadInFlight;
 
@@ -210,7 +212,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        closeNsfwClassifier();
+        closeImageClassifiers();
         ioExecutor.shutdownNow();
         super.onDestroy();
     }
@@ -3035,11 +3037,12 @@ public class MainActivity extends Activity {
                     scheduleLazyImgurLoads();
                     return;
                 }
-                boolean shouldBlur = blurImgurImages() && !loaded.missing
-                        && (isNsfwImage(bitmap) || looksGoreLike(bitmap));
+                boolean sensitive = !loaded.missing
+                        && (isNsfwImage(bitmap) || isGraphicViolenceImage(bitmap));
+                boolean shouldBlur = blurImgurImages() && !loaded.missing;
                 preview.image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
                 preview.image.setVisibility(View.VISIBLE);
-                if (shouldBlur) {
+                if (shouldBlur && sensitive) {
                     positionRevealButton(preview.frame, preview.reveal, bitmap);
                     preview.reveal.setVisibility(View.VISIBLE);
                     preview.reveal.setOnClickListener(v -> {
@@ -3047,7 +3050,7 @@ public class MainActivity extends Activity {
                         preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
                         preview.reveal.setVisibility(View.GONE);
                     });
-                } else {
+                } else if (!shouldBlur) {
                     preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
                 }
                 scheduleLazyImgurLoads();
@@ -3322,49 +3325,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean looksGoreLike(Bitmap bitmap) {
-        if (bitmap == null) {
-            return false;
-        }
-        int sampleWidth = 64;
-        int sampleHeight = Math.max(1, bitmap.getHeight() * sampleWidth / Math.max(1, bitmap.getWidth()));
-        sampleHeight = Math.max(32, Math.min(96, sampleHeight));
-        Bitmap sample = Bitmap.createScaledBitmap(bitmap, sampleWidth, sampleHeight, true);
-        int[] pixels = new int[sampleWidth * sampleHeight];
-        sample.getPixels(pixels, 0, sampleWidth, 0, 0, sampleWidth, sampleHeight);
-        if (sample != bitmap) {
-            sample.recycle();
-        }
-        int redBlood = 0;
-        int darkBlood = 0;
-        int skinLike = 0;
-        int vividRed = 0;
-        for (int color : pixels) {
-            int r = Color.red(color);
-            int g = Color.green(color);
-            int b = Color.blue(color);
-            int max = Math.max(r, Math.max(g, b));
-            int min = Math.min(r, Math.min(g, b));
-            if (r > 95 && r > g * 1.55f && r > b * 1.45f && g < 105 && b < 105) {
-                redBlood++;
-            }
-            if (r > 55 && r > g * 1.35f && r > b * 1.25f && max - min > 35 && g < 90 && b < 90) {
-                darkBlood++;
-            }
-            if (r > 120 && g > 70 && b > 45 && r > g && g > b && r - b > 45) {
-                skinLike++;
-            }
-            if (r > 150 && g < 80 && b < 80) {
-                vividRed++;
-            }
-        }
-        float total = Math.max(1, pixels.length);
-        float bloodRatio = (redBlood + darkBlood) / total;
-        float vividRatio = vividRed / total;
-        float skinRatio = skinLike / total;
-        return bloodRatio >= 0.075f || (bloodRatio >= 0.045f && vividRatio >= 0.018f && skinRatio >= 0.035f);
-    }
-
     private Interpreter nsfwInterpreter() {
         if (nsfwInterpreter != null) {
             return nsfwInterpreter;
@@ -3378,6 +3338,37 @@ public class MainActivity extends Activity {
             return nsfwInterpreter;
         } catch (Throwable ignored) {
             nsfwInterpreter = null;
+            return null;
+        }
+    }
+
+    private boolean isGraphicViolenceImage(Bitmap bitmap) {
+        Interpreter interpreter = graphicViolenceInterpreter();
+        if (interpreter == null || bitmap == null) {
+            return false;
+        }
+        try {
+            float[][] output = new float[1][2];
+            interpreter.run(imageNetInput(bitmap), output);
+            return output[0][1] >= 0.65f;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private Interpreter graphicViolenceInterpreter() {
+        if (graphicViolenceInterpreter != null) {
+            return graphicViolenceInterpreter;
+        }
+        if (graphicViolenceModelLoadAttempted) {
+            return null;
+        }
+        graphicViolenceModelLoadAttempted = true;
+        try {
+            graphicViolenceInterpreter = new Interpreter(loadMappedAsset("graphic_violence.tflite"));
+            return graphicViolenceInterpreter;
+        } catch (Throwable ignored) {
+            graphicViolenceInterpreter = null;
             return null;
         }
     }
@@ -3408,10 +3399,32 @@ public class MainActivity extends Activity {
         return data;
     }
 
-    private void closeNsfwClassifier() {
+    private ByteBuffer imageNetInput(Bitmap bitmap) {
+        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 224, 224, true);
+        ByteBuffer data = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4);
+        data.order(ByteOrder.LITTLE_ENDIAN);
+        int[] pixels = new int[224 * 224];
+        scaled.getPixels(pixels, 0, 224, 0, 0, 224, 224);
+        for (int color : pixels) {
+            data.putFloat(((Color.red(color) / 255f) - 0.485f) / 0.229f);
+            data.putFloat(((Color.green(color) / 255f) - 0.456f) / 0.224f);
+            data.putFloat(((Color.blue(color) / 255f) - 0.406f) / 0.225f);
+        }
+        data.rewind();
+        if (scaled != bitmap) {
+            scaled.recycle();
+        }
+        return data;
+    }
+
+    private void closeImageClassifiers() {
         if (nsfwInterpreter != null) {
             nsfwInterpreter.close();
             nsfwInterpreter = null;
+        }
+        if (graphicViolenceInterpreter != null) {
+            graphicViolenceInterpreter.close();
+            graphicViolenceInterpreter = null;
         }
     }
 
