@@ -4480,6 +4480,10 @@ public class MainActivity extends Activity {
     }
 
     private void restoreThreadScroll(CuspTab tab) {
+        restoreThreadScroll(tab, 0);
+    }
+
+    private void restoreThreadScroll(CuspTab tab, int attempt) {
         if (tab == null || tab.threadScroll == null) {
             return;
         }
@@ -4489,13 +4493,17 @@ public class MainActivity extends Activity {
             }
             int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
             if (range <= 0) {
+                if (attempt < 10) {
+                    tab.threadScroll.postDelayed(() -> restoreThreadScroll(tab, attempt + 1), 50);
+                }
                 return;
             }
             if (tab.restoreFromBottom) {
                 tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
                 tab.restoreFromBottom = false;
             } else if (tab.hasSavedThreadScroll && threadUrl(tab).equals(tab.threadScrollUrl)) {
-                tab.threadScroll.scrollTo(0, (int) (range * tab.threadScrollRatio));
+                int target = (int) (range * tab.threadScrollRatio);
+                tab.threadScroll.scrollTo(0, Math.max(0, Math.min(target, range)));
             } else {
                 scrollToUnreadBoundary(tab);
             }
