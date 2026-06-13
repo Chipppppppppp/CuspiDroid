@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
+import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -59,10 +60,12 @@ import android.webkit.CookieManager;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.tensorflow.lite.Interpreter;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -72,7 +75,11 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.MappedByteBuffer;
 import java.nio.charset.Charset;
+import java.nio.channels.FileChannel;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -149,6 +156,8 @@ public class MainActivity extends Activity {
     private Runnable threadSearchHighlightTask;
     private View imageOverlay;
     private View highlightedPostView;
+    private Interpreter nsfwInterpreter;
+    private boolean nsfwModelLoadAttempted;
 
     static String text(String ja, String en) {
         return Locale.JAPANESE.getLanguage().equals(Locale.getDefault().getLanguage()) ? ja : en;
@@ -199,6 +208,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        closeNsfwClassifier();
         ioExecutor.shutdownNow();
         super.onDestroy();
     }
@@ -2936,7 +2946,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         Button reveal = new Button(this);
-        reveal.setText("Show");
+        reveal.setText(text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
         reveal.setAllCaps(false);
         reveal.setTextColor(TEXT);
         reveal.setVisibility(View.GONE);
@@ -2959,7 +2969,7 @@ public class MainActivity extends Activity {
                     error.setVisibility(View.VISIBLE);
                     return;
                 }
-                boolean shouldBlur = blur && !loaded.missing;
+                boolean shouldBlur = blur && !loaded.missing && isNsfwImage(bitmap);
                 image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
                 image.setVisibility(View.VISIBLE);
                 if (shouldBlur) {
@@ -3246,6 +3256,70 @@ public class MainActivity extends Activity {
         Bitmap small = Bitmap.createScaledBitmap(bitmap, smallWidth, smallHeight, true);
         small = boxBlur(small, 2);
         return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
+    }
+
+    private boolean isNsfwImage(Bitmap bitmap) {
+        Interpreter interpreter = nsfwInterpreter();
+        if (interpreter == null || bitmap == null) {
+            return false;
+        }
+        try {
+            float[][] output = new float[1][2];
+            interpreter.run(nsfwInput(bitmap), output);
+            return output[0][1] >= 0.75f;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private Interpreter nsfwInterpreter() {
+        if (nsfwInterpreter != null) {
+            return nsfwInterpreter;
+        }
+        if (nsfwModelLoadAttempted) {
+            return null;
+        }
+        nsfwModelLoadAttempted = true;
+        try {
+            nsfwInterpreter = new Interpreter(loadMappedAsset("nsfw.tflite"));
+            return nsfwInterpreter;
+        } catch (Throwable ignored) {
+            nsfwInterpreter = null;
+            return null;
+        }
+    }
+
+    private MappedByteBuffer loadMappedAsset(String name) throws Exception {
+        try (AssetFileDescriptor descriptor = getAssets().openFd(name);
+             FileInputStream input = new FileInputStream(descriptor.getFileDescriptor());
+             FileChannel channel = input.getChannel()) {
+            return channel.map(FileChannel.MapMode.READ_ONLY, descriptor.getStartOffset(), descriptor.getDeclaredLength());
+        }
+    }
+
+    private ByteBuffer nsfwInput(Bitmap bitmap) {
+        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 256, 256, true);
+        ByteBuffer data = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4);
+        data.order(ByteOrder.LITTLE_ENDIAN);
+        int[] pixels = new int[224 * 224];
+        scaled.getPixels(pixels, 0, 224, 16, 16, 224, 224);
+        for (int color : pixels) {
+            data.putFloat(Color.blue(color) - 103.939f);
+            data.putFloat(Color.green(color) - 116.779f);
+            data.putFloat(Color.red(color) - 123.68f);
+        }
+        data.rewind();
+        if (scaled != bitmap) {
+            scaled.recycle();
+        }
+        return data;
+    }
+
+    private void closeNsfwClassifier() {
+        if (nsfwInterpreter != null) {
+            nsfwInterpreter.close();
+            nsfwInterpreter = null;
+        }
     }
 
     private Bitmap boxBlur(Bitmap source, int iterations) {

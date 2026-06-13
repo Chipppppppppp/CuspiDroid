@@ -18,4 +18,12 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    androidResources {
+        noCompress += "tflite"
+    }
+}
+
+dependencies {
+    implementation "org.tensorflow:tensorflow-lite:2.16.1"
 }
