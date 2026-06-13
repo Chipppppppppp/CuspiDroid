@@ -154,8 +154,6 @@ public class MainActivity extends Activity {
     private boolean updatingThreadSearchInput;
     private Runnable threadSearchTask;
     private Runnable threadSearchHighlightTask;
-    private Runnable lazyImgurLoadTask;
-    private Runnable saveTabsTask;
     private View imageOverlay;
     private View highlightedPostView;
     private Interpreter graphicViolenceInterpreter;
@@ -190,10 +188,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        if (saveTabsTask != null) {
-            mainHandler.removeCallbacks(saveTabsTask);
-            saveTabsTask = null;
-        }
         saveTabs();
         super.onPause();
     }
@@ -217,14 +211,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (lazyImgurLoadTask != null) {
-            mainHandler.removeCallbacks(lazyImgurLoadTask);
-            lazyImgurLoadTask = null;
-        }
-        if (saveTabsTask != null) {
-            mainHandler.removeCallbacks(saveTabsTask);
-            saveTabsTask = null;
-        }
         closeImageClassifiers();
         ioExecutor.shutdownNow();
         super.onDestroy();
@@ -1142,17 +1128,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void requestSaveTabsSoon() {
-        if (saveTabsTask != null) {
-            return;
-        }
-        saveTabsTask = () -> {
-            saveTabsTask = null;
-            saveTabs();
-        };
-        mainHandler.postDelayed(saveTabsTask, 1200);
-    }
-
     private JSONObject threadPageToJson(ThreadPage page) throws Exception {
         JSONObject object = new JSONObject();
         object.put("url", page.url);
@@ -1800,6 +1775,13 @@ public class MainActivity extends Activity {
             return scroll;
         }
 
+        for (Post post : page.posts) {
+            if (matchesNgWord(post)) {
+                continue;
+            }
+            addPostCard(list, page, tab, post, list.getChildCount());
+        }
+
         if (page.posts.isEmpty()) {
             list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
         }
@@ -1818,31 +1800,7 @@ public class MainActivity extends Activity {
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         loaderParams.setMargins(0, 0, 0, dp(2));
         frame.addView(bottomLoader, loaderParams);
-        if (!page.posts.isEmpty()) {
-            addPostCardsChunked(list, page, tab, 0);
-        }
         return frame;
-    }
-
-    private void addPostCardsChunked(LinearLayout list, ThreadPage page, CuspTab tab, int start) {
-        if (tab != currentTab() && tab.readerView != null && tab.readerView.getParent() == null) {
-            return;
-        }
-        int added = 0;
-        int index = start;
-        while (index < page.posts.size() && added < 24) {
-            Post post = page.posts.get(index++);
-            if (!matchesNgWord(post)) {
-                addPostCard(list, page, tab, post, list.getChildCount());
-                added++;
-            }
-        }
-        updateUnreadScrollMarkers(tab);
-        scheduleLazyImgurLoads();
-        if (index < page.posts.size()) {
-            int next = index;
-            mainHandler.post(() -> addPostCardsChunked(list, page, tab, next));
-        }
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index) {
@@ -3061,17 +3019,6 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleLazyImgurLoads() {
-        if (lazyImgurLoadTask != null) {
-            return;
-        }
-        lazyImgurLoadTask = () -> {
-            lazyImgurLoadTask = null;
-            runLazyImgurLoads();
-        };
-        mainHandler.postDelayed(lazyImgurLoadTask, 80);
-    }
-
-    private void runLazyImgurLoads() {
         if (imgurLoadInFlight) {
             return;
         }
@@ -3127,7 +3074,7 @@ public class MainActivity extends Activity {
                     sensitive = detectGraphicViolenceImage(bitmap);
                     if (sensitive != null && preview.tab != null) {
                         preview.tab.imageSafety.put(preview.imageUrl, sensitive);
-                        requestSaveTabsSoon();
+                        saveTabs();
                     }
                 }
                 boolean keepBlurred = blurImgurImages() && !loaded.missing && (sensitive == null || sensitive);
