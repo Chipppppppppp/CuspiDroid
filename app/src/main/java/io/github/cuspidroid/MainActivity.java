@@ -1166,8 +1166,9 @@ public class MainActivity extends Activity {
 
     private void saveTabs(boolean synchronous) {
         try {
-            for (CuspTab tab : tabs) {
-                rememberThreadScroll(tab);
+            CuspTab current = currentTab();
+            if (current != null) {
+                rememberThreadScroll(current);
             }
             JSONArray array = new JSONArray();
             for (CuspTab tab : tabs) {
@@ -1367,7 +1368,8 @@ public class MainActivity extends Activity {
         pendingNewTab = false;
         pendingHistoryAll = false;
         CuspTab previous = currentTab();
-        if (previous != null) {
+        CuspTab target = tabs.get(index);
+        if (previous != null && previous != target) {
             rememberThreadScroll(previous);
         }
         if (highlightedPostView != null) {
@@ -1378,7 +1380,7 @@ public class MainActivity extends Activity {
             dismissThreadPopups();
         }
         currentIndex = index;
-        CuspTab tab = tabs.get(index);
+        CuspTab tab = target;
         contentFrame.removeAllViews();
         visibleThreadPage = null;
         visibleThreadScroll = null;
@@ -4472,7 +4474,13 @@ public class MainActivity extends Activity {
         if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
             return;
         }
+        if (tab.threadScroll.getHeight() <= 0 || !tab.threadScroll.isAttachedToWindow()) {
+            return;
+        }
         int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
+        if (range <= 0) {
+            return;
+        }
         tab.threadScrollRatio = range <= 0 ? 0f : Math.max(0f, Math.min(1f, tab.threadScroll.getScrollY() / (float) range));
         tab.threadBottomOffset = range <= 0 ? 0 : Math.max(0, range - tab.threadScroll.getScrollY());
         tab.threadScrollUrl = threadUrl(tab);
