@@ -77,7 +77,7 @@ public class SettingsActivity extends Activity {
         root.addView(open5chInNewTab);
 
         blurImgurImages = new CheckBox(this);
-        blurImgurImages.setText(MainActivity.text("imgur\u753b\u50cf\u3092\u8868\u793a\u307e\u3067\u307c\u304b\u3059", "Blur imgur previews until shown"));
+        blurImgurImages.setText(MainActivity.text("imgur\u306e\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic imgur images"));
         blurImgurImages.setTextColor(TEXT);
         blurImgurImages.setTextSize(16);
         root.addView(blurImgurImages);

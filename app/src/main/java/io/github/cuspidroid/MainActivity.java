@@ -3036,7 +3036,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 boolean sensitive = !loaded.missing && isGraphicViolenceImage(bitmap);
-                boolean shouldBlur = blurImgurImages() && !loaded.missing;
+                boolean shouldBlur = blurImgurImages() && sensitive;
                 preview.image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
                 preview.image.setVisibility(View.VISIBLE);
                 if (shouldBlur && sensitive) {
