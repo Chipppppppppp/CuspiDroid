@@ -170,6 +170,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         buildLayout();
+        contentFrame.addView(loadingView(""));
 
         String launchUrl = null;
         Intent intent = getIntent();
@@ -1037,6 +1038,7 @@ public class MainActivity extends Activity {
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
                 tab.threadBottomOffset = item.optInt("threadBottomOffset", 0);
+                restoreImageSafety(tab, item);
                 restoreNavigationHistory(tab, item);
                 if (NATIVE_THREAD.equals(tab.nativeKind)) {
                     tab.threadPage = threadPageFromJson(item.optJSONObject("threadPage"));
@@ -1103,6 +1105,7 @@ public class MainActivity extends Activity {
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
                 item.put("threadBottomOffset", tab.threadBottomOffset);
+                item.put("imageSafety", imageSafetyToJson(tab));
                 item.put("navigationIndex", tab.navigationIndex);
                 JSONArray history = new JSONArray();
                 for (String historyUrl : tab.navigationHistory) {
@@ -1208,6 +1211,32 @@ public class MainActivity extends Activity {
             }
         }
         return page;
+    }
+
+    private JSONObject imageSafetyToJson(CuspTab tab) throws Exception {
+        JSONObject object = new JSONObject();
+        for (Map.Entry<String, Boolean> entry : tab.imageSafety.entrySet()) {
+            object.put(entry.getKey(), entry.getValue() ? "sensitive" : "safe");
+        }
+        return object;
+    }
+
+    private void restoreImageSafety(CuspTab tab, JSONObject item) {
+        JSONObject object = item.optJSONObject("imageSafety");
+        if (object == null) {
+            return;
+        }
+        JSONArray names = object.names();
+        if (names == null) {
+            return;
+        }
+        for (int i = 0; i < names.length(); i++) {
+            String url = names.optString(i, "");
+            String value = object.optString(url, "");
+            if (!url.isEmpty()) {
+                tab.imageSafety.put(url, "sensitive".equals(value));
+            }
+        }
     }
 
     private void restoreNavigationHistory(CuspTab tab, JSONObject item) {
@@ -2795,6 +2824,10 @@ public class MainActivity extends Activity {
     }
 
     private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction) {
+        return postContent(value, page, highlight, longClickAction, currentTab());
+    }
+
+    private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction, CuspTab tab) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         TextView bodyText = postText(value, page, highlight);
@@ -2819,7 +2852,7 @@ public class MainActivity extends Activity {
             if (imageUrl == null || added.contains(imageUrl)) {
                 continue;
             }
-            box.addView(imgurPreview(cleanUrl, imageUrl));
+            box.addView(imgurPreview(cleanUrl, imageUrl, tab));
             added.add(imageUrl);
         }
         return box;
@@ -2832,7 +2865,7 @@ public class MainActivity extends Activity {
             }
         };
         if (!post.aaMode) {
-            return postContent(post.body, page, tab.threadSearchQuery, longClick);
+            return postContent(post.body, page, tab.threadSearchQuery, longClick, tab);
         }
         TextView body = new TextView(this);
         SpannableString aaText = new SpannableString(post.body);
@@ -2923,7 +2956,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View imgurPreview(String originalUrl, String imageUrl) {
+    private View imgurPreview(String originalUrl, String imageUrl, CuspTab tab) {
         FrameLayout frame = new FrameLayout(this);
         frame.setClickable(true);
         LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
@@ -2963,7 +2996,7 @@ public class MainActivity extends Activity {
         revealParams.gravity = Gravity.CENTER;
         frame.addView(reveal, revealParams);
 
-        LazyImgurPreview preview = new LazyImgurPreview(originalUrl, imageUrl, frame, image, spinner, error, reveal);
+        LazyImgurPreview preview = new LazyImgurPreview(originalUrl, imageUrl, frame, image, spinner, error, reveal, tab);
         frame.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
@@ -3035,11 +3068,19 @@ public class MainActivity extends Activity {
                     scheduleLazyImgurLoads();
                     return;
                 }
-                boolean sensitive = !loaded.missing && isGraphicViolenceImage(bitmap);
-                boolean shouldBlur = blurImgurImages() && !loaded.missing;
-                preview.image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
+                Boolean cached = preview.tab == null ? null : preview.tab.imageSafety.get(preview.imageUrl);
+                Boolean sensitive = loaded.missing ? false : cached;
+                if (sensitive == null) {
+                    sensitive = detectGraphicViolenceImage(bitmap);
+                    if (sensitive != null && preview.tab != null) {
+                        preview.tab.imageSafety.put(preview.imageUrl, sensitive);
+                        saveTabs();
+                    }
+                }
+                boolean keepBlurred = blurImgurImages() && !loaded.missing && (sensitive == null || sensitive);
+                preview.image.setImageBitmap(keepBlurred ? blurredBitmap(bitmap) : bitmap);
                 preview.image.setVisibility(View.VISIBLE);
-                if (shouldBlur && sensitive) {
+                if (keepBlurred && Boolean.TRUE.equals(sensitive)) {
                     positionRevealButton(preview.frame, preview.reveal, bitmap);
                     preview.reveal.setVisibility(View.VISIBLE);
                     preview.reveal.setOnClickListener(v -> {
@@ -3047,7 +3088,7 @@ public class MainActivity extends Activity {
                         preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
                         preview.reveal.setVisibility(View.GONE);
                     });
-                } else if (!shouldBlur) {
+                } else if (!keepBlurred) {
                     preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
                 }
                 scheduleLazyImgurLoads();
@@ -3308,10 +3349,10 @@ public class MainActivity extends Activity {
         return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
     }
 
-    private boolean isGraphicViolenceImage(Bitmap bitmap) {
+    private Boolean detectGraphicViolenceImage(Bitmap bitmap) {
         Interpreter interpreter = graphicViolenceInterpreter();
         if (interpreter == null || bitmap == null) {
-            return false;
+            return null;
         }
         try {
             float[][] output = new float[1][3];
@@ -3324,7 +3365,7 @@ public class MainActivity extends Activity {
             }
             return winner != 2 && output[0][winner] >= 0.995f;
         } catch (Throwable ignored) {
-            return false;
+            return null;
         }
     }
 
@@ -5745,10 +5786,11 @@ public class MainActivity extends Activity {
         final ProgressBar spinner;
         final TextView error;
         final Button reveal;
+        final CuspTab tab;
         boolean started;
 
         LazyImgurPreview(String originalUrl, String imageUrl, FrameLayout frame,
-                         ImageView image, ProgressBar spinner, TextView error, Button reveal) {
+                         ImageView image, ProgressBar spinner, TextView error, Button reveal, CuspTab tab) {
             this.originalUrl = originalUrl;
             this.imageUrl = imageUrl;
             this.frame = frame;
@@ -5756,6 +5798,7 @@ public class MainActivity extends Activity {
             this.spinner = spinner;
             this.error = error;
             this.reveal = reveal;
+            this.tab = tab;
         }
     }
 
@@ -5899,6 +5942,7 @@ public class MainActivity extends Activity {
         boolean backToNewTab;
         boolean readerMode;
         List<String> navigationHistory = new ArrayList<>();
+        Map<String, Boolean> imageSafety = new LinkedHashMap<>();
         int navigationIndex = -1;
     }
 
