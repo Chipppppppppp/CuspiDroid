@@ -1399,6 +1399,9 @@ public class MainActivity extends Activity {
                 visiblePostViews.putAll(tab.postViews);
             }
             if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                if (shouldRestoreThreadScroll(tab)) {
+                    tab.readerView.setVisibility(View.INVISIBLE);
+                }
                 restoreThreadScroll(tab);
             }
         }
@@ -3186,22 +3189,11 @@ public class MainActivity extends Activity {
         imgurLoadInFlight = true;
         ioExecutor.execute(() -> {
             ImageLoadResult loaded = downloadBitmap(preview.imageUrl, getResources().getDisplayMetrics().widthPixels, dp(176));
-            runOnUiThread(() -> {
-                imgurLoadInFlight = false;
-                if (!preview.frame.isAttachedToWindow()) {
-                    lazyImgurPreviews.remove(preview);
-                    scheduleLazyImgurLoads();
-                    return;
-                }
-                preview.spinner.setVisibility(View.GONE);
-                Bitmap bitmap = loaded == null ? null : loaded.bitmap;
-                if (bitmap == null) {
-                    preview.error.setVisibility(View.VISIBLE);
-                    scheduleLazyImgurLoads();
-                    return;
-                }
+            Bitmap bitmap = loaded == null ? null : loaded.bitmap;
+            boolean sensitive = false;
+            Bitmap displayBitmap = bitmap;
+            if (bitmap != null) {
                 Boolean cachedSensitive = readCachedImageSensitive(preview.imageUrl);
-                boolean sensitive;
                 if (loaded.missing) {
                     sensitive = false;
                 } else if (cachedSensitive != null) {
@@ -3210,14 +3202,34 @@ public class MainActivity extends Activity {
                     sensitive = isGraphicViolenceImage(bitmap);
                     saveImageSensitive(preview.imageUrl, sensitive);
                 }
-                boolean shouldBlur = blurImgurImages() && sensitive;
-                preview.image.setImageBitmap(shouldBlur ? blurredBitmap(bitmap) : bitmap);
+                if (blurImgurImages() && sensitive) {
+                    displayBitmap = blurredBitmap(bitmap);
+                }
+            }
+            Bitmap finalBitmap = bitmap;
+            Bitmap finalDisplayBitmap = displayBitmap;
+            boolean finalSensitive = sensitive;
+            runOnUiThread(() -> {
+                imgurLoadInFlight = false;
+                if (!preview.frame.isAttachedToWindow()) {
+                    lazyImgurPreviews.remove(preview);
+                    scheduleLazyImgurLoads();
+                    return;
+                }
+                preview.spinner.setVisibility(View.GONE);
+                if (finalBitmap == null) {
+                    preview.error.setVisibility(View.VISIBLE);
+                    scheduleLazyImgurLoads();
+                    return;
+                }
+                boolean shouldBlur = blurImgurImages() && finalSensitive;
+                preview.image.setImageBitmap(finalDisplayBitmap);
                 preview.image.setVisibility(View.VISIBLE);
-                if (shouldBlur && sensitive) {
-                    positionRevealButton(preview.frame, preview.reveal, bitmap);
+                if (shouldBlur && finalSensitive) {
+                    positionRevealButton(preview.frame, preview.reveal, finalBitmap);
                     preview.reveal.setVisibility(View.VISIBLE);
                     preview.reveal.setOnClickListener(v -> {
-                        preview.image.setImageBitmap(bitmap);
+                        preview.image.setImageBitmap(finalBitmap);
                         preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
                         preview.reveal.setVisibility(View.GONE);
                     });
@@ -4508,12 +4520,15 @@ public class MainActivity extends Activity {
         }
         tab.threadScroll.post(() -> {
             if (tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
+                revealThreadAfterScrollRestore(tab, attempt);
                 return;
             }
             int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
             if (range <= 0) {
                 if (attempt < 10) {
                     tab.threadScroll.postDelayed(() -> restoreThreadScroll(tab, attempt + 1), 50);
+                } else {
+                    revealThreadAfterScrollRestore(tab, attempt);
                 }
                 return;
             }
@@ -4526,7 +4541,21 @@ public class MainActivity extends Activity {
             } else {
                 scrollToUnreadBoundary(tab);
             }
+            revealThreadAfterScrollRestore(tab, attempt);
         });
+    }
+
+    private boolean shouldRestoreThreadScroll(CuspTab tab) {
+        return tab != null
+                && tab.hasSavedThreadScroll
+                && threadUrl(tab).equals(tab.threadScrollUrl);
+    }
+
+    private void revealThreadAfterScrollRestore(CuspTab tab, int attempt) {
+        if (tab == null || tab.readerView == null) {
+            return;
+        }
+        tab.readerView.setVisibility(View.VISIBLE);
     }
 
     private String threadUrl(CuspTab tab) {
