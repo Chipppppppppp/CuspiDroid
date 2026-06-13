@@ -1547,6 +1547,18 @@ public class MainActivity extends Activity {
         tab.url = loadUrl;
         tab.title = hostTitle(loadUrl);
         tab.searchPage = null;
+        if (showFullLoading || tab.readerView == null) {
+            tab.readerView = loadingView("");
+            switchToTab(tabs.indexOf(tab));
+        }
+        progressBar.setVisibility(View.VISIBLE);
+        mainHandler.post(() -> loadThreadAfterLoading(tab, loadUrl, keepExistingScroll, showFullLoading));
+    }
+
+    private void loadThreadAfterLoading(CuspTab tab, String loadUrl, boolean keepExistingScroll, boolean showFullLoading) {
+        if (tab == null || !loadUrl.equals(tab.url)) {
+            return;
+        }
         ThreadPage cached = readCachedThreadPage(loadUrl);
         if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
             tab.title = cached.title;
@@ -1558,11 +1570,7 @@ public class MainActivity extends Activity {
                 switchToTab(tabs.indexOf(tab));
                 restoreThreadScroll(tab);
             }
-        } else if (showFullLoading || tab.readerView == null) {
-            tab.readerView = loadingView("");
-            switchToTab(tabs.indexOf(tab));
         }
-        progressBar.setVisibility(View.VISIBLE);
 
         ioExecutor.execute(() -> {
             ThreadPage page;
