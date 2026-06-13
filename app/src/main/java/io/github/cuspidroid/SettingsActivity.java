@@ -30,6 +30,7 @@ public class SettingsActivity extends Activity {
 
     private SharedPreferences preferences;
     private CheckBox open5chInNewTab;
+    private CheckBox externalLinkInApp;
     private CheckBox blurImgurImages;
     private CheckBox addressBarTop;
     private CheckBox treeView;
@@ -75,6 +76,12 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setTextColor(TEXT);
         open5chInNewTab.setTextSize(16);
         root.addView(open5chInNewTab);
+
+        externalLinkInApp = new CheckBox(this);
+        externalLinkInApp.setText(MainActivity.text("\u5916\u90e8\u30ea\u30f3\u30af\u3092\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u3067\u958b\u304f", "Open external links in the in-app browser"));
+        externalLinkInApp.setTextColor(TEXT);
+        externalLinkInApp.setTextSize(16);
+        root.addView(externalLinkInApp);
 
         blurImgurImages = new CheckBox(this);
         blurImgurImages.setText(MainActivity.text("imgur\u306e\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic imgur images"));
@@ -183,6 +190,7 @@ public class SettingsActivity extends Activity {
 
     private void loadSettings() {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
+        externalLinkInApp.setChecked(preferences.getBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
         addressBarTop.setChecked(preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false));
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, false));
@@ -200,6 +208,7 @@ public class SettingsActivity extends Activity {
 
     private void setupAutoSave() {
         open5chInNewTab.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        externalLinkInApp.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -256,6 +265,7 @@ public class SettingsActivity extends Activity {
 
         preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
+                .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, externalLinkInApp.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())

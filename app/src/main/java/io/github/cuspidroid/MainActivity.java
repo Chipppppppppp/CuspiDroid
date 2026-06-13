@@ -12,6 +12,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -20,6 +21,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.graphics.Rect;
 import android.text.Html;
+import android.text.Layout;
 import android.text.TextUtils;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
@@ -104,6 +106,7 @@ public class MainActivity extends Activity {
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TREE_VIEW = "tree_view";
+    static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
     static final String PREF_BBS_LINKS = "bbs_links";
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_NG_RULES = "ng_rules";
@@ -3187,6 +3190,8 @@ public class MainActivity extends Activity {
         text.setLineSpacing(0, 1.15f);
         text.setTextIsSelectable(false);
         text.setMovementMethod(LinkMovementMethod.getInstance());
+        installLinkTouchTracking(text);
+        text.setOnLongClickListener(v -> showLinkCopyPopupIfAny(text));
         return text;
     }
 
@@ -3204,6 +3209,9 @@ public class MainActivity extends Activity {
         TextView bodyText = postText(value, page, highlight);
         if (longClickAction != null) {
             bodyText.setOnLongClickListener(v -> {
+                if (showLinkCopyPopupIfAny(bodyText)) {
+                    return true;
+                }
                 longClickAction.run();
                 return true;
             });
@@ -3257,10 +3265,14 @@ public class MainActivity extends Activity {
         body.setMinHeight(0);
         body.setMinimumHeight(0);
         body.setOnLongClickListener(v -> {
+            if (showLinkCopyPopupIfAny(body)) {
+                return true;
+            }
             longClick.run();
             return true;
         });
         body.setMovementMethod(LinkMovementMethod.getInstance());
+        installLinkTouchTracking(body);
         body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitAaTextSize(body));
         body.post(() -> fitAaTextSize(body));
         return body;
@@ -3981,6 +3993,80 @@ public class MainActivity extends Activity {
                 }
             }, start, end, flags);
         }
+    }
+
+    private void installLinkTouchTracking(TextView text) {
+        text.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                text.setTag(touchedUrl(text, event));
+            } else if (event.getAction() == MotionEvent.ACTION_CANCEL) {
+                text.setTag(null);
+            }
+            return false;
+        });
+    }
+
+    private String touchedUrl(TextView text, MotionEvent event) {
+        CharSequence value = text.getText();
+        if (!(value instanceof Spanned)) {
+            return null;
+        }
+        Layout layout = text.getLayout();
+        if (layout == null) {
+            return null;
+        }
+        int x = (int) event.getX() - text.getTotalPaddingLeft() + text.getScrollX();
+        int y = (int) event.getY() - text.getTotalPaddingTop() + text.getScrollY();
+        if (y < 0 || y > layout.getHeight()) {
+            return null;
+        }
+        int line = layout.getLineForVertical(y);
+        int offset = layout.getOffsetForHorizontal(line, x);
+        Spanned spanned = (Spanned) value;
+        URLSpan[] spans = spanned.getSpans(offset, offset, URLSpan.class);
+        for (URLSpan span : spans) {
+            if (spanned.getSpanStart(span) <= offset && spanned.getSpanEnd(span) > offset) {
+                return normalizeUrl(span.getURL());
+            }
+        }
+        return null;
+    }
+
+    private boolean showLinkCopyPopupIfAny(TextView anchor) {
+        Object tag = anchor.getTag();
+        if (!(tag instanceof String) || ((String) tag).isEmpty()) {
+            return false;
+        }
+        showLinkCopyPopup(anchor, (String) tag);
+        return true;
+    }
+
+    private void showLinkCopyPopup(View anchor, String url) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.HORIZONTAL);
+        menu.setPadding(dp(8), dp(8), dp(8), dp(8));
+        menu.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(10)));
+
+        Button copy = new Button(this);
+        copy.setText(text("\u30b3\u30d4\u30fc", "Copy"));
+        copy.setAllCaps(false);
+        copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
+        copy.setCompoundDrawablePadding(dp(6));
+        menu.addView(copy, new LinearLayout.LayoutParams(dp(136), dp(44)));
+
+        PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        copy.setOnClickListener(v -> {
+            ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (manager != null) {
+                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid link", url));
+                Toast.makeText(this, text("\u30ea\u30f3\u30af\u3092\u30b3\u30d4\u30fc", "Link copied."), Toast.LENGTH_SHORT).show();
+            }
+            popup.dismiss();
+        });
+        popup.showAsDropDown(anchor, dp(8), -dp(4));
     }
 
     private void replaceReplySpans(SpannableString text, ThreadPage page) {
@@ -4906,7 +4992,17 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_TREE_VIEW, false);
     }
 
+    private boolean externalLinksInApp() {
+        return preferences.getBoolean(PREF_EXTERNAL_LINK_IN_APP, false);
+    }
+
     private void openExternal(String url) {
+        if (externalLinksInApp()) {
+            Intent intent = new Intent(this, AuthActivity.class);
+            intent.putExtra(AuthActivity.EXTRA_URL, url);
+            startActivity(intent);
+            return;
+        }
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
