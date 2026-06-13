@@ -1,6 +1,7 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -59,9 +60,16 @@ public class HistoryActivity extends Activity {
 
         ImageButton clear = iconButton(R.drawable.ic_delete, MainActivity.text("\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear history"));
         clear.setOnClickListener(v -> {
-            MainActivity.clearThreadHistory(preferences);
-            renderHistory();
-            Toast.makeText(this, MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u524a\u9664", "Thread history cleared."), Toast.LENGTH_SHORT).show();
+            new AlertDialog.Builder(this)
+                    .setTitle(MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear thread history"))
+                    .setMessage(MainActivity.text("\u3059\u3079\u3066\u306e\u30b9\u30ec\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Clear all thread history?"))
+                    .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                    .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (dialog, which) -> {
+                        MainActivity.clearThreadHistory(preferences);
+                        renderHistory();
+                        Toast.makeText(this, MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u524a\u9664", "Thread history cleared."), Toast.LENGTH_SHORT).show();
+                    })
+                    .show();
         });
         topBar.addView(clear, new LinearLayout.LayoutParams(dp(46), dp(44)));
         root.addView(topBar, new FrameLayout.LayoutParams(

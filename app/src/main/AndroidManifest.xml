@@ -16,6 +16,12 @@
             android:name=".SettingsActivity"
             android:exported="false" />
         <activity
+            android:name=".NgRulesActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ReadPostsActivity"
+            android:exported="false" />
+        <activity
             android:name=".HistoryActivity"
             android:exported="false" />
         <activity
