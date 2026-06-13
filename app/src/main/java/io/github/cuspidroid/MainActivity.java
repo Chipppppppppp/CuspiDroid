@@ -344,6 +344,26 @@ public class MainActivity extends Activity {
         threadSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         threadSearchInput.setBackground(addressBarBackground());
         threadSearchInput.setPadding(dp(12), 0, dp(12), 0);
+        threadSearchInput.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == KeyEvent.ACTION_UP;
+            boolean enterDown = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == KeyEvent.ACTION_DOWN;
+            if (actionId == EditorInfo.IME_ACTION_SEARCH
+                    || actionId == EditorInfo.IME_ACTION_DONE
+                    || enter) {
+                CuspTab tab = currentTab();
+                if (tab != null && !tab.threadSearchMatches.isEmpty()) {
+                    moveThreadSearch(1);
+                } else {
+                    scheduleThreadSearch(threadSearchInput.getText().toString(), true);
+                }
+                threadSearchInput.requestFocus();
+                threadSearchInput.setSelection(threadSearchInput.getText().length());
+                return true;
+            }
+            return enterDown;
+        });
         threadSearchInput.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -2282,11 +2302,12 @@ public class MainActivity extends Activity {
         metaRow.setOrientation(LinearLayout.HORIZONTAL);
         metaRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView meta = new TextView(this);
-        meta.setText(">>" + post.number + "  " + post.name + "  " + post.date);
+        meta.setText(postHeaderText(post));
         meta.setTextColor(Color.rgb(79, 91, 103));
         meta.setTextSize(12);
+        meta.setTextIsSelectable(true);
         metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        ImageButton copy = iconButton(R.drawable.ic_copy, text("\u5168\u4f53\u3092\u30b3\u30d4\u30fc", "Copy all"), v -> copyPostBody(post));
+        ImageButton copy = iconButton(R.drawable.ic_copy, text("\u5168\u4f53\u3092\u30b3\u30d4\u30fc", "Copy all"), v -> copyPost(post));
         copy.setColorFilter(TEAL);
         copy.setBackgroundColor(Color.TRANSPARENT);
         metaRow.addView(copy, new LinearLayout.LayoutParams(dp(36), dp(34)));
@@ -2329,10 +2350,18 @@ public class MainActivity extends Activity {
         return dp(20 + Math.min(lines, 12) * 22);
     }
 
-    private void copyPostBody(Post post) {
+    private String postHeaderText(Post post) {
+        return post.number + "  " + post.name + "  " + post.date;
+    }
+
+    private String postCopyText(Post post) {
+        return postHeaderText(post) + "\n" + (post.body == null ? "" : post.body);
+    }
+
+    private void copyPost(Post post) {
         ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (manager != null) {
-            manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid post", post.body));
+            manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid post", postCopyText(post)));
             Toast.makeText(this, text("\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Copied."), Toast.LENGTH_SHORT).show();
         }
     }
@@ -2367,7 +2396,7 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(8), dp(18), 0);
         TextView body = new TextView(this);
-        body.setText(post.body);
+        body.setText(postCopyText(post));
         body.setTextColor(TEXT);
         body.setTextSize(15);
         body.setTextIsSelectable(true);
@@ -2390,7 +2419,7 @@ public class MainActivity extends Activity {
         copyAll.setOnClickListener(v -> {
             ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (manager != null) {
-                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid post", post.body));
+                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid post", postCopyText(post)));
                 Toast.makeText(this, text("\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Copied."), Toast.LENGTH_SHORT).show();
             }
         });
@@ -4910,12 +4939,22 @@ public class MainActivity extends Activity {
         }
         tab.threadSearchOpen = true;
         updateThreadSearchBar(tab);
+        focusThreadSearchInput();
+    }
+
+    private void focusThreadSearchInput() {
+        if (threadSearchInput == null) {
+            return;
+        }
         threadSearchInput.requestFocus();
         threadSearchInput.selectAll();
-        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.showSoftInput(threadSearchInput, InputMethodManager.SHOW_IMPLICIT);
-        }
+        mainHandler.postDelayed(() -> {
+            threadSearchInput.requestFocus();
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(threadSearchInput, InputMethodManager.SHOW_FORCED);
+            }
+        }, 80);
     }
 
     private void scheduleThreadSearch(String query, boolean resetIndex) {
