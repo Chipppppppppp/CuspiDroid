@@ -2575,7 +2575,7 @@ public class MainActivity extends Activity {
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(Color.rgb(250, 251, 252), selected ? TEAL : Color.rgb(226, 232, 240), dp(8)));
-        row.setOnClickListener(v -> switchToTab(index));
+        row.setOnClickListener(v -> selectTabFromOverview(index));
 
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
@@ -2632,6 +2632,20 @@ public class MainActivity extends Activity {
         rowParams.setMargins(0, 0, 0, dp(8));
         row.setLayoutParams(rowParams);
         return row;
+    }
+
+    private void selectTabFromOverview(int index) {
+        if (index < 0 || index >= tabs.size()) {
+            return;
+        }
+        tabOverviewVisible = false;
+        pendingNewTab = false;
+        pendingHistoryAll = false;
+        contentFrame.removeAllViews();
+        contentFrame.addView(loadingView(""));
+        updateBottomThreadBar(tabs.get(index));
+        renderTabs();
+        mainHandler.post(() -> switchToTab(index));
     }
 
     private void closeTabFromOverview(int index) {
@@ -3458,6 +3472,8 @@ public class MainActivity extends Activity {
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(popupScrollable);
         popupScroll.setOverScrollMode(popupScrollable ? View.OVER_SCROLL_IF_CONTENT_SCROLLS : View.OVER_SCROLL_NEVER);
+        popupScroll.setOnTouchListener((v, event) -> !popupScrollable
+                && event.getActionMasked() == MotionEvent.ACTION_MOVE);
         int y = Math.max(minPopupY, anchorLocation[1] - popupHeight + popupOverlap);
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(false);
