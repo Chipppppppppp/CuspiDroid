@@ -171,7 +171,12 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         buildLayout();
+        contentFrame.addView(loadingView(""));
 
+        contentFrame.postDelayed(this::openInitialContent, 32);
+    }
+
+    private void openInitialContent() {
         String launchUrl = null;
         Intent intent = getIntent();
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
