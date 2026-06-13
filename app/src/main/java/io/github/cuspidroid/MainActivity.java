@@ -3464,10 +3464,11 @@ public class MainActivity extends Activity {
         int minPopupY = jumpEachPost ? 0 : dp(8);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap - minPopupY);
         int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - minPopupY, availableAbove);
+        int measuredContentWidth = width - dp(16) - (jumpEachPost ? dp(30) : 0);
         popupPosts.measure(
-                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(Math.max(dp(120), measuredContentWidth), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int desiredHeight = popupPosts.getMeasuredHeight() + (jumpEachPost ? dp(32) : dp(18));
+        int desiredHeight = popupPosts.getMeasuredHeight() + (jumpEachPost ? dp(48) : dp(18));
         boolean popupScrollable = desiredHeight > maxHeight;
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(popupScrollable);
