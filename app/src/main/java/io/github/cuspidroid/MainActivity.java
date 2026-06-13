@@ -749,26 +749,46 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout menuNavigationRow(PopupWindow popup) {
+        CuspTab tab = currentTab();
+        boolean canBack = canGoBackInCurrentTab(tab) || tabs.size() > 1 || pendingNewTab;
+        boolean canForward = canGoForwardInCurrentTab(tab);
+        boolean canShareOrReload = tab != null
+                && tab.url != null
+                && !tab.url.trim().isEmpty()
+                && !NATIVE_SEARCH_HOME.equals(tab.nativeKind);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        row.addView(menuIconButton(R.drawable.ic_arrow_back, text("\u623b\u308b", "Back"), v -> {
+        ImageButton back = menuIconButton(R.drawable.ic_arrow_back, text("\u623b\u308b", "Back"), v -> {
             popup.dismiss();
             onBackPressed();
-        }));
-        row.addView(menuIconButton(R.drawable.ic_arrow_forward, text("\u9032\u3080", "Forward"), v -> {
+        });
+        setMenuButtonEnabled(back, canBack);
+        row.addView(back);
+        ImageButton forward = menuIconButton(R.drawable.ic_arrow_forward, text("\u9032\u3080", "Forward"), v -> {
             popup.dismiss();
             goForward();
-        }));
-        row.addView(menuIconButton(R.drawable.ic_share, text("\u5171\u6709", "Share"), v -> {
+        });
+        setMenuButtonEnabled(forward, canForward);
+        row.addView(forward);
+        ImageButton share = menuIconButton(R.drawable.ic_share, text("\u5171\u6709", "Share"), v -> {
             popup.dismiss();
             shareCurrentThread();
-        }));
-        row.addView(menuIconButton(R.drawable.ic_refresh, text("\u66f4\u65b0", "Reload"), v -> {
+        });
+        setMenuButtonEnabled(share, canShareOrReload);
+        row.addView(share);
+        ImageButton reload = menuIconButton(R.drawable.ic_refresh, text("\u66f4\u65b0", "Reload"), v -> {
             popup.dismiss();
             reloadFromMenu();
-        }));
+        });
+        setMenuButtonEnabled(reload, canShareOrReload);
+        row.addView(reload);
         return row;
+    }
+
+    private void setMenuButtonEnabled(ImageButton button, boolean enabled) {
+        button.setEnabled(enabled);
+        button.setAlpha(enabled ? 1f : 0.32f);
     }
 
     private void showMenuWithinScreen(PopupWindow popup, View menu, View anchor) {
@@ -4946,7 +4966,7 @@ public class MainActivity extends Activity {
 
     private void goForward() {
         CuspTab tab = currentTab();
-        if (tab == null || tab.navigationIndex < 0 || tab.navigationIndex >= tab.navigationHistory.size() - 1) {
+        if (!canGoForwardInCurrentTab(tab)) {
             clearAddressFocus();
             return;
         }
@@ -4972,6 +4992,12 @@ public class MainActivity extends Activity {
     private boolean canGoBackInCurrentTab(CuspTab tab) {
         return tab != null
                 && (tab.navigationIndex > 0 || tab.backToNewTab || tab.returnToIndex >= 0);
+    }
+
+    private boolean canGoForwardInCurrentTab(CuspTab tab) {
+        return tab != null
+                && tab.navigationIndex >= 0
+                && tab.navigationIndex < tab.navigationHistory.size() - 1;
     }
 
     private void reload() {
