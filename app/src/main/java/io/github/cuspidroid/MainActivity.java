@@ -155,6 +155,7 @@ public class MainActivity extends Activity {
     private boolean updatingThreadSearchInput;
     private Runnable threadSearchTask;
     private Runnable threadSearchHighlightTask;
+    private Runnable saveTabsTask;
     private View imageOverlay;
     private View highlightedPostView;
     private Interpreter graphicViolenceInterpreter;
@@ -188,6 +189,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        if (saveTabsTask != null) {
+            mainHandler.removeCallbacks(saveTabsTask);
+            saveTabsTask = null;
+        }
         saveTabs();
         super.onPause();
     }
@@ -211,6 +216,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (saveTabsTask != null) {
+            mainHandler.removeCallbacks(saveTabsTask);
+            saveTabsTask = null;
+        }
         closeImageClassifiers();
         ioExecutor.shutdownNow();
         super.onDestroy();
@@ -1122,9 +1131,20 @@ public class MainActivity extends Activity {
             JSONObject root = new JSONObject();
             root.put("current", Math.max(0, currentIndex));
             root.put("tabs", array);
-            preferences.edit().putString(PREF_TABS, root.toString()).apply();
+            preferences.edit().putString(PREF_TABS, root.toString()).commit();
         } catch (Exception ignored) {
         }
+    }
+
+    private void requestSaveTabsSoon() {
+        if (saveTabsTask != null) {
+            return;
+        }
+        saveTabsTask = () -> {
+            saveTabsTask = null;
+            saveTabs();
+        };
+        mainHandler.postDelayed(saveTabsTask, 500);
     }
 
     private JSONObject threadPageToJson(ThreadPage page) throws Exception {
@@ -2247,6 +2267,10 @@ public class MainActivity extends Activity {
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
             updateThumb.run();
+            if (tab != null && scrollY != oldScrollY) {
+                rememberThreadScroll(tab);
+                requestSaveTabsSoon();
+            }
             scheduleLazyImgurLoads();
         });
         scrubber.post(() -> {
