@@ -153,6 +153,7 @@ public class MainActivity extends Activity {
     private ThreadPage visibleThreadPage;
     private ScrollView visibleThreadScroll;
     private final Map<Integer, View> visiblePostViews = new LinkedHashMap<>();
+    private final Set<View> suppressNextLinkClick = new LinkedHashSet<>();
     private final List<PopupWindow> replyPopups = new ArrayList<>();
     private int currentIndex = -1;
     private boolean pendingNewTab;
@@ -3996,6 +3997,9 @@ public class MainActivity extends Activity {
             text.setSpan(new URLSpan(normalizeUrl(url)) {
                 @Override
                 public void onClick(View widget) {
+                    if (suppressNextLinkClick.remove(widget)) {
+                        return;
+                    }
                     routeLink(getURL(), currentTab());
                 }
             }, start, end, flags);
@@ -4044,6 +4048,8 @@ public class MainActivity extends Activity {
         if (!(tag instanceof String) || ((String) tag).isEmpty()) {
             return false;
         }
+        suppressNextLinkClick.add(anchor);
+        mainHandler.postDelayed(() -> suppressNextLinkClick.remove(anchor), 800);
         showLinkCopyPopup(anchor, (String) tag);
         return true;
     }
@@ -4474,6 +4480,9 @@ public class MainActivity extends Activity {
             text.setSpan(new URLSpan(normalizeUrl(raw)) {
                 @Override
                 public void onClick(View widget) {
+                    if (suppressNextLinkClick.remove(widget)) {
+                        return;
+                    }
                     routeLink(getURL(), currentTab());
                 }
             }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
