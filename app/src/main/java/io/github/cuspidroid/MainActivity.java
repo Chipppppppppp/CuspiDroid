@@ -18,7 +18,10 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Typeface;
+import android.graphics.ImageDecoder;
+import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -152,6 +155,7 @@ public class MainActivity extends Activity {
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
     private static final int INITIAL_THREAD_RENDER_BATCH = 36;
     private static final int THREAD_RENDER_BATCH = 18;
+    private static final int MEDIA_GRID_CELL_DP = 108;
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -4957,10 +4961,9 @@ public class MainActivity extends Activity {
         GridLayout grid = new GridLayout(this);
         int count = mediaLinks.size();
         int available = Math.max(dp(96), getResources().getDisplayMetrics().widthPixels - dp(56));
-        int minCell = dp(96);
         int gap = dp(6);
-        int columns = Math.max(1, Math.min(count, Math.max(1, (available + gap) / (minCell + gap))));
-        int cellSize = Math.max(dp(72), (available - gap * Math.max(0, columns - 1)) / columns);
+        int cellSize = dp(MEDIA_GRID_CELL_DP);
+        int columns = Math.max(1, Math.min(count, Math.max(1, (available + gap) / (cellSize + gap))));
         grid.setColumnCount(columns);
         grid.setPadding(0, dp(6), 0, dp(2));
         for (int i = 0; i < count; i++) {
@@ -5502,6 +5505,7 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             ImageLoadResult loaded = downloadBitmap(preview.imageUrl, getResources().getDisplayMetrics().widthPixels, dp(176));
             Bitmap bitmap = loaded == null ? null : loaded.bitmap;
+            Drawable drawable = loaded == null ? null : loaded.drawable;
             boolean sensitive = false;
             Bitmap displayBitmap = bitmap;
             if (bitmap != null) {
@@ -5519,6 +5523,7 @@ public class MainActivity extends Activity {
                 }
             }
             Bitmap finalBitmap = bitmap;
+            Drawable finalDrawable = drawable;
             Bitmap finalDisplayBitmap = displayBitmap;
             boolean finalSensitive = sensitive;
             runOnUiThread(() -> {
@@ -5529,15 +5534,22 @@ public class MainActivity extends Activity {
                     return;
                 }
                 preview.spinner.setVisibility(View.GONE);
-                if (finalBitmap == null) {
+                if (finalBitmap == null && finalDrawable == null) {
                     preview.error.setVisibility(View.VISIBLE);
                     scheduleLazyImgurLoads();
                     return;
                 }
                 boolean shouldBlur = blurImgurImages() && finalSensitive;
-                preview.image.setImageBitmap(finalDisplayBitmap);
+                if (finalDrawable != null) {
+                    preview.image.setImageDrawable(finalDrawable);
+                    startAnimatedDrawable(finalDrawable);
+                } else {
+                    preview.image.setImageBitmap(finalDisplayBitmap);
+                }
                 preview.image.setVisibility(View.VISIBLE);
-                if (shouldBlur && finalSensitive) {
+                if (finalDrawable != null) {
+                    preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
+                } else if (shouldBlur && finalSensitive) {
                     positionRevealButton(preview.frame, preview.reveal, finalBitmap);
                     preview.reveal.setVisibility(View.VISIBLE);
                     preview.reveal.setOnClickListener(v -> {
@@ -5607,12 +5619,18 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 spinner.setVisibility(View.GONE);
                 Bitmap bitmap = loaded == null ? null : loaded.bitmap;
-                if (bitmap == null) {
+                Drawable drawable = loaded == null ? null : loaded.drawable;
+                if (bitmap == null && drawable == null) {
                     Toast.makeText(this, "Image failed to load.", Toast.LENGTH_SHORT).show();
                     closeImageViewer();
                     return;
                 }
-                image.setImageBitmap(bitmap);
+                if (drawable != null) {
+                    image.setImageDrawable(drawable);
+                    startAnimatedDrawable(drawable);
+                } else {
+                    image.setImageBitmap(bitmap);
+                }
             });
         });
     }
@@ -5949,6 +5967,10 @@ public class MainActivity extends Activity {
                     return missing == null ? null : new ImageLoadResult(missing, true);
                 }
                 cacheImageBytes(url, bytes);
+                Drawable drawable = decodeAnimatedDrawableIfPossible(url, bytes);
+                if (drawable != null) {
+                    return new ImageLoadResult(drawable, false);
+                }
                 Bitmap bitmap = decodeBitmap(bytes, maxWidth, maxHeight);
                 return bitmap == null ? null : new ImageLoadResult(bitmap, false);
             }
@@ -5969,7 +5991,12 @@ public class MainActivity extends Activity {
             }
             File file = imageCacheFile(url);
             if (file.exists() && file.length() > 0) {
-                Bitmap bitmap = decodeBitmap(readFileBytes(file), maxWidth, maxHeight);
+                byte[] bytes = readFileBytes(file);
+                Drawable drawable = decodeAnimatedDrawableIfPossible(url, bytes);
+                if (drawable != null) {
+                    return new ImageLoadResult(drawable, false);
+                }
+                Bitmap bitmap = decodeBitmap(bytes, maxWidth, maxHeight);
                 return bitmap == null ? null : new ImageLoadResult(bitmap, false);
             }
         } catch (Exception ignored) {
@@ -5984,6 +6011,27 @@ public class MainActivity extends Activity {
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, maxWidth, maxHeight);
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+    }
+
+    private Drawable decodeAnimatedDrawableIfPossible(String url, byte[] bytes) {
+        if (!isGifUrl(url) || bytes == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return null;
+        }
+        try {
+            Drawable drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
+            if (drawable instanceof AnimatedImageDrawable) {
+                ((AnimatedImageDrawable) drawable).setRepeatCount(AnimatedImageDrawable.REPEAT_INFINITE);
+            }
+            return drawable;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void startAnimatedDrawable(Drawable drawable) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && drawable instanceof AnimatedImageDrawable) {
+            ((AnimatedImageDrawable) drawable).start();
+        }
     }
 
     private boolean isImgurMissingResponse(HttpURLConnection connection, String contentType) {
@@ -6499,6 +6547,11 @@ public class MainActivity extends Activity {
     private boolean isVideoUrl(String url) {
         String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
         return lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov") || lower.endsWith(".m4v");
+    }
+
+    private boolean isGifUrl(String url) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".gif");
     }
 
     private void installLinkTouchTracking(TextView text) {
@@ -10852,10 +10905,18 @@ public class MainActivity extends Activity {
 
     private static class ImageLoadResult {
         final Bitmap bitmap;
+        final Drawable drawable;
         final boolean missing;
 
         ImageLoadResult(Bitmap bitmap, boolean missing) {
             this.bitmap = bitmap;
+            this.drawable = null;
+            this.missing = missing;
+        }
+
+        ImageLoadResult(Drawable drawable, boolean missing) {
+            this.bitmap = null;
+            this.drawable = drawable;
             this.missing = missing;
         }
     }
