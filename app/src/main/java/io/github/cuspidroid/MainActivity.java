@@ -1815,6 +1815,10 @@ public class MainActivity extends Activity {
     }
 
     private void openInCurrentTab(String url, boolean addHistory) {
+        if (pendingNewTab) {
+            openPendingNewTabUrl(url);
+            return;
+        }
         CuspTab tab = currentTab();
         if (tab == null) {
             createTab(url, true);
@@ -1874,6 +1878,13 @@ public class MainActivity extends Activity {
         tab.navigationHistory.add(url);
         tab.navigationIndex = tab.navigationHistory.size() - 1;
         requestSaveTabsSoon();
+    }
+
+    private void openPendingNewTabUrl(String url) {
+        boolean privateBrowsing = pendingPrivateNewTab;
+        pendingNewTab = false;
+        pendingPrivateNewTab = false;
+        createTab(url, true, -1, true, privateBrowsing);
     }
 
     private void loadThread(CuspTab tab, String url) {
@@ -3623,7 +3634,7 @@ public class MainActivity extends Activity {
         list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
         list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         addHistorySection(list, fullHistory);
-        return withScrollScrubber(scroll);
+        return scroll;
     }
 
     private void showFiveChBoardsView() {
@@ -4497,8 +4508,7 @@ public class MainActivity extends Activity {
 
     private void openBoardUrl(String url) {
         if (pendingNewTab) {
-            pendingNewTab = false;
-            createTab(url, true, -1, true);
+            openPendingNewTabUrl(url);
         } else {
             openInCurrentTab(url);
         }
