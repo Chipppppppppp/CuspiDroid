@@ -203,6 +203,7 @@ public class MainActivity extends Activity {
     private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private boolean imgurLoadInFlight;
+    private Runnable lazyImgurTask;
     private String appliedThemeMode;
 
     private int bgColor() {
@@ -1584,6 +1585,14 @@ public class MainActivity extends Activity {
     }
 
     private void cacheThreadPage(ThreadPage page) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            ioExecutor.execute(() -> writeThreadPageCache(page));
+        } else {
+            writeThreadPageCache(page);
+        }
+    }
+
+    private void writeThreadPageCache(ThreadPage page) {
         if (page == null || page.url == null || page.url.isEmpty() || page.error != null || page.posts.isEmpty()) {
             return;
         }
@@ -1962,6 +1971,21 @@ public class MainActivity extends Activity {
                     }
                     return;
                 }
+                if (cached != null && cached.error == null && result.error == null
+                        && sameRenderedThread(cached, result)
+                        && tab.readerView != null && tab.threadPage == cached) {
+                    tab.title = result.title;
+                    tab.threadPage = cached;
+                    tab.readPostNumber = readPostNumberForTab(tab, result.url);
+                    cacheThreadPage(result);
+                    addThreadHistory(tab, result.url, result.title);
+                    progressBar.setVisibility(View.GONE);
+                    if (tab == currentTab()) {
+                        restoreThreadScroll(tab);
+                    }
+                    renderTabs();
+                    return;
+                }
                 tab.title = result.title;
                 tab.threadPage = result;
                 tab.readPostNumber = readPostNumberForTab(tab, result.url);
@@ -1983,6 +2007,24 @@ public class MainActivity extends Activity {
                 renderTabs();
             });
         });
+    }
+
+    private boolean sameRenderedThread(ThreadPage a, ThreadPage b) {
+        if (a == null || b == null || a.posts.size() != b.posts.size()) {
+            return false;
+        }
+        if (!TextUtils.equals(a.title, b.title)) {
+            return false;
+        }
+        if (a.posts.isEmpty()) {
+            return true;
+        }
+        Post lastA = a.posts.get(a.posts.size() - 1);
+        Post lastB = b.posts.get(b.posts.size() - 1);
+        return lastA.number == lastB.number
+                && TextUtils.equals(lastA.body, lastB.body)
+                && TextUtils.equals(lastA.date, lastB.date)
+                && TextUtils.equals(lastA.id(), lastB.id());
     }
 
     private void refreshThreadFromBottom(CuspTab tab) {
@@ -2471,19 +2513,20 @@ public class MainActivity extends Activity {
         if (tab.threadRenderGeneration != generation || tab.threadList != list) {
             return;
         }
-        long deadline = android.os.SystemClock.uptimeMillis() + 10;
+        long deadline = android.os.SystemClock.uptimeMillis() + 6;
         int i = start;
         int rendered = 0;
-        while (i < items.size() && (rendered < 18
-                || android.os.SystemClock.uptimeMillis() < deadline)) {
+        while (i < items.size()
+                && rendered < 8
+                && android.os.SystemClock.uptimeMillis() < deadline) {
             PostRenderItem item = items.get(i);
-        addPostCard(list, page, tab, item, list.getChildCount());
+            addPostCard(list, page, tab, item, list.getChildCount());
             i++;
             rendered++;
         }
         if (i < items.size()) {
             int next = i;
-            mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete), 8);
+            mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete), 16);
         } else {
             scheduleLazyImgurLoads();
             if (tab == currentTab()) {
@@ -4807,6 +4850,17 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleLazyImgurLoads() {
+        if (imgurLoadInFlight || lazyImgurTask != null) {
+            return;
+        }
+        lazyImgurTask = () -> {
+            lazyImgurTask = null;
+            runLazyImgurLoads();
+        };
+        mainHandler.postDelayed(lazyImgurTask, 90);
+    }
+
+    private void runLazyImgurLoads() {
         if (imgurLoadInFlight) {
             return;
         }
