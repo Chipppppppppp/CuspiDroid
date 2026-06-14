@@ -1,11 +1,17 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.CompoundButton;
+import android.widget.TextView;
 
 final class Theme {
     static final String MODE_SYSTEM = "system";
@@ -86,6 +92,62 @@ final class Theme {
 
     static int linkHighlight(Context context) {
         return dark(context) ? Color.rgb(23, 37, 84) : Color.rgb(219, 234, 254);
+    }
+
+    static int accent(Context context) {
+        return dark(context) ? Color.rgb(20, 184, 166) : Color.rgb(15, 118, 110);
+    }
+
+    static void tintCompoundButton(Context context, CompoundButton button) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || button == null) {
+            return;
+        }
+        int[][] states = new int[][]{
+                new int[]{android.R.attr.state_checked},
+                new int[]{-android.R.attr.state_checked}
+        };
+        int[] colors = new int[]{
+                accent(context),
+                dark(context) ? Color.rgb(148, 163, 184) : Color.rgb(100, 116, 139)
+        };
+        button.setButtonTintList(new ColorStateList(states, colors));
+    }
+
+    static void styleDialog(Dialog dialog, Context context) {
+        if (dialog == null) {
+            return;
+        }
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(surface(context)));
+        }
+        int accent = accent(context);
+        View decor = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
+        tintDialogText(decor, text(context));
+        if (dialog instanceof android.app.AlertDialog) {
+            android.app.AlertDialog alert = (android.app.AlertDialog) dialog;
+            if (alert.getButton(android.app.AlertDialog.BUTTON_POSITIVE) != null) {
+                alert.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setTextColor(accent);
+            }
+            if (alert.getButton(android.app.AlertDialog.BUTTON_NEGATIVE) != null) {
+                alert.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(accent);
+            }
+            if (alert.getButton(android.app.AlertDialog.BUTTON_NEUTRAL) != null) {
+                alert.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setTextColor(accent);
+            }
+        }
+    }
+
+    private static void tintDialogText(View view, int color) {
+        if (view instanceof TextView) {
+            ((TextView) view).setTextColor(color);
+        }
+        if (!(view instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            tintDialogText(group.getChildAt(i), color);
+        }
     }
 
     static void applySystemBars(Activity activity) {

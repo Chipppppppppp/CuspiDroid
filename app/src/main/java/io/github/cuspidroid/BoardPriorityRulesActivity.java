@@ -133,13 +133,18 @@ public class BoardPriorityRulesActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(12), dp(4), dp(12), 0);
+        content.setBackgroundColor(surfaceColor());
 
         RadioGroup group = new RadioGroup(this);
         group.setOrientation(RadioGroup.HORIZONTAL);
         RadioButton textType = new RadioButton(this);
         textType.setText(MainActivity.text("\u6587\u5b57\u5217", "Text"));
+        textType.setTextColor(textColor());
+        Theme.tintCompoundButton(this, textType);
         RadioButton regexType = new RadioButton(this);
         regexType.setText(MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex"));
+        regexType.setTextColor(textColor());
+        Theme.tintCompoundButton(this, regexType);
         group.addView(textType);
         group.addView(regexType);
         content.addView(group);
@@ -148,6 +153,7 @@ public class BoardPriorityRulesActivity extends Activity {
         input.setSingleLine(true);
         input.setTextSize(15);
         input.setTextColor(textColor());
+        input.setHintTextColor(mutedColor());
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setBackground(fieldBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
@@ -174,7 +180,9 @@ public class BoardPriorityRulesActivity extends Activity {
                         ? MainActivity.text("\u8ffd\u52a0", "Add")
                         : MainActivity.text("\u66f4\u65b0", "Update"), null)
                 .create();
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String value = input.getText().toString().trim();
             if (value.isEmpty()) {
                 Toast.makeText(this, MainActivity.text("\u30ef\u30fc\u30c9\u3092\u5165\u529b", "Enter a word."), Toast.LENGTH_SHORT).show();
@@ -197,7 +205,8 @@ public class BoardPriorityRulesActivity extends Activity {
             saveRules();
             renderRules();
             dialog.dismiss();
-        }));
+            });
+        });
         dialog.show();
     }
 

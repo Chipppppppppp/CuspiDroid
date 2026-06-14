@@ -127,6 +127,7 @@ public class BbsLinksActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(12), dp(4), dp(12), 0);
+        content.setBackgroundColor(surfaceColor());
 
         EditText name = field(MainActivity.text("\u540d\u524d", "Name"));
         content.addView(name, new LinearLayout.LayoutParams(
@@ -157,7 +158,9 @@ public class BbsLinksActivity extends Activity {
                         ? MainActivity.text("\u8ffd\u52a0", "Add")
                         : MainActivity.text("\u66f4\u65b0", "Update"), null)
                 .create();
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String nameValue = name.getText().toString().trim();
             String urlValue = url.getText().toString().trim();
             if (nameValue.isEmpty() || urlValue.isEmpty()) {
@@ -170,7 +173,8 @@ public class BbsLinksActivity extends Activity {
             MainActivity.addBbsLink(preferences, nameValue, urlValue);
             renderLinks();
             dialog.dismiss();
-        }));
+            });
+        });
         dialog.show();
     }
 

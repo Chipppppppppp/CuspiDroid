@@ -120,6 +120,7 @@ public class MainActivity extends Activity {
     static final String PREF_NG_RULES = "ng_rules";
     static final String PREF_READ_POSTS = "read_posts";
     static final String PREF_AA_POSTS = "aa_posts";
+    static final String PREF_MY_POSTS = "my_posts";
     static final String PREF_IMGUR_META = "imgur_meta";
     static final String PREF_BOARD_FAVORITES = "board_favorites";
     static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
@@ -1158,6 +1159,20 @@ public class MainActivity extends Activity {
 
     private GradientDrawable postBackground(boolean unread) {
         return roundedFill(unread ? Theme.unread(this) : postColor(), dp(12));
+    }
+
+    private View myPostMarker() {
+        View marker = new View(this);
+        marker.setBackground(roundedFill(Theme.accent(this), dp(3)));
+        return marker;
+    }
+
+    private FrameLayout.LayoutParams myPostMarkerParams(int left, int top, int bottom) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(4),
+                ViewGroup.LayoutParams.MATCH_PARENT);
+        params.setMargins(left, top + dp(7), 0, bottom + dp(7));
+        params.gravity = Gravity.LEFT;
+        return params;
     }
 
     private GradientDrawable addressBarBackground() {
@@ -2365,6 +2380,9 @@ public class MainActivity extends Activity {
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         shell.addView(card, cardFrameParams);
+        if (isMyPost(page, post)) {
+            shell.addView(myPostMarker(), myPostMarkerParams(indentLeft, 0, dp(8)));
+        }
         list.addView(shell, Math.max(0, Math.min(index, list.getChildCount())),
                 new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -5640,6 +5658,9 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(cardInset, cardInset, cardInset, cardInset);
         shell.addView(card, cardParams);
+        if (isMyPost(page, post)) {
+            shell.addView(myPostMarker(), myPostMarkerParams(cardInset, cardInset, cardInset));
+        }
         return shell;
     }
 
@@ -5940,16 +5961,25 @@ public class MainActivity extends Activity {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(18), dp(8), dp(18), 0);
+        form.setBackgroundColor(surfaceColor());
 
         EditText name = new EditText(this);
         name.setSingleLine(true);
         name.setHint("Name");
+        name.setTextColor(textColor());
+        name.setHintTextColor(mutedColor());
+        name.setBackground(addressBarBackground());
+        name.setPadding(dp(12), 0, dp(12), 0);
         form.addView(name, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
 
         EditText mail = new EditText(this);
         mail.setSingleLine(true);
         mail.setHint("Mail");
+        mail.setTextColor(textColor());
+        mail.setHintTextColor(mutedColor());
+        mail.setBackground(addressBarBackground());
+        mail.setPadding(dp(12), 0, dp(12), 0);
         form.addView(mail, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
 
@@ -5957,6 +5987,10 @@ public class MainActivity extends Activity {
         message.setMinLines(5);
         message.setGravity(Gravity.TOP | Gravity.START);
         message.setHint("Message");
+        message.setTextColor(textColor());
+        message.setHintTextColor(mutedColor());
+        message.setBackground(addressBarBackground());
+        message.setPadding(dp(12), dp(10), dp(12), dp(10));
         message.setText(initialMessage == null ? "" : initialMessage);
         message.setSelection(message.getText().length());
         form.addView(message, new LinearLayout.LayoutParams(
@@ -5968,7 +6002,9 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Post", null)
                 .create();
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String body = message.getText().toString();
             if (body.trim().isEmpty()) {
                 Toast.makeText(this, "Enter a message.", Toast.LENGTH_SHORT).show();
@@ -5976,8 +6012,10 @@ public class MainActivity extends Activity {
             }
             dialog.dismiss();
             submitPost(tab, name.getText().toString(), mail.getText().toString(), body);
-        }));
+            });
+        });
         dialog.show();
+        Theme.styleDialog(dialog, this);
         message.requestFocus();
         message.postDelayed(() -> {
             try {
@@ -6015,6 +6053,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
                 if (posted) {
                     Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5b8c\u4e86", "Posted."), Toast.LENGTH_SHORT).show();
+                    saveMyPost(tab, message);
                     refreshThreadFromBottom(tab, true);
                 } else {
                     showCopyablePostFailure(messageText);
@@ -6040,7 +6079,8 @@ public class MainActivity extends Activity {
                     }
                 })
                 .setPositiveButton("OK", null);
-        builder.show();
+        AlertDialog dialog = builder.show();
+        Theme.styleDialog(dialog, this);
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
@@ -8161,6 +8201,82 @@ public class MainActivity extends Activity {
             preferences.edit().putString(PREF_AA_POSTS, object.toString()).apply();
         } catch (Exception ignored) {
         }
+    }
+
+    private boolean isMyPost(ThreadPage page, Post post) {
+        if (page == null || post == null || page.url == null || page.url.isEmpty()) {
+            return false;
+        }
+        String hash = postBodyHash(post.body);
+        if (hash.isEmpty()) {
+            return false;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_MY_POSTS, "{}"));
+            JSONArray items = root.optJSONArray(page.url);
+            if (items == null) {
+                return false;
+            }
+            for (int i = 0; i < items.length(); i++) {
+                if (hash.equals(items.optString(i))) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private void saveMyPost(CuspTab tab, String body) {
+        if (isPrivateTab(tab) || tab == null || tab.url == null || tab.url.isEmpty()) {
+            return;
+        }
+        String hash = postBodyHash(body);
+        if (hash.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_MY_POSTS, "{}"));
+            JSONArray old = root.optJSONArray(tab.url);
+            JSONArray next = new JSONArray();
+            next.put(hash);
+            if (old != null) {
+                for (int i = 0; i < old.length() && next.length() < 80; i++) {
+                    String value = old.optString(i);
+                    if (!hash.equals(value) && !value.isEmpty()) {
+                        next.put(value);
+                    }
+                }
+            }
+            root.put(tab.url, next);
+            preferences.edit().putString(PREF_MY_POSTS, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String postBodyHash(String body) {
+        String normalized = normalizeOwnPostBody(body);
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(normalized.getBytes(Charset.forName("UTF-8")));
+            StringBuilder builder = new StringBuilder();
+            for (byte value : bytes) {
+                builder.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+            }
+            return builder.toString();
+        } catch (Exception ignored) {
+            return normalized;
+        }
+    }
+
+    private String normalizeOwnPostBody(String body) {
+        if (body == null) {
+            return "";
+        }
+        return cleanText(body).replace("\r\n", "\n").replace('\r', '\n').trim();
     }
 
     private void markReadTo(CuspTab tab, int number) {

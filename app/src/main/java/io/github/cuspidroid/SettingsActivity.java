@@ -102,12 +102,14 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setText(MainActivity.text("5ch\u30ea\u30f3\u30af\u3092\u65b0\u898f\u30bf\u30d6\u3067\u958b\u304f", "Open 5ch links in a new tab"));
         open5chInNewTab.setTextColor(textColor());
         open5chInNewTab.setTextSize(16);
+        Theme.tintCompoundButton(this, open5chInNewTab);
         root.addView(open5chInNewTab);
 
         externalLinkInApp = new CheckBox(this);
         externalLinkInApp.setText(MainActivity.text("\u5916\u90e8\u30ea\u30f3\u30af\u3092\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u3067\u958b\u304f", "Open external links in the in-app browser"));
         externalLinkInApp.setTextColor(textColor());
         externalLinkInApp.setTextSize(16);
+        Theme.tintCompoundButton(this, externalLinkInApp);
         root.addView(externalLinkInApp);
 
         root.addView(sectionTitle(MainActivity.text("\u753b\u50cf", "Images")));
@@ -115,6 +117,7 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setText(MainActivity.text("imgur\u306e\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic imgur images"));
         blurImgurImages.setTextColor(textColor());
         blurImgurImages.setTextSize(16);
+        Theme.tintCompoundButton(this, blurImgurImages);
         root.addView(blurImgurImages);
 
         root.addView(sectionTitle(MainActivity.text("\u8868\u793a", "Display")));
@@ -133,12 +136,14 @@ public class SettingsActivity extends Activity {
         treeView.setText(MainActivity.text("\u30c4\u30ea\u30fc\u8868\u793a", "Tree view"));
         treeView.setTextColor(textColor());
         treeView.setTextSize(16);
+        Theme.tintCompoundButton(this, treeView);
         root.addView(treeView);
 
         treeSkipFirstReply = new CheckBox(this);
         treeSkipFirstReply.setText(MainActivity.text(">>1\u3092\u30c4\u30ea\u30fc\u8868\u793a\u3057\u306a\u3044", "Do not tree replies to >>1"));
         treeSkipFirstReply.setTextColor(textColor());
         treeSkipFirstReply.setTextSize(16);
+        Theme.tintCompoundButton(this, treeSkipFirstReply);
         root.addView(treeSkipFirstReply);
 
         root.addView(sectionTitle(MainActivity.text("\u677f\u30b9\u30ec\u4e00\u89a7", "Board Thread List")));
@@ -146,6 +151,7 @@ public class SettingsActivity extends Activity {
         boardSortBySpeed.setText(MainActivity.text("\u677f\u306e\u30b9\u30ec\u3092\u52e2\u3044\u9806\u306b\u4e26\u3079\u308b", "Sort board threads by speed"));
         boardSortBySpeed.setTextColor(textColor());
         boardSortBySpeed.setTextSize(16);
+        Theme.tintCompoundButton(this, boardSortBySpeed);
         root.addView(boardSortBySpeed);
 
         root.addView(managementRow(R.drawable.ic_text_fields,
@@ -384,6 +390,7 @@ public class SettingsActivity extends Activity {
         button.setText(value);
         button.setTextColor(textColor());
         button.setTextSize(16);
+        Theme.tintCompoundButton(this, button);
         return button;
     }
 
