@@ -3553,7 +3553,7 @@ public class MainActivity extends Activity {
         TextView fiveChTitle = sectionTitleView("5ch");
         topRow.addView(fiveChTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         ImageButton privateTab = privateModeButton(currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
-        topRow.addView(privateTab, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        topRow.addView(privateTab, new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(topRow);
         TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
         fiveCh.setOnClickListener(v -> showFiveChBoardsView(true));
@@ -3728,7 +3728,7 @@ public class MainActivity extends Activity {
                 : text("\u901a\u5e38\u30bf\u30d6", "Normal tabs"));
         header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         header.addView(privateModeButton(tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode()),
-                new LinearLayout.LayoutParams(dp(44), dp(44)));
+                new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
         addTabOverviewSection(list, tabOverviewPrivateMode);
 
@@ -3756,7 +3756,8 @@ public class MainActivity extends Activity {
         button.setBackground(roundedDrawable(privateButtonFill(active),
                 privateButtonStroke(active), dp(20)));
         button.setColorFilter(privateButtonIcon(active));
-        button.setTranslationY(-dp(4));
+        button.setPadding(dp(7), dp(7), dp(7), dp(7));
+        button.setTranslationY(-dp(2));
         return button;
     }
 
