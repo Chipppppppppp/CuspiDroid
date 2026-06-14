@@ -761,6 +761,12 @@ public class MainActivity extends Activity {
         showAddressMenuAtToolbarEdge(popup, menu, true);
     }
 
+    private void cancelThreadChunkRender(CuspTab tab) {
+        if (tab != null) {
+            tab.threadRenderGeneration++;
+        }
+    }
+
     private void applySystemBarTheme() {
         Theme.applySystemBars(this);
     }
@@ -1611,6 +1617,13 @@ public class MainActivity extends Activity {
             loadSearchHome(tab, url);
             return;
         }
+        if (isBbsDirectoryUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
+            loadBbsDirectory(tab, url);
+            return;
+        }
         if (isBoardUrl(url)) {
             if (addHistory) {
                 recordNavigation(tab, url);
@@ -1816,28 +1829,26 @@ public class MainActivity extends Activity {
                     renderTabs();
                     return;
                 }
-                int insertIndex = tab.threadList.getChildCount();
                 tab.threadPage = result;
                 tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
                 if (!centerSpinner && !forceScrollToBottom) {
                     markReadTo(tab, maxPostNumber(result), false);
-                }
-                for (int i = oldCount; i < result.posts.size(); i++) {
-                    addPostCard(tab.threadList, result, tab, result.posts.get(i), insertIndex++);
                 }
                 tab.title = result.title;
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
                     addThreadHistory(result.url, result.title);
                 }
-                if (tab == currentTab() && tab.threadSearchOpen
-                        && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
-                    updateThreadSearch(tab.threadSearchQuery, false);
-                }
-                if (tab == currentTab() && forceScrollToBottom) {
-                    scrollCurrentThreadToBottom();
-                }
-                renderTabs();
+                renderAdditionalPostCardsIncrementally(tab.threadList, result, tab, oldCount, () -> {
+                    if (tab == currentTab() && tab.threadSearchOpen
+                            && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
+                        updateThreadSearch(tab.threadSearchQuery, false);
+                    }
+                    if (tab == currentTab() && forceScrollToBottom) {
+                        scrollCurrentThreadToBottom();
+                    }
+                    renderTabs();
+                });
             });
         });
     }
@@ -1988,6 +1999,57 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void loadBbsDirectory(CuspTab tab, String url) {
+        loadBbsDirectory(tab, url, true);
+    }
+
+    private void loadBbsDirectory(CuspTab tab, String url, boolean foreground) {
+        final String loadUrl = url;
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_BOARD;
+        tab.url = loadUrl;
+        tab.title = hostTitle(loadUrl);
+        if (foreground || tab.readerView == null) {
+            tab.readerView = loadingView("");
+        }
+        tab.threadPage = null;
+        tab.searchPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        if (foreground) {
+            switchToTab(tabs.indexOf(tab));
+            progressBar.setVisibility(View.VISIBLE);
+        }
+
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                page = downloadBbsDirectory(loadUrl);
+            } catch (Exception error) {
+                page = SearchPage.error(loadUrl, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                if (!loadUrl.equals(tab.url)) {
+                    if (foreground && tab == currentTab()) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
+                tab.title = result.title;
+                tab.searchPage = result;
+                tab.readerView = buildSearchView(result);
+                if (foreground) {
+                    progressBar.setVisibility(View.GONE);
+                }
+                if (tab == currentTab() && !tabOverviewVisible) {
+                    switchToTab(currentIndex);
+                }
+                renderTabs();
+            });
+        });
+    }
+
     private View loadingView(String message) {
         LinearLayout box = new LinearLayout(this);
         box.setGravity(Gravity.CENTER);
@@ -2007,10 +2069,12 @@ public class MainActivity extends Activity {
     }
 
     private View buildThreadView(ThreadPage page, CuspTab tab) {
+        cancelThreadChunkRender(tab);
         ScrollView scroll = new ScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
         scroll.setVerticalScrollBarEnabled(false);
+        scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleLazyImgurLoads);
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -2039,16 +2103,7 @@ public class MainActivity extends Activity {
             return withScrollScrubber(scroll, tab);
         }
 
-        if (treeViewEnabled()) {
-            addTreePostCards(list, page, tab);
-        } else {
-            for (Post post : page.posts) {
-                if (matchesNgPost(post)) {
-                    continue;
-                }
-                addPostCard(list, page, tab, post, list.getChildCount());
-            }
-        }
+        renderPostCardsIncrementally(list, page, tab);
 
         if (page.posts.isEmpty()) {
             list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
@@ -2119,6 +2174,149 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         list.addView(shell, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
         tab.postViews.put(post.number, card);
+    }
+
+    private void renderPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab) {
+        if (tab.postViews == null) {
+            tab.postViews = new LinkedHashMap<>();
+        }
+        List<PostRenderItem> items = treeViewEnabled()
+                ? treePostRenderItems(page)
+                : flatPostRenderItems(page);
+        if (items.isEmpty()) {
+            return;
+        }
+        int generation = ++tab.threadRenderGeneration;
+        renderPostChunk(list, page, tab, items, 0, generation);
+    }
+
+    private void renderAdditionalPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab,
+                                                        int fromPostIndex, Runnable onComplete) {
+        if (list == null || tab == null || tab.postViews == null) {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+            return;
+        }
+        List<PostRenderItem> items = new ArrayList<>();
+        for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
+            Post post = page.posts.get(i);
+            if (!matchesNgPost(post)) {
+                items.add(new PostRenderItem(post, 0));
+            }
+        }
+        if (items.isEmpty()) {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+            return;
+        }
+        int generation = ++tab.threadRenderGeneration;
+        renderPostChunk(list, page, tab, items, 0, generation, onComplete);
+    }
+
+    private void renderPostChunk(LinearLayout list, ThreadPage page, CuspTab tab,
+                                 List<PostRenderItem> items, int start, int generation) {
+        renderPostChunk(list, page, tab, items, start, generation, null);
+    }
+
+    private void renderPostChunk(LinearLayout list, ThreadPage page, CuspTab tab,
+                                 List<PostRenderItem> items, int start, int generation, Runnable onComplete) {
+        if (tab.threadRenderGeneration != generation || tab.threadList != list) {
+            return;
+        }
+        long deadline = android.os.SystemClock.uptimeMillis() + 10;
+        int i = start;
+        int rendered = 0;
+        while (i < items.size() && (rendered < 18
+                || android.os.SystemClock.uptimeMillis() < deadline)) {
+            PostRenderItem item = items.get(i);
+            addPostCard(list, page, tab, item.post, list.getChildCount(), item.depth);
+            i++;
+            rendered++;
+        }
+        if (i < items.size()) {
+            int next = i;
+            mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete), 8);
+        } else {
+            scheduleLazyImgurLoads();
+            if (tab == currentTab()) {
+                visiblePostViews.clear();
+                if (tab.postViews != null) {
+                    visiblePostViews.putAll(tab.postViews);
+                }
+                if (tab.threadSearchOpen && tab.threadSearchQuery != null
+                        && !tab.threadSearchQuery.trim().isEmpty()) {
+                    updateThreadSearch(tab.threadSearchQuery, false);
+                }
+                restoreThreadScroll(tab);
+            }
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        }
+    }
+
+    private List<PostRenderItem> flatPostRenderItems(ThreadPage page) {
+        List<PostRenderItem> items = new ArrayList<>();
+        for (Post post : page.posts) {
+            if (!matchesNgPost(post)) {
+                items.add(new PostRenderItem(post, 0));
+            }
+        }
+        return items;
+    }
+
+    private List<PostRenderItem> treePostRenderItems(ThreadPage page) {
+        List<Post> visible = new ArrayList<>();
+        Set<Integer> visibleNumbers = new LinkedHashSet<>();
+        for (Post post : page.posts) {
+            if (!matchesNgPost(post)) {
+                visible.add(post);
+                visibleNumbers.add(post.number);
+            }
+        }
+        Map<Integer, List<Post>> children = new LinkedHashMap<>();
+        List<Post> roots = new ArrayList<>();
+        for (Post post : visible) {
+            int parent = firstQuotedParent(post, visibleNumbers);
+            if (parent > 0) {
+                List<Post> childList = children.get(parent);
+                if (childList == null) {
+                    childList = new ArrayList<>();
+                    children.put(parent, childList);
+                }
+                childList.add(post);
+            } else {
+                roots.add(post);
+            }
+        }
+        List<PostRenderItem> items = new ArrayList<>();
+        Set<Integer> rendered = new LinkedHashSet<>();
+        for (Post post : roots) {
+            collectTreePostRenderItems(post, children, rendered, 0, items);
+        }
+        for (Post post : visible) {
+            if (!rendered.contains(post.number)) {
+                collectTreePostRenderItems(post, children, rendered, 0, items);
+            }
+        }
+        return items;
+    }
+
+    private void collectTreePostRenderItems(Post post, Map<Integer, List<Post>> children,
+                                            Set<Integer> rendered, int depth, List<PostRenderItem> items) {
+        if (!rendered.add(post.number)) {
+            return;
+        }
+        items.add(new PostRenderItem(post, depth));
+        List<Post> replies = children.get(post.number);
+        if (replies == null) {
+            return;
+        }
+        for (Post child : replies) {
+            collectTreePostRenderItems(child, children, rendered, depth + 1, items);
+        }
     }
 
     private void addTreePostCards(LinearLayout list, ThreadPage page, CuspTab tab) {
@@ -5923,19 +6121,48 @@ public class MainActivity extends Activity {
         if (stream == null) {
             throw new IllegalStateException("HTTP " + code);
         }
-        Charset charset = Charset.forName("UTF-8");
-        String contentType = connection.getContentType();
-        if (contentType != null) {
-            Matcher matcher = Pattern.compile("charset=([^;]+)", Pattern.CASE_INSENSITIVE).matcher(contentType);
-            if (matcher.find()) {
-                charset = Charset.forName(matcher.group(1).trim());
-            }
+        byte[] bytes = readBytes(stream);
+        Charset charset = responseCharset(connection, Charset.forName("UTF-8"));
+        String body = new String(bytes, charset);
+        Charset metaCharset = htmlMetaCharset(body);
+        if (metaCharset != null && !metaCharset.equals(charset)) {
+            body = new String(bytes, metaCharset);
         }
-        String body = readText(stream, charset);
         if (code >= 400) {
             throw new IllegalStateException("HTTP " + code + "\n" + stripTags(body));
         }
         return body;
+    }
+
+    private Charset responseCharset(HttpURLConnection connection, Charset fallback) {
+        Charset charset = fallback;
+        String contentType = connection.getContentType();
+        if (contentType != null) {
+            Matcher matcher = Pattern.compile("charset=([^;]+)", Pattern.CASE_INSENSITIVE).matcher(contentType);
+            if (matcher.find()) {
+                try {
+                    charset = Charset.forName(matcher.group(1).trim());
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return charset;
+    }
+
+    private Charset htmlMetaCharset(String body) {
+        if (body == null) {
+            return null;
+        }
+        Matcher matcher = Pattern.compile("<meta[^>]+charset=[\"']?([^\"'\\s>/;]+)", Pattern.CASE_INSENSITIVE)
+                .matcher(body);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            return Charset.forName(matcher.group(1).trim());
+        } catch (Exception error) {
+            return null;
+        }
     }
 
     private HttpURLConnection openConnectionFollowingRedirects(String urlText, String userAgent) throws Exception {
@@ -6074,6 +6301,9 @@ public class MainActivity extends Activity {
         }
 
         int testIndex = parts.indexOf("test");
+        if (testIndex < 0) {
+            testIndex = parts.indexOf("bbs");
+        }
         if (testIndex < 0 || testIndex + 3 >= parts.size() || !"read.cgi".equals(parts.get(testIndex + 1))) {
             return null;
         }
@@ -6160,6 +6390,68 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    private SearchPage downloadBbsDirectory(String directoryUrl) throws Exception {
+        String html = download(directoryUrl);
+        Uri base = Uri.parse(normalizeUrl(directoryUrl));
+        String baseHost = base.getHost();
+        SearchPage page = new SearchPage();
+        page.url = directoryUrl;
+        page.title = hostTitle(directoryUrl);
+        Set<String> seen = new LinkedHashSet<>();
+        Pattern anchorPattern = Pattern.compile(
+                "<a\\s+[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = anchorPattern.matcher(html);
+        while (matcher.find()) {
+            String href = cleanText(matcher.group(1));
+            String label = cleanText(matcher.group(2));
+            if (href == null || href.trim().isEmpty()) {
+                continue;
+            }
+            String absolute = absoluteUrl(directoryUrl, href);
+            Uri target = Uri.parse(absolute);
+            String host = target.getHost();
+            if (host == null || baseHost == null || !host.equalsIgnoreCase(baseHost)) {
+                continue;
+            }
+            String board = boardNameFromUrl(absolute);
+            if (board == null || board.trim().isEmpty()) {
+                continue;
+            }
+            String boardUrl = boardUrlFromDirectoryLink(absolute, board);
+            if (!seen.add(boardUrl)) {
+                continue;
+            }
+            SearchResult result = new SearchResult();
+            result.title = label == null || label.isEmpty() ? board : label;
+            result.url = boardUrl;
+            result.meta = host;
+            page.results.add(result);
+        }
+        if (page.results.isEmpty()) {
+            throw new IllegalStateException(text("板リンクが見つかりません", "No board links found."));
+        }
+        return page;
+    }
+
+    private String boardUrlFromDirectoryLink(String url, String board) {
+        Uri uri = Uri.parse(url);
+        String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+        String host = uri.getHost();
+        if (host == null) {
+            return url;
+        }
+        return scheme + "://" + host + "/" + board + "/";
+    }
+
+    private String absoluteUrl(String baseUrl, String href) {
+        try {
+            return new URL(new URL(normalizeUrl(baseUrl)), href).toString();
+        } catch (Exception error) {
+            return normalizeUrl(href);
+        }
+    }
+
     private BoardSubject downloadBoardSubject(String boardUrl, String host, String board) throws Exception {
         Exception lastError = null;
         for (String subjectUrl : boardSubjectCandidates(boardUrl, host, board)) {
@@ -6173,7 +6465,7 @@ public class MainActivity extends Activity {
                 if (stream == null) {
                     throw new IllegalStateException("HTTP " + code);
                 }
-                String body = readText(stream, Charset.forName("MS932"));
+                String body = readText(stream, responseCharset(connection, Charset.forName("MS932")));
                 if (code >= 400) {
                     throw new IllegalStateException("HTTP " + code + "\n" + cleanText(body));
                 }
@@ -6705,7 +6997,8 @@ public class MainActivity extends Activity {
                 || lower.contains(".5ch.io/test/read.cgi/")
                 || lower.contains(".5ch.io/") && lower.contains("/test/read.cgi/")
                 || lower.contains(".2ch.sc/test/read.cgi/")
-                || lower.contains("/test/read.cgi/");
+                || lower.contains("/test/read.cgi/")
+                || lower.contains("/bbs/read.cgi/");
     }
 
     private boolean isFindSearchUrl(String url) {
@@ -6750,6 +7043,19 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isBbsDirectoryUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            if (host == null || !isRegisteredBbsUrl(url)) {
+                return false;
+            }
+            return boardNameFromUrl(url) == null;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
     private boolean isRegisteredBbsUrl(String url) {
         try {
             String normalized = normalizeUrl(url);
@@ -6781,6 +7087,10 @@ public class MainActivity extends Activity {
             String part = parts[i];
             if (part.isEmpty()) {
                 continue;
+            }
+            if ("bbs".equals(part) && i + 2 < parts.length
+                    && "read.cgi".equals(parts[i + 1]) && !parts[i + 2].isEmpty()) {
+                return parts[i + 2];
             }
             if ("test".equals(part) || "read.cgi".equals(part) || "dat".equals(part)) {
                 if ("read.cgi".equals(part) && i + 1 < parts.length && !parts[i + 1].isEmpty()) {
@@ -7160,6 +7470,7 @@ public class MainActivity extends Activity {
         boolean readerMode;
         List<String> navigationHistory = new ArrayList<>();
         int navigationIndex = -1;
+        int threadRenderGeneration;
     }
 
     static class ThreadHistoryItem {
@@ -7233,6 +7544,16 @@ public class MainActivity extends Activity {
         BoardSubject(String body, String threadBase) {
             this.body = body;
             this.threadBase = threadBase;
+        }
+    }
+
+    private static class PostRenderItem {
+        final Post post;
+        final int depth;
+
+        PostRenderItem(Post post, int depth) {
+            this.post = post;
+            this.depth = depth;
         }
     }
 
