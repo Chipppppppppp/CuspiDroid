@@ -757,6 +757,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void prepareChromeForLoading() {
+        if (addressBar != null && addressBar.hasFocus()) {
+            clearAddressFocus();
+        }
+        if (suggestionsPanel != null) {
+            suggestionsPanel.setVisibility(View.GONE);
+        }
+        for (View button : toolbarButtons) {
+            button.setVisibility(View.VISIBLE);
+            button.setEnabled(true);
+        }
+        if (bottomToolbar != null && !tabOverviewVisible) {
+            bottomToolbar.setVisibility(View.VISIBLE);
+        }
+    }
+
     private void updateSuggestions() {
         if (suggestionsPanel == null || !addressBar.hasFocus()) {
             return;
@@ -1953,6 +1969,9 @@ public class MainActivity extends Activity {
     private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
         final String loadUrl = url;
         rememberThreadScroll(tab);
+        if (showFullLoading) {
+            prepareChromeForLoading();
+        }
         boolean keepExistingScroll = tab.hasSavedThreadScroll && loadUrl.equals(tab.threadScrollUrl);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
@@ -2179,6 +2198,9 @@ public class MainActivity extends Activity {
 
     private void loadSearchResults(CuspTab tab, String url, boolean foreground) {
         final String loadUrl = url;
+        if (foreground) {
+            prepareChromeForLoading();
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH;
         tab.url = loadUrl;
@@ -2273,6 +2295,9 @@ public class MainActivity extends Activity {
 
     private void loadBoard(CuspTab tab, String url, boolean foreground) {
         final String loadUrl = url;
+        if (foreground) {
+            prepareChromeForLoading();
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = loadUrl;
@@ -2324,6 +2349,9 @@ public class MainActivity extends Activity {
 
     private void loadBbsDirectory(CuspTab tab, String url, boolean foreground) {
         final String loadUrl = url;
+        if (foreground) {
+            prepareChromeForLoading();
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = loadUrl;
@@ -3897,6 +3925,7 @@ public class MainActivity extends Activity {
         if (recordHistory) {
             recordNewTabPage("5ch");
         }
+        prepareChromeForLoading();
         View view = loadingView("");
         if (pendingNewTab) {
             contentFrame.removeAllViews();
@@ -3944,6 +3973,7 @@ public class MainActivity extends Activity {
         if (record) {
             recordNewTabPage("5ch-category:" + encodeNewTabToken(category));
         }
+        prepareChromeForLoading();
         View view = loadingView("");
         contentFrame.removeAllViews();
         contentFrame.addView(view);
