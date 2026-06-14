@@ -153,8 +153,8 @@ public class MainActivity extends Activity {
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
     private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-‐-―]\\s*(\\d{1,5}))?");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
-    private static final int INITIAL_THREAD_RENDER_BATCH = 36;
-    private static final int THREAD_RENDER_BATCH = 18;
+    private static final int INITIAL_THREAD_RENDER_BATCH = 24;
+    private static final int THREAD_RENDER_BATCH = 8;
     private static final int MEDIA_GRID_CELL_DP = 108;
 
     private final List<CuspTab> tabs = new ArrayList<>();
@@ -2624,11 +2624,14 @@ public class MainActivity extends Activity {
         if (firstBatch) {
             revealInitialThreadRender(tab);
         }
+        if (tab.fastRenderToBottom && tab == currentTab()) {
+            scrollThreadToRenderedBottom(tab);
+        }
         if (end >= items.size()) {
             completeThreadRender(tab, onComplete);
             return;
         }
-        mainHandler.post(() -> renderPostCardBatch(list, page, tab, items, end, generation, onComplete, false));
+        mainHandler.postDelayed(() -> renderPostCardBatch(list, page, tab, items, end, generation, onComplete, false), 12);
     }
 
     private void revealInitialThreadRender(CuspTab tab) {
@@ -2659,7 +2662,11 @@ public class MainActivity extends Activity {
             restoreThreadScroll(tab);
             runPendingScrollToBottom(tab);
         }
-        tab.fastRenderToBottom = false;
+        if (tab.fastRenderToBottom) {
+            scrollThreadToBottomWhenReady(tab, 0);
+        } else {
+            tab.fastRenderToBottom = false;
+        }
         if (onComplete != null) {
             onComplete.run();
         }
@@ -5325,7 +5332,7 @@ public class MainActivity extends Activity {
             deferredTextTask = null;
             runDeferredTextDecorations();
         };
-        mainHandler.postDelayed(deferredTextTask, 35);
+        mainHandler.postDelayed(deferredTextTask, 80);
     }
 
     private void runDeferredTextDecorations() {
@@ -5344,7 +5351,7 @@ public class MainActivity extends Activity {
             decoratePostTextNow(decoration.text, decoration.value, decoration.page, decoration.highlight);
             deferredTextDecorations.remove(decoration);
             decorated++;
-            if (decorated >= 12) {
+            if (decorated >= 4) {
                 break;
             }
         }
@@ -5361,7 +5368,7 @@ public class MainActivity extends Activity {
             deferredMediaTask = null;
             runDeferredMediaLoads();
         };
-        mainHandler.postDelayed(deferredMediaTask, 50);
+        mainHandler.postDelayed(deferredMediaTask, 120);
     }
 
     private void runDeferredMediaLoads() {
@@ -5388,7 +5395,7 @@ public class MainActivity extends Activity {
             if (preview.link.resolvePage) {
                 resolveDeferredMediaPreview(preview);
                 created++;
-                if (created >= 3) {
+                if (created >= 1) {
                     break;
                 }
                 continue;
@@ -5400,7 +5407,7 @@ public class MainActivity extends Activity {
             group.addView(media, Math.max(0, index), params);
             deferredMediaPreviews.remove(preview);
             created++;
-            if (created >= 3) {
+            if (created >= 1) {
                 break;
             }
         }
@@ -7149,6 +7156,28 @@ public class MainActivity extends Activity {
             return;
         }
         scrollThreadToBottomWhenReady(tab, 0);
+    }
+
+    private void scrollThreadToRenderedBottom(CuspTab tab) {
+        ScrollView scroll = tab == null ? visibleThreadScroll : tab.threadScroll;
+        if (scroll == null && tab != null) {
+            scroll = findScrollView(tab.readerView);
+        }
+        if (scroll == null || scroll.getChildCount() == 0) {
+            return;
+        }
+        final ScrollView targetScroll = scroll;
+        targetScroll.fling(0);
+        targetScroll.clearAnimation();
+        targetScroll.post(() -> {
+            if (targetScroll.getChildCount() == 0) {
+                return;
+            }
+            targetScroll.fling(0);
+            targetScroll.clearAnimation();
+            int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
+            targetScroll.scrollTo(0, range);
+        });
     }
 
     private void scrollThreadToBottomWhenReady(CuspTab tab, int attempt) {
