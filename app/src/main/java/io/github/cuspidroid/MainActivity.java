@@ -32,6 +32,7 @@ import android.text.TextWatcher;
 import android.text.TextPaint;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
@@ -2592,7 +2593,7 @@ public class MainActivity extends Activity {
             row.addView(resultTitle);
 
             TextView meta = new TextView(this);
-            meta.setText(result.meta);
+            meta.setText(styledResultMeta(result.meta));
             meta.setTextColor(Color.rgb(79, 91, 103));
             meta.setTextSize(12);
             row.addView(meta);
@@ -2603,6 +2604,19 @@ public class MainActivity extends Activity {
             list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
         }
         return withScrollScrubber(scroll);
+    }
+
+    private CharSequence styledResultMeta(String value) {
+        if (value == null) {
+            return "";
+        }
+        SpannableString text = new SpannableString(value);
+        Matcher matcher = Pattern.compile("(?:(?:\u30ec\u30b9|Posts):\\s*[^\\s]+|(?:\u52e2\u3044|Speed):\\s*[^\\s]+)").matcher(value);
+        while (matcher.find()) {
+            text.setSpan(new ForegroundColorSpan(TEAL), matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.setSpan(new StyleSpan(Typeface.BOLD), matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return text;
     }
 
     private View withScrollScrubber(ScrollView scroll) {
@@ -3361,16 +3375,26 @@ public class MainActivity extends Activity {
         if (contentFrame == null) {
             return;
         }
+        ScrollView previousScroll = findScrollView(contentFrame);
+        int scrollY = previousScroll == null ? 0 : previousScroll.getScrollY();
         contentFrame.removeAllViews();
+        View nextView;
         if (pendingNewTab) {
             pendingHistoryAll = fullHistory || pendingHistoryAll;
-            contentFrame.addView(pendingHistoryAll ? buildHistoryView() : buildSearchHomeView(false));
-            return;
+            nextView = pendingHistoryAll ? buildHistoryView() : buildSearchHomeView(false);
+        } else {
+            CuspTab tab = currentTab();
+            if (tab == null) {
+                return;
+            }
+            nextView = fullHistory ? buildHistoryView() : buildSearchHomeView(false);
+            tab.readerView = nextView;
         }
-        CuspTab tab = currentTab();
-        if (tab != null) {
-            tab.readerView = fullHistory ? buildHistoryView() : buildSearchHomeView(false);
-            contentFrame.addView(tab.readerView);
+        contentFrame.addView(nextView);
+        ScrollView nextScroll = findScrollView(nextView);
+        if (nextScroll != null) {
+            nextScroll.post(() -> nextScroll.scrollTo(0, Math.max(0, Math.min(scrollY,
+                    nextScroll.getChildAt(0).getHeight() - nextScroll.getHeight()))));
         }
     }
 
