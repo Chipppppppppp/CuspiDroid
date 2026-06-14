@@ -205,9 +205,11 @@ public class MainActivity extends Activity {
     private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private final List<DeferredMediaPreview> deferredMediaPreviews = new ArrayList<>();
+    private final List<DeferredTextDecoration> deferredTextDecorations = new ArrayList<>();
     private boolean imgurLoadInFlight;
     private Runnable lazyImgurTask;
     private Runnable deferredMediaTask;
+    private Runnable deferredTextTask;
     private CuspTab pendingScrollToBottomTab;
     private String appliedThemeMode;
 
@@ -4881,7 +4883,7 @@ public class MainActivity extends Activity {
                              List<ImgurLink> imgurLinks) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        TextView bodyText = postText(value, page, highlight);
+        TextView bodyText = postBodyText(value, page, highlight);
         if (longClickAction != null) {
             bodyText.setOnLongClickListener(v -> {
                 if (showLinkCopyPopupIfAny(bodyText)) {
@@ -4903,6 +4905,56 @@ public class MainActivity extends Activity {
             box.addView(deferredMediaPreview(link.originalUrl, link.imageUrl, longClickAction));
         }
         return box;
+    }
+
+    private TextView postBodyText(String value, ThreadPage page, String highlight) {
+        TextView text = plainPostText(value);
+        boolean immediate = highlight != null && !highlight.trim().isEmpty();
+        if (immediate) {
+            decoratePostTextNow(text, value, page, highlight);
+        } else {
+            deferPostTextDecoration(text, value, page, highlight);
+        }
+        return text;
+    }
+
+    private TextView plainPostText(String value) {
+        TextView text = new TextView(this);
+        text.setText(value == null ? "" : value);
+        text.setTextColor(textColor());
+        text.setLinkTextColor(TEAL);
+        text.setTextSize(15);
+        text.setLineSpacing(0, 1.15f);
+        text.setTextIsSelectable(false);
+        return text;
+    }
+
+    private void decoratePostTextNow(TextView text, String value, ThreadPage page, String highlight) {
+        text.setText(decoratedPostText(value, page, highlight));
+        text.setMovementMethod(LinkMovementMethod.getInstance());
+        installLinkTouchTracking(text);
+    }
+
+    private void deferPostTextDecoration(TextView text, String value, ThreadPage page, String highlight) {
+        DeferredTextDecoration decoration = new DeferredTextDecoration(text, value, page, highlight);
+        text.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View view) {
+                if (!deferredTextDecorations.contains(decoration)) {
+                    deferredTextDecorations.add(decoration);
+                }
+                scheduleDeferredTextDecorations();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View view) {
+                deferredTextDecorations.remove(decoration);
+            }
+        });
+        if (text.isAttachedToWindow()) {
+            deferredTextDecorations.add(decoration);
+            scheduleDeferredTextDecorations();
+        }
     }
 
     private List<ImgurLink> imgurLinks(String value) {
@@ -5160,8 +5212,45 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleThreadMediaLoads() {
+        scheduleDeferredTextDecorations();
         scheduleDeferredMediaLoads();
         scheduleLazyImgurLoads();
+    }
+
+    private void scheduleDeferredTextDecorations() {
+        if (deferredTextTask != null) {
+            return;
+        }
+        deferredTextTask = () -> {
+            deferredTextTask = null;
+            runDeferredTextDecorations();
+        };
+        mainHandler.postDelayed(deferredTextTask, 35);
+    }
+
+    private void runDeferredTextDecorations() {
+        for (int i = deferredTextDecorations.size() - 1; i >= 0; i--) {
+            DeferredTextDecoration decoration = deferredTextDecorations.get(i);
+            if (!decoration.text.isAttachedToWindow()) {
+                deferredTextDecorations.remove(i);
+            }
+        }
+        int decorated = 0;
+        for (DeferredTextDecoration decoration : new ArrayList<>(deferredTextDecorations)) {
+            if (decoration.decorated || !isNearViewport(decoration.text)) {
+                continue;
+            }
+            decoration.decorated = true;
+            decoratePostTextNow(decoration.text, decoration.value, decoration.page, decoration.highlight);
+            deferredTextDecorations.remove(decoration);
+            decorated++;
+            if (decorated >= 12) {
+                break;
+            }
+        }
+        if (decorated > 0 && !deferredTextDecorations.isEmpty()) {
+            scheduleDeferredTextDecorations();
+        }
     }
 
     private void scheduleDeferredMediaLoads() {
@@ -6697,6 +6786,11 @@ public class MainActivity extends Activity {
         CuspTab tab = currentTab();
         if (tab != null) {
             tab.fastRenderToBottom = true;
+            ScrollView scroll = tab.threadScroll == null ? findScrollView(tab.readerView) : tab.threadScroll;
+            if (scroll != null) {
+                scroll.fling(0);
+                scroll.clearAnimation();
+            }
         }
         pendingScrollToBottomTab = tab;
         scrollThreadToBottomWhenReady(tab, 0);
@@ -6722,11 +6816,15 @@ public class MainActivity extends Activity {
         }
         clearAddressFocus();
         final ScrollView targetScroll = scroll;
+        targetScroll.fling(0);
+        targetScroll.clearAnimation();
         if (!lastPostViewReady(tab) && attempt < 80) {
             targetScroll.postDelayed(() -> scrollThreadToBottomWhenReady(tab, attempt + 1), 25);
             return;
         }
         targetScroll.post(() -> {
+            targetScroll.fling(0);
+            targetScroll.clearAnimation();
             int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
             targetScroll.scrollTo(0, range);
             if (attempt < 80 && !isThreadAtBottom(targetScroll)) {
@@ -10050,6 +10148,21 @@ public class MainActivity extends Activity {
             this.imageUrl = imageUrl;
             this.placeholder = placeholder;
             this.longClickAction = longClickAction;
+        }
+    }
+
+    private static class DeferredTextDecoration {
+        final TextView text;
+        final String value;
+        final ThreadPage page;
+        final String highlight;
+        boolean decorated;
+
+        DeferredTextDecoration(TextView text, String value, ThreadPage page, String highlight) {
+            this.text = text;
+            this.value = value;
+            this.page = page;
+            this.highlight = highlight;
         }
     }
 
