@@ -5716,6 +5716,20 @@ public class MainActivity extends Activity {
             return true;
         }
 
+        if (isRegisteredBbsUrl(url) && (isBbsDirectoryUrl(url) || isBoardUrl(url) || isThreadUrl(url))) {
+            CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
+            if (tab == null) {
+                createTab(url, true);
+            } else {
+                int index = tabs.indexOf(tab);
+                if (index >= 0) {
+                    switchToTab(index);
+                }
+                openInCurrentTab(url);
+            }
+            return true;
+        }
+
         openExternal(url);
         return true;
     }
