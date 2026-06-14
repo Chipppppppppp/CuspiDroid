@@ -128,6 +128,7 @@ public class MainActivity extends Activity {
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
     static final String FIND_NET_TEMPLATE = "https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL";
+    private static final String FIVE_CH_BBSMENU_URL = "https://menu.5ch.io/bbsmenu.html";
     private static final String NATIVE_THREAD = "thread";
     private static final String NATIVE_SEARCH = "search";
     private static final String NATIVE_SEARCH_HOME = "search_home";
@@ -3281,7 +3282,7 @@ public class MainActivity extends Activity {
     }
 
     private void showFiveChBoardsView() {
-        View view = buildFiveChBoardsView();
+        View view = loadingView("");
         if (pendingNewTab) {
             contentFrame.removeAllViews();
             contentFrame.addView(view);
@@ -3293,33 +3294,32 @@ public class MainActivity extends Activity {
                 contentFrame.addView(view);
             }
         }
-    }
-
-    private View buildFiveChBoardsView() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setVerticalScrollBarEnabled(false);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(12), dp(12), dp(12), dp(24));
-        scroll.addView(list, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        list.addView(sectionTitleView("5ch"));
-        addBoardFolder(list, text("\u30cb\u30e5\u30fc\u30b9", "News"), new String[][]{
-                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831+", "News+"), "https://asahi.5ch.net/newsplus/"},
-                {text("\u82b8\u30b9\u30dd\u901f\u5831+", "Entertainment News+"), "https://hayabusa9.5ch.net/mnewsplus/"},
-                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831", "Breaking News"), "https://hayabusa9.5ch.net/news/"}
+        progressBar.setVisibility(View.VISIBLE);
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                page = downloadBbsDirectory(FIVE_CH_BBSMENU_URL);
+                page.title = text("5ch\u677f\u4e00\u89a7", "5ch boards");
+            } catch (Exception error) {
+                page = SearchPage.error(FIVE_CH_BBSMENU_URL, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                progressBar.setVisibility(View.GONE);
+                View resultView = buildSearchView(result);
+                if (pendingNewTab) {
+                    contentFrame.removeAllViews();
+                    contentFrame.addView(resultView);
+                } else {
+                    CuspTab tab = currentTab();
+                    if (tab != null) {
+                        tab.readerView = resultView;
+                    }
+                    contentFrame.removeAllViews();
+                    contentFrame.addView(resultView);
+                }
+            });
         });
-        addBoardFolder(list, text("\u6587\u5316", "Culture"), new String[][]{
-                {text("\u6620\u753b\u4e00\u822c", "Movies"), "https://lavender.5ch.net/movie/"},
-                {text("\u97f3\u697d\u4e00\u822c", "Music"), "https://lavender.5ch.net/music/"},
-                {text("\u8aad\u66f8", "Books"), "https://mevius.5ch.net/books/"}
-        });
-        addBoardFolder(list, text("\u6280\u8853", "Technology"), new String[][]{
-                {text("\u30d7\u30ed\u30b0\u30e9\u30de\u30fc", "Programming"), "https://medaka.5ch.net/prog/"},
-                {"Linux", "https://mao.5ch.net/linux/"},
-                {text("\u81ea\u4f5cPC", "Custom PC"), "https://egg.5ch.net/jisaku/"}
-        });
-        return withScrollScrubber(scroll);
     }
 
     private void addHistorySection(LinearLayout list, boolean fullHistory) {
@@ -4003,34 +4003,6 @@ public class MainActivity extends Activity {
         }
         DateFormat format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.getDefault());
         return format.format(new Date(time));
-    }
-
-    private void addBoardFolder(LinearLayout list, String folder, String[][] boards) {
-        TextView header = helperLine(folder);
-        header.setTextColor(textColor());
-        header.setBackgroundColor(surfaceColor());
-        list.addView(header);
-        for (String[] board : boards) {
-            LinearLayout shell = new LinearLayout(this);
-            shell.setOrientation(LinearLayout.HORIZONTAL);
-            shell.setGravity(Gravity.CENTER_VERTICAL);
-            shell.setBackgroundColor(postColor());
-            TextView row = actionRow("  " + board[0]);
-            row.setOnClickListener(v -> openBoardUrl(board[1]));
-            row.setOnLongClickListener(v -> {
-                showValueCopyPopup(row, board[1]);
-                return true;
-            });
-            shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            TextView star = toolbarTextButton(isSavedItem(PREF_BOARD_FAVORITES, board[1]) ? "\u2605" : "\u2606",
-                    text("\u304a\u6c17\u306b\u5165\u308a", "Favorite"));
-            star.setOnClickListener(v -> {
-                toggleSavedItem(PREF_BOARD_FAVORITES, board[0], board[1]);
-                star.setText(isSavedItem(PREF_BOARD_FAVORITES, board[1]) ? "\u2605" : "\u2606");
-            });
-            shell.addView(star, new LinearLayout.LayoutParams(dp(44), dp(44)));
-            list.addView(shell);
-        }
     }
 
     private void openBoardUrl(String url) {
