@@ -204,6 +204,7 @@ public class MainActivity extends Activity {
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private boolean imgurLoadInFlight;
     private Runnable lazyImgurTask;
+    private Runnable pendingScrollToBottomTask;
     private String appliedThemeMode;
 
     private int bgColor() {
@@ -828,7 +829,19 @@ public class MainActivity extends Activity {
         params.height = fullScreen ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
         params.gravity = addressBarTop ? Gravity.TOP : Gravity.BOTTOM;
         suggestionsPanel.setLayoutParams(params);
-        suggestionsPanel.setBackgroundColor(fullScreen ? menuColor() : Color.TRANSPARENT);
+        suggestionsPanel.setPadding(fullScreen ? dp(12) : 0, fullScreen ? dp(12) : 0,
+                fullScreen ? dp(12) : 0, fullScreen ? dp(12) : 0);
+        suggestionsPanel.setBackground(fullScreen
+                ? new ColorDrawable(menuColor())
+                : compactSuggestionPanelBackground());
+    }
+
+    private GradientDrawable compactSuggestionPanelBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(menuColor());
+        drawable.setStroke(dp(1), borderColor());
+        drawable.setCornerRadius(0);
+        return drawable;
     }
 
     private TextView suggestionItem(String label, String value) {
@@ -2545,6 +2558,7 @@ public class MainActivity extends Activity {
             int next = i;
             mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete), 16);
         } else {
+            refreshThreadScrollChrome(tab);
             scheduleLazyImgurLoads();
             if (tab == currentTab()) {
                 visiblePostViews.clear();
@@ -2556,6 +2570,7 @@ public class MainActivity extends Activity {
                     updateThreadSearch(tab.threadSearchQuery, false);
                 }
                 restoreThreadScroll(tab);
+                runPendingScrollToBottom(tab);
             }
             if (onComplete != null) {
                 onComplete.run();
@@ -3363,24 +3378,8 @@ public class MainActivity extends Activity {
         thumbParams.gravity = Gravity.CENTER_HORIZONTAL;
         scrubber.addView(thumb, thumbParams);
 
-        Runnable updateThumb = () -> {
-            int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight();
-            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) thumb.getLayoutParams();
-            if (range <= 0) {
-                thumb.setVisibility(View.GONE);
-                return;
-            }
-            thumb.setVisibility(View.VISIBLE);
-            int frameHeight = Math.max(1, scrubber.getHeight());
-            int thumbHeight = Math.max(dp(42), frameHeight * scroll.getHeight() / Math.max(scroll.getChildAt(0).getHeight(), 1));
-            int maxTop = Math.max(0, frameHeight - thumbHeight);
-            params.height = thumbHeight;
-            params.topMargin = maxTop * scroll.getScrollY() / range;
-            thumb.setLayoutParams(params);
-        };
-
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-            updateThumb.run();
+            updateScrollThumb(scroll, scrubber, thumb);
             if (tab != null && scrollY != oldScrollY) {
                 rememberThreadScroll(tab);
                 requestSaveTabsSoon();
@@ -3388,7 +3387,7 @@ public class MainActivity extends Activity {
             scheduleLazyImgurLoads();
         });
         scrubber.post(() -> {
-            updateThumb.run();
+            updateScrollThumb(scroll, scrubber, thumb);
             scheduleLazyImgurLoads();
         });
         if (tab != null) {
@@ -3721,6 +3720,36 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         addPrivateModeOverlay(root, currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
         return root;
+    }
+
+    private void updateScrollThumb(ScrollView scroll, View scrubber, View thumb) {
+        if (scroll == null || scrubber == null || thumb == null) {
+            return;
+        }
+        int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight();
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) thumb.getLayoutParams();
+        if (range <= 0) {
+            thumb.setVisibility(View.GONE);
+            return;
+        }
+        thumb.setVisibility(View.VISIBLE);
+        int frameHeight = Math.max(1, scrubber.getHeight());
+        int thumbHeight = Math.max(dp(42), frameHeight * scroll.getHeight() / Math.max(scroll.getChildAt(0).getHeight(), 1));
+        int maxTop = Math.max(0, frameHeight - thumbHeight);
+        params.height = thumbHeight;
+        params.topMargin = maxTop * scroll.getScrollY() / range;
+        thumb.setLayoutParams(params);
+    }
+
+    private void refreshThreadScrollChrome(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null || tab.scrollScrubber == null) {
+            return;
+        }
+        View thumb = tab.scrollScrubber.getChildCount() >= 3 ? tab.scrollScrubber.getChildAt(2) : null;
+        tab.scrollScrubber.post(() -> {
+            updateScrollThumb(tab.threadScroll, tab.scrollScrubber, thumb);
+            updateUnreadScrollMarkers(tab);
+        });
     }
 
     private void showFiveChBoardsView() {
@@ -6219,6 +6248,23 @@ public class MainActivity extends Activity {
 
     private void scrollCurrentThreadToBottom() {
         CuspTab tab = currentTab();
+        if (tab != null && tab.threadPage != null && tab.postViews != null
+                && tab.postViews.size() < tab.threadPage.posts.size()) {
+            pendingScrollToBottomTask = () -> scrollThreadToBottom(tab, true);
+        }
+        scrollThreadToBottom(tab, false);
+    }
+
+    private void runPendingScrollToBottom(CuspTab tab) {
+        if (pendingScrollToBottomTask == null || tab != currentTab()) {
+            return;
+        }
+        Runnable task = pendingScrollToBottomTask;
+        pendingScrollToBottomTask = null;
+        mainHandler.post(task);
+    }
+
+    private void scrollThreadToBottom(CuspTab tab, boolean immediate) {
         ScrollView scroll = tab == null ? visibleThreadScroll : tab.threadScroll;
         if (scroll == null && tab != null) {
             scroll = findScrollView(tab.readerView);
@@ -6233,7 +6279,11 @@ public class MainActivity extends Activity {
         final ScrollView targetScroll = scroll;
         targetScroll.post(() -> {
             int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
-            targetScroll.smoothScrollTo(0, range);
+            if (immediate) {
+                targetScroll.scrollTo(0, range);
+            } else {
+                targetScroll.smoothScrollTo(0, range);
+            }
         });
     }
 
