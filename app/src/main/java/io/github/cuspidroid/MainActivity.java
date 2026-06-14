@@ -887,7 +887,7 @@ public class MainActivity extends Activity {
             showThreadSearchDialog();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_search, text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread"), v -> {
+        menu.addView(menuIconItem(R.drawable.ic_search_next, text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread"), v -> {
             dismissPopupAnimated(popup);
             searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -3400,6 +3400,7 @@ public class MainActivity extends Activity {
             rememberThreadScroll(current);
         }
         clearAddressFocus();
+        closeThreadSearch();
         if (!replyPopups.isEmpty()) {
             dismissThreadPopups();
         }
