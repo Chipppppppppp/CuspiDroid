@@ -157,6 +157,7 @@ public class MainActivity extends Activity {
     private final Map<Integer, View> visiblePostViews = new LinkedHashMap<>();
     private final Set<View> suppressNextLinkClick = new LinkedHashSet<>();
     private final List<PopupWindow> replyPopups = new ArrayList<>();
+    private final List<PopupWindow> animatedPopups = new ArrayList<>();
     private int currentIndex = -1;
     private boolean pendingNewTab;
     private boolean pendingHistoryAll;
@@ -323,6 +324,10 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            if (!animatedPopups.isEmpty() && !isTouchInsideAnimatedPopup(event)) {
+                dismissTopAnimatedPopup();
+                return true;
+            }
             if (highlightedPostView != null) {
                 clearJumpHighlight();
             }
@@ -739,7 +744,7 @@ public class MainActivity extends Activity {
         menu.setOrientation(LinearLayout.HORIZONTAL);
         menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
@@ -808,7 +813,7 @@ public class MainActivity extends Activity {
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
@@ -4896,6 +4901,14 @@ public class MainActivity extends Activity {
         dismissPopupAnimated(popup);
     }
 
+    private void dismissTopAnimatedPopup() {
+        if (animatedPopups.isEmpty()) {
+            return;
+        }
+        PopupWindow popup = animatedPopups.get(animatedPopups.size() - 1);
+        dismissPopupAnimated(popup);
+    }
+
     private void dismissPopupAnimated(PopupWindow popup) {
         if (popup == null || !popup.isShowing()) {
             return;
@@ -4921,6 +4934,9 @@ public class MainActivity extends Activity {
         if (popup == null || content == null) {
             return;
         }
+        animatedPopups.remove(popup);
+        animatedPopups.add(popup);
+        popup.setOnDismissListener(() -> animatedPopups.remove(popup));
         popup.setTouchInterceptor((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_OUTSIDE) {
                 dismissPopupAnimated(popup);
@@ -4936,6 +4952,29 @@ public class MainActivity extends Activity {
             }
             return false;
         });
+    }
+
+    private boolean isTouchInsideAnimatedPopup(MotionEvent event) {
+        for (int i = animatedPopups.size() - 1; i >= 0; i--) {
+            PopupWindow popup = animatedPopups.get(i);
+            if (popup == null || !popup.isShowing()) {
+                animatedPopups.remove(i);
+                continue;
+            }
+            View content = popup.getContentView();
+            if (content == null) {
+                continue;
+            }
+            int[] location = new int[2];
+            content.getLocationOnScreen(location);
+            float x = event.getRawX();
+            float y = event.getRawY();
+            if (x >= location[0] && x <= location[0] + content.getWidth()
+                    && y >= location[1] && y <= location[1] + content.getHeight()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void animatePopupIn(PopupWindow popup, boolean pivotBottom) {

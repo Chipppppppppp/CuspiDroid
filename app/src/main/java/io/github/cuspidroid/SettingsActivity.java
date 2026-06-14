@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
@@ -37,6 +38,7 @@ public class SettingsActivity extends Activity {
     private RadioButton themeSystem;
     private RadioButton themeLight;
     private RadioButton themeDark;
+    private RadioGroup themeGroup;
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
@@ -64,6 +66,10 @@ public class SettingsActivity extends Activity {
 
     private int borderColor() {
         return Theme.border(this);
+    }
+
+    private int hintColor() {
+        return Theme.subtle(this);
     }
 
     @Override
@@ -126,11 +132,14 @@ public class SettingsActivity extends Activity {
         root.addView(treeView);
 
         root.addView(sectionTitle(MainActivity.text("\u30c6\u30fc\u30de", "Theme")));
-        RadioGroup themeGroup = new RadioGroup(this);
+        themeGroup = new RadioGroup(this);
         themeGroup.setOrientation(RadioGroup.VERTICAL);
         themeSystem = radio(MainActivity.text("\u7aef\u672b\u306e\u30c6\u30fc\u30de\u306b\u5f93\u3046", "Follow device theme"));
         themeLight = radio(MainActivity.text("\u30e9\u30a4\u30c8", "Light"));
         themeDark = radio(MainActivity.text("\u30c0\u30fc\u30af", "Dark"));
+        themeSystem.setId(View.generateViewId());
+        themeLight.setId(View.generateViewId());
+        themeDark.setId(View.generateViewId());
         themeGroup.addView(themeSystem);
         themeGroup.addView(themeLight);
         themeGroup.addView(themeDark);
@@ -149,6 +158,7 @@ public class SettingsActivity extends Activity {
         customTemplate.setSingleLine(true);
         customTemplate.setTextSize(14);
         customTemplate.setTextColor(textColor());
+        customTemplate.setHintTextColor(hintColor());
         customTemplate.setHint("https://example.com/search?q=%s");
         customTemplate.setImeOptions(EditorInfo.IME_ACTION_DONE);
         customTemplate.setInputType(android.text.InputType.TYPE_CLASS_TEXT
@@ -179,6 +189,7 @@ public class SettingsActivity extends Activity {
         bbsName.setSingleLine(true);
         bbsName.setTextSize(14);
         bbsName.setTextColor(textColor());
+        bbsName.setHintTextColor(hintColor());
         bbsName.setHint(MainActivity.text("\u540d\u524d", "Name"));
         bbsName.setBackground(roundedField());
         bbsName.setPadding(dp(12), 0, dp(12), 0);
@@ -188,6 +199,7 @@ public class SettingsActivity extends Activity {
         bbsUrl.setSingleLine(true);
         bbsUrl.setTextSize(14);
         bbsUrl.setTextColor(textColor());
+        bbsUrl.setHintTextColor(hintColor());
         bbsUrl.setHint(MainActivity.text("\u677fURL", "Board URL"));
         bbsUrl.setImeOptions(EditorInfo.IME_ACTION_DONE);
         bbsUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
@@ -258,23 +270,9 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
-        themeSystem.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) {
-                saveThemeMode();
-                recreate();
-            }
-        });
-        themeLight.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) {
-                saveThemeMode();
-                recreate();
-            }
-        });
-        themeDark.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) {
-                saveThemeMode();
-                recreate();
-            }
+        themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            saveThemeMode();
+            group.post(this::recreate);
         });
         searchFind5chIo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
