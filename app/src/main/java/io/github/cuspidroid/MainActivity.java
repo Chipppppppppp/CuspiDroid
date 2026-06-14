@@ -2,6 +2,7 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.animation.LayoutTransition;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -3255,21 +3256,11 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         list.addView(sectionTitleView("5ch"));
-        addBoardFolder(list, text("\u30cb\u30e5\u30fc\u30b9", "News"), new String[][]{
-                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831+", "News+"), "https://asahi.5ch.net/newsplus/"},
-                {text("\u82b8\u30b9\u30dd\u901f\u5831+", "Entertainment News+"), "https://hayabusa9.5ch.net/mnewsplus/"},
-                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831", "Breaking News"), "https://hayabusa9.5ch.net/news/"}
-        });
-        addBoardFolder(list, text("\u6587\u5316", "Culture"), new String[][]{
-                {text("\u6620\u753b\u4e00\u822c", "Movies"), "https://lavender.5ch.net/movie/"},
-                {text("\u97f3\u697d\u4e00\u822c", "Music"), "https://lavender.5ch.net/music/"},
-                {text("\u8aad\u66f8", "Books"), "https://mevius.5ch.net/books/"}
-        });
-        addBoardFolder(list, text("\u6280\u8853", "Technology"), new String[][]{
-                {text("\u30d7\u30ed\u30b0\u30e9\u30de\u30fc", "Programming"), "https://medaka.5ch.net/prog/"},
-                {"Linux", "https://mao.5ch.net/linux/"},
-                {text("\u81ea\u4f5cPC", "Custom PC"), "https://egg.5ch.net/jisaku/"}
-        });
+        TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
+        fiveCh.setOnClickListener(v -> showFiveChBoardsView());
+        list.addView(fiveCh);
+
+        list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
         list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
         list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         List<BbsLink> customLinks = readBbsLinks(preferences);
@@ -3286,6 +3277,48 @@ public class MainActivity extends Activity {
             }
         }
         addHistorySection(list, fullHistory);
+        return withScrollScrubber(scroll);
+    }
+
+    private void showFiveChBoardsView() {
+        View view = buildFiveChBoardsView();
+        if (pendingNewTab) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(view);
+        } else {
+            CuspTab tab = currentTab();
+            if (tab != null) {
+                tab.readerView = view;
+                contentFrame.removeAllViews();
+                contentFrame.addView(view);
+            }
+        }
+    }
+
+    private View buildFiveChBoardsView() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        list.addView(sectionTitleView("5ch"));
+        addBoardFolder(list, text("\u30cb\u30e5\u30fc\u30b9", "News"), new String[][]{
+                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831+", "News+"), "https://asahi.5ch.net/newsplus/"},
+                {text("\u82b8\u30b9\u30dd\u901f\u5831+", "Entertainment News+"), "https://hayabusa9.5ch.net/mnewsplus/"},
+                {text("\u30cb\u30e5\u30fc\u30b9\u901f\u5831", "Breaking News"), "https://hayabusa9.5ch.net/news/"}
+        });
+        addBoardFolder(list, text("\u6587\u5316", "Culture"), new String[][]{
+                {text("\u6620\u753b\u4e00\u822c", "Movies"), "https://lavender.5ch.net/movie/"},
+                {text("\u97f3\u697d\u4e00\u822c", "Music"), "https://lavender.5ch.net/music/"},
+                {text("\u8aad\u66f8", "Books"), "https://mevius.5ch.net/books/"}
+        });
+        addBoardFolder(list, text("\u6280\u8853", "Technology"), new String[][]{
+                {text("\u30d7\u30ed\u30b0\u30e9\u30de\u30fc", "Programming"), "https://medaka.5ch.net/prog/"},
+                {"Linux", "https://mao.5ch.net/linux/"},
+                {text("\u81ea\u4f5cPC", "Custom PC"), "https://egg.5ch.net/jisaku/"}
+        });
         return withScrollScrubber(scroll);
     }
 
@@ -3368,6 +3401,7 @@ public class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
+        list.setLayoutTransition(new LayoutTransition());
         list.setPadding(dp(12), dp(12), dp(12), dp(84));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -3420,14 +3454,59 @@ public class MainActivity extends Activity {
         undo.setPadding(dp(12), 0, dp(12), 0);
         undo.setOnClickListener(v -> undoClosedTab());
         bar.addView(undo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        attachDismissSwipe(bar, () -> {
+            recentlyClosedTab = null;
+            if (clearClosedTabUndoTask != null) {
+                mainHandler.removeCallbacks(clearClosedTabUndoTask);
+                clearClosedTabUndoTask = null;
+            }
+            if (tabOverviewVisible) {
+                contentFrame.removeAllViews();
+                contentFrame.addView(buildTabOverviewView());
+            }
+        });
         return bar;
     }
 
     private FrameLayout.LayoutParams closedTabUndoParams() {
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48), Gravity.BOTTOM);
-        params.setMargins(dp(12), 0, dp(12), dp(18));
+        params.setMargins(dp(12), 0, dp(12), dp(88));
         return params;
+    }
+
+    private void attachDismissSwipe(View view, Runnable dismiss) {
+        final float[] downX = new float[1];
+        final boolean[] dragging = new boolean[1];
+        view.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downX[0] = event.getRawX();
+                dragging[0] = false;
+                v.clearAnimation();
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                float dx = event.getRawX() - downX[0];
+                if (!dragging[0] && Math.abs(dx) > dp(10)) {
+                    dragging[0] = true;
+                }
+                if (dragging[0]) {
+                    v.setTranslationX(dx);
+                    v.setAlpha(Math.max(0.25f, 1f - Math.abs(dx) / Math.max(1f, v.getWidth())));
+                    return true;
+                }
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (dragging[0] && Math.abs(v.getTranslationX()) > dp(90)) {
+                    float target = v.getTranslationX() < 0 ? -v.getWidth() : v.getWidth();
+                    v.animate().translationX(target).alpha(0f).setDuration(140).withEndAction(dismiss).start();
+                    return true;
+                }
+                v.animate().translationX(0).alpha(1f).setDuration(120).start();
+                return true;
+            }
+            return true;
+        });
     }
 
     private View tabOverviewRow(CuspTab tab, int index) {
@@ -3436,12 +3515,13 @@ public class MainActivity extends Activity {
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
         shell.setOnDragListener((v, event) -> {
-            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+            if (event.getAction() == android.view.DragEvent.ACTION_DRAG_ENTERED
+                    || event.getAction() == android.view.DragEvent.ACTION_DROP) {
                 Object local = event.getLocalState();
                 if (local instanceof DragPayload) {
                     DragPayload payload = (DragPayload) local;
                     if ("tabs".equals(payload.key)) {
-                        moveTabInOverview(payload.index, index);
+                        moveTabInOverview(payload, index, (ViewGroup) shell.getParent());
                         return true;
                     }
                 }
@@ -3585,7 +3665,8 @@ public class MainActivity extends Activity {
         mainHandler.post(() -> switchToTab(index));
     }
 
-    private void moveTabInOverview(int from, int to) {
+    private void moveTabInOverview(DragPayload payload, int to, ViewGroup list) {
+        int from = payload.index;
         if (from < 0 || from >= tabs.size() || to < 0 || to >= tabs.size() || from == to) {
             return;
         }
@@ -3593,10 +3674,21 @@ public class MainActivity extends Activity {
         CuspTab moved = tabs.remove(from);
         tabs.add(to, moved);
         currentIndex = selected == null ? Math.min(to, tabs.size() - 1) : tabs.indexOf(selected);
+        payload.index = to;
+        moveListChild(list, from + 1, to + 1);
         saveTabs(false);
-        contentFrame.removeAllViews();
-        contentFrame.addView(buildTabOverviewView());
         renderTabs();
+    }
+
+    private void moveListChild(ViewGroup list, int fromChild, int toChild) {
+        if (list == null || fromChild == toChild
+                || fromChild < 0 || fromChild >= list.getChildCount()
+                || toChild < 0 || toChild >= list.getChildCount()) {
+            return;
+        }
+        View child = list.getChildAt(fromChild);
+        list.removeViewAt(fromChild);
+        list.addView(child, toChild);
     }
 
     private void closeTabFromOverview(int index) {
@@ -3715,6 +3807,7 @@ public class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
+        list.setLayoutTransition(new LayoutTransition());
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -3746,13 +3839,15 @@ public class MainActivity extends Activity {
         params.setMargins(0, 0, 0, dp(8));
         shell.setLayoutParams(params);
         shell.setOnDragListener((v, event) -> {
-            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+            if (event.getAction() == android.view.DragEvent.ACTION_DRAG_ENTERED
+                    || event.getAction() == android.view.DragEvent.ACTION_DROP) {
                 Object local = event.getLocalState();
                 if (local instanceof DragPayload) {
                     DragPayload payload = (DragPayload) local;
                     if (key.equals(payload.key)) {
                         moveSavedItem(key, payload.index, index);
-                        showSavedItemsView(key);
+                        moveListChild((ViewGroup) shell.getParent(), payload.index + 1, index + 1);
+                        payload.index = index;
                         return true;
                     }
                 }
@@ -8193,7 +8288,7 @@ public class MainActivity extends Activity {
 
     private static class DragPayload {
         final String key;
-        final int index;
+        int index;
 
         DragPayload(String key, int index) {
             this.key = key;
