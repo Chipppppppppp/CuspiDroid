@@ -734,10 +734,18 @@ public class MainActivity extends Activity {
             }
         }
         if (clipboardLink != null) {
-            if (suggestionsPanel.getChildCount() > 0) {
+            boolean hasRows = suggestionsPanel.getChildCount() > 0;
+            if (!addressBarTop) {
+                suggestionsPanel.addView(new View(this), new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            }
+            if (hasRows) {
                 suggestionsPanel.addView(suggestionDivider());
             }
-            TextView item = suggestionItem(text("\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u306e\u30ea\u30f3\u30af\u3092\u5165\u529b", "Enter link from clipboard"), clipboardLink);
+            TextView item = suggestionItem(
+                    text("\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u304b\u3089\u30ea\u30f3\u30af\u3092\u5165\u529b", "Enter link from clipboard"),
+                    clipboardLink,
+                    R.drawable.ic_paste);
             item.setOnClickListener(v -> {
                 addressBar.setText(clipboardLink);
                 addressBar.selectAll();
@@ -753,6 +761,10 @@ public class MainActivity extends Activity {
     }
 
     private TextView suggestionItem(String label, String value) {
+        return suggestionItem(label, value, 0);
+    }
+
+    private TextView suggestionItem(String label, String value, int iconRes) {
         TextView view = new TextView(this);
         view.setText(label + "\n" + value);
         view.setTextColor(textColor());
@@ -760,6 +772,10 @@ public class MainActivity extends Activity {
         view.setBackgroundColor(menuColor());
         view.setPadding(dp(12), dp(10), dp(12), dp(10));
         view.setMinHeight(dp(58));
+        if (iconRes != 0) {
+            view.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
+            view.setCompoundDrawablePadding(dp(10));
+        }
         return view;
     }
 
@@ -790,7 +806,7 @@ public class MainActivity extends Activity {
                 return null;
             }
             String url = normalizeUrl(value);
-            return is5chUrl(url) ? url : null;
+            return (is5chUrl(url) || isRegisteredBbsUrl(url)) ? url : null;
         } catch (Exception error) {
             return null;
         }
@@ -3306,11 +3322,106 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void enableTopPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
+        final float[] downY = new float[1];
+        final float[] pullDistance = new float[1];
+        final boolean[] startedAtTop = new boolean[1];
+        final boolean[] dragging = new boolean[1];
+        final boolean[] refreshing = new boolean[1];
+        scroll.setOnTouchListener((v, event) -> {
+            int hiddenOffset = -dp(58);
+            int maxOffset = dp(86);
+            int maxPull = dp(164);
+            int triggerPull = maxPull / 2;
+            int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
+            if (refreshing[0]) {
+                if (loader.getVisibility() == View.GONE) {
+                    refreshing[0] = false;
+                } else {
+                    return false;
+                }
+            }
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                startedAtTop[0] = !scroll.canScrollVertically(-1);
+                dragging[0] = false;
+                if (!refreshing[0]) {
+                    resetTopRefreshLoader(loader);
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                if (!startedAtTop[0] && !dragging[0] && !refreshing[0]
+                        && !scroll.canScrollVertically(-1)) {
+                    startedAtTop[0] = true;
+                    downY[0] = event.getY();
+                    pullDistance[0] = 0;
+                }
+                if (startedAtTop[0] && !refreshing[0]) {
+                    if (scroll.canScrollVertically(-1)) {
+                        startedAtTop[0] = false;
+                        dragging[0] = false;
+                        pullDistance[0] = 0;
+                        resetTopRefreshLoader(loader);
+                        return false;
+                    }
+                    float pull = Math.max(0, event.getY() - downY[0]);
+                    pullDistance[0] = pull;
+                    if (pull > dp(4)) {
+                        dragging[0] = true;
+                        loader.clearAnimation();
+                        loader.setVisibility(View.VISIBLE);
+                        float clampedPull = Math.min(pull, maxPull);
+                        float progress = clampedPull / maxPull;
+                        setBottomRefreshSpinning(loader, false);
+                        loader.setTranslationY(hiddenOffset + (maxOffset - hiddenOffset) * progress);
+                        loader.setRotation(progress * 270f);
+                        return true;
+                    }
+                    if (dragging[0]) {
+                        loader.setTranslationY(hiddenOffset);
+                        loader.setRotation(0f);
+                        return true;
+                    }
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= triggerPull) {
+                    refreshing[0] = true;
+                    startedAtTop[0] = false;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
+                    loader.setVisibility(View.VISIBLE);
+                    loader.setRotation(0f);
+                    setBottomRefreshSpinning(loader, true);
+                    loader.animate().translationY(triggerOffset).setDuration(110).withEndAction(() -> {
+                        refresh.run();
+                        mainHandler.postDelayed(() -> resetTopRefreshLoader(loader), 650);
+                    }).start();
+                    return true;
+                }
+                if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
+                    loader.animate().translationY(hiddenOffset).setDuration(140)
+                            .withEndAction(() -> resetTopRefreshLoader(loader)).start();
+                    return dragging[0];
+                }
+            }
+            return false;
+        });
+    }
+
     private void resetBottomRefreshLoader(View loader) {
         loader.clearAnimation();
         loader.animate().cancel();
         setBottomRefreshSpinning(loader, false);
         loader.setTranslationY(dp(58));
+        loader.setRotation(0f);
+        loader.setVisibility(View.GONE);
+    }
+
+    private void resetTopRefreshLoader(View loader) {
+        loader.clearAnimation();
+        loader.animate().cancel();
+        setBottomRefreshSpinning(loader, false);
+        loader.setTranslationY(-dp(58));
         loader.setRotation(0f);
         loader.setVisibility(View.GONE);
     }
@@ -3495,6 +3606,10 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout topLoader = bottomRefreshLoader();
+        resetTopRefreshLoader(topLoader);
+        root.addView(topLoader, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        enableTopPullRefresh(scroll, topLoader, this::reloadAllTabs);
 
         list.addView(sectionTitleView(text("\u30bf\u30d6", "Tabs")));
         if (tabs.isEmpty()) {
