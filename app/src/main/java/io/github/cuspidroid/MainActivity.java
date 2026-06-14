@@ -43,7 +43,6 @@ import android.text.style.StyleSpan;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
-import android.text.util.Linkify;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -146,6 +145,8 @@ public class MainActivity extends Activity {
     private static final int TEXT = Color.rgb(31, 41, 55);
     private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?[;:]//|ttps?[;:]//|ttp[;:]//)\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
+    private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-‐-―]\\s*(\\d{1,5}))?");
+    private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -2765,7 +2766,7 @@ public class MainActivity extends Activity {
         if (post == null || post.body == null) {
             return 0;
         }
-        Matcher matcher = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\u2010-\u2015]\\s*(\\d{1,5}))?").matcher(post.body);
+        Matcher matcher = REPLY_PATTERN.matcher(post.body);
         while (matcher.find()) {
             int from = parsePositiveInt(matcher.group(1), -1);
             int to = matcher.group(2) == null ? from : parsePositiveInt(matcher.group(2), from);
@@ -4838,13 +4839,7 @@ public class MainActivity extends Activity {
 
     private TextView postText(String value, ThreadPage page, String highlight) {
         TextView text = new TextView(this);
-        SpannableString linkedText = new SpannableString(value);
-        applySearchHighlights(linkedText, highlight);
-        addLooseUrlSpans(linkedText);
-        Linkify.addLinks(linkedText, Linkify.WEB_URLS);
-        addLooseUrlSpans(linkedText);
-        replaceUrlSpans(linkedText);
-        replaceReplySpans(linkedText, page);
+        SpannableString linkedText = decoratedPostText(value, page, highlight);
         text.setText(linkedText);
         text.setTextColor(textColor());
         text.setLinkTextColor(TEAL);
@@ -4857,6 +4852,14 @@ public class MainActivity extends Activity {
         return text;
     }
 
+    private SpannableString decoratedPostText(String value, ThreadPage page, String highlight) {
+        SpannableString linkedText = new SpannableString(value == null ? "" : value);
+        applySearchHighlights(linkedText, highlight);
+        addLooseUrlSpans(linkedText);
+        replaceReplySpans(linkedText, page);
+        return linkedText;
+    }
+
     private View postContent(String value, ThreadPage page) {
         return postContent(value, page, null);
     }
@@ -4866,6 +4869,11 @@ public class MainActivity extends Activity {
     }
 
     private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction) {
+        return postContent(value, page, highlight, longClickAction, imgurLinks(value));
+    }
+
+    private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction,
+                             List<ImgurLink> imgurLinks) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         TextView bodyText = postText(value, page, highlight);
@@ -4886,19 +4894,37 @@ public class MainActivity extends Activity {
         }
         box.addView(bodyText);
 
-        Matcher matcher = URL_TEXT_PATTERN.matcher(value);
-        List<String> added = new ArrayList<>();
-        while (matcher.find()) {
-            String rawUrl = matcher.group();
-            String cleanUrl = stripTrailingUrlPunctuation(rawUrl);
-            String imageUrl = imgurImageUrl(cleanUrl);
-            if (imageUrl == null || added.contains(imageUrl)) {
-                continue;
-            }
-            box.addView(imgurPreview(cleanUrl, imageUrl, longClickAction));
-            added.add(imageUrl);
+        for (ImgurLink link : imgurLinks) {
+            box.addView(imgurPreview(link.originalUrl, link.imageUrl, longClickAction));
         }
         return box;
+    }
+
+    private List<ImgurLink> imgurLinks(String value) {
+        List<ImgurLink> links = new ArrayList<>();
+        if (value == null || value.isEmpty()) {
+            return links;
+        }
+        Matcher matcher = URL_TEXT_PATTERN.matcher(value);
+        Set<String> added = new LinkedHashSet<>();
+        while (matcher.find()) {
+            String cleanUrl = stripTrailingUrlPunctuation(matcher.group());
+            String imageUrl = imgurImageUrl(cleanUrl);
+            if (imageUrl != null && added.add(imageUrl)) {
+                links.add(new ImgurLink(cleanUrl, imageUrl));
+            }
+        }
+        return links;
+    }
+
+    private List<ImgurLink> imgurLinks(Post post) {
+        if (post == null) {
+            return new ArrayList<>();
+        }
+        if (post.cachedImgurLinks == null) {
+            post.cachedImgurLinks = imgurLinks(post.body);
+        }
+        return post.cachedImgurLinks;
     }
 
     private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post) {
@@ -4908,15 +4934,10 @@ public class MainActivity extends Activity {
             }
         };
         if (!post.aaMode) {
-            return postContent(post.body, page, tab.threadSearchQuery, longClick);
+            return postContent(post.body, page, tab.threadSearchQuery, longClick, imgurLinks(post));
         }
         TextView body = new TextView(this);
-        SpannableString aaText = new SpannableString(post.body);
-        addLooseUrlSpans(aaText);
-        Linkify.addLinks(aaText, Linkify.WEB_URLS);
-        addLooseUrlSpans(aaText);
-        replaceUrlSpans(aaText);
-        replaceReplySpans(aaText, page);
+        SpannableString aaText = decoratedPostText(post.body, page, tab.threadSearchQuery);
         body.setText(aaText);
         body.setTextColor(textColor());
         body.setTextSize(13);
@@ -6017,7 +6038,7 @@ public class MainActivity extends Activity {
     }
 
     private void replaceReplySpans(SpannableString text, ThreadPage page) {
-        Matcher matcher = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\u2010-\u2015]\\s*(\\d{1,5}))?").matcher(text);
+        Matcher matcher = REPLY_PATTERN.matcher(text);
         while (matcher.find()) {
             int from = parsePositiveInt(matcher.group(1), -1);
             int to = matcher.group(2) == null ? from : parsePositiveInt(matcher.group(2), from);
@@ -10122,6 +10143,16 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static class ImgurLink {
+        final String originalUrl;
+        final String imageUrl;
+
+        ImgurLink(String originalUrl, String imageUrl) {
+            this.originalUrl = originalUrl;
+            this.imageUrl = imageUrl;
+        }
+    }
+
     private static class DownloadedImageBytes {
         final String url;
         final byte[] bytes;
@@ -10170,6 +10201,7 @@ public class MainActivity extends Activity {
         String date;
         String body;
         String cachedSearchBody;
+        List<ImgurLink> cachedImgurLinks;
         boolean aaMode;
         boolean swiping;
         long lastSwipeAt;
@@ -10187,8 +10219,7 @@ public class MainActivity extends Activity {
         }
 
         String be() {
-            Matcher matcher = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE)
-                    .matcher(date == null ? "" : date);
+            Matcher matcher = BE_PATTERN.matcher(date == null ? "" : date);
             return matcher.find() ? matcher.group(1) : "";
         }
     }
