@@ -169,6 +169,7 @@ public class MainActivity extends Activity {
     private Runnable threadSearchTask;
     private Runnable threadSearchHighlightTask;
     private Runnable saveTabsTask;
+    private boolean suppressNextAddressClick;
     private View imageOverlay;
     private View highlightedPostView;
     private Interpreter graphicViolenceInterpreter;
@@ -514,7 +515,13 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-        addressBar.setOnClickListener(v -> addressBar.selectAll());
+        addressBar.setOnClickListener(v -> {
+            if (suppressNextAddressClick) {
+                suppressNextAddressClick = false;
+                return;
+            }
+            addressBar.selectAll();
+        });
         addressBar.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 addressBar.selectAll();
@@ -538,6 +545,8 @@ public class MainActivity extends Activity {
             }
         });
         addressBar.setOnLongClickListener(v -> {
+            suppressNextAddressClick = true;
+            mainHandler.postDelayed(() -> suppressNextAddressClick = false, 900);
             if (addressBar.hasFocus()) {
                 return true;
             }
@@ -2504,6 +2513,9 @@ public class MainActivity extends Activity {
             text.setSpan(new ClickableSpan() {
                 @Override
                 public void onClick(View widget) {
+                    if (suppressNextLinkClick.remove(widget)) {
+                        return;
+                    }
                     showIdPopup(widget, page, id);
                 }
 
@@ -2522,6 +2534,8 @@ public class MainActivity extends Activity {
         meta.setPadding(0, 0, 0, dp(5));
         meta.setMovementMethod(LinkMovementMethod.getInstance());
         meta.setOnLongClickListener(v -> {
+            suppressNextLinkClick.add(v);
+            mainHandler.postDelayed(() -> suppressNextLinkClick.remove(v), 1200);
             if (longClickAction != null) {
                 longClickAction.run();
                 return true;
@@ -3747,6 +3761,8 @@ public class MainActivity extends Activity {
                 if (showLinkCopyPopupIfAny(bodyText)) {
                     return true;
                 }
+                suppressNextLinkClick.add(bodyText);
+                mainHandler.postDelayed(() -> suppressNextLinkClick.remove(bodyText), 1200);
                 longClickAction.run();
                 return true;
             });
@@ -3803,6 +3819,8 @@ public class MainActivity extends Activity {
             if (showLinkCopyPopupIfAny(body)) {
                 return true;
             }
+            suppressNextLinkClick.add(body);
+            mainHandler.postDelayed(() -> suppressNextLinkClick.remove(body), 1200);
             longClick.run();
             return true;
         });
@@ -4577,7 +4595,7 @@ public class MainActivity extends Activity {
             return false;
         }
         suppressNextLinkClick.add(anchor);
-        mainHandler.postDelayed(() -> suppressNextLinkClick.remove(anchor), 800);
+        mainHandler.postDelayed(() -> suppressNextLinkClick.remove(anchor), 1400);
         showLinkCopyPopup(anchor, (TouchedLink) tag);
         return true;
     }
@@ -4622,10 +4640,22 @@ public class MainActivity extends Activity {
         menu.addView(copy, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        TextView share = null;
+        if (linkMenu) {
+            share = menuItem(text("\u5171\u6709", "Share"), v -> {
+            });
+            share.setGravity(Gravity.CENTER_VERTICAL);
+            share.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_share, 0, 0, 0);
+            share.setCompoundDrawablePadding(dp(6));
+            menu.addView(share, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
         PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, true);
+                ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
         if (threadLink) {
             View open = menu.getChildAt(0);
             open.setOnClickListener(v -> {
@@ -4645,6 +4675,13 @@ public class MainActivity extends Activity {
             }
             dismissPopupAnimated(popup);
         });
+        TextView shareButton = share;
+        if (shareButton != null) {
+            shareButton.setOnClickListener(v -> {
+                shareUrl(value);
+                dismissPopupAnimated(popup);
+            });
+        }
         menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int x = Math.max(0, Math.min(rawX - dp(18),
@@ -4676,6 +4713,9 @@ public class MainActivity extends Activity {
             text.setSpan(new ClickableSpan() {
                 @Override
                 public void onClick(View widget) {
+                    if (suppressNextLinkClick.remove(widget)) {
+                        return;
+                    }
                     showReplyPopup(widget, page, from, to);
                 }
 
@@ -5978,10 +6018,21 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u5171\u6709\u3059\u308bURL\u304c\u3042\u308a\u307e\u305b\u3093", "No thread URL to share."), Toast.LENGTH_SHORT).show();
             return;
         }
+        shareUrl(tab.url, text("\u30b9\u30ec\u3092\u5171\u6709", "Share thread"));
+    }
+
+    private void shareUrl(String url) {
+        shareUrl(url, text("\u30ea\u30f3\u30af\u3092\u5171\u6709", "Share link"));
+    }
+
+    private void shareUrl(String url, String title) {
+        if (url == null || url.trim().isEmpty()) {
+            return;
+        }
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_TEXT, tab.url);
-        startActivity(Intent.createChooser(intent, text("\u30b9\u30ec\u3092\u5171\u6709", "Share thread")));
+        intent.putExtra(Intent.EXTRA_TEXT, url);
+        startActivity(Intent.createChooser(intent, title));
     }
 
     private void goBack() {
