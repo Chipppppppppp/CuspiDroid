@@ -1842,9 +1842,6 @@ public class MainActivity extends Activity {
                 }
                 tab.threadPage = result;
                 tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
-                if (!centerSpinner && !forceScrollToBottom) {
-                    markReadTo(tab, maxPostNumber(result), false);
-                }
                 tab.title = result.title;
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
