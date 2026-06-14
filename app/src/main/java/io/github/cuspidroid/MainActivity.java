@@ -192,6 +192,7 @@ public class MainActivity extends Activity {
     private final List<TextView> pageSearchMatches = new ArrayList<>();
     private final Map<TextView, CharSequence> pageSearchOriginalText = new LinkedHashMap<>();
     private int pageSearchIndex = -1;
+    private int pageSearchGeneration;
     private Runnable saveTabsTask;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
@@ -464,6 +465,7 @@ public class MainActivity extends Activity {
         threadSearchInput.setSingleLine(true);
         threadSearchInput.setTextSize(14);
         threadSearchInput.setTextColor(textColor());
+        threadSearchInput.setHintTextColor(hintTextColor());
         threadSearchInput.setHint(text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page"));
         threadSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         threadSearchInput.setBackground(addressBarBackground());
@@ -1283,6 +1285,7 @@ public class MainActivity extends Activity {
         }
         if (threadSearchInput != null) {
             threadSearchInput.setBackground(addressBarBackground());
+            threadSearchInput.setHintTextColor(hintTextColor());
         }
     }
 
@@ -7363,7 +7366,7 @@ public class MainActivity extends Activity {
                 mainHandler.removeCallbacks(threadSearchHighlightTask);
                 threadSearchHighlightTask = null;
             }
-            rerenderThreadHighlights(tab, previousHighlights);
+            rerenderThreadHighlightsChunked(tab, previousHighlights, tab.threadSearchGeneration);
         }
         if (threadSearchInput != null) {
             InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -7375,7 +7378,8 @@ public class MainActivity extends Activity {
         if (threadSearchBar != null) {
             threadSearchBar.setVisibility(View.GONE);
         }
-        clearPageSearchHighlights();
+        int pageGeneration = ++pageSearchGeneration;
+        clearPageSearchHighlightsChunked(pageGeneration);
         pageSearchOpen = false;
         pageSearchQuery = "";
         pageSearchMatches.clear();
@@ -7421,6 +7425,7 @@ public class MainActivity extends Activity {
     }
 
     private void updatePageSearch(String query, boolean resetIndex) {
+        pageSearchGeneration++;
         pageSearchQuery = query == null ? "" : query;
         clearPageSearchHighlights();
         pageSearchMatches.clear();
@@ -7480,6 +7485,32 @@ public class MainActivity extends Activity {
         pageSearchOriginalText.clear();
     }
 
+    private void clearPageSearchHighlightsChunked(int generation) {
+        if (pageSearchOriginalText.isEmpty()) {
+            return;
+        }
+        List<Map.Entry<TextView, CharSequence>> entries = new ArrayList<>(pageSearchOriginalText.entrySet());
+        pageSearchOriginalText.clear();
+        restorePageSearchHighlightsChunk(entries, 0, generation);
+    }
+
+    private void restorePageSearchHighlightsChunk(List<Map.Entry<TextView, CharSequence>> entries, int start, int generation) {
+        if (pageSearchGeneration != generation) {
+            return;
+        }
+        int end = Math.min(entries.size(), start + 12);
+        for (int i = start; i < end; i++) {
+            Map.Entry<TextView, CharSequence> entry = entries.get(i);
+            TextView view = entry.getKey();
+            if (view != null && view.isAttachedToWindow()) {
+                view.setText(entry.getValue());
+            }
+        }
+        if (end < entries.size()) {
+            mainHandler.post(() -> restorePageSearchHighlightsChunk(entries, end, generation));
+        }
+    }
+
     private void movePageSearch(int direction) {
         if (pageSearchMatches.isEmpty()) {
             return;
@@ -7535,26 +7566,62 @@ public class MainActivity extends Activity {
         if (tab == null || tab.threadPage == null || tab.postViews == null) {
             return;
         }
+        if (targets != null && !targets.isEmpty()) {
+            for (Integer number : targets) {
+                rerenderThreadHighlight(tab, number == null ? -1 : number);
+            }
+            return;
+        }
         for (Post post : tab.threadPage.posts) {
-            if (targets != null && !targets.isEmpty() && !targets.contains(post.number)) {
-                continue;
-            }
-            View cardView = tab.postViews.get(post.number);
-            if (!(cardView instanceof LinearLayout)) {
-                continue;
-            }
-            LinearLayout card = (LinearLayout) cardView;
-            if (card.getChildCount() < 2) {
-                continue;
-            }
-            card.removeViewAt(1);
-            View bodyView = postBodyView(card, tab.threadPage, tab, post);
-            card.addView(bodyView, 1);
-            View parent = (View) card.getParent();
-            if (parent instanceof ViewGroup && ((ViewGroup) parent).getChildCount() >= 3) {
-                ViewGroup shell = (ViewGroup) parent;
-                attachPostSwipeDeep(bodyView, card, shell.getChildAt(0), shell.getChildAt(1), tab, post);
-            }
+            rerenderThreadHighlight(tab, post.number);
+        }
+    }
+
+    private void rerenderThreadHighlightsChunked(CuspTab tab, Set<Integer> targets, int generation) {
+        if (tab == null || tab.threadPage == null || tab.postViews == null || targets == null || targets.isEmpty()) {
+            return;
+        }
+        List<Integer> numbers = new ArrayList<>(targets);
+        rerenderThreadHighlightChunk(tab, numbers, 0, generation);
+    }
+
+    private void rerenderThreadHighlightChunk(CuspTab tab, List<Integer> numbers, int start, int generation) {
+        if (tab == null || tab != currentTab() || tab.threadSearchGeneration != generation) {
+            return;
+        }
+        int end = Math.min(numbers.size(), start + 8);
+        for (int i = start; i < end; i++) {
+            Integer number = numbers.get(i);
+            rerenderThreadHighlight(tab, number == null ? -1 : number);
+        }
+        if (end < numbers.size()) {
+            mainHandler.post(() -> rerenderThreadHighlightChunk(tab, numbers, end, generation));
+        }
+    }
+
+    private void rerenderThreadHighlight(CuspTab tab, int postNumber) {
+        if (tab == null || tab.threadPage == null || tab.postViews == null) {
+            return;
+        }
+        Post post = tab.threadPage.postsByNumber.get(postNumber);
+        if (post == null) {
+            return;
+        }
+        View cardView = tab.postViews.get(post.number);
+        if (!(cardView instanceof LinearLayout)) {
+            return;
+        }
+        LinearLayout card = (LinearLayout) cardView;
+        if (card.getChildCount() < 2) {
+            return;
+        }
+        card.removeViewAt(1);
+        View bodyView = postBodyView(card, tab.threadPage, tab, post);
+        card.addView(bodyView, 1);
+        View parent = (View) card.getParent();
+        if (parent instanceof ViewGroup && ((ViewGroup) parent).getChildCount() >= 3) {
+            ViewGroup shell = (ViewGroup) parent;
+            attachPostSwipeDeep(bodyView, card, shell.getChildAt(0), shell.getChildAt(1), tab, post);
         }
     }
 
