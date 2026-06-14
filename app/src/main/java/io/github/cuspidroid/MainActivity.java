@@ -156,7 +156,7 @@ public class MainActivity extends Activity {
     private LinearLayout bottomToolbar;
     private TextView bottomThreadTitle;
     private ImageButton bottomWriteButton;
-    private TextView bottomBookmarkButton;
+    private ImageButton bottomBookmarkButton;
     private TextView tabCountButton;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
@@ -470,8 +470,7 @@ public class MainActivity extends Activity {
         bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
-        bottomBookmarkButton = toolbarTextButton("\uD83D\uDD16", text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"));
-        bottomBookmarkButton.setOnClickListener(v -> toggleCurrentThreadBookmark());
+        bottomBookmarkButton = iconButton(R.drawable.ic_bookmark_border, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), v -> toggleCurrentThreadBookmark());
         bottomThreadBar.addView(bottomBookmarkButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
         bottomToolbar = new LinearLayout(this);
@@ -630,18 +629,6 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(36));
         params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
-        return button;
-    }
-
-    private TextView toolbarTextButton(String label, String description) {
-        TextView button = new TextView(this);
-        button.setText(label);
-        button.setContentDescription(description);
-        button.setTextColor(textColor());
-        button.setTextSize(20);
-        button.setGravity(Gravity.CENTER);
-        button.setBackground(iconButtonBackground());
-        button.setSingleLine(true);
         return button;
     }
 
@@ -1594,7 +1581,8 @@ public class MainActivity extends Activity {
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
             bottomBookmarkButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            bottomBookmarkButton.setText(isSavedItem(PREF_THREAD_BOOKMARKS, tab.url) ? "\uD83D\uDD16" : "\u25AF");
+            bottomBookmarkButton.setImageResource(isSavedItem(PREF_THREAD_BOOKMARKS, tab.url)
+                    ? R.drawable.ic_bookmark : R.drawable.ic_bookmark_border);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
@@ -2912,7 +2900,7 @@ public class MainActivity extends Activity {
             meta.setTextSize(12);
             row.addView(meta);
             shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            TextView save = saveToggleButtonForResult(result);
+            ImageButton save = saveToggleButtonForResult(result);
             if (save != null) {
                 shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
             }
@@ -2935,7 +2923,7 @@ public class MainActivity extends Activity {
         return text;
     }
 
-    private TextView saveToggleButtonForResult(SearchResult result) {
+    private ImageButton saveToggleButtonForResult(SearchResult result) {
         if (result == null || result.url == null) {
             return null;
         }
@@ -2948,21 +2936,22 @@ public class MainActivity extends Activity {
             return null;
         }
         boolean boardFavorite = PREF_BOARD_FAVORITES.equals(key);
-        TextView button = toolbarTextButton(savedSymbol(key, result.url),
-                boardFavorite ? text("\u304a\u6c17\u306b\u5165\u308a", "Favorite") : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"));
+        ImageButton button = iconButton(savedIcon(key, result.url),
+                boardFavorite ? text("\u304a\u6c17\u306b\u5165\u308a", "Favorite") : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"),
+                null);
         button.setOnClickListener(v -> {
             toggleSavedItem(key, result.title, result.url);
-            button.setText(savedSymbol(key, result.url));
+            button.setImageResource(savedIcon(key, result.url));
         });
         return button;
     }
 
-    private String savedSymbol(String key, String url) {
+    private int savedIcon(String key, String url) {
         boolean saved = isSavedItem(key, url);
         if (PREF_THREAD_BOOKMARKS.equals(key)) {
-            return saved ? "\uD83D\uDD16" : "\u25AF";
+            return saved ? R.drawable.ic_bookmark : R.drawable.ic_bookmark_border;
         }
-        return saved ? "\u2605" : "\u2606";
+        return saved ? R.drawable.ic_star : R.drawable.ic_star_border;
     }
 
     private void applyMetaNumberStyle(SpannableString text, String value, String pattern, boolean velocity) {
@@ -3521,6 +3510,19 @@ public class MainActivity extends Activity {
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
+        shell.setOnDragListener((v, event) -> {
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    DragPayload payload = (DragPayload) local;
+                    if ("tabs".equals(payload.key)) {
+                        moveTabInOverview(payload, index);
+                        return true;
+                    }
+                }
+            }
+            return true;
+        });
         ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
         deleteLeft.setColorFilter(TEAL);
         ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
@@ -3534,6 +3536,12 @@ public class MainActivity extends Activity {
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
+        row.setOnClickListener(v -> selectTabFromOverview(index));
+        row.setOnLongClickListener(v -> {
+            v.startDragAndDrop(ClipData.newPlainText("tab", String.valueOf(index)),
+                    new View.DragShadowBuilder(shell), new DragPayload("tabs", index), 0);
+            return true;
+        });
 
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
@@ -3591,60 +3599,30 @@ public class MainActivity extends Activity {
         shell.setLayoutParams(rowParams);
         shell.addView(row, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
-        attachTabOverviewGestures(shell, row, deleteLeft, deleteRight, tab, index);
+        attachTabOverviewSwipe(row, deleteLeft, deleteRight, tab, index);
         return shell;
     }
 
-    private void attachTabOverviewGestures(View shell, View row, View deleteLeft, View deleteRight,
-                                           CuspTab tab, int index) {
+    private void attachTabOverviewSwipe(View row, View deleteLeft, View deleteRight, CuspTab tab, int index) {
         final float[] downX = new float[1];
         final float[] downY = new float[1];
-        final boolean[] swiping = new boolean[1];
-        final boolean[] reordering = new boolean[1];
-        final boolean[] longPressReady = new boolean[1];
-        final int[] currentIndex = new int[]{index};
-        final Runnable[] longPressTask = new Runnable[1];
+        final boolean[] dragging = new boolean[1];
         row.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 downX[0] = event.getRawX();
                 downY[0] = event.getRawY();
-                swiping[0] = false;
-                reordering[0] = false;
-                longPressReady[0] = true;
+                dragging[0] = false;
                 row.clearAnimation();
-                shell.clearAnimation();
-                longPressTask[0] = () -> {
-                    if (!longPressReady[0] || swiping[0]) {
-                        return;
-                    }
-                    reordering[0] = true;
-                    shell.bringToFront();
-                    shell.setAlpha(0.92f);
-                    v.getParent().requestDisallowInterceptTouchEvent(true);
-                };
-                mainHandler.postDelayed(longPressTask[0], 260);
-                return true;
+                return false;
             }
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 float dx = event.getRawX() - downX[0];
                 float dy = event.getRawY() - downY[0];
-                if (reordering[0]) {
-                    shell.setTranslationY(dy);
-                    int target = tabDropTargetIndex(shell, event.getRawY());
-                    if (target >= 0 && target != currentIndex[0]) {
-                        moveTabInOverview(currentIndex, target, (ViewGroup) shell.getParent());
-                    }
-                    return true;
-                }
-                if (!swiping[0] && Math.abs(dx) > dp(12) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
-                    swiping[0] = true;
-                    longPressReady[0] = false;
-                    if (longPressTask[0] != null) {
-                        mainHandler.removeCallbacks(longPressTask[0]);
-                    }
+                if (!dragging[0] && Math.abs(dx) > dp(12) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
+                    dragging[0] = true;
                     v.getParent().requestDisallowInterceptTouchEvent(true);
                 }
-                if (swiping[0]) {
+                if (dragging[0]) {
                     float translation = Math.max(-dp(108), Math.min(dp(108), dx * 0.58f));
                     row.setTranslationX(translation);
                     deleteLeft.setAlpha(Math.max(0f, Math.min(1f, translation / dp(64))));
@@ -3653,17 +3631,7 @@ public class MainActivity extends Activity {
                 }
             }
             if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                longPressReady[0] = false;
-                if (longPressTask[0] != null) {
-                    mainHandler.removeCallbacks(longPressTask[0]);
-                }
-                if (reordering[0]) {
-                    shell.animate().translationY(0).alpha(1f).setDuration(130).start();
-                    saveTabs(false);
-                    renderTabs();
-                    return true;
-                }
-                if (swiping[0]) {
+                if (dragging[0]) {
                     float tx = row.getTranslationX();
                     row.animate().translationX(0).setDuration(130).start();
                     deleteLeft.animate().alpha(0f).setDuration(130).start();
@@ -3674,13 +3642,8 @@ public class MainActivity extends Activity {
                     }
                     return true;
                 }
-                if (event.getAction() == MotionEvent.ACTION_UP) {
-                    int selectIndex = tabs.indexOf(tab);
-                    selectTabFromOverview(selectIndex);
-                }
-                return true;
             }
-            return true;
+            return false;
         });
     }
 
@@ -3698,8 +3661,8 @@ public class MainActivity extends Activity {
         mainHandler.post(() -> switchToTab(index));
     }
 
-    private void moveTabInOverview(int[] currentIndexRef, int to, ViewGroup list) {
-        int from = currentIndexRef[0];
+    private void moveTabInOverview(DragPayload payload, int to) {
+        int from = payload.index;
         if (from < 0 || from >= tabs.size() || to < 0 || to >= tabs.size() || from == to) {
             return;
         }
@@ -3707,44 +3670,13 @@ public class MainActivity extends Activity {
         CuspTab moved = tabs.remove(from);
         tabs.add(to, moved);
         currentIndex = selected == null ? Math.min(to, tabs.size() - 1) : tabs.indexOf(selected);
-        currentIndexRef[0] = to;
-        moveListChild(list, from + 1, to + 1);
+        payload.index = to;
         renderTabs();
-    }
-
-    private int tabDropTargetIndex(View dragged, float rawY) {
-        ViewGroup list = dragged == null ? null : (ViewGroup) dragged.getParent();
-        if (list == null) {
-            return -1;
+        saveTabs(false);
+        if (tabOverviewVisible) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
         }
-        Rect rect = new Rect();
-        int result = -1;
-        for (int childIndex = 1; childIndex < list.getChildCount(); childIndex++) {
-            View child = list.getChildAt(childIndex);
-            if (child == dragged) {
-                continue;
-            }
-            child.getGlobalVisibleRect(rect);
-            if (rawY < rect.centerY()) {
-                result = childIndex - 1;
-                break;
-            }
-        }
-        if (result < 0) {
-            result = tabs.size() - 1;
-        }
-        return Math.max(0, Math.min(result, tabs.size() - 1));
-    }
-
-    private void moveListChild(ViewGroup list, int fromChild, int toChild) {
-        if (list == null || fromChild == toChild
-                || fromChild < 0 || fromChild >= list.getChildCount()
-                || toChild < 0 || toChild >= list.getChildCount()) {
-            return;
-        }
-        View child = list.getChildAt(fromChild);
-        list.removeViewAt(fromChild);
-        list.addView(child, toChild);
     }
 
     private void closeTabFromOverview(int index) {
@@ -3895,15 +3827,14 @@ public class MainActivity extends Activity {
         params.setMargins(0, 0, 0, dp(8));
         shell.setLayoutParams(params);
         shell.setOnDragListener((v, event) -> {
-            if (event.getAction() == android.view.DragEvent.ACTION_DRAG_ENTERED
-                    || event.getAction() == android.view.DragEvent.ACTION_DROP) {
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
                 Object local = event.getLocalState();
                 if (local instanceof DragPayload) {
                     DragPayload payload = (DragPayload) local;
                     if (key.equals(payload.key)) {
                         moveSavedItem(key, payload.index, index);
-                        moveListChild((ViewGroup) shell.getParent(), payload.index + 1, index + 1);
                         payload.index = index;
+                        showSavedItemsView(key);
                         return true;
                     }
                 }
