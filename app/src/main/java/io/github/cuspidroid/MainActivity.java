@@ -3022,15 +3022,15 @@ public class MainActivity extends Activity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(14), 0, dp(6), 0);
-        bar.setBackground(roundedDrawable(Color.rgb(31, 41, 55), Color.rgb(31, 41, 55), dp(8)));
+        bar.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(8)));
         TextView message = new TextView(this);
         message.setText(text("\u30bf\u30d6\u3092\u9589\u3058\u307e\u3057\u305f", "Tab closed"));
-        message.setTextColor(Color.WHITE);
+        message.setTextColor(TEXT);
         message.setTextSize(14);
         bar.addView(message, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView undo = new TextView(this);
         undo.setText(text("\u5143\u306b\u623b\u3059", "Undo"));
-        undo.setTextColor(Color.rgb(94, 234, 212));
+        undo.setTextColor(TEAL);
         undo.setTextSize(14);
         undo.setGravity(Gravity.CENTER);
         undo.setPadding(dp(12), 0, dp(12), 0);
@@ -3052,9 +3052,9 @@ public class MainActivity extends Activity {
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
         ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        deleteLeft.setColorFilter(Color.rgb(185, 28, 28));
+        deleteLeft.setColorFilter(TEAL);
         ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        deleteRight.setColorFilter(Color.rgb(185, 28, 28));
+        deleteRight.setColorFilter(TEAL);
         shell.addView(deleteLeft);
         shell.addView(deleteRight);
 
@@ -6000,20 +6000,8 @@ public class MainActivity extends Activity {
         if (host == null || board == null) {
             throw new IllegalStateException("Unsupported board URL.");
         }
-        String subjectUrl = "https://" + host + "/" + board + "/subject.txt";
-        HttpURLConnection connection = openConnectionFollowingRedirects(
-                subjectUrl,
-                "Monazilla/1.00 CuspiDroid/0.1");
-        int code = connection.getResponseCode();
-        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        if (stream == null) {
-            throw new IllegalStateException("HTTP " + code);
-        }
-        String body = readText(stream, Charset.forName("MS932"));
-        connection.disconnect();
-        if (code >= 400) {
-            throw new IllegalStateException("HTTP " + code + "\n" + cleanText(body));
-        }
+        BoardSubject subject = downloadBoardSubject(boardUrl, host, board);
+        String body = subject.body;
 
         SearchPage page = new SearchPage();
         page.url = boardUrl;
@@ -6029,13 +6017,117 @@ public class MainActivity extends Activity {
                 continue;
             }
             String key = dat.substring(0, dat.length() - 4);
+            int responses = threadResponseCount(title);
             SearchResult result = new SearchResult();
             result.title = title;
-            result.url = "https://" + host + "/test/read.cgi/" + board + "/" + key + "/";
-            result.meta = board;
+            result.url = subject.threadBase + key + "/";
+            result.meta = boardThreadMeta(board, responses, threadVelocity(key, responses));
             page.results.add(result);
         }
         return page;
+    }
+
+    private BoardSubject downloadBoardSubject(String boardUrl, String host, String board) throws Exception {
+        Exception lastError = null;
+        for (String subjectUrl : boardSubjectCandidates(boardUrl, host, board)) {
+            HttpURLConnection connection = null;
+            try {
+                connection = openConnectionFollowingRedirects(
+                        subjectUrl,
+                        "Monazilla/1.00 CuspiDroid/0.1");
+                int code = connection.getResponseCode();
+                InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+                if (stream == null) {
+                    throw new IllegalStateException("HTTP " + code);
+                }
+                String body = readText(stream, Charset.forName("MS932"));
+                if (code >= 400) {
+                    throw new IllegalStateException("HTTP " + code + "\n" + cleanText(body));
+                }
+                return new BoardSubject(body, threadBaseFromSubjectUrl(subjectUrl, board));
+            } catch (Exception error) {
+                lastError = error;
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+        }
+        throw lastError == null ? new IllegalStateException("subject.txt not found.") : lastError;
+    }
+
+    private List<String> boardSubjectCandidates(String boardUrl, String host, String board) {
+        List<String> urls = new ArrayList<>();
+        String normalized = normalizeUrl(boardUrl);
+        addUnique(urls, trimSlash(normalized) + "/subject.txt");
+        String scheme = Uri.parse(normalized).getScheme();
+        if (scheme == null || scheme.isEmpty()) {
+            scheme = "https";
+        }
+        addUnique(urls, scheme + "://" + host + "/" + board + "/subject.txt");
+        addUnique(urls, "https://" + host + "/" + board + "/subject.txt");
+        addUnique(urls, "http://" + host + "/" + board + "/subject.txt");
+        for (BbsLink link : readBbsLinks(preferences)) {
+            try {
+                Uri base = Uri.parse(normalizeUrl(link.url));
+                if (base.getHost() != null && base.getHost().equalsIgnoreCase(host)) {
+                    addUnique(urls, trimSlash(normalizeUrl(link.url)) + "/subject.txt");
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return urls;
+    }
+
+    private void addUnique(List<String> values, String value) {
+        if (value != null && !values.contains(value)) {
+            values.add(value);
+        }
+    }
+
+    private String trimSlash(String value) {
+        String result = value == null ? "" : value.trim();
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
+    private String threadBaseFromSubjectUrl(String subjectUrl, String board) {
+        Uri uri = Uri.parse(subjectUrl);
+        String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+        String host = uri.getHost();
+        if (host == null) {
+            return "";
+        }
+        String reader = host.toLowerCase(Locale.ROOT).endsWith("machi.to")
+                ? "/bbs/read.cgi/"
+                : "/test/read.cgi/";
+        return scheme + "://" + host + reader + board + "/";
+    }
+
+    private int threadResponseCount(String title) {
+        Matcher matcher = Pattern.compile("\\((\\d{1,6})\\)\\s*$").matcher(title == null ? "" : title);
+        return matcher.find() ? parsePositiveInt(matcher.group(1), 0) : 0;
+    }
+
+    private double threadVelocity(String key, int responses) {
+        int created = parsePositiveInt(key, 0);
+        if (created <= 0 || responses <= 0) {
+            return 0d;
+        }
+        double days = Math.max(1d / 24d, (System.currentTimeMillis() / 1000d - created) / 86400d);
+        return responses / days;
+    }
+
+    private String boardThreadMeta(String board, int responses, double velocity) {
+        String count = responses > 0
+                ? text("\u30ec\u30b9: ", "Posts: ") + responses
+                : text("\u30ec\u30b9: -", "Posts: -");
+        String speed = velocity > 0
+                ? text("\u52e2\u3044: ", "Speed: ") + String.format(Locale.ROOT, "%.1f", velocity)
+                : text("\u52e2\u3044: -", "Speed: -");
+        return board + "  " + count + "  " + speed;
     }
 
     private ThreadPage parseThread(String url, String html) {
@@ -6552,11 +6644,15 @@ public class MainActivity extends Activity {
             return null;
         }
         String[] parts = path.split("/");
-        for (String part : parts) {
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i];
             if (part.isEmpty()) {
                 continue;
             }
             if ("test".equals(part) || "read.cgi".equals(part) || "dat".equals(part)) {
+                if ("read.cgi".equals(part) && i + 1 < parts.length && !parts[i + 1].isEmpty()) {
+                    return parts[i + 1];
+                }
                 return null;
             }
             return part;
@@ -6995,6 +7091,16 @@ public class MainActivity extends Activity {
         String title;
         String url;
         String meta;
+    }
+
+    private static class BoardSubject {
+        final String body;
+        final String threadBase;
+
+        BoardSubject(String body, String threadBase) {
+            this.body = body;
+            this.threadBase = threadBase;
+        }
     }
 
     private static class PostResult {
