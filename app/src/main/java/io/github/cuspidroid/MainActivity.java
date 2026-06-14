@@ -204,8 +204,10 @@ public class MainActivity extends Activity {
     private Interpreter graphicViolenceInterpreter;
     private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
+    private final List<DeferredMediaPreview> deferredMediaPreviews = new ArrayList<>();
     private boolean imgurLoadInFlight;
     private Runnable lazyImgurTask;
+    private Runnable deferredMediaTask;
     private CuspTab pendingScrollToBottomTab;
     private String appliedThemeMode;
 
@@ -2446,7 +2448,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.setClipChildren(false);
         scroll.setVerticalScrollBarEnabled(false);
-        scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleLazyImgurLoads);
+        scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleThreadMediaLoads);
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -4898,7 +4900,7 @@ public class MainActivity extends Activity {
         box.addView(bodyText);
 
         for (ImgurLink link : imgurLinks) {
-            box.addView(imgurPreview(link.originalUrl, link.imageUrl, longClickAction));
+            box.addView(deferredMediaPreview(link.originalUrl, link.imageUrl, longClickAction));
         }
         return box;
     }
@@ -4912,7 +4914,7 @@ public class MainActivity extends Activity {
         Set<String> added = new LinkedHashSet<>();
         while (matcher.find()) {
             String cleanUrl = stripTrailingUrlPunctuation(matcher.group());
-            String imageUrl = imgurImageUrl(cleanUrl);
+            String imageUrl = previewImageUrl(cleanUrl);
             if (imageUrl != null && added.add(imageUrl)) {
                 links.add(new ImgurLink(cleanUrl, imageUrl));
             }
@@ -5113,6 +5115,99 @@ public class MainActivity extends Activity {
             scheduleLazyImgurLoads();
         }
         return frame;
+    }
+
+    private View deferredMediaPreview(String originalUrl, String imageUrl, Runnable longClickAction) {
+        FrameLayout placeholder = new FrameLayout(this);
+        placeholder.setClickable(true);
+        placeholder.setBackgroundColor(Theme.dark(this) ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
+        if (longClickAction != null) {
+            placeholder.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(176));
+        params.setMargins(0, dp(6), 0, dp(6));
+        placeholder.setLayoutParams(params);
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        spinner.setAlpha(0.55f);
+        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(28), dp(28));
+        spinnerParams.gravity = Gravity.CENTER;
+        placeholder.addView(spinner, spinnerParams);
+        DeferredMediaPreview preview = new DeferredMediaPreview(originalUrl, imageUrl, placeholder, longClickAction);
+        placeholder.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View view) {
+                if (!deferredMediaPreviews.contains(preview)) {
+                    deferredMediaPreviews.add(preview);
+                }
+                scheduleDeferredMediaLoads();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View view) {
+                deferredMediaPreviews.remove(preview);
+            }
+        });
+        if (placeholder.isAttachedToWindow()) {
+            deferredMediaPreviews.add(preview);
+            scheduleDeferredMediaLoads();
+        }
+        return placeholder;
+    }
+
+    private void scheduleThreadMediaLoads() {
+        scheduleDeferredMediaLoads();
+        scheduleLazyImgurLoads();
+    }
+
+    private void scheduleDeferredMediaLoads() {
+        if (deferredMediaTask != null) {
+            return;
+        }
+        deferredMediaTask = () -> {
+            deferredMediaTask = null;
+            runDeferredMediaLoads();
+        };
+        mainHandler.postDelayed(deferredMediaTask, 50);
+    }
+
+    private void runDeferredMediaLoads() {
+        for (int i = deferredMediaPreviews.size() - 1; i >= 0; i--) {
+            DeferredMediaPreview preview = deferredMediaPreviews.get(i);
+            if (!preview.placeholder.isAttachedToWindow()) {
+                deferredMediaPreviews.remove(i);
+            }
+        }
+        int created = 0;
+        for (DeferredMediaPreview preview : new ArrayList<>(deferredMediaPreviews)) {
+            if (preview.created || !isNearViewport(preview.placeholder)) {
+                continue;
+            }
+            preview.created = true;
+            ViewParent parent = preview.placeholder.getParent();
+            if (!(parent instanceof ViewGroup)) {
+                deferredMediaPreviews.remove(preview);
+                continue;
+            }
+            ViewGroup group = (ViewGroup) parent;
+            int index = group.indexOfChild(preview.placeholder);
+            ViewGroup.LayoutParams params = preview.placeholder.getLayoutParams();
+            View media = imgurPreview(preview.originalUrl, preview.imageUrl, preview.longClickAction);
+            group.removeView(preview.placeholder);
+            group.addView(media, Math.max(0, index), params);
+            deferredMediaPreviews.remove(preview);
+            created++;
+            if (created >= 3) {
+                break;
+            }
+        }
+        if (created > 0 && !deferredMediaPreviews.isEmpty()) {
+            scheduleDeferredMediaLoads();
+        }
     }
 
     private void scheduleLazyImgurLoads() {
@@ -5350,6 +5445,16 @@ public class MainActivity extends Activity {
                 }
                 try (InputStream stream = connection.getInputStream()) {
                     byte[] bytes = readBytes(stream);
+                    if (isHtmlContent(contentType) && isTadaupUrl(candidate)) {
+                        String resolved = extractTadaupImageUrl(bytes, candidate);
+                        if (resolved != null && !resolved.equals(candidate)) {
+                            DownloadedImageBytes image = downloadOriginalImageBytes(resolved);
+                            if (image != null) {
+                                return image;
+                            }
+                        }
+                        continue;
+                    }
                     if (looksLikeImgurMissing(bytes, contentType)) {
                         continue;
                     }
@@ -5499,6 +5604,13 @@ public class MainActivity extends Activity {
             }
             try (InputStream stream = connection.getInputStream()) {
                 byte[] bytes = readBytes(stream);
+                if (isHtmlContent(contentType) && isTadaupUrl(url)) {
+                    String resolved = extractTadaupImageUrl(bytes, url);
+                    if (resolved != null && !resolved.equals(url)) {
+                        return downloadBitmap(resolved, maxWidth, maxHeight);
+                    }
+                    return null;
+                }
                 if (looksLikeImgurMissing(bytes, contentType)) {
                     saveImageMissing(url);
                     Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
@@ -5566,6 +5678,92 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private boolean isHtmlContent(String contentType) {
+        String type = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+        return type.contains("text/html") || type.contains("application/xhtml");
+    }
+
+    private boolean isTadaupUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            return host != null && host.equalsIgnoreCase("tadaup.jp");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String extractTadaupImageUrl(byte[] bytes, String pageUrl) {
+        try {
+            String html = new String(bytes, Charset.forName("UTF-8"));
+            String resolved = tadaupImageUrl(absoluteUrl(pageUrl, firstHtmlAttribute(html,
+                    "<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]*>",
+                    "content")));
+            if (isUsableTadaupImage(resolved)) {
+                return resolved;
+            }
+            Matcher srcset = Pattern.compile("<img\\b[^>]+srcset=[\"']([^\"']+)[\"'][^>]*>",
+                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
+            while (srcset.find()) {
+                resolved = bestImageFromSrcset(pageUrl, srcset.group(1));
+                if (isUsableTadaupImage(resolved)) {
+                    return resolved;
+                }
+            }
+            Matcher src = Pattern.compile("<img\\b[^>]+src=[\"']([^\"']+\\.(?:jpe?g|png|webp|gif))(?:\\?[^\"']*)?[\"'][^>]*>",
+                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
+            while (src.find()) {
+                resolved = tadaupImageUrl(absoluteUrl(pageUrl, cleanText(src.group(1))));
+                if (isUsableTadaupImage(resolved)) {
+                    return resolved;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private boolean isUsableTadaupImage(String url) {
+        return url != null
+                && !url.contains("/pass")
+                && !url.contains("/logo")
+                && !url.contains("/default_avatar")
+                && !url.contains("/wp-content/");
+    }
+
+    private String bestImageFromSrcset(String pageUrl, String srcset) {
+        if (srcset == null) {
+            return null;
+        }
+        String best = null;
+        int bestWidth = -1;
+        for (String part : srcset.split(",")) {
+            String[] pieces = part.trim().split("\\s+");
+            if (pieces.length == 0 || pieces[0].isEmpty()) {
+                continue;
+            }
+            int width = pieces.length > 1 && pieces[1].endsWith("w")
+                    ? parsePositiveInt(pieces[1].substring(0, pieces[1].length() - 1), 0)
+                    : 0;
+            if (best == null || width > bestWidth) {
+                best = pieces[0];
+                bestWidth = width;
+            }
+        }
+        return best == null ? null : tadaupImageUrl(absoluteUrl(pageUrl, cleanText(best)));
+    }
+
+    private String firstHtmlAttribute(String html, String tagPattern, String attribute) {
+        if (html == null) {
+            return null;
+        }
+        Matcher tagMatcher = Pattern.compile(tagPattern, Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
+        if (!tagMatcher.find()) {
+            return null;
+        }
+        return htmlAttribute(tagMatcher.group(), attribute);
     }
 
     private Bitmap missingImgurBitmap(int maxWidth, int maxHeight) {
@@ -5832,6 +6030,14 @@ public class MainActivity extends Activity {
         return url.substring(0, end);
     }
 
+    private String previewImageUrl(String rawUrl) {
+        String imgur = imgurImageUrl(rawUrl);
+        if (imgur != null) {
+            return imgur;
+        }
+        return tadaupImageUrl(rawUrl);
+    }
+
     private String imgurImageUrl(String rawUrl) {
         try {
             Uri uri = Uri.parse(normalizeUrl(rawUrl));
@@ -5888,6 +6094,27 @@ public class MainActivity extends Activity {
                 }
             }, start, end, flags);
         }
+    }
+
+    private String tadaupImageUrl(String rawUrl) {
+        try {
+            String normalized = normalizeUrl(rawUrl);
+            Uri uri = Uri.parse(normalized);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null || !host.equalsIgnoreCase("tadaup.jp")) {
+                return null;
+            }
+            String lower = path.toLowerCase(Locale.ROOT);
+            if (lower.matches(".+\\.(jpe?g|png|webp|gif)$")) {
+                return normalized.replaceFirst("-(\\d{2,5})x(\\d{2,5})(\\.(?i:jpe?g|png|webp|gif))$", "$3");
+            }
+            if (path.matches("/\\d{10,}/?")) {
+                return normalized;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private void installLinkTouchTracking(TextView text) {
@@ -9808,6 +10035,21 @@ public class MainActivity extends Activity {
             this.spinner = spinner;
             this.error = error;
             this.reveal = reveal;
+        }
+    }
+
+    private static class DeferredMediaPreview {
+        final String originalUrl;
+        final String imageUrl;
+        final FrameLayout placeholder;
+        final Runnable longClickAction;
+        boolean created;
+
+        DeferredMediaPreview(String originalUrl, String imageUrl, FrameLayout placeholder, Runnable longClickAction) {
+            this.originalUrl = originalUrl;
+            this.imageUrl = imageUrl;
+            this.placeholder = placeholder;
+            this.longClickAction = longClickAction;
         }
     }
 
