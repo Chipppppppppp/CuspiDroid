@@ -2633,22 +2633,18 @@ public class MainActivity extends Activity {
     }
 
     private int metaBlue(double value, boolean velocity) {
-        double[] steps = velocity
-                ? new double[]{10, 50, 100, 300, 800}
-                : new double[]{50, 200, 500, 1000, 3000};
-        int[] colors = {
-                Color.rgb(96, 165, 250),
-                Color.rgb(59, 130, 246),
-                Color.rgb(37, 99, 235),
-                Color.rgb(29, 78, 216),
-                Color.rgb(30, 64, 175),
-                Color.rgb(23, 37, 84)
-        };
-        int level = 0;
-        while (level < steps.length && value >= steps[level]) {
-            level++;
-        }
-        return colors[level];
+        double max = velocity ? 10000d : 1000d;
+        double ratio = Math.max(0d, Math.min(1d, value / max));
+        int start = Color.rgb(100, 116, 139);
+        int end = Color.rgb(29, 78, 216);
+        return Color.rgb(
+                interpolate(Color.red(start), Color.red(end), ratio),
+                interpolate(Color.green(start), Color.green(end), ratio),
+                interpolate(Color.blue(start), Color.blue(end), ratio));
+    }
+
+    private int interpolate(int start, int end, double ratio) {
+        return (int) Math.round(start + (end - start) * ratio);
     }
 
     private View withScrollScrubber(ScrollView scroll) {
