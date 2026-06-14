@@ -239,10 +239,10 @@ public class SettingsActivity extends Activity {
         } else {
             addressBarBottom.setChecked(true);
         }
-        treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, false));
+        treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
         updateTreeDependentSettings();
-        boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, false));
+        boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
         String themeMode = preferences.getString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
         if (Theme.MODE_DARK.equals(themeMode)) {
             themeDark.setChecked(true);

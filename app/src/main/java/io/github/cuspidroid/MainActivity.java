@@ -1658,6 +1658,7 @@ public class MainActivity extends Activity {
             item.put("title", result.title);
             item.put("url", result.url);
             item.put("meta", result.meta);
+            item.put("category", result.category == null ? "" : result.category);
             item.put("responses", result.responses);
             item.put("velocity", result.velocity);
             item.put("boardOrder", result.boardOrder);
@@ -1691,6 +1692,7 @@ public class MainActivity extends Activity {
                 result.title = item.optString("title", "");
                 result.url = item.optString("url", "");
                 result.meta = item.optString("meta", "");
+                result.category = item.optString("category", "");
                 result.responses = item.optInt("responses", 0);
                 result.velocity = item.optDouble("velocity", 0d);
                 result.boardOrder = item.optInt("boardOrder", i);
@@ -2543,11 +2545,12 @@ public class MainActivity extends Activity {
         if (tab.threadRenderGeneration != generation || tab.threadList != list) {
             return;
         }
-        long deadline = android.os.SystemClock.uptimeMillis() + 6;
+        boolean fastToBottom = tab.fastRenderToBottom;
+        long deadline = android.os.SystemClock.uptimeMillis() + (fastToBottom ? 18 : 6);
         int i = start;
         int rendered = 0;
         while (i < items.size()
-                && rendered < 8
+                && rendered < (fastToBottom ? 48 : 8)
                 && android.os.SystemClock.uptimeMillis() < deadline) {
             PostRenderItem item = items.get(i);
             addPostCard(list, page, tab, item, list.getChildCount());
@@ -2556,7 +2559,8 @@ public class MainActivity extends Activity {
         }
         if (i < items.size()) {
             int next = i;
-            mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete), 16);
+            mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete),
+                    fastToBottom ? 0 : 16);
         } else {
             refreshThreadScrollChrome(tab);
             scheduleLazyImgurLoads();
@@ -2572,6 +2576,7 @@ public class MainActivity extends Activity {
                 restoreThreadScroll(tab);
                 runPendingScrollToBottom(tab);
             }
+            tab.fastRenderToBottom = false;
             if (onComplete != null) {
                 onComplete.run();
             }
@@ -3185,9 +3190,15 @@ public class MainActivity extends Activity {
             return scroll;
         }
 
+        String renderedCategory = null;
         for (SearchResult result : page.results) {
             if (matchesNgThread(result.title)) {
                 continue;
+            }
+            if (result.category != null && !result.category.trim().isEmpty()
+                    && !result.category.equals(renderedCategory)) {
+                renderedCategory = result.category;
+                list.addView(categoryHeader(renderedCategory));
             }
             LinearLayout shell = new LinearLayout(this);
             shell.setOrientation(LinearLayout.HORIZONTAL);
@@ -3225,6 +3236,21 @@ public class MainActivity extends Activity {
             list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
         }
         return withScrollScrubber(scroll);
+    }
+
+    private TextView categoryHeader(String value) {
+        TextView header = new TextView(this);
+        header.setText(value == null ? "" : value);
+        header.setTextColor(textColor());
+        header.setTextSize(15);
+        header.setTypeface(Typeface.DEFAULT_BOLD);
+        header.setPadding(dp(12), dp(10), dp(12), dp(8));
+        header.setBackground(roundedDrawable(surfaceColor(), borderColor(), dp(8)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(8), 0, dp(8));
+        header.setLayoutParams(params);
+        return header;
     }
 
     private CharSequence styledResultMeta(String value) {
@@ -6259,6 +6285,9 @@ public class MainActivity extends Activity {
 
     private void scrollCurrentThreadToBottom() {
         CuspTab tab = currentTab();
+        if (tab != null) {
+            tab.fastRenderToBottom = true;
+        }
         pendingScrollToBottomTab = tab;
         scrollThreadToBottomWhenReady(tab, 0);
     }
@@ -6294,6 +6323,9 @@ public class MainActivity extends Activity {
                 targetScroll.postDelayed(() -> scrollThreadToBottomWhenReady(tab, attempt + 1), 25);
             } else if (pendingScrollToBottomTab == tab) {
                 pendingScrollToBottomTab = null;
+                if (tab != null) {
+                    tab.fastRenderToBottom = false;
+                }
             }
         });
     }
@@ -6927,7 +6959,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean treeViewEnabled() {
-        return preferences.getBoolean(PREF_TREE_VIEW, false);
+        return preferences.getBoolean(PREF_TREE_VIEW, true);
     }
 
     private boolean skipFirstReplyInTree() {
@@ -7976,7 +8008,11 @@ public class MainActivity extends Activity {
                 "<a\\s+[^>]*href\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))[^>]*>(.*?)</a>",
                 Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
         Matcher matcher = anchorPattern.matcher(html);
+        int lastEnd = 0;
+        String currentCategory = "";
         while (matcher.find()) {
+            currentCategory = lastBbsMenuCategory(html.substring(lastEnd, matcher.start()), currentCategory);
+            lastEnd = matcher.end();
             String href = firstNonEmpty(matcher.group(1), matcher.group(2), matcher.group(3));
             String label = cleanText(matcher.group(4));
             if (href == null || href.trim().isEmpty()) {
@@ -8003,12 +8039,39 @@ public class MainActivity extends Activity {
             result.title = label == null || label.isEmpty() ? board : label;
             result.url = boardUrl;
             result.meta = host;
+            result.category = currentCategory;
             page.results.add(result);
         }
         if (page.results.isEmpty()) {
             throw new IllegalStateException(text("板リンクが見つかりません", "No board links found."));
         }
         return page;
+    }
+
+    private String lastBbsMenuCategory(String htmlFragment, String fallback) {
+        if (htmlFragment == null || htmlFragment.isEmpty()) {
+            return fallback == null ? "" : fallback;
+        }
+        String category = fallback == null ? "" : fallback;
+        Pattern pattern = Pattern.compile(
+                "<(?:b|strong)\\b[^>]*>(.*?)</(?:b|strong)>|<h[1-6]\\b[^>]*>(.*?)</h[1-6]>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(htmlFragment);
+        while (matcher.find()) {
+            String value = cleanText(firstNonEmpty(matcher.group(1), matcher.group(2)));
+            if (looksLikeBbsCategory(value)) {
+                category = value;
+            }
+        }
+        return category;
+    }
+
+    private boolean looksLikeBbsCategory(String value) {
+        if (value == null) {
+            return false;
+        }
+        String trimmed = value.trim();
+        return !trimmed.isEmpty() && trimmed.length() <= 40 && !trimmed.contains("http");
     }
 
     private boolean isSameDirectoryFamily(String directoryUrl, String targetUrl, String baseHost, String targetHost) {
@@ -8219,7 +8282,7 @@ public class MainActivity extends Activity {
         if (results == null || results.isEmpty()) {
             return;
         }
-        final boolean sortBySpeed = preferences.getBoolean(PREF_BOARD_SORT_BY_SPEED, false);
+        final boolean sortBySpeed = preferences.getBoolean(PREF_BOARD_SORT_BY_SPEED, true);
         for (int i = 0; i < results.size(); i++) {
             results.get(i).boardOrder = i;
         }
@@ -9618,6 +9681,7 @@ public class MainActivity extends Activity {
         List<String> navigationHistory = new ArrayList<>();
         int navigationIndex = -1;
         int threadRenderGeneration;
+        boolean fastRenderToBottom;
     }
 
     static class ThreadHistoryItem {
@@ -9719,6 +9783,7 @@ public class MainActivity extends Activity {
         String title;
         String url;
         String meta;
+        String category;
         int responses;
         double velocity;
         int boardOrder;
