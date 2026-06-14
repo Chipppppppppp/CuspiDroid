@@ -2081,12 +2081,14 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
+        scroll.setClipChildren(false);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleLazyImgurLoads);
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        list.setClipChildren(false);
         tab.threadList = list;
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -2139,7 +2141,7 @@ public class MainActivity extends Activity {
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index, int depth) {
-        addPostCard(list, page, tab, new PostRenderItem(post, depth, new LinkedHashSet<>()), index);
+        addPostCard(list, page, tab, new PostRenderItem(post, depth, new LinkedHashSet<>(), false), index);
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, PostRenderItem item, int index) {
@@ -2156,7 +2158,7 @@ public class MainActivity extends Activity {
         ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
         shell.addView(replyAction);
-        if (treeViewEnabled() && depth > 0) {
+        if (treeViewEnabled() && (depth > 0 || item.hasReplies)) {
             shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
                     new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT));
@@ -2174,9 +2176,10 @@ public class MainActivity extends Activity {
             return true;
         });
         attachPostSwipe(card, card, readAction, replyAction, tab, post);
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+        int indentLeft = dp(Math.min(depth, 8) * 18);
+        FrameLayout.LayoutParams cardFrameParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardParams.setMargins(dp(Math.min(depth, 8) * 18), 0, 0, dp(8));
+        cardFrameParams.setMargins(indentLeft, 0, 0, dp(8));
 
         View metaView = postMetaText(post, page, () -> {
             if (!isPostSwipeBlocked(post)) {
@@ -2189,9 +2192,10 @@ public class MainActivity extends Activity {
         card.addView(bodyView);
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
-        shell.addView(card, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        list.addView(shell, Math.max(0, Math.min(index, list.getChildCount())), cardParams);
+        shell.addView(card, cardFrameParams);
+        list.addView(shell, Math.max(0, Math.min(index, list.getChildCount())),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
         tab.postViews.put(post.number, card);
     }
 
@@ -2281,7 +2285,7 @@ public class MainActivity extends Activity {
         for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
             Post post = page.posts.get(i);
             if (!matchesNgPost(post)) {
-                items.add(new PostRenderItem(post, 0, new LinkedHashSet<>()));
+                items.add(new PostRenderItem(post, 0, new LinkedHashSet<>(), false));
             }
         }
         return items;
@@ -2335,8 +2339,8 @@ public class MainActivity extends Activity {
         if (!rendered.add(post.number)) {
             return;
         }
-        items.add(new PostRenderItem(post, depth, continuationDepths));
         List<Post> replies = children.get(post.number);
+        items.add(new PostRenderItem(post, depth, continuationDepths, replies != null && !replies.isEmpty()));
         if (replies == null) {
             return;
         }
@@ -7667,19 +7671,22 @@ public class MainActivity extends Activity {
         final Post post;
         final int depth;
         final Set<Integer> continuationDepths;
+        final boolean hasReplies;
 
-        PostRenderItem(Post post, int depth, Set<Integer> continuationDepths) {
+        PostRenderItem(Post post, int depth, Set<Integer> continuationDepths, boolean hasReplies) {
             this.post = post;
             this.depth = depth;
             this.continuationDepths = continuationDepths == null
                     ? new LinkedHashSet<>()
                     : new LinkedHashSet<>(continuationDepths);
+            this.hasReplies = hasReplies;
         }
     }
 
     private static class TreeConnectorView extends View {
         private final int depth;
         private final Set<Integer> continuationDepths;
+        private final boolean hasReplies;
         private final int indent;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
@@ -7687,6 +7694,7 @@ public class MainActivity extends Activity {
             super(context);
             this.depth = item.depth;
             this.continuationDepths = item.continuationDepths;
+            this.hasReplies = item.hasReplies;
             this.indent = indent;
             paint.setColor(color);
             paint.setStrokeWidth(Math.max(2f, context.getResources().getDisplayMetrics().density * 2f));
@@ -7697,10 +7705,10 @@ public class MainActivity extends Activity {
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            if (depth <= 0) {
+            if (depth <= 0 && !hasReplies) {
                 return;
             }
-            float branchY = Math.min(getHeight() - 1f, Math.max(indent, getHeight() * 0.28f));
+            float branchY = Math.min(getHeight() - 1f, Math.max(indent * 0.75f, getHeight() * 0.16f));
             for (Integer level : continuationDepths) {
                 if (level == null || level <= 0 || level >= depth) {
                     continue;
@@ -7708,10 +7716,20 @@ public class MainActivity extends Activity {
                 float x = connectorX(level);
                 canvas.drawLine(x, 0, x, getHeight(), paint);
             }
-            float currentX = connectorX(depth);
-            float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
-            canvas.drawLine(currentX, 0, currentX, currentEndY, paint);
-            canvas.drawLine(currentX, branchY, Math.max(currentX, depth * indent), branchY, paint);
+            if (depth > 0) {
+                float parentX = connectorX(depth);
+                float childLeftX = depth * indent;
+                float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
+                canvas.drawLine(parentX, 0, parentX, currentEndY, paint);
+                canvas.drawLine(parentX, branchY, childLeftX, branchY, paint);
+            }
+            if (hasReplies) {
+                float childTrunkX = connectorX(depth + 1);
+                float startY = depth == 0
+                        ? Math.max(branchY, getHeight() - indent)
+                        : branchY;
+                canvas.drawLine(childTrunkX, startY, childTrunkX, getHeight(), paint);
+            }
         }
 
         private float connectorX(int level) {
