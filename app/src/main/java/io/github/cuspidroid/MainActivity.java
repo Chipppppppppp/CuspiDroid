@@ -120,6 +120,8 @@ public class MainActivity extends Activity {
     static final String PREF_READ_POSTS = "read_posts";
     static final String PREF_AA_POSTS = "aa_posts";
     static final String PREF_IMGUR_META = "imgur_meta";
+    static final String PREF_BOARD_FAVORITES = "board_favorites";
+    static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -152,6 +154,7 @@ public class MainActivity extends Activity {
     private LinearLayout bottomToolbar;
     private TextView bottomThreadTitle;
     private ImageButton bottomWriteButton;
+    private TextView bottomBookmarkButton;
     private TextView tabCountButton;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
@@ -465,6 +468,10 @@ public class MainActivity extends Activity {
         bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
+        bottomBookmarkButton = toolbarTextButton("☆", text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"));
+        bottomBookmarkButton.setOnClickListener(v -> toggleCurrentThreadBookmark());
+        bottomThreadBar.addView(bottomBookmarkButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
+
         bottomToolbar = new LinearLayout(this);
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
         bottomToolbar.setGravity(Gravity.CENTER_VERTICAL);
@@ -621,6 +628,18 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(36));
         params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
+        return button;
+    }
+
+    private TextView toolbarTextButton(String label, String description) {
+        TextView button = new TextView(this);
+        button.setText(label);
+        button.setContentDescription(description);
+        button.setTextColor(textColor());
+        button.setTextSize(20);
+        button.setGravity(Gravity.CENTER);
+        button.setBackground(iconButtonBackground());
+        button.setSingleLine(true);
         return button;
     }
 
@@ -1553,7 +1572,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateBottomThreadBar(CuspTab tab) {
-        if (bottomThreadBar == null || bottomThreadTitle == null || bottomWriteButton == null) {
+        if (bottomThreadBar == null || bottomThreadTitle == null || bottomWriteButton == null || bottomBookmarkButton == null) {
             return;
         }
         if (tabOverviewVisible) {
@@ -1561,6 +1580,7 @@ public class MainActivity extends Activity {
         } else if (pendingNewTab) {
             bottomThreadTitle.setText(text("\u65b0\u898f\u30bf\u30d6", "New tab"));
             bottomWriteButton.setVisibility(View.GONE);
+            bottomBookmarkButton.setVisibility(View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else if (tab != null) {
             String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
@@ -1571,6 +1591,8 @@ public class MainActivity extends Activity {
             }
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
+            bottomBookmarkButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
+            bottomBookmarkButton.setText(isSavedItem(PREF_THREAD_BOOKMARKS, tab.url) ? "\u2605" : "\u2606");
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
@@ -2863,10 +2885,13 @@ public class MainActivity extends Activity {
             if (matchesNgThread(result.title)) {
                 continue;
             }
+            LinearLayout shell = new LinearLayout(this);
+            shell.setOrientation(LinearLayout.HORIZONTAL);
+            shell.setGravity(Gravity.CENTER_VERTICAL);
+            shell.setBackgroundColor(postColor());
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.VERTICAL);
             row.setPadding(dp(10), dp(9), dp(10), dp(9));
-            row.setBackgroundColor(postColor());
             row.setOnClickListener(v -> routeLink(result.url, currentTab()));
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2884,7 +2909,12 @@ public class MainActivity extends Activity {
             meta.setTextColor(mutedColor());
             meta.setTextSize(12);
             row.addView(meta);
-            list.addView(row, rowParams);
+            shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            TextView save = saveToggleButtonForResult(result);
+            if (save != null) {
+                shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
+            }
+            list.addView(shell, rowParams);
         }
 
         if (page.results.isEmpty()) {
@@ -2901,6 +2931,29 @@ public class MainActivity extends Activity {
         applyMetaNumberStyle(text, value, "(?:\u30ec\u30b9|Posts):\\s*(\\d+)", false);
         applyMetaNumberStyle(text, value, "(?:\u52e2\u3044|Speed):\\s*(\\d+(?:\\.\\d+)?)", true);
         return text;
+    }
+
+    private TextView saveToggleButtonForResult(SearchResult result) {
+        if (result == null || result.url == null) {
+            return null;
+        }
+        String key;
+        if (isThreadUrl(result.url)) {
+            key = PREF_THREAD_BOOKMARKS;
+        } else if (isBoardUrl(result.url) || isBbsDirectoryUrl(result.url)) {
+            key = PREF_BOARD_FAVORITES;
+        } else {
+            return null;
+        }
+        TextView button = toolbarTextButton(isSavedItem(key, result.url) ? "\u2605" : "\u2606",
+                PREF_BOARD_FAVORITES.equals(key)
+                        ? text("\u304a\u6c17\u306b\u5165\u308a", "Favorite")
+                        : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"));
+        button.setOnClickListener(v -> {
+            toggleSavedItem(key, result.title, result.url);
+            button.setText(isSavedItem(key, result.url) ? "\u2605" : "\u2606");
+        });
+        return button;
     }
 
     private void applyMetaNumberStyle(SpannableString text, String value, String pattern, boolean velocity) {
@@ -3217,6 +3270,8 @@ public class MainActivity extends Activity {
                 {"Linux", "https://mao.5ch.net/linux/"},
                 {text("\u81ea\u4f5cPC", "Custom PC"), "https://egg.5ch.net/jisaku/"}
         });
+        list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
+        list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         List<BbsLink> customLinks = readBbsLinks(preferences);
         if (!customLinks.isEmpty()) {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
@@ -3380,6 +3435,19 @@ public class MainActivity extends Activity {
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
+        shell.setOnDragListener((v, event) -> {
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    DragPayload payload = (DragPayload) local;
+                    if ("tabs".equals(payload.key)) {
+                        moveTabInOverview(payload.index, index);
+                        return true;
+                    }
+                }
+            }
+            return true;
+        });
         ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
         deleteLeft.setColorFilter(TEAL);
         ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
@@ -3394,6 +3462,11 @@ public class MainActivity extends Activity {
         row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(v -> selectTabFromOverview(index));
+        row.setOnLongClickListener(v -> {
+            v.startDragAndDrop(ClipData.newPlainText("tab", String.valueOf(index)),
+                    new View.DragShadowBuilder(shell), new DragPayload("tabs", index), 0);
+            return true;
+        });
 
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
@@ -3512,6 +3585,20 @@ public class MainActivity extends Activity {
         mainHandler.post(() -> switchToTab(index));
     }
 
+    private void moveTabInOverview(int from, int to) {
+        if (from < 0 || from >= tabs.size() || to < 0 || to >= tabs.size() || from == to) {
+            return;
+        }
+        CuspTab selected = currentTab();
+        CuspTab moved = tabs.remove(from);
+        tabs.add(to, moved);
+        currentIndex = selected == null ? Math.min(to, tabs.size() - 1) : tabs.indexOf(selected);
+        saveTabs(false);
+        contentFrame.removeAllViews();
+        contentFrame.addView(buildTabOverviewView());
+        renderTabs();
+    }
+
     private void closeTabFromOverview(int index) {
         ClosedTab closed = removeTabForOverview(index);
         if (closed == null) {
@@ -3600,6 +3687,108 @@ public class MainActivity extends Activity {
             updateBottomThreadBar(currentTab());
             renderTabs();
         }
+    }
+
+    private View savedListButton(String label, String key) {
+        TextView row = actionRow(label + "  " + readSavedItems(key).size());
+        row.setOnClickListener(v -> showSavedItemsView(key));
+        return row;
+    }
+
+    private void showSavedItemsView(String key) {
+        View view = buildSavedItemsView(key);
+        if (pendingNewTab) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(view);
+        } else {
+            CuspTab tab = currentTab();
+            if (tab != null) {
+                tab.readerView = view;
+                contentFrame.removeAllViews();
+                contentFrame.addView(view);
+            }
+        }
+    }
+
+    private View buildSavedItemsView(String key) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        list.addView(sectionTitleView(savedListTitle(key)));
+        List<SavedItem> items = readSavedItems(key);
+        if (items.isEmpty()) {
+            list.addView(helperLine(text("\u307e\u3060\u3042\u308a\u307e\u305b\u3093", "Nothing saved yet.")));
+        } else {
+            for (int i = 0; i < items.size(); i++) {
+                list.addView(savedItemRow(key, items.get(i), i));
+            }
+        }
+        return withScrollScrubber(scroll);
+    }
+
+    private String savedListTitle(String key) {
+        return PREF_BOARD_FAVORITES.equals(key)
+                ? text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards")
+                : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks");
+    }
+
+    private View savedItemRow(String key, SavedItem item, int index) {
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.HORIZONTAL);
+        shell.setGravity(Gravity.CENTER_VERTICAL);
+        shell.setBackgroundColor(postColor());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        shell.setLayoutParams(params);
+        shell.setOnDragListener((v, event) -> {
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    DragPayload payload = (DragPayload) local;
+                    if (key.equals(payload.key)) {
+                        moveSavedItem(key, payload.index, index);
+                        showSavedItemsView(key);
+                        return true;
+                    }
+                }
+            }
+            return true;
+        });
+
+        LinearLayout textBox = new LinearLayout(this);
+        textBox.setOrientation(LinearLayout.VERTICAL);
+        textBox.setPadding(dp(10), dp(9), dp(10), dp(9));
+        textBox.setOnClickListener(v -> routeLink(item.url, currentTab()));
+        textBox.setOnLongClickListener(v -> {
+            v.startDragAndDrop(ClipData.newPlainText("saved", item.url),
+                    new View.DragShadowBuilder(shell), new DragPayload(key, index), 0);
+            return true;
+        });
+        TextView title = new TextView(this);
+        title.setText(item.title);
+        title.setTextColor(textColor());
+        title.setTextSize(16);
+        textBox.addView(title);
+        TextView url = new TextView(this);
+        url.setText(item.url);
+        url.setTextColor(mutedColor());
+        url.setTextSize(12);
+        textBox.addView(url);
+        shell.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        ImageButton delete = iconButton(R.drawable.ic_close, text("\u524a\u9664", "Delete"), v -> {
+            removeSavedItem(key, item.url);
+            showSavedItemsView(key);
+        });
+        delete.setColorFilter(mutedColor());
+        delete.setBackgroundColor(Color.TRANSPARENT);
+        shell.addView(delete, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        return shell;
     }
 
     private TextView sectionTitleView(String value) {
@@ -3727,13 +3916,25 @@ public class MainActivity extends Activity {
         header.setBackgroundColor(surfaceColor());
         list.addView(header);
         for (String[] board : boards) {
+            LinearLayout shell = new LinearLayout(this);
+            shell.setOrientation(LinearLayout.HORIZONTAL);
+            shell.setGravity(Gravity.CENTER_VERTICAL);
+            shell.setBackgroundColor(postColor());
             TextView row = actionRow("  " + board[0]);
             row.setOnClickListener(v -> openBoardUrl(board[1]));
             row.setOnLongClickListener(v -> {
                 showValueCopyPopup(row, board[1]);
                 return true;
             });
-            list.addView(row);
+            shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            TextView star = toolbarTextButton(isSavedItem(PREF_BOARD_FAVORITES, board[1]) ? "\u2605" : "\u2606",
+                    text("\u304a\u6c17\u306b\u5165\u308a", "Favorite"));
+            star.setOnClickListener(v -> {
+                toggleSavedItem(PREF_BOARD_FAVORITES, board[0], board[1]);
+                star.setText(isSavedItem(PREF_BOARD_FAVORITES, board[1]) ? "\u2605" : "\u2606");
+            });
+            shell.addView(star, new LinearLayout.LayoutParams(dp(44), dp(44)));
+            list.addView(shell);
         }
     }
 
@@ -5697,6 +5898,19 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
+            if (isBoardUrl(url) || isBbsDirectoryUrl(url)) {
+                CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
+                if (tab == null) {
+                    createTab(url, true);
+                } else {
+                    int index = tabs.indexOf(tab);
+                    if (index >= 0) {
+                        switchToTab(index);
+                    }
+                    openInCurrentTab(url);
+                }
+                return true;
+            }
             if (open5chLinksInNewTab() && isThreadUrl(url)) {
                 createTab(url, true, tabs.indexOf(sourceTab == null ? currentTab() : sourceTab));
             } else if (isThreadUrl(url)) {
@@ -7061,6 +7275,98 @@ public class MainActivity extends Activity {
         return readThreadHistory(preferences);
     }
 
+    private List<SavedItem> readSavedItems(String key) {
+        List<SavedItem> items = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(preferences.getString(key, "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject object = array.optJSONObject(i);
+                if (object == null) {
+                    continue;
+                }
+                String title = object.optString("title", "").trim();
+                String url = object.optString("url", "").trim();
+                if (!title.isEmpty() && !url.isEmpty()) {
+                    items.add(new SavedItem(title, url));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return items;
+    }
+
+    private void writeSavedItems(String key, List<SavedItem> items) {
+        JSONArray array = new JSONArray();
+        try {
+            for (SavedItem item : items) {
+                JSONObject object = new JSONObject();
+                object.put("title", item.title);
+                object.put("url", item.url);
+                array.put(object);
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(key, array.toString()).apply();
+    }
+
+    private boolean isSavedItem(String key, String url) {
+        if (url == null) {
+            return false;
+        }
+        for (SavedItem item : readSavedItems(key)) {
+            if (url.equals(item.url)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void toggleSavedItem(String key, String title, String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return;
+        }
+        List<SavedItem> items = readSavedItems(key);
+        for (int i = 0; i < items.size(); i++) {
+            if (url.equals(items.get(i).url)) {
+                items.remove(i);
+                writeSavedItems(key, items);
+                return;
+            }
+        }
+        items.add(0, new SavedItem(cleanTitle(title, url), url));
+        writeSavedItems(key, items);
+    }
+
+    private void removeSavedItem(String key, String url) {
+        List<SavedItem> items = readSavedItems(key);
+        for (int i = items.size() - 1; i >= 0; i--) {
+            if (url.equals(items.get(i).url)) {
+                items.remove(i);
+            }
+        }
+        writeSavedItems(key, items);
+    }
+
+    private void moveSavedItem(String key, int from, int to) {
+        List<SavedItem> items = readSavedItems(key);
+        if (from < 0 || from >= items.size() || to < 0 || to >= items.size() || from == to) {
+            return;
+        }
+        SavedItem item = items.remove(from);
+        items.add(to, item);
+        writeSavedItems(key, items);
+    }
+
+    private void toggleCurrentThreadBookmark() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.url == null || !isThreadUrl(tab.url)) {
+            return;
+        }
+        String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
+        toggleSavedItem(PREF_THREAD_BOOKMARKS, title, tab.url);
+        updateBottomThreadBar(tab);
+    }
+
     private static int readPostNumber(SharedPreferences preferences, String url) {
         if (url == null || url.isEmpty()) {
             return 0;
@@ -7872,6 +8178,26 @@ public class MainActivity extends Activity {
         BbsLink(String name, String url) {
             this.name = name;
             this.url = url;
+        }
+    }
+
+    private static class SavedItem {
+        final String title;
+        final String url;
+
+        SavedItem(String title, String url) {
+            this.title = title;
+            this.url = url;
+        }
+    }
+
+    private static class DragPayload {
+        final String key;
+        final int index;
+
+        DragPayload(String key, int index) {
+            this.key = key;
+            this.index = index;
         }
     }
 
