@@ -3559,9 +3559,6 @@ public class MainActivity extends Activity {
         fiveCh.setOnClickListener(v -> showFiveChBoardsView(true));
         list.addView(fiveCh);
 
-        list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
-        list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
-        list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         List<BbsLink> customLinks = readBbsLinks(preferences);
         if (!customLinks.isEmpty()) {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
@@ -3575,6 +3572,9 @@ public class MainActivity extends Activity {
                 list.addView(row);
             }
         }
+        list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
+        list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
+        list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         addHistorySection(list, fullHistory);
         return withScrollScrubber(scroll);
     }
@@ -3756,6 +3756,7 @@ public class MainActivity extends Activity {
         button.setBackground(roundedDrawable(privateButtonFill(active),
                 privateButtonStroke(active), dp(20)));
         button.setColorFilter(privateButtonIcon(active));
+        button.setTranslationY(-dp(4));
         return button;
     }
 
