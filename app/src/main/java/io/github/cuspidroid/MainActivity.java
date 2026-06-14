@@ -2405,7 +2405,7 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = buildSearchView(result);
+                tab.readerView = isBbsMenuUrl(loadUrl) ? buildBbsCategoryIndexView(result) : buildSearchView(result);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
                 }
@@ -3333,7 +3333,7 @@ public class MainActivity extends Activity {
             count.setTextColor(mutedColor());
             count.setTextSize(13);
             row.addView(count);
-            row.setOnClickListener(v -> openBbsCategory(category));
+            row.setOnClickListener(v -> openBbsCategory(page.url, category));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             params.setMargins(0, 0, 0, dp(8));
@@ -3342,13 +3342,13 @@ public class MainActivity extends Activity {
         return scroll;
     }
 
-    private void openBbsCategory(String category) {
-        String token = encodeNewTabToken(category);
+    private void openBbsCategory(String menuUrl, String category) {
+        String token = bbsCategoryToken(menuUrl, category);
         if (pendingNewTab) {
-            showFiveChCategoryView(token, true);
+            showBbsCategoryView(token, true);
             return;
         }
-        showFiveChCategoryView(token, false);
+        showBbsCategoryView(token, false);
     }
 
     private TextView categoryHeader(String value) {
@@ -3882,6 +3882,8 @@ public class MainActivity extends Activity {
                 } else {
                     CuspTab tab = currentTab();
                     if (tab != null) {
+                        tab.title = result.title;
+                        tab.searchPage = result;
                         tab.readerView = resultView;
                     }
                     if (!tabOverviewVisible) {
@@ -3894,9 +3896,15 @@ public class MainActivity extends Activity {
     }
 
     private void showFiveChCategoryView(String encodedCategory, boolean record) {
-        String category = decodeNewTabToken(encodedCategory);
+        showBbsCategoryView(bbsCategoryToken(FIVE_CH_BBSMENU_URL, decodeNewTabToken(encodedCategory)), record);
+    }
+
+    private void showBbsCategoryView(String token, boolean record) {
+        BbsCategoryRequest request = decodeBbsCategoryToken(token);
+        String menuUrl = request.menuUrl == null || request.menuUrl.isEmpty() ? FIVE_CH_BBSMENU_URL : request.menuUrl;
+        String category = request.category;
         if (record) {
-            recordNewTabPage("5ch-category:" + encodeNewTabToken(category));
+            recordNewTabPage("bbs-category:" + bbsCategoryToken(menuUrl, category));
         }
         prepareChromeForLoading();
         View view = loadingView("");
@@ -3906,13 +3914,13 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                SearchPage all = downloadBbsDirectory(FIVE_CH_BBSMENU_URL);
+                SearchPage all = downloadBbsDirectory(menuUrl);
                 page = filterBbsCategory(all, category);
                 page.title = category == null || category.isEmpty()
-                        ? text("5ch\u677f\u4e00\u89a7", "5ch boards")
+                        ? all.title
                         : category;
             } catch (Exception error) {
-                page = SearchPage.error(FIVE_CH_BBSMENU_URL, error.getMessage());
+                page = SearchPage.error(menuUrl, error.getMessage());
             }
             SearchPage result = page;
             runOnUiThread(() -> {
@@ -3933,6 +3941,21 @@ public class MainActivity extends Activity {
                 }
             });
         });
+    }
+
+    private String bbsCategoryToken(String menuUrl, String category) {
+        return encodeNewTabToken(menuUrl) + "::" + encodeNewTabToken(category);
+    }
+
+    private BbsCategoryRequest decodeBbsCategoryToken(String token) {
+        String value = token == null ? "" : token;
+        int split = value.indexOf("::");
+        if (split < 0) {
+            return new BbsCategoryRequest(FIVE_CH_BBSMENU_URL, decodeNewTabToken(value));
+        }
+        return new BbsCategoryRequest(
+                decodeNewTabToken(value.substring(0, split)),
+                decodeNewTabToken(value.substring(split + 2)));
     }
 
     private SearchPage filterBbsCategory(SearchPage source, String category) {
@@ -4461,6 +4484,8 @@ public class MainActivity extends Activity {
             showFiveChBoardsView(record);
         } else if (page != null && page.startsWith("5ch-category:")) {
             showFiveChCategoryView(page.substring("5ch-category:".length()), record);
+        } else if (page != null && page.startsWith("bbs-category:")) {
+            showBbsCategoryView(page.substring("bbs-category:".length()), record);
         } else if (page != null && page.startsWith("saved:")) {
             showSavedItemsView(page.substring("saved:".length()), record);
         } else {
@@ -9954,6 +9979,16 @@ public class MainActivity extends Activity {
         double velocity;
         int boardOrder;
         BoardPriorityMatch priorityMatch;
+    }
+
+    private static class BbsCategoryRequest {
+        final String menuUrl;
+        final String category;
+
+        BbsCategoryRequest(String menuUrl, String category) {
+            this.menuUrl = menuUrl;
+            this.category = category;
+        }
     }
 
     static class BoardPriorityRule {
