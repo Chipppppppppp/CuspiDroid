@@ -4365,8 +4365,7 @@ public class MainActivity extends Activity {
             open.setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0);
             open.setCompoundDrawablePadding(dp(6));
             menu.addView(open, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            menu.addView(horizontalDivider());
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
 
         TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
@@ -4375,7 +4374,7 @@ public class MainActivity extends Activity {
         copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
         copy.setCompoundDrawablePadding(dp(6));
         menu.addView(copy, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, true);
