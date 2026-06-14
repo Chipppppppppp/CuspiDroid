@@ -6539,19 +6539,19 @@ public class MainActivity extends Activity {
         page.title = hostTitle(directoryUrl);
         Set<String> seen = new LinkedHashSet<>();
         Pattern anchorPattern = Pattern.compile(
-                "<a\\s+[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+                "<a\\s+[^>]*href\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))[^>]*>(.*?)</a>",
                 Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
         Matcher matcher = anchorPattern.matcher(html);
         while (matcher.find()) {
-            String href = cleanText(matcher.group(1));
-            String label = cleanText(matcher.group(2));
+            String href = firstNonEmpty(matcher.group(1), matcher.group(2), matcher.group(3));
+            String label = cleanText(matcher.group(4));
             if (href == null || href.trim().isEmpty()) {
                 continue;
             }
             String absolute = absoluteUrl(directoryUrl, href);
             Uri target = Uri.parse(absolute);
             String host = target.getHost();
-            if (host == null || baseHost == null || !host.equalsIgnoreCase(baseHost)) {
+            if (!isSameDirectoryFamily(directoryUrl, absolute, baseHost, host)) {
                 continue;
             }
             if (!isDirectoryBoardLink(absolute)) {
@@ -6575,6 +6575,19 @@ public class MainActivity extends Activity {
             throw new IllegalStateException(text("板リンクが見つかりません", "No board links found."));
         }
         return page;
+    }
+
+    private boolean isSameDirectoryFamily(String directoryUrl, String targetUrl, String baseHost, String targetHost) {
+        if (baseHost == null || targetHost == null) {
+            return false;
+        }
+        if (targetHost.equalsIgnoreCase(baseHost)) {
+            return true;
+        }
+        if (isBbsMenuUrl(directoryUrl) && is5chUrl(directoryUrl) && is5chUrl(targetUrl)) {
+            return true;
+        }
+        return false;
     }
 
     private boolean isDirectoryBoardLink(String url) {
@@ -6941,6 +6954,18 @@ public class MainActivity extends Activity {
     private String firstMatch(String text, String regex) {
         Matcher matcher = Pattern.compile(regex, Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(text);
         return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private String firstNonEmpty(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private String cleanText(String html) {
