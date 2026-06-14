@@ -6602,6 +6602,9 @@ public class MainActivity extends Activity {
                     && "read.cgi".equalsIgnoreCase(nonEmpty.get(1))) {
                 return true;
             }
+            if (isRegisteredBbsMenuChild(url, nonEmpty)) {
+                return true;
+            }
             if (nonEmpty.size() == 1) {
                 return !nonEmpty.get(0).contains(".");
             }
@@ -6609,6 +6612,41 @@ public class MainActivity extends Activity {
         } catch (Exception error) {
             return false;
         }
+    }
+
+    private boolean isRegisteredBbsMenuChild(String url, List<String> pathParts) {
+        if (url == null || pathParts == null || pathParts.size() < 2) {
+            return false;
+        }
+        try {
+            Uri target = Uri.parse(normalizeUrl(url));
+            String targetHost = target.getHost();
+            if (targetHost == null) {
+                return false;
+            }
+            for (BbsLink link : readBbsLinks(preferences)) {
+                Uri base = Uri.parse(normalizeUrl(link.url));
+                String baseHost = base.getHost();
+                if (baseHost == null || !baseHost.equalsIgnoreCase(targetHost) || !isBbsMenuUrl(link.url)) {
+                    continue;
+                }
+                List<String> baseParts = pathParts(base.getPath());
+                if (baseParts.isEmpty()) {
+                    continue;
+                }
+                String menuFile = baseParts.get(baseParts.size() - 1).toLowerCase(Locale.ROOT);
+                if (!menuFile.endsWith(".html") && !menuFile.endsWith(".htm")) {
+                    continue;
+                }
+                List<String> prefix = baseParts.subList(0, baseParts.size() - 1);
+                if (pathParts.size() == prefix.size() + 1 && pathStartsWith(pathParts, prefix)
+                        && !pathParts.get(pathParts.size() - 1).contains(".")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private String boardUrlFromDirectoryLink(String url, String board) {
@@ -7263,7 +7301,22 @@ public class MainActivity extends Activity {
             if (host == null || !isRegisteredBbsUrl(url)) {
                 return false;
             }
-            return isMachiDirectoryUrl(url) || boardNameFromUrl(url) == null;
+            return isMachiDirectoryUrl(url) || isBbsMenuUrl(url) || boardNameFromUrl(url) == null;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private boolean isBbsMenuUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String path = uri.getPath();
+            if (path == null) {
+                return false;
+            }
+            String lower = path.toLowerCase(Locale.ROOT);
+            return lower.endsWith("/bbsmenu.html") || lower.endsWith("/bbsmenu.htm")
+                    || lower.endsWith("/menu.html") || lower.endsWith("/menu.htm");
         } catch (Exception error) {
             return false;
         }
@@ -7314,6 +7367,10 @@ public class MainActivity extends Activity {
     }
 
     private String boardNameFromUrl(String url) {
+        String registeredBoard = registeredMenuBoardName(url);
+        if (registeredBoard != null) {
+            return registeredBoard;
+        }
         Uri uri = Uri.parse(url);
         String path = uri.getPath();
         if (path == null) {
@@ -7338,6 +7395,63 @@ public class MainActivity extends Activity {
             return part;
         }
         return null;
+    }
+
+    private String registeredMenuBoardName(String url) {
+        try {
+            Uri target = Uri.parse(normalizeUrl(url));
+            String targetHost = target.getHost();
+            if (targetHost == null || isBbsMenuUrl(url)) {
+                return null;
+            }
+            List<String> targetParts = pathParts(target.getPath());
+            if (targetParts.isEmpty()) {
+                return null;
+            }
+            for (BbsLink link : readBbsLinks(preferences)) {
+                Uri base = Uri.parse(normalizeUrl(link.url));
+                String baseHost = base.getHost();
+                if (baseHost == null || !baseHost.equalsIgnoreCase(targetHost) || !isBbsMenuUrl(link.url)) {
+                    continue;
+                }
+                List<String> baseParts = pathParts(base.getPath());
+                if (baseParts.isEmpty()) {
+                    continue;
+                }
+                List<String> prefix = baseParts.subList(0, baseParts.size() - 1);
+                if (targetParts.size() == prefix.size() + 1 && pathStartsWith(targetParts, prefix)) {
+                    String board = targetParts.get(targetParts.size() - 1);
+                    return board.contains(".") ? null : board;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private List<String> pathParts(String path) {
+        List<String> parts = new ArrayList<>();
+        if (path == null) {
+            return parts;
+        }
+        for (String part : path.split("/")) {
+            if (part != null && !part.isEmpty()) {
+                parts.add(part);
+            }
+        }
+        return parts;
+    }
+
+    private boolean pathStartsWith(List<String> path, List<String> prefix) {
+        if (path == null || prefix == null || path.size() < prefix.size()) {
+            return false;
+        }
+        for (int i = 0; i < prefix.size(); i++) {
+            if (!path.get(i).equalsIgnoreCase(prefix.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String boardTitle(String url) {
