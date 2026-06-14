@@ -704,20 +704,21 @@ public class MainActivity extends Activity {
         PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
 
         menu.addView(menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
             copyAddressText();
-            popup.dismiss();
+            dismissPopupAnimated(popup);
         }));
         menu.addView(verticalDivider());
         menu.addView(menuItem(text("\u8cbc\u308a\u4ed8\u3051", "Paste"), v -> {
             pasteIntoAddressBar(false);
-            popup.dismiss();
+            dismissPopupAnimated(popup);
         }));
         menu.addView(verticalDivider());
         menu.addView(menuItem(text("\u8cbc\u308a\u4ed8\u3051\u3066\u79fb\u52d5", "Paste and go"), v -> {
             pasteIntoAddressBar(true);
-            popup.dismiss();
+            dismissPopupAnimated(popup);
         }));
         showAddressMenuAtToolbarEdge(popup, menu, true);
     }
@@ -762,6 +763,7 @@ public class MainActivity extends Activity {
         PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
 
         menu.addView(menuIconItem(R.drawable.ic_arrow_forward, text("WebView\u3067\u958b\u304f", "Open in WebView"), v -> {
             dismissPopupAnimated(popup);
@@ -4351,6 +4353,27 @@ public class MainActivity extends Activity {
                 .setDuration(120)
                 .withEndAction(popup::dismiss)
                 .start();
+    }
+
+    private void prepareAnimatedPopupDismiss(PopupWindow popup, View content) {
+        if (popup == null || content == null) {
+            return;
+        }
+        popup.setTouchInterceptor((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                dismissPopupAnimated(popup);
+                return true;
+            }
+            return false;
+        });
+        content.setFocusableInTouchMode(true);
+        content.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+                dismissPopupAnimated(popup);
+                return true;
+            }
+            return false;
+        });
     }
 
     private void animatePopupIn(PopupWindow popup, boolean pivotBottom) {
