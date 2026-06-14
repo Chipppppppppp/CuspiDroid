@@ -159,6 +159,8 @@ public class MainActivity extends Activity {
     private boolean pendingNewTab;
     private boolean pendingHistoryAll;
     private boolean tabOverviewVisible;
+    private ClosedTab recentlyClosedTab;
+    private Runnable clearClosedTabUndoTask;
     private boolean addressBarTop;
     private boolean updatingThreadSearchInput;
     private Runnable threadSearchTask;
@@ -2892,6 +2894,10 @@ public class MainActivity extends Activity {
             for (BbsLink link : customLinks) {
                 TextView row = actionRow(link.name);
                 row.setOnClickListener(v -> openBoardUrl(link.url));
+                row.setOnLongClickListener(v -> {
+                    showValueCopyPopup(row, link.url);
+                    return true;
+                });
                 list.addView(row);
             }
         }
@@ -2908,7 +2914,7 @@ public class MainActivity extends Activity {
             return;
         }
         for (int i = 0; i < limit; i++) {
-            list.addView(historyRow(history.get(i)));
+            list.addView(historyRow(history.get(i), fullHistory));
         }
         if (!fullHistory && history.size() > limit) {
             TextView more = actionRow(text("\u5c65\u6b74\u3092\u3082\u3063\u3068\u898b\u308b", "More history"));
@@ -2943,7 +2949,7 @@ public class MainActivity extends Activity {
             list.addView(helperLine(text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history.")));
         } else {
             for (ThreadHistoryItem item : history) {
-                list.addView(historyRow(item));
+                list.addView(historyRow(item, true));
             }
         }
         return withScrollScrubber(scroll);
@@ -3005,11 +3011,53 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
         addParams.setMargins(0, 0, dp(18), dp(18));
         root.addView(add, addParams);
+        if (recentlyClosedTab != null) {
+            root.addView(closedTabUndoBar(), closedTabUndoParams());
+        }
         return root;
+    }
+
+    private View closedTabUndoBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(14), 0, dp(6), 0);
+        bar.setBackground(roundedDrawable(Color.rgb(31, 41, 55), Color.rgb(31, 41, 55), dp(8)));
+        TextView message = new TextView(this);
+        message.setText(text("\u30bf\u30d6\u3092\u9589\u3058\u307e\u3057\u305f", "Tab closed"));
+        message.setTextColor(Color.WHITE);
+        message.setTextSize(14);
+        bar.addView(message, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView undo = new TextView(this);
+        undo.setText(text("\u5143\u306b\u623b\u3059", "Undo"));
+        undo.setTextColor(Color.rgb(94, 234, 212));
+        undo.setTextSize(14);
+        undo.setGravity(Gravity.CENTER);
+        undo.setPadding(dp(12), 0, dp(12), 0);
+        undo.setOnClickListener(v -> undoClosedTab());
+        bar.addView(undo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return bar;
+    }
+
+    private FrameLayout.LayoutParams closedTabUndoParams() {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48), Gravity.BOTTOM);
+        params.setMargins(dp(12), 0, dp(12), dp(18));
+        return params;
     }
 
     private View tabOverviewRow(CuspTab tab, int index) {
         boolean selected = !pendingNewTab && index == currentIndex;
+        FrameLayout shell = new FrameLayout(this);
+        shell.setClipChildren(false);
+        shell.setBackgroundColor(Color.TRANSPARENT);
+        ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        deleteLeft.setColorFilter(Color.rgb(185, 28, 28));
+        ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        deleteRight.setColorFilter(Color.rgb(185, 28, 28));
+        shell.addView(deleteLeft);
+        shell.addView(deleteRight);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -3071,8 +3119,54 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(78));
         rowParams.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowParams);
-        return row;
+        shell.setLayoutParams(rowParams);
+        shell.addView(row, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
+        attachTabOverviewSwipe(row, deleteLeft, deleteRight, index);
+        return shell;
+    }
+
+    private void attachTabOverviewSwipe(View row, View deleteLeft, View deleteRight, int index) {
+        final float[] downX = new float[1];
+        final float[] downY = new float[1];
+        final boolean[] dragging = new boolean[1];
+        row.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downX[0] = event.getRawX();
+                downY[0] = event.getRawY();
+                dragging[0] = false;
+                row.clearAnimation();
+                return false;
+            }
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                float dx = event.getRawX() - downX[0];
+                float dy = event.getRawY() - downY[0];
+                if (!dragging[0] && Math.abs(dx) > dp(12) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
+                    dragging[0] = true;
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                if (dragging[0]) {
+                    float translation = Math.max(-dp(108), Math.min(dp(108), dx * 0.58f));
+                    row.setTranslationX(translation);
+                    deleteLeft.setAlpha(Math.max(0f, Math.min(1f, translation / dp(64))));
+                    deleteRight.setAlpha(Math.max(0f, Math.min(1f, -translation / dp(64))));
+                    return true;
+                }
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (dragging[0]) {
+                    float tx = row.getTranslationX();
+                    row.animate().translationX(0).setDuration(130).start();
+                    deleteLeft.animate().alpha(0f).setDuration(130).start();
+                    deleteRight.animate().alpha(0f).setDuration(130).start();
+                    if (event.getAction() == MotionEvent.ACTION_UP && Math.abs(tx) >= dp(54)) {
+                        closeTabFromOverview(index);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     private void selectTabFromOverview(int index) {
@@ -3090,9 +3184,88 @@ public class MainActivity extends Activity {
     }
 
     private void closeTabFromOverview(int index) {
-        closeTab(index);
-        if (!tabs.isEmpty()) {
-            tabOverviewVisible = true;
+        ClosedTab closed = removeTabForOverview(index);
+        if (closed == null) {
+            return;
+        }
+        showClosedTabUndo(closed);
+        tabOverviewVisible = true;
+        pendingNewTab = tabs.isEmpty();
+        contentFrame.removeAllViews();
+        contentFrame.addView(buildTabOverviewView());
+        updateBottomThreadBar(currentTab());
+        renderTabs();
+    }
+
+    private ClosedTab removeTabForOverview(int index) {
+        if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
+            return null;
+        }
+        CuspTab closing = tabs.remove(index);
+        int oldCurrent = currentIndex;
+        for (CuspTab tab : tabs) {
+            if (tab.returnToIndex == index) {
+                tab.returnToIndex = -1;
+            } else if (tab.returnToIndex > index) {
+                tab.returnToIndex--;
+            }
+        }
+        if (tabs.isEmpty()) {
+            currentIndex = -1;
+        } else if (index < currentIndex) {
+            currentIndex--;
+        } else if (index == currentIndex) {
+            currentIndex = Math.max(0, Math.min(index, tabs.size() - 1));
+        } else {
+            currentIndex = Math.max(0, Math.min(currentIndex, tabs.size() - 1));
+        }
+        requestSaveTabsSoon();
+        return new ClosedTab(closing, index, oldCurrent);
+    }
+
+    private void showClosedTabUndo(ClosedTab closed) {
+        recentlyClosedTab = closed;
+        if (clearClosedTabUndoTask != null) {
+            mainHandler.removeCallbacks(clearClosedTabUndoTask);
+        }
+        clearClosedTabUndoTask = () -> {
+            recentlyClosedTab = null;
+            clearClosedTabUndoTask = null;
+            if (tabOverviewVisible && contentFrame != null) {
+                contentFrame.removeAllViews();
+                contentFrame.addView(buildTabOverviewView());
+            }
+        };
+        mainHandler.postDelayed(clearClosedTabUndoTask, 4500);
+    }
+
+    private void undoClosedTab() {
+        ClosedTab closed = recentlyClosedTab;
+        if (closed == null) {
+            return;
+        }
+        if (clearClosedTabUndoTask != null) {
+            mainHandler.removeCallbacks(clearClosedTabUndoTask);
+            clearClosedTabUndoTask = null;
+        }
+        int insertIndex = Math.max(0, Math.min(closed.index, tabs.size()));
+        tabs.add(insertIndex, closed.tab);
+        for (CuspTab tab : tabs) {
+            if (tab != closed.tab && tab.returnToIndex >= insertIndex) {
+                tab.returnToIndex++;
+            }
+        }
+        if (closed.oldCurrentIndex < 0 || tabs.size() == 1) {
+            currentIndex = insertIndex;
+        } else if (closed.oldCurrentIndex >= insertIndex) {
+            currentIndex = Math.min(tabs.size() - 1, closed.oldCurrentIndex);
+        } else {
+            currentIndex = Math.min(tabs.size() - 1, closed.oldCurrentIndex);
+        }
+        pendingNewTab = false;
+        recentlyClosedTab = null;
+        requestSaveTabsSoon();
+        if (tabOverviewVisible && contentFrame != null) {
             contentFrame.removeAllViews();
             contentFrame.addView(buildTabOverviewView());
             updateBottomThreadBar(currentTab());
@@ -3126,15 +3299,27 @@ public class MainActivity extends Activity {
     }
 
     private View historyRow(ThreadHistoryItem item) {
+        return historyRow(item, false);
+    }
+
+    private View historyRow(ThreadHistoryItem item, boolean fullHistory) {
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.HORIZONTAL);
+        shell.setGravity(Gravity.CENTER_VERTICAL);
+        shell.setBackgroundColor(Color.rgb(250, 251, 252));
+        LinearLayout.LayoutParams shellParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        shellParams.setMargins(0, 0, 0, dp(8));
+        shell.setLayoutParams(shellParams);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(10), dp(9), dp(10), dp(9));
-        row.setBackgroundColor(Color.rgb(250, 251, 252));
         row.setOnClickListener(v -> routeLink(item.url, currentTab()));
-        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowParams.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowParams);
+        row.setOnLongClickListener(v -> {
+            showValueCopyPopup(row, item.url);
+            return true;
+        });
 
         TextView title = new TextView(this);
         title.setText(item.title);
@@ -3154,7 +3339,39 @@ public class MainActivity extends Activity {
             viewedAt.setTextSize(12);
             row.addView(viewedAt);
         }
-        return row;
+        shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        ImageButton delete = iconButton(R.drawable.ic_close, text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history"), v -> {
+            removeThreadHistory(preferences, item.url);
+            refreshCurrentHomeOrHistoryView(fullHistory);
+        });
+        delete.setColorFilter(Color.rgb(79, 91, 103));
+        delete.setBackgroundColor(Color.TRANSPARENT);
+        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(42), dp(42));
+        deleteParams.setMargins(dp(6), 0, dp(4), 0);
+        shell.addView(delete, deleteParams);
+        return shell;
+    }
+
+    private void refreshCurrentHomeOrHistoryView() {
+        refreshCurrentHomeOrHistoryView(false);
+    }
+
+    private void refreshCurrentHomeOrHistoryView(boolean fullHistory) {
+        if (contentFrame == null) {
+            return;
+        }
+        contentFrame.removeAllViews();
+        if (pendingNewTab) {
+            pendingHistoryAll = fullHistory || pendingHistoryAll;
+            contentFrame.addView(pendingHistoryAll ? buildHistoryView() : buildSearchHomeView(false));
+            return;
+        }
+        CuspTab tab = currentTab();
+        if (tab != null) {
+            tab.readerView = fullHistory ? buildHistoryView() : buildSearchHomeView(false);
+            contentFrame.addView(tab.readerView);
+        }
     }
 
     static String formatHistoryTime(long time) {
@@ -3173,6 +3390,10 @@ public class MainActivity extends Activity {
         for (String[] board : boards) {
             TextView row = actionRow("  " + board[0]);
             row.setOnClickListener(v -> openBoardUrl(board[1]));
+            row.setOnLongClickListener(v -> {
+                showValueCopyPopup(row, board[1]);
+                return true;
+            });
             list.addView(row);
         }
     }
@@ -4064,6 +4285,16 @@ public class MainActivity extends Activity {
     }
 
     private void showLinkCopyPopup(View anchor, TouchedLink link) {
+        showValueCopyPopupAt(link.url, link.rawX, link.rawY + dp(18));
+    }
+
+    private void showValueCopyPopup(View anchor, String value) {
+        int[] location = new int[2];
+        anchor.getLocationOnScreen(location);
+        showValueCopyPopupAt(value, location[0] + dp(16), location[1] + anchor.getHeight() + dp(4));
+    }
+
+    private void showValueCopyPopupAt(String value, int rawX, int rawY) {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.HORIZONTAL);
         menu.setBackground(menuBackground());
@@ -4082,16 +4313,16 @@ public class MainActivity extends Activity {
         copy.setOnClickListener(v -> {
             ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (manager != null) {
-                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid link", link.url));
+                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid link", value));
                 Toast.makeText(this, text("\u30ea\u30f3\u30af\u3092\u30b3\u30d4\u30fc", "Link copied."), Toast.LENGTH_SHORT).show();
             }
             popup.dismiss();
         });
         menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int x = Math.max(0, Math.min(link.rawX - dp(18),
+        int x = Math.max(0, Math.min(rawX - dp(18),
                 getResources().getDisplayMetrics().widthPixels - menu.getMeasuredWidth()));
-        int y = link.rawY + dp(18);
+        int y = rawY;
         popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
         animatePopupIn(popup, false);
     }
@@ -6798,6 +7029,18 @@ public class MainActivity extends Activity {
             this.url = url;
             this.rawX = rawX;
             this.rawY = rawY;
+        }
+    }
+
+    private static class ClosedTab {
+        final CuspTab tab;
+        final int index;
+        final int oldCurrentIndex;
+
+        ClosedTab(CuspTab tab, int index, int oldCurrentIndex) {
+            this.tab = tab;
+            this.index = index;
+            this.oldCurrentIndex = oldCurrentIndex;
         }
     }
 
