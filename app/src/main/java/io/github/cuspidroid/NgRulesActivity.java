@@ -13,6 +13,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -105,12 +106,11 @@ public class NgRulesActivity extends Activity {
             tabs.addView(button, params);
         }
 
-        Button add = new Button(this);
-        add.setText(MainActivity.text("\u8ffd\u52a0", "Add"));
-        add.setAllCaps(false);
+        ViewGroup add = addRow(MainActivity.text("\u30eb\u30fc\u30eb\u3092\u8ffd\u52a0", "Add rule"),
+                MainActivity.text("\u9078\u629e\u4e2d\u306e\u7a2e\u985e\u306b\u6587\u5b57\u5217\u307e\u305f\u306f\u6b63\u898f\u8868\u73fe\u3092\u8ffd\u52a0", "Add text or regex to the selected category"));
         add.setOnClickListener(v -> showRuleDialog(null, -1));
         LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
         addParams.setMargins(dp(18), 0, dp(18), dp(8));
         root.addView(add, addParams);
 
@@ -320,6 +320,42 @@ public class NgRulesActivity extends Activity {
         return button;
     }
 
+    private ViewGroup addRow(String title, String subtitle) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        row.setBackground(addBackground());
+        row.setClickable(true);
+        row.setFocusable(true);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_add);
+        icon.setColorFilter(Color.WHITE);
+        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+        icon.setBackground(addIconBackground());
+        row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setGravity(Gravity.CENTER_VERTICAL);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextColor(textColor());
+        titleView.setTextSize(16);
+        texts.addView(titleView);
+        TextView subtitleView = new TextView(this);
+        subtitleView.setText(subtitle);
+        subtitleView.setTextColor(mutedColor());
+        subtitleView.setTextSize(12);
+        texts.addView(subtitleView);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        textParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(texts, textParams);
+        return row;
+    }
+
     private LinearLayout.LayoutParams iconParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(42), dp(40));
         params.setMargins(dp(8), 0, 0, 0);
@@ -354,6 +390,21 @@ public class NgRulesActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.TRANSPARENT);
         drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable addBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
+        drawable.setCornerRadius(dp(14));
+        return drawable;
+    }
+
+    private GradientDrawable addIconBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.rgb(15, 118, 110));
+        drawable.setCornerRadius(dp(13));
         return drawable;
     }
 

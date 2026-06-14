@@ -13,19 +13,14 @@ import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
-public class BoardPriorityRulesActivity extends Activity {
+public class BbsLinksActivity extends Activity {
     private SharedPreferences preferences;
-    private final List<MainActivity.BoardPriorityRule> rules = new ArrayList<>();
     private LinearLayout list;
 
     private int bgColor() {
@@ -48,13 +43,16 @@ public class BoardPriorityRulesActivity extends Activity {
         return Theme.border(this);
     }
 
+    private int hintColor() {
+        return Theme.subtle(this);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
-        rules.addAll(MainActivity.readBoardPriorityRules(preferences));
         buildLayout();
-        renderRules();
+        renderLinks();
     }
 
     private void buildLayout() {
@@ -65,15 +63,15 @@ public class BoardPriorityRulesActivity extends Activity {
         setContentView(root);
 
         TextView title = new TextView(this);
-        title.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority Words"));
+        title.setText(MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links"));
         title.setTextColor(textColor());
         title.setTextSize(24);
         title.setPadding(dp(18), dp(18), dp(18), dp(10));
         root.addView(title);
 
-        ViewGroup add = addRow(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0", "Add priority word"),
-                MainActivity.text("\u6587\u5b57\u5217\u307e\u305f\u306f\u6b63\u898f\u8868\u73fe\u3092\u8ffd\u52a0", "Add text or regex matching"));
-        add.setOnClickListener(v -> showRuleDialog(null, -1));
+        ViewGroup add = addRow(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u8ffd\u52a0", "Add BBS link"),
+                MainActivity.text("\u540d\u524d\u3068\u677fURL\u3092\u5165\u529b", "Enter a name and board URL"));
+        add.setOnClickListener(v -> showLinkDialog(null));
         LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
         addParams.setMargins(dp(18), 0, dp(18), dp(8));
@@ -89,36 +87,32 @@ public class BoardPriorityRulesActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
     }
 
-    private void renderRules() {
+    private void renderLinks() {
         list.removeAllViews();
-        if (rules.isEmpty()) {
-            list.addView(helperText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u306a\u3057", "No priority words.")));
+        List<MainActivity.BbsLink> links = MainActivity.readBbsLinks(preferences);
+        if (links.isEmpty()) {
+            list.addView(helperText(MainActivity.text("BBS\u30ea\u30f3\u30af\u306a\u3057", "No BBS links.")));
             return;
         }
-        for (int i = 0; i < rules.size(); i++) {
-            MainActivity.BoardPriorityRule rule = rules.get(i);
+        for (MainActivity.BbsLink link : links) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(10), dp(8), dp(8), dp(8));
             row.setBackground(rowBackground());
 
-            TextView text = helperText((rule.regex
-                    ? MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex")
-                    : MainActivity.text("\u6587\u5b57\u5217", "Text")) + "\n" + rule.value);
+            TextView text = helperText(link.name + "\n" + link.url);
             text.setTextColor(textColor());
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-            int index = i;
             ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
-            edit.setOnClickListener(v -> showRuleDialog(rule, index));
+            edit.setOnClickListener(v -> showLinkDialog(link));
             row.addView(edit, iconParams());
 
             ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u524a\u9664", "Delete"));
             delete.setOnClickListener(v -> {
-                rules.remove(index);
-                saveRules();
-                renderRules();
+                MainActivity.removeBbsLink(preferences, link.url);
+                renderLinks();
             });
             row.addView(delete, iconParams());
 
@@ -129,45 +123,34 @@ public class BoardPriorityRulesActivity extends Activity {
         }
     }
 
-    private void showRuleDialog(MainActivity.BoardPriorityRule existing, int index) {
+    private void showLinkDialog(MainActivity.BbsLink existing) {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(12), dp(4), dp(12), 0);
 
-        RadioGroup group = new RadioGroup(this);
-        group.setOrientation(RadioGroup.HORIZONTAL);
-        RadioButton textType = new RadioButton(this);
-        textType.setText(MainActivity.text("\u6587\u5b57\u5217", "Text"));
-        RadioButton regexType = new RadioButton(this);
-        regexType.setText(MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex"));
-        group.addView(textType);
-        group.addView(regexType);
-        content.addView(group);
-
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setTextSize(15);
-        input.setTextColor(textColor());
-        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        input.setBackground(fieldBackground());
-        input.setPadding(dp(12), 0, dp(12), 0);
-        content.addView(input, new LinearLayout.LayoutParams(
+        EditText name = field(MainActivity.text("\u540d\u524d", "Name"));
+        content.addView(name, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
-        if (existing == null || !existing.regex) {
-            textType.setChecked(true);
-        } else {
-            regexType.setChecked(true);
-        }
+        EditText url = field(MainActivity.text("\u677fURL", "Board URL"));
+        url.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        url.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        LinearLayout.LayoutParams urlParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        urlParams.setMargins(0, dp(10), 0, 0);
+        content.addView(url, urlParams);
+
         if (existing != null) {
-            input.setText(existing.value);
-            input.setSelection(input.length());
+            name.setText(existing.name);
+            url.setText(existing.url);
+            url.setSelection(url.length());
         }
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(existing == null
-                        ? MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0", "Add priority word")
-                        : MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7de8\u96c6", "Edit priority word"))
+                        ? MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u8ffd\u52a0", "Add BBS link")
+                        : MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u7de8\u96c6", "Edit BBS link"))
                 .setView(content)
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(existing == null
@@ -175,54 +158,32 @@ public class BoardPriorityRulesActivity extends Activity {
                         : MainActivity.text("\u66f4\u65b0", "Update"), null)
                 .create();
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String value = input.getText().toString().trim();
-            if (value.isEmpty()) {
-                Toast.makeText(this, MainActivity.text("\u30ef\u30fc\u30c9\u3092\u5165\u529b", "Enter a word."), Toast.LENGTH_SHORT).show();
+            String nameValue = name.getText().toString().trim();
+            String urlValue = url.getText().toString().trim();
+            if (nameValue.isEmpty() || urlValue.isEmpty()) {
+                Toast.makeText(this, MainActivity.text("BBS\u540d\u3068\u677fURL\u3092\u5165\u529b", "Enter a BBS name and board URL."), Toast.LENGTH_SHORT).show();
                 return;
             }
-            if (regexType.isChecked()) {
-                try {
-                    Pattern.compile(value);
-                } catch (Exception error) {
-                    Toast.makeText(this, MainActivity.text("\u6b63\u898f\u8868\u73fe\u304c\u4e0d\u6b63\u3067\u3059", "Invalid regex."), Toast.LENGTH_SHORT).show();
-                    return;
-                }
+            if (existing != null) {
+                MainActivity.removeBbsLink(preferences, existing.url);
             }
-            MainActivity.BoardPriorityRule rule = new MainActivity.BoardPriorityRule(value, regexType.isChecked());
-            if (index >= 0 && index < rules.size()) {
-                rules.set(index, rule);
-            } else {
-                rules.add(rule);
-            }
-            saveRules();
-            renderRules();
+            MainActivity.addBbsLink(preferences, nameValue, urlValue);
+            renderLinks();
             dialog.dismiss();
         }));
         dialog.show();
     }
 
-    private void saveRules() {
-        MainActivity.saveBoardPriorityRules(preferences, rules);
-    }
-
-    private TextView helperText(String value) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextColor(mutedColor());
-        view.setTextSize(14);
-        view.setPadding(0, dp(4), 0, dp(4));
-        return view;
-    }
-
-    private ImageButton iconButton(int iconRes, String description) {
-        ImageButton button = new ImageButton(this);
-        button.setImageResource(iconRes);
-        button.setContentDescription(description);
-        button.setColorFilter(textColor());
-        button.setBackground(iconButtonBackground());
-        button.setPadding(dp(10), dp(10), dp(10), dp(10));
-        button.setScaleType(ImageButton.ScaleType.CENTER);
-        return button;
+    private EditText field(String hint) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setTextSize(15);
+        input.setTextColor(textColor());
+        input.setHintTextColor(hintColor());
+        input.setHint(hint);
+        input.setBackground(fieldBackground());
+        input.setPadding(dp(12), 0, dp(12), 0);
+        return input;
     }
 
     private ViewGroup addRow(String title, String subtitle) {
@@ -259,6 +220,26 @@ public class BoardPriorityRulesActivity extends Activity {
         textParams.setMargins(dp(12), 0, 0, 0);
         row.addView(texts, textParams);
         return row;
+    }
+
+    private TextView helperText(String value) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextColor(mutedColor());
+        view.setTextSize(14);
+        view.setPadding(0, dp(4), 0, dp(4));
+        return view;
+    }
+
+    private ImageButton iconButton(int iconRes, String description) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(iconRes);
+        button.setContentDescription(description);
+        button.setColorFilter(textColor());
+        button.setBackground(iconButtonBackground());
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setScaleType(ImageButton.ScaleType.CENTER);
+        return button;
     }
 
     private LinearLayout.LayoutParams iconParams() {

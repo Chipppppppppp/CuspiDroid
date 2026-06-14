@@ -12,10 +12,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
-import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -34,7 +32,8 @@ public class SettingsActivity extends Activity {
     private CheckBox open5chInNewTab;
     private CheckBox externalLinkInApp;
     private CheckBox blurImgurImages;
-    private CheckBox addressBarTop;
+    private RadioButton addressBarTop;
+    private RadioButton addressBarBottom;
     private CheckBox treeView;
     private CheckBox treeSkipFirstReply;
     private CheckBox boardSortBySpeed;
@@ -45,11 +44,6 @@ public class SettingsActivity extends Activity {
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
-    private EditText bbsName;
-    private EditText bbsUrl;
-    private Button addBbsButton;
-    private LinearLayout bbsList;
-    private String editingBbsUrl;
 
     private int bgColor() {
         return Theme.background(this);
@@ -124,11 +118,15 @@ public class SettingsActivity extends Activity {
         root.addView(blurImgurImages);
 
         root.addView(sectionTitle(MainActivity.text("\u8868\u793a", "Display")));
-        addressBarTop = new CheckBox(this);
-        addressBarTop.setText(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0a\u306b\u8868\u793a", "Show address bar at top"));
-        addressBarTop.setTextColor(textColor());
-        addressBarTop.setTextSize(16);
-        root.addView(addressBarTop);
+        RadioGroup addressBarPosition = new RadioGroup(this);
+        addressBarPosition.setOrientation(RadioGroup.HORIZONTAL);
+        addressBarBottom = radio(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0b\u306b\u8868\u793a", "Address bar at bottom"));
+        addressBarTop = radio(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0a\u306b\u8868\u793a", "Address bar at top"));
+        addressBarBottom.setId(View.generateViewId());
+        addressBarTop.setId(View.generateViewId());
+        addressBarPosition.addView(addressBarBottom, new RadioGroup.LayoutParams(0, dp(44), 1));
+        addressBarPosition.addView(addressBarTop, new RadioGroup.LayoutParams(0, dp(44), 1));
+        root.addView(addressBarPosition);
 
         root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u8868\u793a", "Thread View")));
         treeView = new CheckBox(this);
@@ -207,40 +205,10 @@ public class SettingsActivity extends Activity {
         root.addView(helperText(MainActivity.text(
                 "\u8a8d\u8a3c\u304c\u5fc5\u8981\u306aBBS\u306f\u3001\u30b9\u30ec\u3092WebView\u3067\u958b\u3044\u3066\u8a8d\u8a3c\u3059\u308b\u3068\u3001\u305d\u306e\u30af\u30c3\u30ad\u30fc\u3092\u4f7f\u3063\u3066\u95b2\u89a7\u30fb\u66f8\u304d\u8fbc\u307f\u3067\u304d\u307e\u3059\u3002",
                 "If a BBS requires authentication, open the thread in WebView and authenticate there. CuspiDroid will use those cookies for reading and posting.")));
-        bbsName = new EditText(this);
-        bbsName.setSingleLine(true);
-        bbsName.setTextSize(14);
-        bbsName.setTextColor(textColor());
-        bbsName.setHintTextColor(hintColor());
-        bbsName.setHint(MainActivity.text("\u540d\u524d", "Name"));
-        bbsName.setBackground(roundedField());
-        bbsName.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(bbsName, fieldParams());
-
-        bbsUrl = new EditText(this);
-        bbsUrl.setSingleLine(true);
-        bbsUrl.setTextSize(14);
-        bbsUrl.setTextColor(textColor());
-        bbsUrl.setHintTextColor(hintColor());
-        bbsUrl.setHint(MainActivity.text("\u677fURL", "Board URL"));
-        bbsUrl.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        bbsUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        bbsUrl.setBackground(roundedField());
-        bbsUrl.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(bbsUrl, fieldParams());
-
-        addBbsButton = new Button(this);
-        addBbsButton.setText(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u8ffd\u52a0", "Add BBS link"));
-        addBbsButton.setAllCaps(false);
-        addBbsButton.setOnClickListener(v -> addBbsLink());
-        root.addView(addBbsButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-
-        bbsList = new LinearLayout(this);
-        bbsList.setOrientation(LinearLayout.VERTICAL);
-        root.addView(bbsList);
-        renderBbsLinks();
+        root.addView(managementRow(R.drawable.ic_settings,
+                MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u7ba1\u7406", "Manage BBS links"),
+                MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u306e\u540d\u524d\u3068\u677fURL\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit custom BBS names and board URLs"),
+                v -> startActivity(new Intent(this, BbsLinksActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u5c65\u6b74", "Thread History")));
         root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
@@ -260,9 +228,14 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
         externalLinkInApp.setChecked(preferences.getBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
-        addressBarTop.setChecked(preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false));
+        if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
+            addressBarTop.setChecked(true);
+        } else {
+            addressBarBottom.setChecked(true);
+        }
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, false));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
+        updateTreeDependentSettings();
         boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, false));
         String themeMode = preferences.getString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
         if (Theme.MODE_DARK.equals(themeMode)) {
@@ -289,7 +262,11 @@ public class SettingsActivity extends Activity {
         externalLinkInApp.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
-        treeView.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        treeView.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            updateTreeDependentSettings();
+            saveSettings(false);
+        });
         treeSkipFirstReply.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
@@ -360,7 +337,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
-                .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, treeSkipFirstReply.isChecked())
+                .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
+                        treeView.isChecked() && treeSkipFirstReply.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
@@ -375,6 +353,12 @@ public class SettingsActivity extends Activity {
             themeMode = Theme.MODE_DARK;
         }
         preferences.edit().putString(MainActivity.PREF_THEME_MODE, themeMode).apply();
+    }
+
+    private void updateTreeDependentSettings() {
+        boolean enabled = treeView.isChecked();
+        treeSkipFirstReply.setEnabled(enabled);
+        treeSkipFirstReply.setAlpha(enabled ? 1f : 0.45f);
     }
 
     private TextView sectionTitle(String value) {
@@ -469,88 +453,6 @@ public class SettingsActivity extends Activity {
         drawable.setColor(Theme.dark(this) ? Color.rgb(17, 55, 58) : Color.rgb(220, 252, 247));
         drawable.setCornerRadius(dp(13));
         return drawable;
-    }
-
-    private LinearLayout.LayoutParams fieldParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
-        params.setMargins(0, dp(4), 0, dp(8));
-        return params;
-    }
-
-    private void addBbsLink() {
-        String name = bbsName.getText().toString().trim();
-        String url = bbsUrl.getText().toString().trim();
-        if (name.isEmpty() || url.isEmpty()) {
-            Toast.makeText(this, MainActivity.text("BBS\u540d\u3068\u677fURL\u3092\u5165\u529b", "Enter a BBS name and board URL."), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (editingBbsUrl != null) {
-            MainActivity.removeBbsLink(preferences, editingBbsUrl);
-        }
-        MainActivity.addBbsLink(preferences, name, url);
-        editingBbsUrl = null;
-        bbsName.setText("");
-        bbsUrl.setText("");
-        addBbsButton.setText(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u8ffd\u52a0", "Add BBS link"));
-        renderBbsLinks();
-    }
-
-    private void renderBbsLinks() {
-        if (bbsList == null) {
-            return;
-        }
-        bbsList.removeAllViews();
-        java.util.List<MainActivity.BbsLink> links = MainActivity.readBbsLinks(preferences);
-        if (links.isEmpty()) {
-            bbsList.addView(helperText(MainActivity.text("BBS\u30ea\u30f3\u30af\u306a\u3057", "No BBS links.")));
-            return;
-        }
-        for (MainActivity.BbsLink link : links) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView text = helperText(link.name + "\n" + link.url);
-            text.setTextColor(textColor());
-            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            ImageButton edit = new ImageButton(this);
-            edit.setImageResource(R.drawable.ic_edit);
-            edit.setContentDescription(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u7de8\u96c6", "Edit BBS link"));
-            edit.setColorFilter(textColor());
-            edit.setBackground(roundedField());
-            edit.setPadding(dp(10), dp(10), dp(10), dp(10));
-            edit.setScaleType(ImageButton.ScaleType.CENTER);
-            edit.setOnClickListener(v -> {
-                editingBbsUrl = link.url;
-                bbsName.setText(link.name);
-                bbsUrl.setText(link.url);
-                addBbsButton.setText(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u66f4\u65b0", "Update BBS link"));
-            });
-            LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(dp(46), dp(44));
-            editParams.setMargins(dp(8), 0, 0, 0);
-            row.addView(edit, editParams);
-            ImageButton delete = new ImageButton(this);
-            delete.setImageResource(R.drawable.ic_delete);
-            delete.setContentDescription(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u524a\u9664", "Delete BBS link"));
-            delete.setColorFilter(textColor());
-            delete.setBackground(roundedField());
-            delete.setPadding(dp(10), dp(10), dp(10), dp(10));
-            delete.setScaleType(ImageButton.ScaleType.CENTER);
-            delete.setOnClickListener(v -> {
-                MainActivity.removeBbsLink(preferences, link.url);
-                if (link.url.equals(editingBbsUrl)) {
-                    editingBbsUrl = null;
-                    bbsName.setText("");
-                    bbsUrl.setText("");
-                    addBbsButton.setText(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u8ffd\u52a0", "Add BBS link"));
-                }
-                renderBbsLinks();
-            });
-            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(46), dp(44));
-            deleteParams.setMargins(dp(8), 0, 0, 0);
-            row.addView(delete, deleteParams);
-            bbsList.addView(row);
-        }
     }
 
     private GradientDrawable roundedField() {

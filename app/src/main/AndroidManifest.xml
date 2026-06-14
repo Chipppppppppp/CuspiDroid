@@ -22,6 +22,9 @@
             android:name=".BoardPriorityRulesActivity"
             android:exported="false" />
         <activity
+            android:name=".BbsLinksActivity"
+            android:exported="false" />
+        <activity
             android:name=".ReadPostsActivity"
             android:exported="false" />
         <activity

@@ -9123,10 +9123,15 @@ public class MainActivity extends Activity {
                 float parentX = connectorX(depth);
                 float childLeftX = depth * indent;
                 float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
-                canvas.drawLine(parentX, 0, parentX, currentEndY, paint);
                 float radius = Math.min(indent * 0.35f, Math.abs(childLeftX - parentX) * 0.5f);
                 Path branch = new Path();
-                branch.moveTo(parentX, Math.max(0f, branchY - radius));
+                if (continuationDepths.contains(depth)) {
+                    canvas.drawLine(parentX, 0, parentX, currentEndY, paint);
+                    branch.moveTo(parentX, Math.max(0f, branchY - radius));
+                } else {
+                    branch.moveTo(parentX, 0);
+                    branch.lineTo(parentX, Math.max(0f, branchY - radius));
+                }
                 branch.quadTo(parentX, branchY, parentX + radius, branchY);
                 branch.lineTo(childLeftX, branchY);
                 canvas.drawPath(branch, paint);
