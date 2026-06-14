@@ -116,18 +116,21 @@ public class SettingsActivity extends Activity {
         externalLinkInApp.setTextSize(16);
         root.addView(externalLinkInApp);
 
+        root.addView(sectionTitle(MainActivity.text("\u753b\u50cf", "Images")));
         blurImgurImages = new CheckBox(this);
         blurImgurImages.setText(MainActivity.text("imgur\u306e\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic imgur images"));
         blurImgurImages.setTextColor(textColor());
         blurImgurImages.setTextSize(16);
         root.addView(blurImgurImages);
 
+        root.addView(sectionTitle(MainActivity.text("\u8868\u793a", "Display")));
         addressBarTop = new CheckBox(this);
         addressBarTop.setText(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0a\u306b\u8868\u793a", "Show address bar at top"));
         addressBarTop.setTextColor(textColor());
         addressBarTop.setTextSize(16);
         root.addView(addressBarTop);
 
+        root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u8868\u793a", "Thread View")));
         treeView = new CheckBox(this);
         treeView.setText(MainActivity.text("\u30c4\u30ea\u30fc\u8868\u793a", "Tree view"));
         treeView.setTextColor(textColor());

@@ -9097,7 +9097,7 @@ public class MainActivity extends Activity {
             this.continuationDepths = item.continuationDepths;
             this.hasReplies = item.hasReplies;
             this.indent = indent;
-            paint.setColor(Color.argb(125, Color.red(color), Color.green(color), Color.blue(color)));
+            paint.setColor(Color.rgb(169, 216, 210));
             paint.setStrokeWidth(Math.max(2f, context.getResources().getDisplayMetrics().density * 2f));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
@@ -9123,16 +9123,12 @@ public class MainActivity extends Activity {
                 float parentX = connectorX(depth);
                 float childLeftX = depth * indent;
                 float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
-                Path branch = new Path();
+                canvas.drawLine(parentX, 0, parentX, currentEndY, paint);
                 float radius = Math.min(indent * 0.35f, Math.abs(childLeftX - parentX) * 0.5f);
-                branch.moveTo(parentX, 0);
-                branch.lineTo(parentX, Math.max(0f, branchY - radius));
+                Path branch = new Path();
+                branch.moveTo(parentX, Math.max(0f, branchY - radius));
                 branch.quadTo(parentX, branchY, parentX + radius, branchY);
                 branch.lineTo(childLeftX, branchY);
-                if (currentEndY > branchY) {
-                    branch.moveTo(parentX, branchY + paint.getStrokeWidth() * 0.5f);
-                    branch.lineTo(parentX, currentEndY);
-                }
                 canvas.drawPath(branch, paint);
             }
             if (hasReplies) {
