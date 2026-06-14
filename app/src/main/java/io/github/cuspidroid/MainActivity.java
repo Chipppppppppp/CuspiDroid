@@ -200,6 +200,9 @@ public class MainActivity extends Activity {
     private String appliedThemeMode;
 
     private int bgColor() {
+        if (privateUiActive()) {
+            return Theme.dark(this) ? Color.rgb(2, 18, 43) : Color.rgb(232, 242, 255);
+        }
         return Theme.background(this);
     }
 
@@ -225,6 +228,10 @@ public class MainActivity extends Activity {
 
     private int menuColor() {
         return Theme.menu(this);
+    }
+
+    private int privateBlue() {
+        return Color.rgb(37, 99, 235);
     }
 
     static String text(String ja, String en) {
@@ -385,6 +392,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
 
         contentFrame = new FrameLayout(this);
+        contentFrame.setBackgroundColor(bgColor());
         contentFrame.setFocusableInTouchMode(true);
         overlayFrame = new FrameLayout(this);
         overlayFrame.addView(contentFrame, new FrameLayout.LayoutParams(
@@ -1195,6 +1203,7 @@ public class MainActivity extends Activity {
         pendingHistoryAll = false;
         resetNewTabHistory();
         tabOverviewVisible = false;
+        contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
         visibleThreadPage = null;
         visibleThreadScroll = null;
@@ -1214,6 +1223,7 @@ public class MainActivity extends Activity {
         pendingHistoryAll = fullHistory;
         recordNewTabPage(fullHistory ? "history" : "home");
         tabOverviewVisible = false;
+        contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
         contentFrame.addView(fullHistory ? buildHistoryView() : buildSearchHomeView(false));
         addressBar.setText("");
@@ -1620,6 +1630,7 @@ public class MainActivity extends Activity {
         }
         currentIndex = index;
         CuspTab tab = target;
+        contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
         visibleThreadPage = null;
         visibleThreadScroll = null;
@@ -3122,6 +3133,8 @@ public class MainActivity extends Activity {
     private View withScrollScrubber(ScrollView scroll, CuspTab tab) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL);
+        root.setBackgroundColor(bgColor());
+        scroll.setBackgroundColor(bgColor());
         root.addView(scroll, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
@@ -3470,6 +3483,7 @@ public class MainActivity extends Activity {
 
     private View buildSearchHomeView(boolean fullHistory) {
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(bgColor());
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -3635,6 +3649,7 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(bgColor());
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(bgColor());
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -3680,10 +3695,11 @@ public class MainActivity extends Activity {
     }
 
     private ImageButton privateModeButton(boolean active, View.OnClickListener listener) {
-        ImageButton button = iconButton(android.R.drawable.presence_invisible,
+        ImageButton button = iconButton(R.drawable.ic_private_glasses,
                 text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8", "Private"), listener);
-        button.setBackground(roundedDrawable(active ? TEAL : menuColor(), active ? TEAL : borderColor(), dp(20)));
-        button.setColorFilter(active ? Color.WHITE : TEAL);
+        button.setBackground(roundedDrawable(active ? Color.rgb(219, 234, 254) : menuColor(),
+                active ? privateBlue() : borderColor(), dp(20)));
+        button.setColorFilter(privateBlue());
         return button;
     }
 
@@ -3692,6 +3708,7 @@ public class MainActivity extends Activity {
             return;
         }
         pendingPrivateNewTab = !pendingPrivateNewTab;
+        contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
         contentFrame.addView(pendingHistoryAll ? buildHistoryView() : buildSearchHomeView(false));
         renderTabs();
@@ -3700,6 +3717,7 @@ public class MainActivity extends Activity {
     private void toggleTabOverviewPrivateMode() {
         tabOverviewPrivateMode = !tabOverviewPrivateMode;
         if (tabOverviewVisible && contentFrame != null) {
+            contentFrame.setBackgroundColor(bgColor());
             contentFrame.removeAllViews();
             contentFrame.addView(buildTabOverviewView());
             renderTabs();
@@ -3881,8 +3899,8 @@ public class MainActivity extends Activity {
 
         if (tab.privateBrowsing) {
             ImageView privateIcon = new ImageView(this);
-            privateIcon.setImageResource(android.R.drawable.presence_invisible);
-            privateIcon.setColorFilter(TEAL);
+            privateIcon.setImageResource(R.drawable.ic_private_glasses);
+            privateIcon.setColorFilter(privateBlue());
             LinearLayout.LayoutParams privateIconParams = new LinearLayout.LayoutParams(dp(26), dp(26));
             privateIconParams.setMargins(dp(8), 0, 0, 0);
             row.addView(privateIcon, privateIconParams);
@@ -7046,6 +7064,10 @@ public class MainActivity extends Activity {
 
     private boolean currentTabIsPrivate() {
         return pendingNewTab ? pendingPrivateNewTab : isPrivateTab(currentTab());
+    }
+
+    private boolean privateUiActive() {
+        return tabOverviewVisible ? tabOverviewPrivateMode : currentTabIsPrivate();
     }
 
     private boolean isPrivateTab(CuspTab tab) {
