@@ -926,6 +926,11 @@ public class MainActivity extends Activity {
     private void cancelThreadChunkRender(CuspTab tab) {
         if (tab != null) {
             tab.threadRenderGeneration++;
+            tab.threadRendering = false;
+            if (tab.threadScrollChromeTask != null) {
+                mainHandler.removeCallbacks(tab.threadScrollChromeTask);
+                tab.threadScrollChromeTask = null;
+            }
         }
     }
 
@@ -1998,7 +2003,9 @@ public class MainActivity extends Activity {
                     tab.readPostNumber = readPostNumberForTab(tab, result.url);
                     cacheThreadPage(result);
                     addThreadHistory(tab, result.url, result.title);
-                    progressBar.setVisibility(View.GONE);
+                    if (!tab.threadRendering) {
+                        progressBar.setVisibility(View.GONE);
+                    }
                     if (tab == currentTab()) {
                         restoreThreadScroll(tab);
                     }
@@ -2015,7 +2022,9 @@ public class MainActivity extends Activity {
                     cacheThreadPage(result);
                     addThreadHistory(tab, result.url, result.title);
                 }
-                progressBar.setVisibility(View.GONE);
+                if (result.error != null || result.posts.isEmpty()) {
+                    progressBar.setVisibility(View.GONE);
+                }
                 if (tab == currentTab()) {
                     switchToTab(currentIndex);
                     if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
@@ -2504,10 +2513,14 @@ public class MainActivity extends Activity {
         if (tab.postViews == null) {
             tab.postViews = new LinkedHashMap<>();
         }
+        tab.threadRendering = true;
+        refreshThreadScrollChrome(tab);
         List<PostRenderItem> items = treeViewEnabled()
                 ? treePostRenderItems(page)
                 : flatPostRenderItems(page);
         if (items.isEmpty()) {
+            tab.threadRendering = false;
+            finishThreadRender(tab);
             return;
         }
         int generation = ++tab.threadRenderGeneration;
@@ -2526,11 +2539,15 @@ public class MainActivity extends Activity {
                 ? treePostRenderItems(page, Math.max(0, fromPostIndex))
                 : flatPostRenderItems(page, Math.max(0, fromPostIndex));
         if (items.isEmpty()) {
+            tab.threadRendering = false;
+            finishThreadRender(tab);
             if (onComplete != null) {
                 onComplete.run();
             }
             return;
         }
+        tab.threadRendering = true;
+        refreshThreadScrollChrome(tab);
         int generation = ++tab.threadRenderGeneration;
         renderPostChunk(list, page, tab, items, 0, generation, onComplete);
     }
@@ -2562,7 +2579,8 @@ public class MainActivity extends Activity {
             mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete),
                     fastToBottom ? 0 : 16);
         } else {
-            refreshThreadScrollChrome(tab);
+            tab.threadRendering = false;
+            finishThreadRender(tab);
             scheduleLazyImgurLoads();
             if (tab == currentTab()) {
                 visiblePostViews.clear();
@@ -2580,6 +2598,16 @@ public class MainActivity extends Activity {
             if (onComplete != null) {
                 onComplete.run();
             }
+        }
+    }
+
+    private void finishThreadRender(CuspTab tab) {
+        refreshThreadScrollChrome(tab);
+        mainHandler.postDelayed(() -> refreshThreadScrollChrome(tab), 16);
+        mainHandler.postDelayed(() -> refreshThreadScrollChrome(tab), 64);
+        mainHandler.postDelayed(() -> refreshThreadScrollChrome(tab), 144);
+        if (tab == currentTab()) {
+            progressBar.setVisibility(View.GONE);
         }
     }
 
@@ -3405,6 +3433,12 @@ public class MainActivity extends Activity {
         scrubber.addView(thumb, thumbParams);
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            if (tab != null && tab.threadRendering) {
+                thumb.setVisibility(View.GONE);
+                unreadMarkers.removeAllViews();
+                scheduleLazyImgurLoads();
+                return;
+            }
             updateScrollThumb(scroll, scrubber, thumb);
             if (tab != null && scrollY != oldScrollY) {
                 rememberThreadScroll(tab);
@@ -3418,6 +3452,7 @@ public class MainActivity extends Activity {
         });
         if (tab != null) {
             scrubber.post(() -> updateUnreadScrollMarkers(tab));
+            scroll.getViewTreeObserver().addOnGlobalLayoutListener(() -> scheduleThreadScrollChromeRefresh(tab, 2));
         }
         rail.setOnTouchListener(scrubberTouchListener(scroll, scrubber, thumb));
         thumb.setOnTouchListener(scrubberTouchListener(scroll, scrubber, thumb));
@@ -3432,6 +3467,9 @@ public class MainActivity extends Activity {
         }
         ViewGroup markers = tab.unreadMarkerLayer;
         markers.removeAllViews();
+        if (tab.threadRendering) {
+            return;
+        }
         int contentHeight = Math.max(1, tab.threadScroll.getChildAt(0).getHeight());
         int frameHeight = Math.max(1, tab.scrollScrubber.getHeight());
         int firstUnreadTop = -1;
@@ -3784,9 +3822,34 @@ public class MainActivity extends Activity {
         }
         View thumb = tab.scrollScrubber.getChildCount() >= 3 ? tab.scrollScrubber.getChildAt(2) : null;
         tab.scrollScrubber.post(() -> {
+            tab.scrollScrubber.setAlpha(tab.threadRendering ? 0.35f : 1f);
+            if (tab.threadRendering) {
+                if (thumb != null) {
+                    thumb.setVisibility(View.GONE);
+                }
+                if (tab.unreadMarkerLayer != null) {
+                    tab.unreadMarkerLayer.removeAllViews();
+                }
+                return;
+            }
             updateScrollThumb(tab.threadScroll, tab.scrollScrubber, thumb);
             updateUnreadScrollMarkers(tab);
         });
+    }
+
+    private void scheduleThreadScrollChromeRefresh(CuspTab tab, int frames) {
+        if (tab == null || tab.threadScroll == null || tab.scrollScrubber == null) {
+            return;
+        }
+        if (tab.threadScrollChromeTask != null) {
+            return;
+        }
+        long delay = Math.max(1, frames) * 16L;
+        tab.threadScrollChromeTask = () -> {
+            tab.threadScrollChromeTask = null;
+            refreshThreadScrollChrome(tab);
+        };
+        mainHandler.postDelayed(tab.threadScrollChromeTask, delay);
     }
 
     private void showFiveChBoardsView() {
@@ -9682,6 +9745,8 @@ public class MainActivity extends Activity {
         int navigationIndex = -1;
         int threadRenderGeneration;
         boolean fastRenderToBottom;
+        boolean threadRendering;
+        Runnable threadScrollChromeTask;
     }
 
     static class ThreadHistoryItem {
