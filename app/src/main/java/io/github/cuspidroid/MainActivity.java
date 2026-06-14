@@ -2087,9 +2087,17 @@ public class MainActivity extends Activity {
     }
 
     private void refreshThreadFromBottom(CuspTab tab, boolean forceScrollToBottom, boolean centerSpinner) {
+        refreshThreadFromBottom(tab, forceScrollToBottom, centerSpinner, true, null);
+    }
+
+    private void refreshThreadFromBottom(CuspTab tab, boolean forceScrollToBottom, boolean centerSpinner,
+                                         boolean markReadWhenNoNewPosts, Runnable onComplete) {
         if (tab == null || tab.url == null || tab.url.isEmpty()) {
             if (centerSpinner) {
                 hideCenterSpinner();
+            }
+            if (onComplete != null) {
+                onComplete.run();
             }
             return;
         }
@@ -2132,6 +2140,9 @@ public class MainActivity extends Activity {
                 }
                 if (result.error != null) {
                     Toast.makeText(this, result.error, Toast.LENGTH_SHORT).show();
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
                     return;
                 }
                 int oldCount = wasPartialUpdate
@@ -2152,13 +2163,16 @@ public class MainActivity extends Activity {
                             scrollCurrentThreadToBottom();
                         }
                     }
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
                     return;
                 }
                 if (result.posts.size() <= oldCount) {
                     tab.threadPage = result;
                     cacheThreadPage(result);
                     tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
-                    if (!centerSpinner && !forceScrollToBottom) {
+                    if (markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
                         renderTabs();
                     }
@@ -2168,6 +2182,9 @@ public class MainActivity extends Activity {
                     }
                     if (forceScrollToBottom) {
                         scrollCurrentThreadToBottom();
+                    }
+                    if (onComplete != null) {
+                        onComplete.run();
                     }
                     return;
                 }
@@ -2187,6 +2204,9 @@ public class MainActivity extends Activity {
                         scrollCurrentThreadToBottom();
                     }
                     renderTabs();
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
                 });
             });
         });
@@ -4123,7 +4143,7 @@ public class MainActivity extends Activity {
         FrameLayout topLoader = bottomRefreshLoader();
         resetTopRefreshLoader(topLoader);
         root.addView(topLoader, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
-        enableTopPullRefresh(scroll, topLoader, this::reloadAllTabs);
+        enableTopPullRefresh(scroll, topLoader, () -> reloadAllTabs(false));
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -4137,7 +4157,7 @@ public class MainActivity extends Activity {
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
         addTabOverviewSection(list, tabOverviewPrivateMode);
 
-        ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs());
+        ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
         reloadAll.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
         FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
         reloadParams.setMargins(0, 0, dp(84), dp(18));
@@ -7746,30 +7766,55 @@ public class MainActivity extends Activity {
     }
 
     private void reloadAllTabs() {
+        reloadAllTabs(false);
+    }
+
+    private void reloadAllTabs(boolean centerSpinner) {
         boolean wasOverview = tabOverviewVisible;
+        List<CuspTab> targets = new ArrayList<>();
         for (CuspTab tab : new ArrayList<>(tabs)) {
             if (tab == null || tab.url == null || tab.url.isEmpty()) {
                 continue;
             }
+            targets.add(tab);
+        }
+        if (wasOverview && centerSpinner && !targets.isEmpty()) {
+            showCenterSpinner();
+        }
+        final int[] remaining = {targets.size()};
+        Runnable done = () -> {
+            remaining[0]--;
+            if (remaining[0] <= 0) {
+                if (wasOverview && centerSpinner) {
+                    hideCenterSpinner();
+                }
+                if (wasOverview) {
+                    if (tabOverviewVisible) {
+                        contentFrame.removeAllViews();
+                        contentFrame.addView(buildTabOverviewView());
+                        renderTabs();
+                    }
+                }
+            }
+        };
+        for (CuspTab tab : targets) {
             if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
-                refreshThreadFromBottom(tab, false, !wasOverview);
+                refreshThreadFromBottom(tab, false, false, false, done);
             } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
                 loadSearchResults(tab, tab.url, false);
+                done.run();
             } else if (tab.readerMode && NATIVE_BOARD.equals(tab.nativeKind)) {
                 loadBoard(tab, tab.url, false);
+                done.run();
             } else if (tab.readerMode && NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
                 loadSearchHome(tab, tab.url, false);
+                done.run();
+            } else {
+                done.run();
             }
         }
-        if (wasOverview) {
+        if (wasOverview && targets.isEmpty()) {
             tabOverviewVisible = true;
-            mainHandler.postDelayed(() -> {
-                if (tabOverviewVisible) {
-                    contentFrame.removeAllViews();
-                    contentFrame.addView(buildTabOverviewView());
-                    renderTabs();
-                }
-            }, 500);
         }
     }
 
