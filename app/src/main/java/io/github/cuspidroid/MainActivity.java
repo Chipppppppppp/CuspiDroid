@@ -14,6 +14,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -6496,7 +6497,7 @@ public class MainActivity extends Activity {
             }
             String dat = line.substring(0, sep);
             String title = cleanText(line.substring(sep + 2));
-            if (!dat.endsWith(".dat")) {
+            if (!dat.endsWith(".dat") && !dat.endsWith(".cgi")) {
                 continue;
             }
             String key = dat.substring(0, dat.length() - 4);
@@ -6534,6 +6535,9 @@ public class MainActivity extends Activity {
             if (host == null || baseHost == null || !host.equalsIgnoreCase(baseHost)) {
                 continue;
             }
+            if (!isDirectoryBoardLink(absolute)) {
+                continue;
+            }
             String board = boardNameFromUrl(absolute);
             if (board == null || board.trim().isEmpty()) {
                 continue;
@@ -6552,6 +6556,40 @@ public class MainActivity extends Activity {
             throw new IllegalStateException(text("板リンクが見つかりません", "No board links found."));
         }
         return page;
+    }
+
+    private boolean isDirectoryBoardLink(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String path = uri.getPath();
+            if (path == null || path.isEmpty()) {
+                return false;
+            }
+            String[] parts = path.split("/");
+            List<String> nonEmpty = new ArrayList<>();
+            for (String part : parts) {
+                if (part != null && !part.isEmpty()) {
+                    nonEmpty.add(part);
+                }
+            }
+            if (nonEmpty.isEmpty()) {
+                return false;
+            }
+            String first = nonEmpty.get(0).toLowerCase(Locale.ROOT);
+            if ("cdn-cgi".equals(first) || "image".equals(first) || "sp".equals(first)) {
+                return false;
+            }
+            if ("bbs".equals(first) && nonEmpty.size() >= 3
+                    && "read.cgi".equalsIgnoreCase(nonEmpty.get(1))) {
+                return true;
+            }
+            if (nonEmpty.size() == 1) {
+                return !nonEmpty.get(0).contains(".");
+            }
+            return false;
+        } catch (Exception error) {
+            return false;
+        }
     }
 
     private String boardUrlFromDirectoryLink(String url, String board) {
@@ -6608,6 +6646,11 @@ public class MainActivity extends Activity {
         String scheme = Uri.parse(normalized).getScheme();
         if (scheme == null || scheme.isEmpty()) {
             scheme = "https";
+        }
+        if (host.toLowerCase(Locale.ROOT).endsWith("machi.to")) {
+            addUnique(urls, scheme + "://" + host + "/bbs/" + board + "/subject.txt");
+            addUnique(urls, "https://" + host + "/bbs/" + board + "/subject.txt");
+            addUnique(urls, "http://" + host + "/bbs/" + board + "/subject.txt");
         }
         addUnique(urls, scheme + "://" + host + "/" + board + "/subject.txt");
         addUnique(urls, "https://" + host + "/" + board + "/subject.txt");
@@ -7157,7 +7200,8 @@ public class MainActivity extends Activity {
         try {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
-            return host != null && (is5chUrl(url) || isRegisteredBbsUrl(url)) && boardNameFromUrl(url) != null;
+            return host != null && !isMachiDirectoryUrl(url)
+                    && (is5chUrl(url) || isRegisteredBbsUrl(url)) && boardNameFromUrl(url) != null;
         } catch (Exception error) {
             return false;
         }
@@ -7170,7 +7214,31 @@ public class MainActivity extends Activity {
             if (host == null || !isRegisteredBbsUrl(url)) {
                 return false;
             }
-            return boardNameFromUrl(url) == null;
+            return isMachiDirectoryUrl(url) || boardNameFromUrl(url) == null;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private boolean isMachiDirectoryUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            if (host == null || !host.equalsIgnoreCase("machi.to")) {
+                return false;
+            }
+            String path = uri.getPath();
+            if (path == null || path.isEmpty() || "/".equals(path)) {
+                return true;
+            }
+            String trimmed = path;
+            while (trimmed.startsWith("/")) {
+                trimmed = trimmed.substring(1);
+            }
+            while (trimmed.endsWith("/")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 1);
+            }
+            return "sp".equalsIgnoreCase(trimmed);
         } catch (Exception error) {
             return false;
         }
@@ -7696,9 +7764,11 @@ public class MainActivity extends Activity {
             this.continuationDepths = item.continuationDepths;
             this.hasReplies = item.hasReplies;
             this.indent = indent;
-            paint.setColor(color);
+            paint.setColor(Color.argb(125, Color.red(color), Color.green(color), Color.blue(color)));
             paint.setStrokeWidth(Math.max(2f, context.getResources().getDisplayMetrics().density * 2f));
             paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
             setWillNotDraw(false);
         }
 
@@ -7720,8 +7790,16 @@ public class MainActivity extends Activity {
                 float parentX = connectorX(depth);
                 float childLeftX = depth * indent;
                 float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
-                canvas.drawLine(parentX, 0, parentX, currentEndY, paint);
-                canvas.drawLine(parentX, branchY, childLeftX, branchY, paint);
+                Path branch = new Path();
+                float radius = Math.min(indent * 0.35f, Math.abs(childLeftX - parentX) * 0.5f);
+                branch.moveTo(parentX, 0);
+                branch.lineTo(parentX, Math.max(0f, branchY - radius));
+                branch.quadTo(parentX, branchY, parentX + radius, branchY);
+                branch.lineTo(childLeftX, branchY);
+                canvas.drawPath(branch, paint);
+                if (currentEndY > branchY) {
+                    canvas.drawLine(parentX, branchY, parentX, currentEndY, paint);
+                }
             }
             if (hasReplies) {
                 float childTrunkX = connectorX(depth + 1);
