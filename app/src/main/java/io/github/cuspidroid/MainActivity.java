@@ -147,6 +147,8 @@ public class MainActivity extends Activity {
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
     private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-‐-―]\\s*(\\d{1,5}))?");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
+    private static final int INITIAL_THREAD_RENDER_BATCH = 36;
+    private static final int THREAD_RENDER_BATCH = 18;
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -212,6 +214,8 @@ public class MainActivity extends Activity {
     private Runnable deferredTextTask;
     private CuspTab pendingScrollToBottomTab;
     private String appliedThemeMode;
+    private String cachedNgRulesKey;
+    private NgRules cachedNgRules;
 
     private int bgColor() {
         if (privateUiActive()) {
@@ -2577,13 +2581,8 @@ public class MainActivity extends Activity {
                 ? treePostRenderItems(page)
                 : flatPostRenderItems(page);
         int generation = ++tab.threadRenderGeneration;
-        for (PostRenderItem item : items) {
-            if (tab.threadRenderGeneration != generation || tab.threadList != list) {
-                return;
-            }
-            addPostCard(list, page, tab, item, list.getChildCount());
-        }
-        completeThreadRender(tab, null);
+        tab.threadRendering = true;
+        renderPostCardBatch(list, page, tab, items, 0, generation, null, true);
     }
 
     private void renderAdditionalPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab,
@@ -2598,13 +2597,43 @@ public class MainActivity extends Activity {
                 ? treePostRenderItems(page, Math.max(0, fromPostIndex))
                 : flatPostRenderItems(page, Math.max(0, fromPostIndex));
         int generation = ++tab.threadRenderGeneration;
-        for (PostRenderItem item : items) {
+        tab.threadRendering = true;
+        renderPostCardBatch(list, page, tab, items, 0, generation, onComplete, true);
+    }
+
+    private void renderPostCardBatch(LinearLayout list, ThreadPage page, CuspTab tab, List<PostRenderItem> items,
+                                     int start, int generation, Runnable onComplete, boolean firstBatch) {
+        if (tab.threadRenderGeneration != generation || tab.threadList != list) {
+            return;
+        }
+        int batchSize = firstBatch ? INITIAL_THREAD_RENDER_BATCH : THREAD_RENDER_BATCH;
+        int end = Math.min(items.size(), start + batchSize);
+        for (int i = start; i < end; i++) {
             if (tab.threadRenderGeneration != generation || tab.threadList != list) {
                 return;
             }
-            addPostCard(list, page, tab, item, list.getChildCount());
+            addPostCard(list, page, tab, items.get(i), list.getChildCount());
         }
-        completeThreadRender(tab, onComplete);
+        if (firstBatch) {
+            revealInitialThreadRender(tab);
+        }
+        if (end >= items.size()) {
+            completeThreadRender(tab, onComplete);
+            return;
+        }
+        mainHandler.post(() -> renderPostCardBatch(list, page, tab, items, end, generation, onComplete, false));
+    }
+
+    private void revealInitialThreadRender(CuspTab tab) {
+        if (tab != currentTab()) {
+            return;
+        }
+        progressBar.setVisibility(View.GONE);
+        if (tab.postViews != null) {
+            visiblePostViews.clear();
+            visiblePostViews.putAll(tab.postViews);
+        }
+        scheduleThreadMediaLoads();
     }
 
     private void completeThreadRender(CuspTab tab, Runnable onComplete) {
@@ -3127,10 +3156,16 @@ public class MainActivity extends Activity {
             return false;
         }
         NgRules rules = ngRules();
-        return rules.matches("NGWord", post.body)
+        if (post.cachedNgRulesKey != null && post.cachedNgRulesKey.equals(cachedNgRulesKey)) {
+            return post.cachedNgMatch;
+        }
+        boolean match = rules.matches("NGWord", post.body)
                 || rules.matches("NGName", post.name)
                 || rules.matches("NGID", post.id())
                 || rules.matches("NGBe", post.be());
+        post.cachedNgRulesKey = cachedNgRulesKey;
+        post.cachedNgMatch = match;
+        return match;
     }
 
     private boolean matchesNgThread(String title) {
@@ -3138,9 +3173,15 @@ public class MainActivity extends Activity {
     }
 
     private NgRules ngRules() {
+        String rulesJson = preferences.getString(PREF_NG_RULES, "{}");
+        String legacyWords = preferences.getString(PREF_NG_WORDS, "");
+        String key = rulesJson + "\n" + legacyWords;
+        if (cachedNgRules != null && key.equals(cachedNgRulesKey)) {
+            return cachedNgRules;
+        }
         NgRules rules = new NgRules();
         try {
-            JSONObject root = new JSONObject(preferences.getString(PREF_NG_RULES, "{}"));
+            JSONObject root = new JSONObject(rulesJson);
             for (String category : NgRules.CATEGORIES) {
                 JSONObject item = root.optJSONObject(category);
                 if (item != null) {
@@ -3150,7 +3191,9 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {
         }
-        rules.addText("NGWord", preferences.getString(PREF_NG_WORDS, ""));
+        rules.addText("NGWord", legacyWords);
+        cachedNgRulesKey = key;
+        cachedNgRules = rules;
         return rules;
     }
 
@@ -10624,6 +10667,10 @@ public class MainActivity extends Activity {
         String body;
         String cachedSearchBody;
         List<ImgurLink> cachedImgurLinks;
+        String cachedId;
+        String cachedBe;
+        String cachedNgRulesKey;
+        boolean cachedNgMatch;
         boolean aaMode;
         boolean swiping;
         long lastSwipeAt;
@@ -10636,13 +10683,19 @@ public class MainActivity extends Activity {
         }
 
         String id() {
-            Matcher matcher = POST_ID_PATTERN.matcher(date == null ? "" : date);
-            return matcher.find() ? matcher.group(1) : "";
+            if (cachedId == null) {
+                Matcher matcher = POST_ID_PATTERN.matcher(date == null ? "" : date);
+                cachedId = matcher.find() ? matcher.group(1) : "";
+            }
+            return cachedId;
         }
 
         String be() {
-            Matcher matcher = BE_PATTERN.matcher(date == null ? "" : date);
-            return matcher.find() ? matcher.group(1) : "";
+            if (cachedBe == null) {
+                Matcher matcher = BE_PATTERN.matcher(date == null ? "" : date);
+                cachedBe = matcher.find() ? matcher.group(1) : "";
+            }
+            return cachedBe;
         }
     }
 }
