@@ -2624,7 +2624,7 @@ public class MainActivity extends Activity {
         if (firstBatch) {
             revealInitialThreadRender(tab);
         }
-        if (tab.fastRenderToBottom && tab == currentTab()) {
+        if (isBottomJumpActive(tab) && tab == currentTab()) {
             scrollThreadToRenderedBottom(tab);
         }
         if (end >= items.size()) {
@@ -3591,6 +3591,7 @@ public class MainActivity extends Activity {
             }
             updateScrollThumb(scroll, scrubber, thumb);
             if (tab != null && scrollY != oldScrollY) {
+                tab.lastScrollAt = android.os.SystemClock.uptimeMillis();
                 rememberThreadScroll(tab);
                 requestSaveTabsSoon();
             }
@@ -5172,7 +5173,7 @@ public class MainActivity extends Activity {
         }
 
         ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setVisibility(View.GONE);
         if (longClickAction != null) {
             image.setOnLongClickListener(v -> {
@@ -5336,6 +5337,11 @@ public class MainActivity extends Activity {
     }
 
     private void runDeferredTextDecorations() {
+        CuspTab current = currentTab();
+        if (recentlyScrolled(current)) {
+            scheduleDeferredTextDecorations();
+            return;
+        }
         for (int i = deferredTextDecorations.size() - 1; i >= 0; i--) {
             DeferredTextDecoration decoration = deferredTextDecorations.get(i);
             if (!decoration.text.isAttachedToWindow()) {
@@ -5372,6 +5378,11 @@ public class MainActivity extends Activity {
     }
 
     private void runDeferredMediaLoads() {
+        CuspTab current = currentTab();
+        if (recentlyScrolled(current)) {
+            scheduleDeferredMediaLoads();
+            return;
+        }
         for (int i = deferredMediaPreviews.size() - 1; i >= 0; i--) {
             DeferredMediaPreview preview = deferredMediaPreviews.get(i);
             if (!preview.placeholder.isAttachedToWindow()) {
@@ -5414,6 +5425,10 @@ public class MainActivity extends Activity {
         if (created > 0 && !deferredMediaPreviews.isEmpty()) {
             scheduleDeferredMediaLoads();
         }
+    }
+
+    private boolean recentlyScrolled(CuspTab tab) {
+        return tab != null && android.os.SystemClock.uptimeMillis() - tab.lastScrollAt < 220;
     }
 
     private void resolveDeferredMediaPreview(DeferredMediaPreview preview) {
@@ -7141,6 +7156,7 @@ public class MainActivity extends Activity {
         CuspTab tab = currentTab();
         if (tab != null) {
             tab.fastRenderToBottom = true;
+            tab.bottomScrollLockUntil = android.os.SystemClock.uptimeMillis() + 3500;
             ScrollView scroll = tab.threadScroll == null ? findScrollView(tab.readerView) : tab.threadScroll;
             if (scroll != null) {
                 scroll.fling(0);
@@ -7195,7 +7211,7 @@ public class MainActivity extends Activity {
         final ScrollView targetScroll = scroll;
         targetScroll.fling(0);
         targetScroll.clearAnimation();
-        if (!lastPostViewReady(tab) && attempt < 80) {
+        if (!lastPostViewReady(tab) && attempt < 160) {
             targetScroll.postDelayed(() -> scrollThreadToBottomWhenReady(tab, attempt + 1), 25);
             return;
         }
@@ -7204,15 +7220,26 @@ public class MainActivity extends Activity {
             targetScroll.clearAnimation();
             int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
             targetScroll.scrollTo(0, range);
-            if (attempt < 80 && !isThreadAtBottom(targetScroll)) {
+            boolean keepLocked = shouldKeepBottomLocked(tab);
+            if (attempt < 160 && (!isThreadAtBottom(targetScroll) || keepLocked)) {
                 targetScroll.postDelayed(() -> scrollThreadToBottomWhenReady(tab, attempt + 1), 25);
             } else if (pendingScrollToBottomTab == tab) {
                 pendingScrollToBottomTab = null;
                 if (tab != null) {
                     tab.fastRenderToBottom = false;
+                    tab.bottomScrollLockUntil = 0;
                 }
             }
         });
+    }
+
+    private boolean shouldKeepBottomLocked(CuspTab tab) {
+        return isBottomJumpActive(tab)
+                && (tab.threadRendering || android.os.SystemClock.uptimeMillis() < tab.bottomScrollLockUntil);
+    }
+
+    private boolean isBottomJumpActive(CuspTab tab) {
+        return tab != null && (tab.fastRenderToBottom || android.os.SystemClock.uptimeMillis() < tab.bottomScrollLockUntil);
     }
 
     private boolean lastPostViewReady(CuspTab tab) {
@@ -10673,6 +10700,8 @@ public class MainActivity extends Activity {
         int threadBottomOffset;
         String threadScrollUrl = "";
         int readPostNumber;
+        long bottomScrollLockUntil;
+        long lastScrollAt;
         boolean hasSavedThreadScroll;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
