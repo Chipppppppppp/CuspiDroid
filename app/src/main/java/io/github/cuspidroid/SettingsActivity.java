@@ -16,6 +16,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -146,12 +147,10 @@ public class SettingsActivity extends Activity {
         boardSortBySpeed.setTextSize(16);
         root.addView(boardSortBySpeed);
 
-        Button openBoardPriorityRules = new Button(this);
-        openBoardPriorityRules.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words"));
-        openBoardPriorityRules.setAllCaps(false);
-        openBoardPriorityRules.setOnClickListener(v -> startActivity(new Intent(this, BoardPriorityRulesActivity.class)));
-        root.addView(openBoardPriorityRules, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        root.addView(managementRow(R.drawable.ic_text_fields,
+                MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words"),
+                MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u3067\u512a\u5148\u3059\u308b\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit words prioritized in board thread lists"),
+                v -> startActivity(new Intent(this, BoardPriorityRulesActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u30c6\u30fc\u30de", "Theme")));
         themeGroup = new RadioGroup(this);
@@ -196,12 +195,10 @@ public class SettingsActivity extends Activity {
         root.addView(hint);
 
         root.addView(sectionTitle(MainActivity.text("NG\u8a2d\u5b9a", "NG Rules")));
-        Button openNgRules = new Button(this);
-        openNgRules.setText(MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"));
-        openNgRules.setAllCaps(false);
-        openNgRules.setOnClickListener(v -> startActivity(new Intent(this, NgRulesActivity.class)));
-        root.addView(openNgRules, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        root.addView(managementRow(R.drawable.ic_close,
+                MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
+                MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
+                v -> startActivity(new Intent(this, NgRulesActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links")));
         root.addView(helperText(MainActivity.text(
@@ -243,20 +240,16 @@ public class SettingsActivity extends Activity {
         renderBbsLinks();
 
         root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u5c65\u6b74", "Thread History")));
-        Button openHistory = new Button(this);
-        openHistory.setText(MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"));
-        openHistory.setAllCaps(false);
-        openHistory.setOnClickListener(v -> startActivity(new Intent(this, HistoryActivity.class)));
-        root.addView(openHistory, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
+                MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
+                MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
+                v -> startActivity(new Intent(this, HistoryActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u65e2\u8aad", "Read Positions")));
-        Button openReadPosts = new Button(this);
-        openReadPosts.setText(MainActivity.text("\u65e2\u8aad\u3092\u7ba1\u7406", "Manage read positions"));
-        openReadPosts.setAllCaps(false);
-        openReadPosts.setOnClickListener(v -> startActivity(new Intent(this, ReadPostsActivity.class)));
-        root.addView(openReadPosts, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        root.addView(managementRow(R.drawable.ic_check,
+                MainActivity.text("\u65e2\u8aad\u3092\u7ba1\u7406", "Manage read positions"),
+                MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u4f4d\u7f6e\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read positions by thread"),
+                v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
     }
 
@@ -405,6 +398,74 @@ public class SettingsActivity extends Activity {
         button.setTextColor(textColor());
         button.setTextSize(16);
         return button;
+    }
+
+    private View managementRow(int iconRes, String title, String subtitle, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(10), dp(10));
+        row.setBackground(roundedManagementCard());
+        row.setOnClickListener(listener);
+        row.setClickable(true);
+        row.setFocusable(true);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(Color.rgb(15, 118, 110));
+        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+        icon.setBackground(roundedIconBubble());
+        row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setGravity(Gravity.CENTER_VERTICAL);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextColor(textColor());
+        titleView.setTextSize(16);
+        titleView.setSingleLine(true);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(titleView);
+
+        TextView subtitleView = new TextView(this);
+        subtitleView.setText(subtitle);
+        subtitleView.setTextColor(mutedColor());
+        subtitleView.setTextSize(12);
+        subtitleView.setSingleLine(true);
+        subtitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(subtitleView);
+
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        textParams.setMargins(dp(12), 0, dp(8), 0);
+        row.addView(texts, textParams);
+
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_arrow_forward);
+        arrow.setColorFilter(mutedColor());
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(68));
+        params.setMargins(0, dp(4), 0, dp(8));
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    private GradientDrawable roundedManagementCard() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
+        drawable.setCornerRadius(dp(14));
+        return drawable;
+    }
+
+    private GradientDrawable roundedIconBubble() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.dark(this) ? Color.rgb(17, 55, 58) : Color.rgb(220, 252, 247));
+        drawable.setCornerRadius(dp(13));
+        return drawable;
     }
 
     private LinearLayout.LayoutParams fieldParams() {

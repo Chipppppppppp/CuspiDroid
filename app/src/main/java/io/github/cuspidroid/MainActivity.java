@@ -230,6 +230,17 @@ public class MainActivity extends Activity {
         return Theme.menu(this);
     }
 
+    private int barColor() {
+        if (privateUiActive()) {
+            return Theme.dark(this) ? Color.rgb(3, 30, 66) : Color.rgb(219, 234, 254);
+        }
+        return Theme.topBar(this);
+    }
+
+    private int hintTextColor() {
+        return Theme.dark(this) ? Color.rgb(168, 176, 186) : Color.rgb(100, 116, 139);
+    }
+
     private int privateBlue() {
         return Color.rgb(37, 99, 235);
     }
@@ -506,7 +517,7 @@ public class MainActivity extends Activity {
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
         bottomToolbar.setGravity(Gravity.CENTER_VERTICAL);
         bottomToolbar.setPadding(dp(6), dp(5), dp(6), dp(5));
-        bottomToolbar.setBackgroundColor(Theme.topBar(this));
+        bottomToolbar.setBackgroundColor(barColor());
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
@@ -520,6 +531,7 @@ public class MainActivity extends Activity {
         addressBar.setIncludeFontPadding(false);
         addressBar.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         addressBar.setTextColor(textColor());
+        addressBar.setHintTextColor(hintTextColor());
         addressBar.setHint(text("\u691c\u7d22\u307e\u305f\u306fURL", "Search or URL"));
         addressBar.setSelectAllOnFocus(true);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
@@ -1145,9 +1157,31 @@ public class MainActivity extends Activity {
 
     private GradientDrawable bottomBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.topBar(this));
-        drawable.setStroke(dp(1), borderColor());
+        drawable.setColor(barColor());
+        drawable.setStroke(dp(1), privateUiActive() ? privateBlue() : borderColor());
         return drawable;
+    }
+
+    private void updatePrivateChrome() {
+        if (contentFrame != null) {
+            contentFrame.setBackgroundColor(bgColor());
+        }
+        if (bottomToolbar != null) {
+            bottomToolbar.setBackgroundColor(barColor());
+        }
+        if (bottomThreadBar != null) {
+            bottomThreadBar.setBackground(bottomBarBackground());
+        }
+        if (threadSearchBar != null) {
+            threadSearchBar.setBackground(bottomBarBackground());
+        }
+        if (addressBar != null) {
+            addressBar.setHintTextColor(hintTextColor());
+            addressBar.setBackground(addressBarBackground());
+        }
+        if (threadSearchInput != null) {
+            threadSearchInput.setBackground(addressBarBackground());
+        }
     }
 
     private void createTab(String url, boolean select) {
@@ -1707,6 +1741,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderTabs() {
+        updatePrivateChrome();
         if (bottomToolbar != null) {
             bottomToolbar.setVisibility(tabOverviewVisible ? View.GONE : View.VISIBLE);
         }
