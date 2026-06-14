@@ -719,8 +719,25 @@ public class MainActivity extends Activity {
             pasteIntoAddressBar(true);
             popup.dismiss();
         }));
-        int yOffset = addressBarTop ? dp(2) : -addressBar.getHeight() - dp(54);
-        popup.showAsDropDown(addressBar, dp(8), yOffset);
+        showAddressMenuAtToolbarEdge(popup, menu, true);
+    }
+
+    private void showAddressMenuAtToolbarEdge(PopupWindow popup, View menu, boolean alignLeft) {
+        int[] toolbarLocation = new int[2];
+        bottomToolbar.getLocationOnScreen(toolbarLocation);
+        menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int width = menu.getMeasuredWidth();
+        int height = menu.getMeasuredHeight();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int x = alignLeft ? frame.left : frame.right - width;
+        int y = addressBarTop
+                ? toolbarLocation[1] + bottomToolbar.getHeight()
+                : toolbarLocation[1] - height;
+        popup.setClippingEnabled(true);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, !addressBarTop);
     }
 
     private TextView menuItem(String text, View.OnClickListener listener) {
@@ -747,7 +764,7 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
 
         menu.addView(menuIconItem(R.drawable.ic_arrow_forward, text("WebView\u3067\u958b\u304f", "Open in WebView"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             openCurrentThreadInWebView();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (!hasUrl) {
@@ -756,17 +773,17 @@ public class MainActivity extends Activity {
         }
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_search, text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             showThreadSearchDialog();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_search, text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_settings, text("\u8a2d\u5b9a", "Settings"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             openSettings();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
@@ -787,25 +804,25 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
         ImageButton back = menuIconButton(R.drawable.ic_arrow_back, text("\u623b\u308b", "Back"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             onBackPressed();
         });
         setMenuButtonEnabled(back, canBack);
         row.addView(back);
         ImageButton forward = menuIconButton(R.drawable.ic_arrow_forward, text("\u9032\u3080", "Forward"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             goForward();
         });
         setMenuButtonEnabled(forward, canForward);
         row.addView(forward);
         ImageButton share = menuIconButton(R.drawable.ic_share, text("\u5171\u6709", "Share"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             shareCurrentThread();
         });
         setMenuButtonEnabled(share, canShareOrReload);
         row.addView(share);
         ImageButton reload = menuIconButton(R.drawable.ic_refresh, text("\u66f4\u65b0", "Reload"), v -> {
-            popup.dismiss();
+            dismissPopupAnimated(popup);
             reloadFromMenu();
         });
         setMenuButtonEnabled(reload, canShareOrReload);
@@ -825,27 +842,15 @@ public class MainActivity extends Activity {
         int height = menu.getMeasuredHeight();
         Rect frame = new Rect();
         getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
-        int margin = dp(8);
-        int[] anchorLocation = new int[2];
-        anchor.getLocationOnScreen(anchorLocation);
-
-        int x = anchorLocation[0] + anchor.getWidth() - width;
-        x = Math.max(frame.left + margin, Math.min(x, frame.right - width - margin));
-
-        int below = anchorLocation[1] + anchor.getHeight() + dp(2);
-        int above = anchorLocation[1] - height - dp(2);
-        int y = addressBarTop ? below : above;
-        if (y + height > frame.bottom - margin) {
-            y = above;
-        }
-        if (y < frame.top + margin) {
-            y = frame.top + margin;
-        }
-        if (height > frame.height() - margin * 2) {
-            y = frame.top + margin;
-        }
+        int[] toolbarLocation = new int[2];
+        bottomToolbar.getLocationOnScreen(toolbarLocation);
+        int x = frame.right - width;
+        int y = addressBarTop
+                ? toolbarLocation[1] + bottomToolbar.getHeight()
+                : toolbarLocation[1] - height;
         popup.setClippingEnabled(true);
         popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, !addressBarTop);
     }
 
     private void showCenterSpinner() {
@@ -2165,7 +2170,8 @@ public class MainActivity extends Activity {
         trigger.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 if (v instanceof TextView) {
-                    v.setTag(touchedUrl((TextView) v, event));
+                    String url = touchedUrl((TextView) v, event);
+                    v.setTag(url == null ? null : new TouchedLink(url, (int) event.getRawX(), (int) event.getRawY()));
                 }
                 downX[0] = event.getRawX();
                 downY[0] = event.getRawY();
@@ -4009,7 +4015,8 @@ public class MainActivity extends Activity {
     private void installLinkTouchTracking(TextView text) {
         text.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                text.setTag(touchedUrl(text, event));
+                String url = touchedUrl(text, event);
+                text.setTag(url == null ? null : new TouchedLink(url, (int) event.getRawX(), (int) event.getRawY()));
             } else if (event.getAction() == MotionEvent.ACTION_CANCEL) {
                 text.setTag(null);
             }
@@ -4045,27 +4052,26 @@ public class MainActivity extends Activity {
 
     private boolean showLinkCopyPopupIfAny(TextView anchor) {
         Object tag = anchor.getTag();
-        if (!(tag instanceof String) || ((String) tag).isEmpty()) {
+        if (!(tag instanceof TouchedLink) || ((TouchedLink) tag).url.isEmpty()) {
             return false;
         }
         suppressNextLinkClick.add(anchor);
         mainHandler.postDelayed(() -> suppressNextLinkClick.remove(anchor), 800);
-        showLinkCopyPopup(anchor, (String) tag);
+        showLinkCopyPopup(anchor, (TouchedLink) tag);
         return true;
     }
 
-    private void showLinkCopyPopup(View anchor, String url) {
+    private void showLinkCopyPopup(View anchor, TouchedLink link) {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.HORIZONTAL);
-        menu.setPadding(dp(8), dp(8), dp(8), dp(8));
-        menu.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(10)));
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
 
-        Button copy = new Button(this);
-        copy.setText(text("\u30b3\u30d4\u30fc", "Copy"));
-        copy.setAllCaps(false);
+        TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
+        });
         copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
         copy.setCompoundDrawablePadding(dp(6));
-        menu.addView(copy, new LinearLayout.LayoutParams(dp(136), dp(44)));
+        menu.addView(copy);
 
         PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, true);
@@ -4074,12 +4080,18 @@ public class MainActivity extends Activity {
         copy.setOnClickListener(v -> {
             ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (manager != null) {
-                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid link", url));
+                manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid link", link.url));
                 Toast.makeText(this, text("\u30ea\u30f3\u30af\u3092\u30b3\u30d4\u30fc", "Link copied."), Toast.LENGTH_SHORT).show();
             }
             popup.dismiss();
         });
-        popup.showAsDropDown(anchor, dp(8), -dp(4));
+        menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int x = Math.max(0, Math.min(link.rawX - dp(18),
+                getResources().getDisplayMetrics().widthPixels - menu.getMeasuredWidth()));
+        int y = link.rawY + dp(18);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, false);
     }
 
     private void replaceReplySpans(SpannableString text, ThreadPage page) {
@@ -4204,6 +4216,7 @@ public class MainActivity extends Activity {
         popup.setOnDismissListener(() -> replyPopups.remove(popup));
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, true);
     }
 
     private View popupPostCard(ThreadPage page, Post post, boolean showShadow) {
@@ -4338,6 +4351,30 @@ public class MainActivity extends Activity {
                 .setDuration(120)
                 .withEndAction(popup::dismiss)
                 .start();
+    }
+
+    private void animatePopupIn(PopupWindow popup, boolean pivotBottom) {
+        if (popup == null || !popup.isShowing()) {
+            return;
+        }
+        View content = popup.getContentView();
+        if (content == null) {
+            return;
+        }
+        content.animate().cancel();
+        content.setAlpha(0f);
+        content.setScaleX(0.94f);
+        content.setScaleY(0.94f);
+        content.post(() -> {
+            content.setPivotX(content.getWidth() / 2f);
+            content.setPivotY(pivotBottom ? content.getHeight() : 0f);
+            content.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .alpha(1f)
+                    .setDuration(120)
+                    .start();
+        });
     }
 
     private boolean isTouchInsideReplyPopup(MotionEvent event) {
@@ -6727,6 +6764,18 @@ public class MainActivity extends Activity {
         String server;
         String board;
         String key;
+    }
+
+    private static class TouchedLink {
+        final String url;
+        final int rawX;
+        final int rawY;
+
+        TouchedLink(String url, int rawX, int rawY) {
+            this.url = url;
+            this.rawX = rawX;
+            this.rawY = rawY;
+        }
     }
 
     private static class Post {
