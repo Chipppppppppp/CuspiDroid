@@ -137,6 +137,9 @@ public class SettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
         root.addView(sectionTitle(MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links")));
+        root.addView(helperText(MainActivity.text(
+                "\u8a8d\u8a3c\u304c\u5fc5\u8981\u306aBBS\u306f\u3001\u30b9\u30ec\u3092WebView\u3067\u958b\u3044\u3066\u8a8d\u8a3c\u3059\u308b\u3068\u3001\u305d\u306e\u30af\u30c3\u30ad\u30fc\u3092\u4f7f\u3063\u3066\u95b2\u89a7\u30fb\u66f8\u304d\u8fbc\u307f\u3067\u304d\u307e\u3059\u3002",
+                "If a BBS requires authentication, open the thread in WebView and authenticate there. CuspiDroid will use those cookies for reading and posting.")));
         bbsName = new EditText(this);
         bbsName.setSingleLine(true);
         bbsName.setTextSize(14);

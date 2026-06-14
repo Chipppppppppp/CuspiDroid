@@ -4337,38 +4337,68 @@ public class MainActivity extends Activity {
     }
 
     private void showLinkCopyPopup(View anchor, TouchedLink link) {
-        showValueCopyPopupAt(link.url, link.rawX, link.rawY + dp(18));
+        showValueCopyPopupAt(link.url, link.rawX, link.rawY + dp(18), true);
     }
 
     private void showValueCopyPopup(View anchor, String value) {
         int[] location = new int[2];
         anchor.getLocationOnScreen(location);
-        showValueCopyPopupAt(value, location[0] + dp(16), location[1] + anchor.getHeight() + dp(4));
+        showValueCopyPopupAt(value, location[0] + dp(16), location[1] + anchor.getHeight() + dp(4), false);
     }
 
-    private void showValueCopyPopupAt(String value, int rawX, int rawY) {
+    private void showValueCopyPopupAt(String value, int rawX, int rawY, boolean linkMenu) {
         LinearLayout menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.HORIZONTAL);
+        menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
 
+        String normalized = normalizeUrl(value);
+        boolean threadLink = linkMenu && isThreadUrl(normalized);
+        if (threadLink) {
+            boolean newTabByDefault = open5chLinksInNewTab();
+            int icon = newTabByDefault ? R.drawable.ic_arrow_forward : R.drawable.ic_add;
+            TextView open = menuItem(newTabByDefault
+                    ? text("\u73fe\u5728\u306e\u30bf\u30d6\u3067\u958b\u304f", "Open in current tab")
+                    : text("\u65b0\u3057\u3044\u30bf\u30d6\u3067\u958b\u304f", "Open in new tab"), v -> {
+            });
+            open.setGravity(Gravity.CENTER_VERTICAL);
+            open.setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0);
+            open.setCompoundDrawablePadding(dp(6));
+            menu.addView(open, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            menu.addView(horizontalDivider());
+        }
+
         TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
         });
+        copy.setGravity(Gravity.CENTER_VERTICAL);
         copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
         copy.setCompoundDrawablePadding(dp(6));
-        menu.addView(copy);
+        menu.addView(copy, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        if (threadLink) {
+            View open = menu.getChildAt(0);
+            open.setOnClickListener(v -> {
+                if (open5chLinksInNewTab()) {
+                    openLinkInCurrentTab(normalized);
+                } else {
+                    createTab(normalized, true, tabs.indexOf(currentTab()));
+                }
+                dismissPopupAnimated(popup);
+            });
+        }
         copy.setOnClickListener(v -> {
             ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (manager != null) {
                 manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid link", value));
                 Toast.makeText(this, text("\u30ea\u30f3\u30af\u3092\u30b3\u30d4\u30fc", "Link copied."), Toast.LENGTH_SHORT).show();
             }
-            popup.dismiss();
+            dismissPopupAnimated(popup);
         });
         menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -4377,6 +4407,15 @@ public class MainActivity extends Activity {
         int y = rawY;
         popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
         animatePopupIn(popup, false);
+    }
+
+    private void openLinkInCurrentTab(String url) {
+        CuspTab tab = currentTab();
+        if (tab == null) {
+            createTab(url, true);
+            return;
+        }
+        openInCurrentTab(url);
     }
 
     private void replaceReplySpans(SpannableString text, ThreadPage page) {
