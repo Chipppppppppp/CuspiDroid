@@ -6746,7 +6746,10 @@ public class MainActivity extends Activity {
         }
         page.title = cleanText(page.title);
 
-        parseModernPosts(html, page.posts);
+        parseMachiPosts(html, page.posts);
+        if (page.posts.isEmpty()) {
+            parseModernPosts(html, page.posts);
+        }
         if (page.posts.isEmpty()) {
             parseClassicPosts(html, page.posts);
         }
@@ -6780,6 +6783,33 @@ public class MainActivity extends Activity {
             post.body = cleanText(body);
             posts.add(post);
             fallbackNumber++;
+        }
+    }
+
+    private void parseMachiPosts(String html, List<Post> posts) {
+        Pattern pattern = Pattern.compile(
+                "<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])res(?![A-Za-z0-9_-])[^\"']*[\"'][^>]*>(.*?)</div>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(html);
+        while (matcher.find()) {
+            String block = matcher.group(1);
+            Matcher separator = Pattern.compile("<hr[^>]+class=[\"'][^\"']*reshr[^\"']*[\"'][^>]*>",
+                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(block);
+            if (!separator.find()) {
+                continue;
+            }
+            String meta = block.substring(0, separator.start());
+            String body = block.substring(separator.end());
+            Post post = new Post();
+            post.number = parsePositiveInt(valueOr(firstMatch(meta, "^\\s*(\\d+)\\s*:"), String.valueOf(posts.size() + 1)),
+                    posts.size() + 1);
+            post.name = valueOr(firstMatch(meta, "<b[^>]*>(.*?)</b>"), "anonymous");
+            post.date = valueOr(firstMatch(meta, "<font[^>]+size=[\"']?1[\"']?[^>]*>(.*?)</font>"), "");
+            post.body = cleanText(body);
+            if (post.body.isEmpty()) {
+                continue;
+            }
+            posts.add(post);
         }
     }
 
