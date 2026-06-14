@@ -7372,6 +7372,9 @@ public class MainActivity extends Activity {
         if (isBbsMenuUrl(directoryUrl) && is5chUrl(directoryUrl) && is5chUrl(targetUrl)) {
             return true;
         }
+        if (isBbsMenuUrl(directoryUrl) && isSameBbsHostFamily(baseHost, targetHost)) {
+            return true;
+        }
         return false;
     }
 
@@ -7425,7 +7428,7 @@ public class MainActivity extends Activity {
             for (BbsLink link : readBbsLinks(preferences)) {
                 Uri base = Uri.parse(normalizeUrl(link.url));
                 String baseHost = base.getHost();
-                if (baseHost == null || !baseHost.equalsIgnoreCase(targetHost) || !isBbsMenuUrl(link.url)) {
+                if (baseHost == null || !isSameBbsHostFamily(baseHost, targetHost) || !isBbsMenuUrl(link.url)) {
                     continue;
                 }
                 List<String> baseParts = pathParts(base.getPath());
@@ -8330,7 +8333,7 @@ public class MainActivity extends Activity {
         try {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
-            return host != null && !isMachiDirectoryUrl(url)
+            return host != null
                     && (is5chUrl(url) || isRegisteredBbsUrl(url)) && boardNameFromUrl(url) != null;
         } catch (Exception error) {
             return false;
@@ -8344,7 +8347,7 @@ public class MainActivity extends Activity {
             if (host == null || !isRegisteredBbsUrl(url)) {
                 return false;
             }
-            return isMachiDirectoryUrl(url) || isBbsMenuUrl(url) || boardNameFromUrl(url) == null;
+            return isBbsMenuUrl(url) || boardNameFromUrl(url) == null;
         } catch (Exception error) {
             return false;
         }
@@ -8365,30 +8368,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean isMachiDirectoryUrl(String url) {
-        try {
-            Uri uri = Uri.parse(normalizeUrl(url));
-            String host = uri.getHost();
-            if (host == null || !host.equalsIgnoreCase("machi.to")) {
-                return false;
-            }
-            String path = uri.getPath();
-            if (path == null || path.isEmpty() || "/".equals(path)) {
-                return true;
-            }
-            String trimmed = path;
-            while (trimmed.startsWith("/")) {
-                trimmed = trimmed.substring(1);
-            }
-            while (trimmed.endsWith("/")) {
-                trimmed = trimmed.substring(0, trimmed.length() - 1);
-            }
-            return "sp".equalsIgnoreCase(trimmed);
-        } catch (Exception error) {
-            return false;
-        }
-    }
-
     private boolean isRegisteredBbsUrl(String url) {
         try {
             String normalized = normalizeUrl(url);
@@ -8403,8 +8382,32 @@ public class MainActivity extends Activity {
                 if (baseHost != null && targetHost.equalsIgnoreCase(baseHost)) {
                     return true;
                 }
+                if (baseHost != null && isBbsMenuUrl(link.url) && isSameBbsHostFamily(baseHost, targetHost)) {
+                    return true;
+                }
             }
         } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private boolean isSameBbsHostFamily(String leftHost, String rightHost) {
+        String left = leftHost == null ? "" : leftHost.toLowerCase(Locale.ROOT);
+        String right = rightHost == null ? "" : rightHost.toLowerCase(Locale.ROOT);
+        if (left.isEmpty() || right.isEmpty()) {
+            return false;
+        }
+        if (left.equals(right)) {
+            return true;
+        }
+        if (left.endsWith(".open2ch.net") || left.equals("open2ch.net")) {
+            return right.endsWith(".open2ch.net") || right.equals("open2ch.net");
+        }
+        if (left.endsWith(".machi.to") || left.equals("machi.to")) {
+            return right.endsWith(".machi.to") || right.equals("machi.to");
+        }
+        if (left.endsWith(".bbspink.org") || left.equals("bbspink.org")) {
+            return right.endsWith(".bbspink.org") || right.equals("bbspink.org");
         }
         return false;
     }
@@ -8454,7 +8457,7 @@ public class MainActivity extends Activity {
             for (BbsLink link : readBbsLinks(preferences)) {
                 Uri base = Uri.parse(normalizeUrl(link.url));
                 String baseHost = base.getHost();
-                if (baseHost == null || !baseHost.equalsIgnoreCase(targetHost) || !isBbsMenuUrl(link.url)) {
+                if (baseHost == null || !isSameBbsHostFamily(baseHost, targetHost) || !isBbsMenuUrl(link.url)) {
                     continue;
                 }
                 List<String> baseParts = pathParts(base.getPath());
