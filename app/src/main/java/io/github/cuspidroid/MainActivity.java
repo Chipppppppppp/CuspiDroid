@@ -369,6 +369,10 @@ public class MainActivity extends Activity {
             clearAddressFocus();
             return;
         }
+        if (isPageSearchOpen()) {
+            closeThreadSearch();
+            return;
+        }
         if (!replyPopups.isEmpty()) {
             dismissTopReplyPopup();
             return;
@@ -7090,6 +7094,11 @@ public class MainActivity extends Activity {
     private boolean isThreadPageSearchActive() {
         CuspTab tab = currentTab();
         return tab != null && tab.threadSearchOpen && tab.threadPage != null && NATIVE_THREAD.equals(tab.nativeKind);
+    }
+
+    private boolean isPageSearchOpen() {
+        CuspTab tab = currentTab();
+        return pageSearchOpen || (tab != null && tab.threadSearchOpen);
     }
 
     private void focusThreadSearchInput() {
