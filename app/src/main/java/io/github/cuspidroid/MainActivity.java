@@ -177,11 +177,18 @@ public class MainActivity extends Activity {
     private boolean updatingThreadSearchInput;
     private Runnable threadSearchTask;
     private Runnable threadSearchHighlightTask;
+    private boolean pageSearchOpen;
+    private String pageSearchQuery = "";
+    private final List<TextView> pageSearchMatches = new ArrayList<>();
+    private final Map<TextView, CharSequence> pageSearchOriginalText = new LinkedHashMap<>();
+    private int pageSearchIndex = -1;
     private Runnable saveTabsTask;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private View imageOverlay;
     private View highlightedPostView;
+    private final List<String> newTabNavigationHistory = new ArrayList<>();
+    private int newTabNavigationIndex = -1;
     private Interpreter graphicViolenceInterpreter;
     private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
@@ -300,8 +307,8 @@ public class MainActivity extends Activity {
             return;
         }
         if (pendingNewTab) {
-            if (pendingHistoryAll) {
-                showPendingNewTab(false);
+            if (newTabNavigationIndex > 0) {
+                navigateNewTabHistory(-1);
                 return;
             }
             cancelPendingNewTab();
@@ -399,7 +406,7 @@ public class MainActivity extends Activity {
         threadSearchInput.setSingleLine(true);
         threadSearchInput.setTextSize(14);
         threadSearchInput.setTextColor(textColor());
-        threadSearchInput.setHint(text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"));
+        threadSearchInput.setHint(text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page"));
         threadSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         threadSearchInput.setBackground(addressBarBackground());
         threadSearchInput.setPadding(dp(12), 0, dp(12), 0);
@@ -411,11 +418,17 @@ public class MainActivity extends Activity {
             if (actionId == EditorInfo.IME_ACTION_SEARCH
                     || actionId == EditorInfo.IME_ACTION_DONE
                     || enter) {
-                CuspTab tab = currentTab();
-                if (tab != null && !tab.threadSearchMatches.isEmpty()) {
-                    moveThreadSearch(1);
+                if (isThreadPageSearchActive()) {
+                    CuspTab tab = currentTab();
+                    if (tab != null && !tab.threadSearchMatches.isEmpty()) {
+                        moveThreadSearch(1);
+                    } else {
+                        scheduleThreadSearch(threadSearchInput.getText().toString(), true);
+                    }
+                } else if (!pageSearchMatches.isEmpty()) {
+                    movePageSearch(1);
                 } else {
-                    scheduleThreadSearch(threadSearchInput.getText().toString(), true);
+                    updatePageSearch(threadSearchInput.getText().toString(), true);
                 }
                 threadSearchInput.requestFocus();
                 threadSearchInput.setSelection(threadSearchInput.getText().length());
@@ -431,7 +444,11 @@ public class MainActivity extends Activity {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 if (!updatingThreadSearchInput) {
-                    scheduleThreadSearch(s.toString(), true);
+                    if (isThreadPageSearchActive()) {
+                        scheduleThreadSearch(s.toString(), true);
+                    } else {
+                        updatePageSearch(s.toString(), true);
+                    }
                 }
             }
 
@@ -445,8 +462,8 @@ public class MainActivity extends Activity {
         threadSearchCount.setTextSize(12);
         threadSearchCount.setGravity(Gravity.CENTER);
         threadSearchBar.addView(threadSearchCount, new LinearLayout.LayoutParams(dp(42), dp(40)));
-        threadSearchBar.addView(threadSearchButton(R.drawable.ic_arrow_up, text("\u524d\u3078", "Previous"), v -> moveThreadSearch(-1)));
-        threadSearchBar.addView(threadSearchButton(R.drawable.ic_arrow_down, text("\u6b21\u3078", "Next"), v -> moveThreadSearch(1)));
+        threadSearchBar.addView(threadSearchButton(R.drawable.ic_arrow_up, text("\u524d\u3078", "Previous"), v -> moveActivePageSearch(-1)));
+        threadSearchBar.addView(threadSearchButton(R.drawable.ic_arrow_down, text("\u6b21\u3078", "Next"), v -> moveActivePageSearch(1)));
         threadSearchBar.addView(threadSearchButton(R.drawable.ic_close, text("\u9589\u3058\u308b", "Close"), v -> closeThreadSearch()));
 
         bottomThreadBar = new LinearLayout(this);
@@ -865,7 +882,7 @@ public class MainActivity extends Activity {
             menu.getChildAt(0).setAlpha(0.45f);
         }
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_search, text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"), v -> {
+        menu.addView(menuIconItem(R.drawable.ic_search, text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page"), v -> {
             dismissPopupAnimated(popup);
             showThreadSearchDialog();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -888,7 +905,7 @@ public class MainActivity extends Activity {
     private LinearLayout menuNavigationRow(PopupWindow popup) {
         CuspTab tab = currentTab();
         boolean canBack = canGoBackInCurrentTab(tab) || tabs.size() > 1 || pendingNewTab;
-        boolean canForward = canGoForwardInCurrentTab(tab);
+        boolean canForward = pendingNewTab ? canGoForwardInNewTab() : canGoForwardInCurrentTab(tab);
         boolean canShareOrReload = tab != null
                 && tab.url != null
                 && !tab.url.trim().isEmpty()
@@ -1142,6 +1159,7 @@ public class MainActivity extends Activity {
         }
         pendingNewTab = true;
         pendingHistoryAll = false;
+        resetNewTabHistory();
         tabOverviewVisible = false;
         contentFrame.removeAllViews();
         visibleThreadPage = null;
@@ -1160,6 +1178,7 @@ public class MainActivity extends Activity {
             return;
         }
         pendingHistoryAll = fullHistory;
+        recordNewTabPage(fullHistory ? "history" : "home");
         tabOverviewVisible = false;
         contentFrame.removeAllViews();
         contentFrame.addView(fullHistory ? buildHistoryView() : buildSearchHomeView(false));
@@ -3254,7 +3273,7 @@ public class MainActivity extends Activity {
 
         list.addView(sectionTitleView("5ch"));
         TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
-        fiveCh.setOnClickListener(v -> showFiveChBoardsView());
+        fiveCh.setOnClickListener(v -> showFiveChBoardsView(true));
         list.addView(fiveCh);
 
         list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
@@ -3278,6 +3297,13 @@ public class MainActivity extends Activity {
     }
 
     private void showFiveChBoardsView() {
+        showFiveChBoardsView(true);
+    }
+
+    private void showFiveChBoardsView(boolean recordHistory) {
+        if (recordHistory) {
+            recordNewTabPage("5ch");
+        }
         View view = loadingView("");
         if (pendingNewTab) {
             contentFrame.removeAllViews();
@@ -3333,7 +3359,7 @@ public class MainActivity extends Activity {
             TextView more = actionRow(text("\u5c65\u6b74\u3092\u3082\u3063\u3068\u898b\u308b", "More history"));
             more.setOnClickListener(v -> {
                 if (pendingNewTab) {
-                    showPendingNewTab(true);
+                    renderNewTabPage("history", true);
                 } else {
                     CuspTab tab = currentTab();
                     if (tab != null) {
@@ -3693,6 +3719,59 @@ public class MainActivity extends Activity {
         renderTabs();
     }
 
+    private void resetNewTabHistory() {
+        newTabNavigationHistory.clear();
+        newTabNavigationHistory.add("home");
+        newTabNavigationIndex = 0;
+    }
+
+    private void recordNewTabPage(String page) {
+        if (!pendingNewTab || page == null || page.isEmpty()) {
+            return;
+        }
+        if (newTabNavigationIndex >= 0
+                && newTabNavigationIndex < newTabNavigationHistory.size()
+                && page.equals(newTabNavigationHistory.get(newTabNavigationIndex))) {
+            return;
+        }
+        while (newTabNavigationHistory.size() > newTabNavigationIndex + 1) {
+            newTabNavigationHistory.remove(newTabNavigationHistory.size() - 1);
+        }
+        newTabNavigationHistory.add(page);
+        newTabNavigationIndex = newTabNavigationHistory.size() - 1;
+    }
+
+    private void navigateNewTabHistory(int direction) {
+        int next = newTabNavigationIndex + direction;
+        if (next < 0 || next >= newTabNavigationHistory.size()) {
+            return;
+        }
+        newTabNavigationIndex = next;
+        renderNewTabPage(newTabNavigationHistory.get(newTabNavigationIndex), false);
+    }
+
+    private void renderNewTabPage(String page, boolean record) {
+        if (record) {
+            recordNewTabPage(page);
+        }
+        if ("history".equals(page)) {
+            pendingHistoryAll = true;
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildHistoryView());
+        } else if ("5ch".equals(page)) {
+            showFiveChBoardsView(record);
+        } else if (page != null && page.startsWith("saved:")) {
+            showSavedItemsView(page.substring("saved:".length()), record);
+        } else {
+            pendingHistoryAll = false;
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildSearchHomeView(false));
+        }
+        addressBar.setText("");
+        clearAddressFocus();
+        renderTabs();
+    }
+
     private ClosedTab removeTabForOverview(int index) {
         if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
             return null;
@@ -3796,6 +3875,13 @@ public class MainActivity extends Activity {
     }
 
     private void showSavedItemsView(String key) {
+        showSavedItemsView(key, true);
+    }
+
+    private void showSavedItemsView(String key, boolean recordHistory) {
+        if (recordHistory) {
+            recordNewTabPage("saved:" + key);
+        }
         View view = buildSavedItemsView(key);
         if (pendingNewTab) {
             contentFrame.removeAllViews();
@@ -6119,13 +6205,22 @@ public class MainActivity extends Activity {
 
     private void showThreadSearchDialog() {
         CuspTab tab = currentTab();
-        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty()) {
-            Toast.makeText(this, text("\u691c\u7d22\u3067\u304d\u308b\u30b9\u30ec\u304c\u3042\u308a\u307e\u305b\u3093", "No searchable thread."), Toast.LENGTH_SHORT).show();
-            return;
+        if (tab != null && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+            pageSearchOpen = false;
+            tab.threadSearchOpen = true;
+            updateThreadSearchBar(tab);
+        } else {
+            pageSearchOpen = true;
+            pageSearchQuery = "";
+            pageSearchMatches.clear();
+            updateThreadSearchBar(tab);
         }
-        tab.threadSearchOpen = true;
-        updateThreadSearchBar(tab);
         focusThreadSearchInput();
+    }
+
+    private boolean isThreadPageSearchActive() {
+        CuspTab tab = currentTab();
+        return tab != null && tab.threadSearchOpen && tab.threadPage != null && NATIVE_THREAD.equals(tab.nativeKind);
     }
 
     private void focusThreadSearchInput() {
@@ -6217,6 +6312,14 @@ public class MainActivity extends Activity {
         jumpToPost(tab.threadSearchMatches.get(tab.threadSearchIndex));
     }
 
+    private void moveActivePageSearch(int direction) {
+        if (isThreadPageSearchActive()) {
+            moveThreadSearch(direction);
+        } else {
+            movePageSearch(direction);
+        }
+    }
+
     private void closeThreadSearch() {
         CuspTab tab = currentTab();
         if (tab != null) {
@@ -6249,25 +6352,35 @@ public class MainActivity extends Activity {
         if (threadSearchBar != null) {
             threadSearchBar.setVisibility(View.GONE);
         }
+        clearPageSearchHighlights();
+        pageSearchOpen = false;
+        pageSearchQuery = "";
+        pageSearchMatches.clear();
+        pageSearchIndex = -1;
     }
 
     private void updateThreadSearchBar(CuspTab tab) {
         if (threadSearchBar == null || threadSearchInput == null || threadSearchCount == null) {
             return;
         }
-        boolean show = tab != null && tab.threadSearchOpen && NATIVE_THREAD.equals(tab.nativeKind);
+        boolean threadShow = tab != null && tab.threadSearchOpen && NATIVE_THREAD.equals(tab.nativeKind);
+        boolean show = threadShow || pageSearchOpen;
         threadSearchBar.setVisibility(show ? View.VISIBLE : View.GONE);
         if (!show) {
             return;
         }
-        String query = tab.threadSearchQuery == null ? "" : tab.threadSearchQuery;
+        String query = threadShow ? (tab.threadSearchQuery == null ? "" : tab.threadSearchQuery) : pageSearchQuery;
         if (!query.contentEquals(threadSearchInput.getText())) {
             updatingThreadSearchInput = true;
             threadSearchInput.setText(query);
             threadSearchInput.setSelection(threadSearchInput.getText().length());
             updatingThreadSearchInput = false;
         }
-        updateThreadSearchCount(tab);
+        if (threadShow) {
+            updateThreadSearchCount(tab);
+        } else {
+            updatePageSearchCount();
+        }
     }
 
     private void updateThreadSearchCount(CuspTab tab) {
@@ -6282,6 +6395,110 @@ public class MainActivity extends Activity {
         } else {
             threadSearchCount.setText((tab.threadSearchIndex + 1) + "/" + total);
         }
+    }
+
+    private void updatePageSearch(String query, boolean resetIndex) {
+        pageSearchQuery = query == null ? "" : query;
+        clearPageSearchHighlights();
+        pageSearchMatches.clear();
+        String needle = pageSearchQuery.trim().toLowerCase(Locale.ROOT);
+        if (needle.isEmpty()) {
+            pageSearchIndex = -1;
+            updatePageSearchCount();
+            return;
+        }
+        List<TextView> textViews = new ArrayList<>();
+        collectTextViews(contentFrame, textViews);
+        for (TextView view : textViews) {
+            CharSequence original = view.getText();
+            if (original == null) {
+                continue;
+            }
+            String haystack = original.toString().toLowerCase(Locale.ROOT);
+            if (!fastContains(haystack, needle)) {
+                continue;
+            }
+            pageSearchOriginalText.put(view, original);
+            SpannableString highlighted = new SpannableString(original);
+            int start = haystack.indexOf(needle);
+            while (start >= 0) {
+                int end = start + needle.length();
+                highlighted.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                highlighted.setSpan(new ForegroundColorSpan(Color.rgb(15, 118, 110)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                start = haystack.indexOf(needle, end);
+            }
+            view.setText(highlighted);
+            pageSearchMatches.add(view);
+        }
+        if (pageSearchMatches.isEmpty()) {
+            pageSearchIndex = -1;
+        } else if (resetIndex || pageSearchIndex < 0 || pageSearchIndex >= pageSearchMatches.size()) {
+            pageSearchIndex = 0;
+            jumpToPageSearchMatch();
+        }
+        updatePageSearchCount();
+    }
+
+    private void collectTextViews(View view, List<TextView> out) {
+        if (view instanceof TextView && view != threadSearchInput && view != threadSearchCount) {
+            out.add((TextView) view);
+        } else if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectTextViews(group.getChildAt(i), out);
+            }
+        }
+    }
+
+    private void clearPageSearchHighlights() {
+        for (Map.Entry<TextView, CharSequence> entry : pageSearchOriginalText.entrySet()) {
+            entry.getKey().setText(entry.getValue());
+        }
+        pageSearchOriginalText.clear();
+    }
+
+    private void movePageSearch(int direction) {
+        if (pageSearchMatches.isEmpty()) {
+            return;
+        }
+        int size = pageSearchMatches.size();
+        pageSearchIndex = (pageSearchIndex + direction + size) % size;
+        updatePageSearchCount();
+        jumpToPageSearchMatch();
+    }
+
+    private void updatePageSearchCount() {
+        if (threadSearchCount == null) {
+            return;
+        }
+        if (pageSearchQuery == null || pageSearchQuery.trim().isEmpty()) {
+            threadSearchCount.setText("");
+        } else if (pageSearchMatches.isEmpty()) {
+            threadSearchCount.setText("0/0");
+        } else {
+            threadSearchCount.setText((pageSearchIndex + 1) + "/" + pageSearchMatches.size());
+        }
+    }
+
+    private void jumpToPageSearchMatch() {
+        if (pageSearchIndex < 0 || pageSearchIndex >= pageSearchMatches.size()) {
+            return;
+        }
+        TextView target = pageSearchMatches.get(pageSearchIndex);
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0) {
+            return;
+        }
+        View current = target;
+        int y = 0;
+        View scrollChild = scroll.getChildAt(0);
+        while (current != null && current != scrollChild) {
+            y += current.getTop();
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+        int maxY = Math.max(0, scrollChild.getHeight() - scroll.getHeight());
+        scroll.smoothScrollTo(0, Math.max(0, Math.min(y - dp(8), maxY)));
     }
 
     private void rerenderThreadHighlights(CuspTab tab) {
@@ -6391,6 +6608,13 @@ public class MainActivity extends Activity {
     }
 
     private void goForward() {
+        if (pendingNewTab) {
+            if (canGoForwardInNewTab()) {
+                navigateNewTabHistory(1);
+            }
+            clearAddressFocus();
+            return;
+        }
         CuspTab tab = currentTab();
         if (!canGoForwardInCurrentTab(tab)) {
             clearAddressFocus();
@@ -6424,6 +6648,12 @@ public class MainActivity extends Activity {
         return tab != null
                 && tab.navigationIndex >= 0
                 && tab.navigationIndex < tab.navigationHistory.size() - 1;
+    }
+
+    private boolean canGoForwardInNewTab() {
+        return pendingNewTab
+                && newTabNavigationIndex >= 0
+                && newTabNavigationIndex < newTabNavigationHistory.size() - 1;
     }
 
     private void reload() {
@@ -8384,10 +8614,11 @@ public class MainActivity extends Activity {
                 branch.lineTo(parentX, Math.max(0f, branchY - radius));
                 branch.quadTo(parentX, branchY, parentX + radius, branchY);
                 branch.lineTo(childLeftX, branchY);
-                canvas.drawPath(branch, paint);
                 if (currentEndY > branchY) {
-                    canvas.drawLine(parentX, branchY, parentX, currentEndY, paint);
+                    branch.moveTo(parentX, branchY + paint.getStrokeWidth() * 0.5f);
+                    branch.lineTo(parentX, currentEndY);
                 }
+                canvas.drawPath(branch, paint);
             }
             if (hasReplies) {
                 float childTrunkX = connectorX(depth + 1);
