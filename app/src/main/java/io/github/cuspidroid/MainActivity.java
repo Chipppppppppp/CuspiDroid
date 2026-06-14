@@ -3258,8 +3258,8 @@ public class MainActivity extends Activity {
         list.addView(fiveCh);
 
         list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
-        list.addView(savedListButton("\u2605 " + text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
-        list.addView(savedListButton("\uD83D\uDD16 " + text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
+        list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
+        list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         List<BbsLink> customLinks = readBbsLinks(preferences);
         if (!customLinks.isEmpty()) {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
@@ -3770,7 +3770,27 @@ public class MainActivity extends Activity {
     }
 
     private View savedListButton(String label, String key) {
-        TextView row = actionRow(label + "  " + readSavedItems(key).size());
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(8), dp(10), dp(8));
+        row.setBackgroundColor(postColor());
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowParams);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(PREF_BOARD_FAVORITES.equals(key) ? R.drawable.ic_star : R.drawable.ic_bookmark);
+        icon.setColorFilter(TEAL);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+
+        TextView textView = new TextView(this);
+        textView.setText(label + "  " + readSavedItems(key).size());
+        textView.setTextColor(TEAL);
+        textView.setTextSize(14);
+        textView.setPadding(dp(10), 0, 0, 0);
+        row.addView(textView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         row.setOnClickListener(v -> showSavedItemsView(key));
         return row;
     }
