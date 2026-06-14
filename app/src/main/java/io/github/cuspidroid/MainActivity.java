@@ -2624,9 +2624,6 @@ public class MainActivity extends Activity {
         if (firstBatch) {
             revealInitialThreadRender(tab);
         }
-        if (isBottomJumpActive(tab) && tab == currentTab()) {
-            scrollThreadToRenderedBottom(tab);
-        }
         if (end >= items.size()) {
             completeThreadRender(tab, onComplete);
             return;
@@ -2662,11 +2659,7 @@ public class MainActivity extends Activity {
             restoreThreadScroll(tab);
             runPendingScrollToBottom(tab);
         }
-        if (tab.fastRenderToBottom) {
-            scrollThreadToBottomWhenReady(tab, 0);
-        } else {
-            tab.fastRenderToBottom = false;
-        }
+        tab.fastRenderToBottom = false;
         if (onComplete != null) {
             onComplete.run();
         }
@@ -7154,17 +7147,51 @@ public class MainActivity extends Activity {
 
     private void scrollCurrentThreadToBottom() {
         CuspTab tab = currentTab();
-        if (tab != null) {
-            tab.fastRenderToBottom = true;
-            tab.bottomScrollLockUntil = android.os.SystemClock.uptimeMillis() + 3500;
-            ScrollView scroll = tab.threadScroll == null ? findScrollView(tab.readerView) : tab.threadScroll;
-            if (scroll != null) {
-                scroll.fling(0);
-                scroll.clearAnimation();
+        pendingScrollToBottomTab = null;
+        if (tab == null) {
+            return;
+        }
+        tab.fastRenderToBottom = false;
+        tab.bottomScrollLockUntil = 0;
+        scrollToLastRenderedPost(tab);
+    }
+
+    private void scrollToLastRenderedPost(CuspTab tab) {
+        ScrollView scroll = tab.threadScroll == null ? findScrollView(tab.readerView) : tab.threadScroll;
+        if (scroll == null) {
+            scroll = visibleThreadScroll == null ? findScrollView(contentFrame) : visibleThreadScroll;
+        }
+        View target = lastRenderedPostView(tab);
+        if (scroll == null || scroll.getChildCount() == 0 || target == null) {
+            return;
+        }
+        clearAddressFocus();
+        final ScrollView targetScroll = scroll;
+        targetScroll.fling(0);
+        targetScroll.clearAnimation();
+        targetScroll.post(() -> {
+            if (targetScroll.getChildCount() == 0) {
+                return;
+            }
+            targetScroll.fling(0);
+            targetScroll.clearAnimation();
+            int top = descendantTopWithin(target, targetScroll.getChildAt(0));
+            int maxY = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
+            targetScroll.scrollTo(0, Math.max(0, Math.min(top - dp(8), maxY)));
+        });
+    }
+
+    private View lastRenderedPostView(CuspTab tab) {
+        if (tab == null || tab.threadPage == null || tab.postViews == null || tab.postViews.isEmpty()) {
+            return null;
+        }
+        for (int i = tab.threadPage.posts.size() - 1; i >= 0; i--) {
+            View view = tab.postViews.get(tab.threadPage.posts.get(i).number);
+            if (view != null && view.getParent() != null) {
+                return view;
             }
         }
-        pendingScrollToBottomTab = tab;
-        scrollThreadToBottomWhenReady(tab, 0);
+        return null;
     }
 
     private void runPendingScrollToBottom(CuspTab tab) {
