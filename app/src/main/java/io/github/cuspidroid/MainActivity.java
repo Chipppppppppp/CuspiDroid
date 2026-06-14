@@ -3721,12 +3721,16 @@ public class MainActivity extends Activity {
     }
 
     private void enableTopPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
+        enableTopPullRefresh(scroll, scroll, loader, refresh);
+    }
+
+    private void enableTopPullRefresh(ScrollView scroll, View touchTarget, View loader, Runnable refresh) {
         final float[] downY = new float[1];
         final float[] pullDistance = new float[1];
         final boolean[] startedAtTop = new boolean[1];
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshing = new boolean[1];
-        scroll.setOnTouchListener((v, event) -> {
+        View.OnTouchListener listener = (v, event) -> {
             int hiddenOffset = -dp(58);
             int maxOffset = dp(86);
             int maxPull = dp(164);
@@ -3803,7 +3807,11 @@ public class MainActivity extends Activity {
                 }
             }
             return false;
-        });
+        };
+        touchTarget.setOnTouchListener(listener);
+        if (touchTarget != scroll) {
+            scroll.setOnTouchListener(listener);
+        }
     }
 
     private void resetBottomRefreshLoader(View loader) {
@@ -4143,7 +4151,7 @@ public class MainActivity extends Activity {
         FrameLayout topLoader = bottomRefreshLoader();
         resetTopRefreshLoader(topLoader);
         root.addView(topLoader, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
-        enableTopPullRefresh(scroll, topLoader, () -> reloadAllTabs(false));
+        enableTopPullRefresh(scroll, root, topLoader, () -> reloadAllTabs(false));
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
