@@ -1,0 +1,261 @@
+package io.github.cuspidroid;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
+
+public class BoardPriorityRulesActivity extends Activity {
+    private SharedPreferences preferences;
+    private final List<MainActivity.BoardPriorityRule> rules = new ArrayList<>();
+    private LinearLayout list;
+
+    private int bgColor() {
+        return Theme.background(this);
+    }
+
+    private int surfaceColor() {
+        return Theme.surface(this);
+    }
+
+    private int textColor() {
+        return Theme.text(this);
+    }
+
+    private int mutedColor() {
+        return Theme.muted(this);
+    }
+
+    private int borderColor() {
+        return Theme.border(this);
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        preferences = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
+        rules.addAll(MainActivity.readBoardPriorityRules(preferences));
+        buildLayout();
+        renderRules();
+    }
+
+    private void buildLayout() {
+        Theme.applySystemBars(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(bgColor());
+        setContentView(root);
+
+        TextView title = new TextView(this);
+        title.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority Words"));
+        title.setTextColor(textColor());
+        title.setTextSize(24);
+        title.setPadding(dp(18), dp(18), dp(18), dp(10));
+        root.addView(title);
+
+        Button add = new Button(this);
+        add.setText(MainActivity.text("\u8ffd\u52a0", "Add"));
+        add.setAllCaps(false);
+        add.setOnClickListener(v -> showRuleDialog(null, -1));
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        addParams.setMargins(dp(18), 0, dp(18), dp(8));
+        root.addView(add, addParams);
+
+        ScrollView scroll = new ScrollView(this);
+        list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(18), 0, dp(18), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+    }
+
+    private void renderRules() {
+        list.removeAllViews();
+        if (rules.isEmpty()) {
+            list.addView(helperText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u306a\u3057", "No priority words.")));
+            return;
+        }
+        for (int i = 0; i < rules.size(); i++) {
+            MainActivity.BoardPriorityRule rule = rules.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(10), dp(8), dp(8), dp(8));
+            row.setBackground(rowBackground());
+
+            TextView text = helperText((rule.regex
+                    ? MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex")
+                    : MainActivity.text("\u6587\u5b57\u5217", "Text")) + "\n" + rule.value);
+            text.setTextColor(textColor());
+            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            int index = i;
+            ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
+            edit.setOnClickListener(v -> showRuleDialog(rule, index));
+            row.addView(edit, iconParams());
+
+            ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u524a\u9664", "Delete"));
+            delete.setOnClickListener(v -> {
+                rules.remove(index);
+                saveRules();
+                renderRules();
+            });
+            row.addView(delete, iconParams());
+
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.setMargins(0, 0, 0, dp(8));
+            list.addView(row, params);
+        }
+    }
+
+    private void showRuleDialog(MainActivity.BoardPriorityRule existing, int index) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(12), dp(4), dp(12), 0);
+
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.HORIZONTAL);
+        RadioButton textType = new RadioButton(this);
+        textType.setText(MainActivity.text("\u6587\u5b57\u5217", "Text"));
+        RadioButton regexType = new RadioButton(this);
+        regexType.setText(MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex"));
+        group.addView(textType);
+        group.addView(regexType);
+        content.addView(group);
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setTextSize(15);
+        input.setTextColor(textColor());
+        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        input.setBackground(fieldBackground());
+        input.setPadding(dp(12), 0, dp(12), 0);
+        content.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+
+        if (existing == null || !existing.regex) {
+            textType.setChecked(true);
+        } else {
+            regexType.setChecked(true);
+        }
+        if (existing != null) {
+            input.setText(existing.value);
+            input.setSelection(input.length());
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(existing == null
+                        ? MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0", "Add priority word")
+                        : MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7de8\u96c6", "Edit priority word"))
+                .setView(content)
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(existing == null
+                        ? MainActivity.text("\u8ffd\u52a0", "Add")
+                        : MainActivity.text("\u66f4\u65b0", "Update"), null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String value = input.getText().toString().trim();
+            if (value.isEmpty()) {
+                Toast.makeText(this, MainActivity.text("\u30ef\u30fc\u30c9\u3092\u5165\u529b", "Enter a word."), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (regexType.isChecked()) {
+                try {
+                    Pattern.compile(value);
+                } catch (Exception error) {
+                    Toast.makeText(this, MainActivity.text("\u6b63\u898f\u8868\u73fe\u304c\u4e0d\u6b63\u3067\u3059", "Invalid regex."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+            }
+            MainActivity.BoardPriorityRule rule = new MainActivity.BoardPriorityRule(value, regexType.isChecked());
+            if (index >= 0 && index < rules.size()) {
+                rules.set(index, rule);
+            } else {
+                rules.add(rule);
+            }
+            saveRules();
+            renderRules();
+            dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
+    private void saveRules() {
+        MainActivity.saveBoardPriorityRules(preferences, rules);
+    }
+
+    private TextView helperText(String value) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextColor(mutedColor());
+        view.setTextSize(14);
+        view.setPadding(0, dp(4), 0, dp(4));
+        return view;
+    }
+
+    private ImageButton iconButton(int iconRes, String description) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(iconRes);
+        button.setContentDescription(description);
+        button.setColorFilter(textColor());
+        button.setBackground(iconButtonBackground());
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setScaleType(ImageButton.ScaleType.CENTER);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams iconParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(42), dp(40));
+        params.setMargins(dp(8), 0, 0, 0);
+        return params;
+    }
+
+    private GradientDrawable rowBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
+        drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable fieldBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
+        drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable iconButtonBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.TRANSPARENT);
+        drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+}

@@ -19,6 +19,9 @@
             android:name=".NgRulesActivity"
             android:exported="false" />
         <activity
+            android:name=".BoardPriorityRulesActivity"
+            android:exported="false" />
+        <activity
             android:name=".ReadPostsActivity"
             android:exported="false" />
         <activity

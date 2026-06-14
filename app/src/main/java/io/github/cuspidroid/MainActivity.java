@@ -1486,7 +1486,10 @@ public class MainActivity extends Activity {
             item.put("velocity", result.velocity);
             item.put("boardOrder", result.boardOrder);
             if (result.priorityMatch != null) {
-                item.put("priorityMatch", result.priorityMatch);
+                JSONObject priority = new JSONObject();
+                priority.put("value", result.priorityMatch.value);
+                priority.put("regex", result.priorityMatch.regex);
+                item.put("priorityMatch", priority);
             }
             results.put(item);
         }
@@ -1515,9 +1518,18 @@ public class MainActivity extends Activity {
                 result.responses = item.optInt("responses", 0);
                 result.velocity = item.optDouble("velocity", 0d);
                 result.boardOrder = item.optInt("boardOrder", i);
-                result.priorityMatch = item.optString("priorityMatch", null);
-                if (result.priorityMatch != null && result.priorityMatch.isEmpty()) {
-                    result.priorityMatch = null;
+                Object priority = item.opt("priorityMatch");
+                if (priority instanceof JSONObject) {
+                    JSONObject priorityObject = (JSONObject) priority;
+                    String value = priorityObject.optString("value", "").trim();
+                    if (!value.isEmpty()) {
+                        result.priorityMatch = new BoardPriorityMatch(value, priorityObject.optBoolean("regex", false));
+                    }
+                } else if (priority instanceof String) {
+                    String value = ((String) priority).trim();
+                    if (!value.isEmpty()) {
+                        result.priorityMatch = new BoardPriorityMatch(value, false);
+                    }
                 }
                 page.results.add(result);
             }
@@ -2959,23 +2971,40 @@ public class MainActivity extends Activity {
 
     private CharSequence styledResultTitle(SearchResult result) {
         String title = result == null || result.title == null ? "" : result.title;
-        String match = result == null ? null : result.priorityMatch;
-        if (match == null || match.isEmpty()) {
+        BoardPriorityMatch match = result == null ? null : result.priorityMatch;
+        if (match == null || match.value == null || match.value.isEmpty()) {
             return title;
         }
-        String lowerTitle = title.toLowerCase(Locale.ROOT);
-        String lowerMatch = match.toLowerCase(Locale.ROOT);
         SpannableString highlighted = new SpannableString(title);
-        int index = lowerTitle.indexOf(lowerMatch);
-        while (index >= 0) {
-            int end = index + match.length();
-            highlighted.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)),
-                    index, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            highlighted.setSpan(new StyleSpan(Typeface.BOLD),
-                    index, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            index = lowerTitle.indexOf(lowerMatch, end);
+        if (match.regex) {
+            try {
+                Matcher matcher = Pattern.compile(match.value, Pattern.CASE_INSENSITIVE).matcher(title);
+                while (matcher.find()) {
+                    applyPriorityTitleHighlight(highlighted, matcher.start(), matcher.end());
+                }
+            } catch (Exception ignored) {
+            }
+        } else {
+            String lowerTitle = title.toLowerCase(Locale.ROOT);
+            String lowerMatch = match.value.toLowerCase(Locale.ROOT);
+            int index = lowerTitle.indexOf(lowerMatch);
+            while (index >= 0) {
+                int end = index + match.value.length();
+                applyPriorityTitleHighlight(highlighted, index, end);
+                index = lowerTitle.indexOf(lowerMatch, end);
+            }
         }
         return highlighted;
+    }
+
+    private void applyPriorityTitleHighlight(SpannableString text, int start, int end) {
+        if (start < 0 || end <= start || end > text.length()) {
+            return;
+        }
+        text.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)),
+                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new StyleSpan(Typeface.BOLD),
+                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
     private ImageButton saveToggleButtonForResult(SearchResult result) {
@@ -7361,15 +7390,26 @@ public class MainActivity extends Activity {
         });
     }
 
-    private String matchingBoardPriorityWord(String title) {
+    private BoardPriorityMatch matchingBoardPriorityWord(String title) {
         if (title == null || title.isEmpty()) {
             return null;
         }
         String lowerTitle = title.toLowerCase(Locale.ROOT);
-        for (String word : readBoardPriorityWords(preferences)) {
-            String trimmed = word.trim();
-            if (!trimmed.isEmpty() && lowerTitle.contains(trimmed.toLowerCase(Locale.ROOT))) {
-                return trimmed;
+        for (BoardPriorityRule rule : readBoardPriorityRules(preferences)) {
+            String value = rule.value == null ? "" : rule.value.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            if (rule.regex) {
+                try {
+                    Matcher matcher = Pattern.compile(value, Pattern.CASE_INSENSITIVE).matcher(title);
+                    if (matcher.find()) {
+                        return new BoardPriorityMatch(value, true);
+                    }
+                } catch (Exception ignored) {
+                }
+            } else if (lowerTitle.contains(value.toLowerCase(Locale.ROOT))) {
+                return new BoardPriorityMatch(value, false);
             }
         }
         return null;
@@ -7955,59 +7995,78 @@ public class MainActivity extends Activity {
         preferences.edit().putString(PREF_BBS_LINKS, array.toString()).apply();
     }
 
-    static List<String> readBoardPriorityWords(SharedPreferences preferences) {
-        List<String> words = new ArrayList<>();
+    static List<BoardPriorityRule> readBoardPriorityRules(SharedPreferences preferences) {
+        List<BoardPriorityRule> rules = new ArrayList<>();
         if (preferences == null) {
-            return words;
+            return rules;
         }
         try {
             JSONArray array = new JSONArray(preferences.getString(PREF_BOARD_PRIORITY_WORDS, "[]"));
             for (int i = 0; i < array.length(); i++) {
-                String word = array.optString(i, "").trim();
-                if (!word.isEmpty()) {
-                    words.add(word);
+                Object item = array.opt(i);
+                if (item instanceof JSONObject) {
+                    JSONObject object = (JSONObject) item;
+                    String value = object.optString("value", "").trim();
+                    if (!value.isEmpty()) {
+                        rules.add(new BoardPriorityRule(value, object.optBoolean("regex", false)));
+                    }
+                } else {
+                    String value = array.optString(i, "").trim();
+                    if (!value.isEmpty()) {
+                        rules.add(new BoardPriorityRule(value, false));
+                    }
                 }
             }
         } catch (Exception ignored) {
         }
-        return words;
+        return rules;
     }
 
-    static void addBoardPriorityWord(SharedPreferences preferences, String word) {
+    static void saveBoardPriorityRules(SharedPreferences preferences, List<BoardPriorityRule> rules) {
+        JSONArray array = new JSONArray();
+        try {
+            if (rules != null) {
+                for (BoardPriorityRule rule : rules) {
+                    String value = rule == null || rule.value == null ? "" : rule.value.trim();
+                    if (value.isEmpty()) {
+                        continue;
+                    }
+                    JSONObject object = new JSONObject();
+                    object.put("value", value);
+                    object.put("regex", rule.regex);
+                    array.put(object);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_BOARD_PRIORITY_WORDS, array.toString()).apply();
+    }
+
+    static void addBoardPriorityRule(SharedPreferences preferences, String word, boolean regex) {
         String normalized = word == null ? "" : word.trim();
         if (normalized.isEmpty()) {
             return;
         }
-        List<String> words = readBoardPriorityWords(preferences);
-        for (String existing : words) {
-            if (existing.equalsIgnoreCase(normalized)) {
+        List<BoardPriorityRule> rules = readBoardPriorityRules(preferences);
+        for (BoardPriorityRule existing : rules) {
+            if (existing.regex == regex && existing.value.equalsIgnoreCase(normalized)) {
                 return;
             }
         }
-        words.add(normalized);
-        saveBoardPriorityWords(preferences, words);
+        rules.add(new BoardPriorityRule(normalized, regex));
+        saveBoardPriorityRules(preferences, rules);
     }
 
-    static void removeBoardPriorityWord(SharedPreferences preferences, String word) {
+    static void removeBoardPriorityRule(SharedPreferences preferences, String word, boolean regex) {
         String normalized = word == null ? "" : word.trim();
-        List<String> words = readBoardPriorityWords(preferences);
-        for (int i = words.size() - 1; i >= 0; i--) {
-            if (words.get(i).equalsIgnoreCase(normalized)) {
-                words.remove(i);
+        List<BoardPriorityRule> rules = readBoardPriorityRules(preferences);
+        for (int i = rules.size() - 1; i >= 0; i--) {
+            BoardPriorityRule rule = rules.get(i);
+            if (rule.regex == regex && rule.value.equalsIgnoreCase(normalized)) {
+                rules.remove(i);
             }
         }
-        saveBoardPriorityWords(preferences, words);
-    }
-
-    private static void saveBoardPriorityWords(SharedPreferences preferences, List<String> words) {
-        JSONArray array = new JSONArray();
-        for (String word : words) {
-            String normalized = word == null ? "" : word.trim();
-            if (!normalized.isEmpty()) {
-                array.put(normalized);
-            }
-        }
-        preferences.edit().putString(PREF_BOARD_PRIORITY_WORDS, array.toString()).apply();
+        saveBoardPriorityRules(preferences, rules);
     }
 
     private boolean isThreadUrl(String url) {
@@ -8678,7 +8737,27 @@ public class MainActivity extends Activity {
         int responses;
         double velocity;
         int boardOrder;
-        String priorityMatch;
+        BoardPriorityMatch priorityMatch;
+    }
+
+    static class BoardPriorityRule {
+        final String value;
+        final boolean regex;
+
+        BoardPriorityRule(String value, boolean regex) {
+            this.value = value;
+            this.regex = regex;
+        }
+    }
+
+    private static class BoardPriorityMatch {
+        final String value;
+        final boolean regex;
+
+        BoardPriorityMatch(String value, boolean regex) {
+            this.value = value;
+            this.regex = regex;
+        }
     }
 
     private static class BoardSubject {

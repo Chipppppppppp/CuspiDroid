@@ -49,10 +49,6 @@ public class SettingsActivity extends Activity {
     private Button addBbsButton;
     private LinearLayout bbsList;
     private String editingBbsUrl;
-    private EditText boardPriorityWord;
-    private Button addBoardPriorityWordButton;
-    private LinearLayout boardPriorityWordList;
-    private String editingBoardPriorityWord;
 
     private int bgColor() {
         return Theme.background(this);
@@ -150,29 +146,12 @@ public class SettingsActivity extends Activity {
         boardSortBySpeed.setTextSize(16);
         root.addView(boardSortBySpeed);
 
-        boardPriorityWord = new EditText(this);
-        boardPriorityWord.setSingleLine(true);
-        boardPriorityWord.setTextSize(14);
-        boardPriorityWord.setTextColor(textColor());
-        boardPriorityWord.setHintTextColor(hintColor());
-        boardPriorityWord.setHint(MainActivity.text("\u4e0a\u4f4d\u306b\u7f6e\u304f\u30ef\u30fc\u30c9", "Priority word"));
-        boardPriorityWord.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        boardPriorityWord.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-        boardPriorityWord.setBackground(roundedField());
-        boardPriorityWord.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(boardPriorityWord, fieldParams());
-
-        addBoardPriorityWordButton = new Button(this);
-        addBoardPriorityWordButton.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0", "Add priority word"));
-        addBoardPriorityWordButton.setAllCaps(false);
-        addBoardPriorityWordButton.setOnClickListener(v -> addBoardPriorityWord());
-        root.addView(addBoardPriorityWordButton, new LinearLayout.LayoutParams(
+        Button openBoardPriorityRules = new Button(this);
+        openBoardPriorityRules.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words"));
+        openBoardPriorityRules.setAllCaps(false);
+        openBoardPriorityRules.setOnClickListener(v -> startActivity(new Intent(this, BoardPriorityRulesActivity.class)));
+        root.addView(openBoardPriorityRules, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-
-        boardPriorityWordList = new LinearLayout(this);
-        boardPriorityWordList.setOrientation(LinearLayout.VERTICAL);
-        root.addView(boardPriorityWordList);
-        renderBoardPriorityWords();
 
         root.addView(sectionTitle(MainActivity.text("\u30c6\u30fc\u30de", "Theme")));
         themeGroup = new RadioGroup(this);
@@ -433,80 +412,6 @@ public class SettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
         params.setMargins(0, dp(4), 0, dp(8));
         return params;
-    }
-
-    private void addBoardPriorityWord() {
-        String word = boardPriorityWord.getText().toString().trim();
-        if (word.isEmpty()) {
-            Toast.makeText(this, MainActivity.text("\u30ef\u30fc\u30c9\u3092\u5165\u529b", "Enter a word."), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (editingBoardPriorityWord != null) {
-            MainActivity.removeBoardPriorityWord(preferences, editingBoardPriorityWord);
-        }
-        MainActivity.addBoardPriorityWord(preferences, word);
-        editingBoardPriorityWord = null;
-        boardPriorityWord.setText("");
-        addBoardPriorityWordButton.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0", "Add priority word"));
-        renderBoardPriorityWords();
-    }
-
-    private void renderBoardPriorityWords() {
-        if (boardPriorityWordList == null) {
-            return;
-        }
-        boardPriorityWordList.removeAllViews();
-        java.util.List<String> words = MainActivity.readBoardPriorityWords(preferences);
-        if (words.isEmpty()) {
-            boardPriorityWordList.addView(helperText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u306a\u3057", "No priority words.")));
-            return;
-        }
-        for (String word : words) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView text = helperText(word);
-            text.setTextColor(textColor());
-            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-            ImageButton edit = new ImageButton(this);
-            edit.setImageResource(R.drawable.ic_edit);
-            edit.setContentDescription(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7de8\u96c6", "Edit priority word"));
-            edit.setColorFilter(textColor());
-            edit.setBackground(roundedField());
-            edit.setPadding(dp(10), dp(10), dp(10), dp(10));
-            edit.setScaleType(ImageButton.ScaleType.CENTER);
-            edit.setOnClickListener(v -> {
-                editingBoardPriorityWord = word;
-                boardPriorityWord.setText(word);
-                boardPriorityWord.setSelection(boardPriorityWord.getText().length());
-                addBoardPriorityWordButton.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u66f4\u65b0", "Update priority word"));
-            });
-            LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(dp(46), dp(44));
-            editParams.setMargins(dp(8), 0, 0, 0);
-            row.addView(edit, editParams);
-
-            ImageButton delete = new ImageButton(this);
-            delete.setImageResource(R.drawable.ic_delete);
-            delete.setContentDescription(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u524a\u9664", "Delete priority word"));
-            delete.setColorFilter(textColor());
-            delete.setBackground(roundedField());
-            delete.setPadding(dp(10), dp(10), dp(10), dp(10));
-            delete.setScaleType(ImageButton.ScaleType.CENTER);
-            delete.setOnClickListener(v -> {
-                MainActivity.removeBoardPriorityWord(preferences, word);
-                if (word.equals(editingBoardPriorityWord)) {
-                    editingBoardPriorityWord = null;
-                    boardPriorityWord.setText("");
-                    addBoardPriorityWordButton.setText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0", "Add priority word"));
-                }
-                renderBoardPriorityWords();
-            });
-            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(46), dp(44));
-            deleteParams.setMargins(dp(8), 0, 0, 0);
-            row.addView(delete, deleteParams);
-            boardPriorityWordList.addView(row);
-        }
     }
 
     private void addBbsLink() {
