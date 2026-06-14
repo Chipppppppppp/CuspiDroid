@@ -171,6 +171,7 @@ public class MainActivity extends Activity {
     private final List<PopupWindow> animatedPopups = new ArrayList<>();
     private int currentIndex = -1;
     private boolean pendingNewTab;
+    private boolean pendingPrivateNewTab;
     private boolean pendingHistoryAll;
     private boolean tabOverviewVisible;
     private ClosedTab recentlyClosedTab;
@@ -278,7 +279,7 @@ public class MainActivity extends Activity {
             appliedThemeMode = currentThemeMode;
             buildLayout();
             if (pendingNewTab) {
-                showPendingNewTab(pendingHistoryAll);
+                showPendingNewTabHistory(pendingHistoryAll);
             } else if (currentIndex >= 0 && currentIndex < tabs.size()) {
                 switchToTab(currentIndex);
             }
@@ -748,8 +749,8 @@ public class MainActivity extends Activity {
                     R.drawable.ic_paste);
             item.setOnClickListener(v -> {
                 addressBar.setText(clipboardLink);
-                addressBar.selectAll();
-                updateSuggestions();
+                addressBar.setSelection(addressBar.getText().length());
+                openFromAddressBar();
             });
             suggestionsPanel.addView(item);
         }
@@ -1141,19 +1142,24 @@ public class MainActivity extends Activity {
     }
 
     private void createTab(String url, boolean select) {
-        createTab(url, select, -1, false);
+        createTab(url, select, -1, false, currentTabIsPrivate());
     }
 
     private void createTab(String url, boolean select, int returnToIndex) {
-        createTab(url, select, returnToIndex, false);
+        createTab(url, select, returnToIndex, false, currentTabIsPrivate());
     }
 
     private void createTab(String url, boolean select, int returnToIndex, boolean backToNewTab) {
+        createTab(url, select, returnToIndex, backToNewTab, currentTabIsPrivate());
+    }
+
+    private void createTab(String url, boolean select, int returnToIndex, boolean backToNewTab, boolean privateBrowsing) {
         CuspTab tab = new CuspTab();
         tab.title = text("\u65b0\u898f\u30bf\u30d6", "New tab");
         tab.url = "";
         tab.returnToIndex = returnToIndex;
         tab.backToNewTab = backToNewTab;
+        tab.privateBrowsing = privateBrowsing;
         tabs.add(tab);
         if (select) {
             switchToTab(tabs.size() - 1);
@@ -1166,7 +1172,15 @@ public class MainActivity extends Activity {
         showPendingNewTab();
     }
 
+    private void createPrivateBlankTab() {
+        showPendingNewTab(true);
+    }
+
     private void showPendingNewTab() {
+        showPendingNewTab(false);
+    }
+
+    private void showPendingNewTab(boolean privateBrowsing) {
         CuspTab previous = currentTab();
         if (previous != null) {
             rememberThreadScroll(previous);
@@ -1176,6 +1190,7 @@ public class MainActivity extends Activity {
             dismissThreadPopups();
         }
         pendingNewTab = true;
+        pendingPrivateNewTab = privateBrowsing;
         pendingHistoryAll = false;
         resetNewTabHistory();
         tabOverviewVisible = false;
@@ -1190,7 +1205,7 @@ public class MainActivity extends Activity {
         renderTabs();
     }
 
-    private void showPendingNewTab(boolean fullHistory) {
+    private void showPendingNewTabHistory(boolean fullHistory) {
         if (!pendingNewTab) {
             showPendingNewTab();
             return;
@@ -1207,6 +1222,7 @@ public class MainActivity extends Activity {
 
     private void cancelPendingNewTab() {
         pendingNewTab = false;
+        pendingPrivateNewTab = false;
         if (tabs.isEmpty()) {
             showPendingNewTab();
             return;
@@ -1233,6 +1249,7 @@ public class MainActivity extends Activity {
                 CuspTab tab = new CuspTab();
                 tab.title = item.optString("title", text("\u65b0\u898f\u30bf\u30d6", "New tab"));
                 tab.url = url;
+                tab.privateBrowsing = item.optBoolean("privateBrowsing", false);
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
@@ -1297,7 +1314,7 @@ public class MainActivity extends Activity {
                 }
                 if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                     tab.readerMode = true;
-                    tab.readPostNumber = readPostNumber(preferences, tab.threadPage.url);
+                    tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
                     tab.postViews = new LinkedHashMap<>();
                     tab.readerView = buildThreadView(tab.threadPage, tab);
                 } else if (tab.url != null && !tab.url.isEmpty()) {
@@ -1357,10 +1374,16 @@ public class MainActivity extends Activity {
                 rememberThreadScroll(current);
             }
             JSONArray array = new JSONArray();
+            int savedCurrent = 0;
+            int savedIndex = 0;
             for (CuspTab tab : tabs) {
+                if (tab.privateBrowsing) {
+                    continue;
+                }
                 JSONObject item = new JSONObject();
                 item.put("url", tab.url == null ? "" : tab.url);
                 item.put("title", tab.title == null ? "Tab" : tab.title);
+                item.put("privateBrowsing", false);
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
                 item.put("threadBottomOffset", tab.threadBottomOffset);
@@ -1379,9 +1402,13 @@ public class MainActivity extends Activity {
                     item.put("searchPage", searchPageToJson(tab.searchPage));
                 }
                 array.put(item);
+                if (tab == current) {
+                    savedCurrent = savedIndex;
+                }
+                savedIndex++;
             }
             JSONObject root = new JSONObject();
-            root.put("current", Math.max(0, currentIndex));
+            root.put("current", Math.max(0, savedCurrent));
             root.put("tabs", array);
             SharedPreferences.Editor editor = preferences.edit().putString(PREF_TABS, root.toString());
             if (synchronous) {
@@ -1687,8 +1714,10 @@ public class MainActivity extends Activity {
         boolean urlLike = looksLikeUrl(input);
         String url = urlLike ? normalizeUrl(input) : searchUrl(input);
         if (pendingNewTab) {
+            boolean privateBrowsing = pendingPrivateNewTab;
             pendingNewTab = false;
-            createTab(url, true, -1, true);
+            pendingPrivateNewTab = false;
+            createTab(url, true, -1, true, privateBrowsing);
             return;
         }
         openInCurrentTab(url);
@@ -1789,7 +1818,7 @@ public class MainActivity extends Activity {
         if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
             tab.title = cached.title;
             tab.threadPage = cached;
-            tab.readPostNumber = readPostNumber(preferences, cached.url);
+            tab.readPostNumber = readPostNumberForTab(tab, cached.url);
             tab.postViews = new LinkedHashMap<>();
             tab.readerView = buildThreadView(cached, tab);
             if (showFullLoading || tab == currentTab()) {
@@ -1815,13 +1844,13 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 tab.threadPage = result;
-                tab.readPostNumber = readPostNumber(preferences, result.url);
+                tab.readPostNumber = readPostNumberForTab(tab, result.url);
                 tab.postViews = new LinkedHashMap<>();
                 tab.readerView = buildThreadView(result, tab);
                 tab.hasSavedThreadScroll = keepExistingScroll;
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
-                    addThreadHistory(result.url, result.title);
+                    addThreadHistory(tab, result.url, result.title);
                 }
                 progressBar.setVisibility(View.GONE);
                 if (tab == currentTab()) {
@@ -1883,7 +1912,7 @@ public class MainActivity extends Activity {
                 int oldCount = tab.threadPage == null ? 0 : tab.threadPage.posts.size();
                 if (oldCount <= 0 || tab.threadList == null || tab.postViews == null) {
                     tab.threadPage = result;
-                    tab.readPostNumber = readPostNumber(preferences, result.url);
+                    tab.readPostNumber = readPostNumberForTab(tab, result.url);
                     tab.postViews = new LinkedHashMap<>();
                     tab.readerView = buildThreadView(result, tab);
                     cacheThreadPage(result);
@@ -1901,7 +1930,7 @@ public class MainActivity extends Activity {
                 if (result.posts.size() <= oldCount) {
                     tab.threadPage = result;
                     cacheThreadPage(result);
-                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
+                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
                     if (!centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
                         renderTabs();
@@ -1916,11 +1945,11 @@ public class MainActivity extends Activity {
                     return;
                 }
                 tab.threadPage = result;
-                tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
+                tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
                 tab.title = result.title;
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
-                    addThreadHistory(result.url, result.title);
+                    addThreadHistory(tab, result.url, result.title);
                 }
                 renderAdditionalPostCardsIncrementally(tab.threadList, result, tab, oldCount, () -> {
                     if (tab == currentTab() && tab.threadSearchOpen
@@ -3447,7 +3476,17 @@ public class MainActivity extends Activity {
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        list.addView(sectionTitleView("5ch"));
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView fiveChTitle = sectionTitleView("5ch");
+        topRow.addView(fiveChTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton privateTab = iconButton(android.R.drawable.ic_lock_idle_lock,
+                text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tab"),
+                v -> createPrivateBlankTab());
+        privateTab.setColorFilter(TEAL);
+        topRow.addView(privateTab, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        list.addView(topRow);
         TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
         fiveCh.setOnClickListener(v -> showFiveChBoardsView(true));
         list.addView(fiveCh);
@@ -3611,20 +3650,23 @@ public class MainActivity extends Activity {
         root.addView(topLoader, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
         enableTopPullRefresh(scroll, topLoader, this::reloadAllTabs);
 
-        list.addView(sectionTitleView(text("\u30bf\u30d6", "Tabs")));
-        if (tabs.isEmpty()) {
-            list.addView(helperLine(text("\u30bf\u30d6\u306a\u3057", "No tabs.")));
-        } else {
-            for (int i = 0; i < tabs.size(); i++) {
-                list.addView(tabOverviewRow(tabs.get(i), i));
-            }
-        }
+        addTabOverviewSection(list, false);
+        addTabOverviewSection(list, true);
 
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs());
         reloadAll.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
         FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
-        reloadParams.setMargins(0, 0, dp(84), dp(18));
+        reloadParams.setMargins(0, 0, dp(150), dp(18));
         root.addView(reloadAll, reloadParams);
+
+        ImageButton privateAdd = iconButton(android.R.drawable.ic_lock_idle_lock,
+                text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tab"),
+                v -> createPrivateBlankTab());
+        privateAdd.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
+        privateAdd.setColorFilter(TEAL);
+        FrameLayout.LayoutParams privateParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
+        privateParams.setMargins(0, 0, dp(84), dp(18));
+        root.addView(privateAdd, privateParams);
 
         ImageButton add = iconButton(R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
         add.setBackground(roundedDrawable(TEAL, TEAL, dp(22)));
@@ -3636,6 +3678,26 @@ public class MainActivity extends Activity {
             root.addView(closedTabUndoBar(), closedTabUndoParams());
         }
         return root;
+    }
+
+    private void addTabOverviewSection(LinearLayout list, boolean privateSection) {
+        String title = privateSection
+                ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8", "Private")
+                : text("\u901a\u5e38", "Normal");
+        list.addView(sectionTitleView(title));
+        boolean any = false;
+        for (int i = 0; i < tabs.size(); i++) {
+            CuspTab tab = tabs.get(i);
+            if (tab.privateBrowsing == privateSection) {
+                list.addView(tabOverviewRow(tab, i));
+                any = true;
+            }
+        }
+        if (!any) {
+            list.addView(helperLine(privateSection
+                    ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
+                    : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs.")));
+        }
     }
 
     private View closedTabUndoBar() {
@@ -3793,6 +3855,15 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(34), dp(24));
             unreadParams.setMargins(dp(8), 0, 0, 0);
             row.addView(unreadBadge, unreadParams);
+        }
+
+        if (tab.privateBrowsing) {
+            ImageView privateIcon = new ImageView(this);
+            privateIcon.setImageResource(android.R.drawable.ic_lock_idle_lock);
+            privateIcon.setColorFilter(TEAL);
+            LinearLayout.LayoutParams privateIconParams = new LinearLayout.LayoutParams(dp(26), dp(26));
+            privateIconParams.setMargins(dp(8), 0, 0, 0);
+            row.addView(privateIcon, privateIconParams);
         }
 
         ImageButton close = iconButton(R.drawable.ic_close, text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab"), v -> closeTabFromOverview(index));
@@ -5231,7 +5302,8 @@ public class MainActivity extends Activity {
                 if (open5chLinksInNewTab()) {
                     openLinkInCurrentTab(normalized);
                 } else {
-                    createTab(normalized, true, tabs.indexOf(currentTab()));
+                    CuspTab current = currentTab();
+                    createTab(normalized, true, tabs.indexOf(current), false, isPrivateTab(current));
                 }
                 dismissPopupAnimated(popup);
             });
@@ -6209,7 +6281,8 @@ public class MainActivity extends Activity {
         String url = normalizeUrl(rawUrl);
         if (isThreadUrl(url)) {
             if (open5chLinksInNewTab()) {
-                createTab(url, true, tabs.indexOf(sourceTab == null ? currentTab() : sourceTab));
+                CuspTab source = sourceTab == null ? currentTab() : sourceTab;
+                createTab(url, true, tabs.indexOf(source), false, isPrivateTab(source));
             } else {
                 CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
                 if (tab == null) {
@@ -6253,7 +6326,8 @@ public class MainActivity extends Activity {
                 return true;
             }
             if (open5chLinksInNewTab() && isThreadUrl(url)) {
-                createTab(url, true, tabs.indexOf(sourceTab == null ? currentTab() : sourceTab));
+                CuspTab source = sourceTab == null ? currentTab() : sourceTab;
+                createTab(url, true, tabs.indexOf(source), false, isPrivateTab(source));
             } else if (isThreadUrl(url)) {
                 CuspTab tab = sourceTab == null ? currentTab() : sourceTab;
                 if (tab == null) {
@@ -6877,7 +6951,7 @@ public class MainActivity extends Activity {
                 continue;
             }
             if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
-                refreshThreadFromBottom(tab, false, true);
+                refreshThreadFromBottom(tab, false, !wasOverview);
             } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
                 loadSearchResults(tab, tab.url, false);
             } else if (tab.readerMode && NATIVE_BOARD.equals(tab.nativeKind)) {
@@ -6946,6 +7020,14 @@ public class MainActivity extends Activity {
             return null;
         }
         return tabs.get(currentIndex);
+    }
+
+    private boolean currentTabIsPrivate() {
+        return pendingNewTab ? pendingPrivateNewTab : isPrivateTab(currentTab());
+    }
+
+    private boolean isPrivateTab(CuspTab tab) {
+        return tab != null && tab.privateBrowsing;
     }
 
     private String download(String urlText) throws Exception {
@@ -7781,6 +7863,13 @@ public class MainActivity extends Activity {
         preferences.edit().putString(PREF_HISTORY, array.toString()).apply();
     }
 
+    private void addThreadHistory(CuspTab tab, String url, String title) {
+        if (isPrivateTab(tab)) {
+            return;
+        }
+        addThreadHistory(url, title);
+    }
+
     static List<ThreadHistoryItem> readThreadHistory(SharedPreferences preferences) {
         List<ThreadHistoryItem> history = readThreadItems(preferences, PREF_HISTORY);
         Collections.sort(history, (left, right) -> Long.compare(right.lastViewedAt, left.lastViewedAt));
@@ -7917,6 +8006,10 @@ public class MainActivity extends Activity {
         }
     }
 
+    private int readPostNumberForTab(CuspTab tab, String url) {
+        return isPrivateTab(tab) ? 0 : readPostNumber(preferences, url);
+    }
+
     private static void saveReadPostNumber(SharedPreferences preferences, String url, int number) {
         if (url == null || url.isEmpty()) {
             return;
@@ -7927,6 +8020,13 @@ public class MainActivity extends Activity {
             preferences.edit().putString(PREF_READ_POSTS, object.toString()).apply();
         } catch (Exception ignored) {
         }
+    }
+
+    private void saveReadPostNumber(CuspTab tab, String url, int number) {
+        if (isPrivateTab(tab)) {
+            return;
+        }
+        saveReadPostNumber(preferences, url, number);
     }
 
     private static boolean isAaPost(SharedPreferences preferences, String url, int number) {
@@ -7967,7 +8067,7 @@ public class MainActivity extends Activity {
             return;
         }
         tab.readPostNumber = Math.max(tab.readPostNumber, number);
-        saveReadPostNumber(preferences, tab.threadPage.url, tab.readPostNumber);
+        saveReadPostNumber(tab, tab.threadPage.url, tab.readPostNumber);
         refreshUnreadColors(tab);
         if (refreshOverview) {
             renderTabs();
@@ -7983,7 +8083,7 @@ public class MainActivity extends Activity {
             return;
         }
         tab.readPostNumber = Math.max(0, number);
-        saveReadPostNumber(preferences, tab.threadPage.url, tab.readPostNumber);
+        saveReadPostNumber(tab, tab.threadPage.url, tab.readPostNumber);
         refreshUnreadColors(tab);
         renderTabs();
         if (tabOverviewVisible) {
@@ -8761,6 +8861,7 @@ public class MainActivity extends Activity {
         int threadSearchIndex = -1;
         int returnToIndex = -1;
         boolean backToNewTab;
+        boolean privateBrowsing;
         boolean readerMode;
         List<String> navigationHistory = new ArrayList<>();
         int navigationIndex = -1;
