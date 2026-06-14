@@ -174,6 +174,7 @@ public class MainActivity extends Activity {
     private boolean pendingPrivateNewTab;
     private boolean pendingHistoryAll;
     private boolean tabOverviewVisible;
+    private boolean tabOverviewPrivateMode;
     private ClosedTab recentlyClosedTab;
     private Runnable clearClosedTabUndoTask;
     private boolean addressBarTop;
@@ -3481,10 +3482,7 @@ public class MainActivity extends Activity {
         topRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView fiveChTitle = sectionTitleView("5ch");
         topRow.addView(fiveChTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        ImageButton privateTab = iconButton(android.R.drawable.ic_lock_idle_lock,
-                text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tab"),
-                v -> createPrivateBlankTab());
-        privateTab.setColorFilter(TEAL);
+        ImageButton privateTab = privateModeButton(currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
         topRow.addView(privateTab, new LinearLayout.LayoutParams(dp(44), dp(44)));
         list.addView(topRow);
         TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
@@ -3619,6 +3617,7 @@ public class MainActivity extends Activity {
         if (!replyPopups.isEmpty()) {
             dismissThreadPopups();
         }
+        tabOverviewPrivateMode = pendingNewTab ? pendingPrivateNewTab : currentTabIsPrivate();
         pendingNewTab = false;
         pendingHistoryAll = false;
         tabOverviewVisible = true;
@@ -3650,25 +3649,25 @@ public class MainActivity extends Activity {
         root.addView(topLoader, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
         enableTopPullRefresh(scroll, topLoader, this::reloadAllTabs);
 
-        addTabOverviewSection(list, false);
-        addTabOverviewSection(list, true);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = sectionTitleView(tabOverviewPrivateMode
+                ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tabs")
+                : text("\u901a\u5e38\u30bf\u30d6", "Normal tabs"));
+        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        header.addView(privateModeButton(tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode()),
+                new LinearLayout.LayoutParams(dp(44), dp(44)));
+        list.addView(header);
+        addTabOverviewSection(list, tabOverviewPrivateMode);
 
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs());
         reloadAll.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
         FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
-        reloadParams.setMargins(0, 0, dp(150), dp(18));
+        reloadParams.setMargins(0, 0, dp(84), dp(18));
         root.addView(reloadAll, reloadParams);
 
-        ImageButton privateAdd = iconButton(android.R.drawable.ic_lock_idle_lock,
-                text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tab"),
-                v -> createPrivateBlankTab());
-        privateAdd.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
-        privateAdd.setColorFilter(TEAL);
-        FrameLayout.LayoutParams privateParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
-        privateParams.setMargins(0, 0, dp(84), dp(18));
-        root.addView(privateAdd, privateParams);
-
-        ImageButton add = iconButton(R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
+        ImageButton add = iconButton(R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> showPendingNewTab(tabOverviewPrivateMode));
         add.setBackground(roundedDrawable(TEAL, TEAL, dp(22)));
         add.setColorFilter(Color.WHITE);
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
@@ -3680,11 +3679,34 @@ public class MainActivity extends Activity {
         return root;
     }
 
+    private ImageButton privateModeButton(boolean active, View.OnClickListener listener) {
+        ImageButton button = iconButton(android.R.drawable.presence_invisible,
+                text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8", "Private"), listener);
+        button.setBackground(roundedDrawable(active ? TEAL : menuColor(), active ? TEAL : borderColor(), dp(20)));
+        button.setColorFilter(active ? Color.WHITE : TEAL);
+        return button;
+    }
+
+    private void togglePendingPrivateNewTab() {
+        if (!pendingNewTab) {
+            return;
+        }
+        pendingPrivateNewTab = !pendingPrivateNewTab;
+        contentFrame.removeAllViews();
+        contentFrame.addView(pendingHistoryAll ? buildHistoryView() : buildSearchHomeView(false));
+        renderTabs();
+    }
+
+    private void toggleTabOverviewPrivateMode() {
+        tabOverviewPrivateMode = !tabOverviewPrivateMode;
+        if (tabOverviewVisible && contentFrame != null) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
+            renderTabs();
+        }
+    }
+
     private void addTabOverviewSection(LinearLayout list, boolean privateSection) {
-        String title = privateSection
-                ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8", "Private")
-                : text("\u901a\u5e38", "Normal");
-        list.addView(sectionTitleView(title));
         boolean any = false;
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
@@ -3859,7 +3881,7 @@ public class MainActivity extends Activity {
 
         if (tab.privateBrowsing) {
             ImageView privateIcon = new ImageView(this);
-            privateIcon.setImageResource(android.R.drawable.ic_lock_idle_lock);
+            privateIcon.setImageResource(android.R.drawable.presence_invisible);
             privateIcon.setColorFilter(TEAL);
             LinearLayout.LayoutParams privateIconParams = new LinearLayout.LayoutParams(dp(26), dp(26));
             privateIconParams.setMargins(dp(8), 0, 0, 0);
