@@ -41,6 +41,26 @@ public class NgRulesActivity extends Activity {
     private LinearLayout list;
     private String currentCategory = CATEGORIES[0];
 
+    private int bgColor() {
+        return Theme.background(this);
+    }
+
+    private int surfaceColor() {
+        return Theme.surface(this);
+    }
+
+    private int textColor() {
+        return Theme.text(this);
+    }
+
+    private int mutedColor() {
+        return Theme.muted(this);
+    }
+
+    private int borderColor() {
+        return Theme.border(this);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -51,14 +71,15 @@ public class NgRulesActivity extends Activity {
     }
 
     private void buildLayout() {
+        Theme.applySystemBars(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(bgColor());
         setContentView(root);
 
         TextView title = new TextView(this);
         title.setText(MainActivity.text("NG\u8a2d\u5b9a", "NG Rules"));
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(24);
         title.setPadding(dp(18), dp(18), dp(18), dp(10));
         root.addView(title);
@@ -73,7 +94,7 @@ public class NgRulesActivity extends Activity {
             button.setAllCaps(false);
             button.setText(category);
             button.setTextSize(12);
-            button.setTextColor(TEXT);
+            button.setTextColor(textColor());
             button.setOnClickListener(v -> {
                 currentCategory = category;
                 renderRules();
@@ -126,7 +147,7 @@ public class NgRulesActivity extends Activity {
             TextView text = helperText((rule.regex
                     ? MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex")
                     : MainActivity.text("\u6587\u5b57\u5217", "Text")) + "\n" + rule.value);
-            text.setTextColor(TEXT);
+            text.setTextColor(textColor());
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             int index = i;
@@ -167,7 +188,7 @@ public class NgRulesActivity extends Activity {
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setTextSize(15);
-        input.setTextColor(TEXT);
+        input.setTextColor(textColor());
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setBackground(fieldBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
@@ -282,7 +303,7 @@ public class NgRulesActivity extends Activity {
     private TextView helperText(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(MUTED);
+        view.setTextColor(mutedColor());
         view.setTextSize(14);
         view.setPadding(0, dp(4), 0, dp(4));
         return view;
@@ -292,7 +313,7 @@ public class NgRulesActivity extends Activity {
         ImageButton button = new ImageButton(this);
         button.setImageResource(iconRes);
         button.setContentDescription(description);
-        button.setColorFilter(TEXT);
+        button.setColorFilter(textColor());
         button.setBackground(iconButtonBackground());
         button.setPadding(dp(10), dp(10), dp(10), dp(10));
         button.setScaleType(ImageButton.ScaleType.CENTER);
@@ -307,24 +328,24 @@ public class NgRulesActivity extends Activity {
 
     private GradientDrawable rowBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(SURFACE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(8));
         return drawable;
     }
 
     private GradientDrawable tabBackground(boolean selected) {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(selected ? ACTIVE : SURFACE);
-        drawable.setStroke(dp(1), selected ? Color.rgb(20, 184, 166) : BORDER);
+        drawable.setColor(selected ? Theme.active(this) : surfaceColor());
+        drawable.setStroke(dp(1), selected ? Color.rgb(20, 184, 166) : borderColor());
         drawable.setCornerRadius(dp(8));
         return drawable;
     }
 
     private GradientDrawable fieldBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(SURFACE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(8));
         return drawable;
     }

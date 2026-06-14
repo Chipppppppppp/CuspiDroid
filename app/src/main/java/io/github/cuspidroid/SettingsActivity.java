@@ -34,6 +34,9 @@ public class SettingsActivity extends Activity {
     private CheckBox blurImgurImages;
     private CheckBox addressBarTop;
     private CheckBox treeView;
+    private RadioButton themeSystem;
+    private RadioButton themeLight;
+    private RadioButton themeDark;
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
@@ -42,6 +45,26 @@ public class SettingsActivity extends Activity {
     private Button addBbsButton;
     private LinearLayout bbsList;
     private String editingBbsUrl;
+
+    private int bgColor() {
+        return Theme.background(this);
+    }
+
+    private int surfaceColor() {
+        return Theme.surface(this);
+    }
+
+    private int textColor() {
+        return Theme.text(this);
+    }
+
+    private int mutedColor() {
+        return Theme.muted(this);
+    }
+
+    private int borderColor() {
+        return Theme.border(this);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,8 +76,9 @@ public class SettingsActivity extends Activity {
     }
 
     private void buildLayout() {
+        Theme.applySystemBars(this);
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Color.WHITE);
+        scroll.setBackgroundColor(bgColor());
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(28));
@@ -64,7 +88,7 @@ public class SettingsActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText(MainActivity.text("\u8a2d\u5b9a", "Settings"));
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(24);
         title.setGravity(Gravity.START);
         title.setPadding(0, 0, 0, dp(16));
@@ -73,33 +97,44 @@ public class SettingsActivity extends Activity {
         root.addView(sectionTitle(MainActivity.text("\u30ea\u30f3\u30af", "Links")));
         open5chInNewTab = new CheckBox(this);
         open5chInNewTab.setText(MainActivity.text("5ch\u30ea\u30f3\u30af\u3092\u65b0\u898f\u30bf\u30d6\u3067\u958b\u304f", "Open 5ch links in a new tab"));
-        open5chInNewTab.setTextColor(TEXT);
+        open5chInNewTab.setTextColor(textColor());
         open5chInNewTab.setTextSize(16);
         root.addView(open5chInNewTab);
 
         externalLinkInApp = new CheckBox(this);
         externalLinkInApp.setText(MainActivity.text("\u5916\u90e8\u30ea\u30f3\u30af\u3092\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u3067\u958b\u304f", "Open external links in the in-app browser"));
-        externalLinkInApp.setTextColor(TEXT);
+        externalLinkInApp.setTextColor(textColor());
         externalLinkInApp.setTextSize(16);
         root.addView(externalLinkInApp);
 
         blurImgurImages = new CheckBox(this);
         blurImgurImages.setText(MainActivity.text("imgur\u306e\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic imgur images"));
-        blurImgurImages.setTextColor(TEXT);
+        blurImgurImages.setTextColor(textColor());
         blurImgurImages.setTextSize(16);
         root.addView(blurImgurImages);
 
         addressBarTop = new CheckBox(this);
         addressBarTop.setText(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0a\u306b\u8868\u793a", "Show address bar at top"));
-        addressBarTop.setTextColor(TEXT);
+        addressBarTop.setTextColor(textColor());
         addressBarTop.setTextSize(16);
         root.addView(addressBarTop);
 
         treeView = new CheckBox(this);
         treeView.setText(MainActivity.text("\u30c4\u30ea\u30fc\u8868\u793a", "Tree view"));
-        treeView.setTextColor(TEXT);
+        treeView.setTextColor(textColor());
         treeView.setTextSize(16);
         root.addView(treeView);
+
+        root.addView(sectionTitle(MainActivity.text("\u30c6\u30fc\u30de", "Theme")));
+        RadioGroup themeGroup = new RadioGroup(this);
+        themeGroup.setOrientation(RadioGroup.VERTICAL);
+        themeSystem = radio(MainActivity.text("\u7aef\u672b\u306e\u30c6\u30fc\u30de\u306b\u5f93\u3046", "Follow device theme"));
+        themeLight = radio(MainActivity.text("\u30e9\u30a4\u30c8", "Light"));
+        themeDark = radio(MainActivity.text("\u30c0\u30fc\u30af", "Dark"));
+        themeGroup.addView(themeSystem);
+        themeGroup.addView(themeLight);
+        themeGroup.addView(themeDark);
+        root.addView(themeGroup);
 
         root.addView(sectionTitle(MainActivity.text("\u6a19\u6e96\u691c\u7d22\u30a8\u30f3\u30b8\u30f3", "Default Search Engine")));
         RadioGroup searchGroup = new RadioGroup(this);
@@ -113,7 +148,7 @@ public class SettingsActivity extends Activity {
         customTemplate = new EditText(this);
         customTemplate.setSingleLine(true);
         customTemplate.setTextSize(14);
-        customTemplate.setTextColor(TEXT);
+        customTemplate.setTextColor(textColor());
         customTemplate.setHint("https://example.com/search?q=%s");
         customTemplate.setImeOptions(EditorInfo.IME_ACTION_DONE);
         customTemplate.setInputType(android.text.InputType.TYPE_CLASS_TEXT
@@ -143,7 +178,7 @@ public class SettingsActivity extends Activity {
         bbsName = new EditText(this);
         bbsName.setSingleLine(true);
         bbsName.setTextSize(14);
-        bbsName.setTextColor(TEXT);
+        bbsName.setTextColor(textColor());
         bbsName.setHint(MainActivity.text("\u540d\u524d", "Name"));
         bbsName.setBackground(roundedField());
         bbsName.setPadding(dp(12), 0, dp(12), 0);
@@ -152,7 +187,7 @@ public class SettingsActivity extends Activity {
         bbsUrl = new EditText(this);
         bbsUrl.setSingleLine(true);
         bbsUrl.setTextSize(14);
-        bbsUrl.setTextColor(TEXT);
+        bbsUrl.setTextColor(textColor());
         bbsUrl.setHint(MainActivity.text("\u677fURL", "Board URL"));
         bbsUrl.setImeOptions(EditorInfo.IME_ACTION_DONE);
         bbsUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
@@ -197,6 +232,14 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
         addressBarTop.setChecked(preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false));
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, false));
+        String themeMode = preferences.getString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
+        if (Theme.MODE_DARK.equals(themeMode)) {
+            themeDark.setChecked(true);
+        } else if (Theme.MODE_LIGHT.equals(themeMode)) {
+            themeLight.setChecked(true);
+        } else {
+            themeSystem.setChecked(true);
+        }
 
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
@@ -215,6 +258,24 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        themeSystem.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                saveThemeMode();
+                recreate();
+            }
+        });
+        themeLight.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                saveThemeMode();
+                recreate();
+            }
+        });
+        themeDark.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                saveThemeMode();
+                recreate();
+            }
+        });
         searchFind5chIo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
                 saveSettings(false);
@@ -266,20 +327,38 @@ public class SettingsActivity extends Activity {
             }
         }
 
+        String themeMode = Theme.MODE_SYSTEM;
+        if (themeLight.isChecked()) {
+            themeMode = Theme.MODE_LIGHT;
+        } else if (themeDark.isChecked()) {
+            themeMode = Theme.MODE_DARK;
+        }
+
         preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, externalLinkInApp.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
+                .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
+    }
+
+    private void saveThemeMode() {
+        String themeMode = Theme.MODE_SYSTEM;
+        if (themeLight.isChecked()) {
+            themeMode = Theme.MODE_LIGHT;
+        } else if (themeDark.isChecked()) {
+            themeMode = Theme.MODE_DARK;
+        }
+        preferences.edit().putString(MainActivity.PREF_THEME_MODE, themeMode).apply();
     }
 
     private TextView sectionTitle(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(TEXT);
+        view.setTextColor(textColor());
         view.setTextSize(18);
         view.setPadding(0, dp(16), 0, dp(8));
         return view;
@@ -288,7 +367,7 @@ public class SettingsActivity extends Activity {
     private TextView helperText(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(MUTED);
+        view.setTextColor(mutedColor());
         view.setTextSize(13);
         view.setPadding(0, dp(4), 0, dp(4));
         return view;
@@ -297,7 +376,7 @@ public class SettingsActivity extends Activity {
     private RadioButton radio(String value) {
         RadioButton button = new RadioButton(this);
         button.setText(value);
-        button.setTextColor(TEXT);
+        button.setTextColor(textColor());
         button.setTextSize(16);
         return button;
     }
@@ -342,12 +421,12 @@ public class SettingsActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             TextView text = helperText(link.name + "\n" + link.url);
-            text.setTextColor(TEXT);
+            text.setTextColor(textColor());
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             ImageButton edit = new ImageButton(this);
             edit.setImageResource(R.drawable.ic_edit);
             edit.setContentDescription(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u7de8\u96c6", "Edit BBS link"));
-            edit.setColorFilter(TEXT);
+            edit.setColorFilter(textColor());
             edit.setBackground(roundedField());
             edit.setPadding(dp(10), dp(10), dp(10), dp(10));
             edit.setScaleType(ImageButton.ScaleType.CENTER);
@@ -363,7 +442,7 @@ public class SettingsActivity extends Activity {
             ImageButton delete = new ImageButton(this);
             delete.setImageResource(R.drawable.ic_delete);
             delete.setContentDescription(MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u524a\u9664", "Delete BBS link"));
-            delete.setColorFilter(TEXT);
+            delete.setColorFilter(textColor());
             delete.setBackground(roundedField());
             delete.setPadding(dp(10), dp(10), dp(10), dp(10));
             delete.setScaleType(ImageButton.ScaleType.CENTER);
@@ -386,8 +465,8 @@ public class SettingsActivity extends Activity {
 
     private GradientDrawable roundedField() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(SURFACE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(10));
         return drawable;
     }

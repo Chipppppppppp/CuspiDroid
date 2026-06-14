@@ -35,6 +35,26 @@ public class ReadPostsActivity extends Activity {
     private SharedPreferences preferences;
     private LinearLayout list;
 
+    private int bgColor() {
+        return Theme.background(this);
+    }
+
+    private int surfaceColor() {
+        return Theme.surface(this);
+    }
+
+    private int textColor() {
+        return Theme.text(this);
+    }
+
+    private int mutedColor() {
+        return Theme.muted(this);
+    }
+
+    private int borderColor() {
+        return Theme.border(this);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -44,8 +64,9 @@ public class ReadPostsActivity extends Activity {
     }
 
     private void buildLayout() {
+        Theme.applySystemBars(this);
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(bgColor());
         setContentView(root);
 
         ScrollView scroll = new ScrollView(this);
@@ -63,7 +84,7 @@ public class ReadPostsActivity extends Activity {
         topBar.setBackground(topBarBackground());
         TextView title = new TextView(this);
         title.setText(MainActivity.text("\u65e2\u8aad", "Read Positions"));
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(22);
         topBar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
@@ -90,7 +111,7 @@ public class ReadPostsActivity extends Activity {
 
             TextView text = helperText(item.title + "\n" + item.url + "\n"
                     + MainActivity.text("\u65e2\u8aad: ", "Read through: ") + item.number);
-            text.setTextColor(TEXT);
+            text.setTextColor(textColor());
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u65e2\u8aad\u3092\u7de8\u96c6", "Edit read position"));
@@ -117,6 +138,7 @@ public class ReadPostsActivity extends Activity {
         input.setText(String.valueOf(item.number));
         input.setSelectAllOnFocus(true);
         input.setTextSize(16);
+        input.setTextColor(textColor());
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setBackground(rowBackground());
@@ -203,7 +225,7 @@ public class ReadPostsActivity extends Activity {
     private TextView helperText(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(MUTED);
+        view.setTextColor(mutedColor());
         view.setTextSize(14);
         view.setPadding(0, dp(4), 0, dp(4));
         return view;
@@ -213,7 +235,7 @@ public class ReadPostsActivity extends Activity {
         ImageButton button = new ImageButton(this);
         button.setImageResource(iconRes);
         button.setContentDescription(description);
-        button.setColorFilter(TEXT);
+        button.setColorFilter(textColor());
         button.setBackground(iconButtonBackground());
         button.setPadding(dp(10), dp(10), dp(10), dp(10));
         button.setScaleType(ImageButton.ScaleType.CENTER);
@@ -228,15 +250,15 @@ public class ReadPostsActivity extends Activity {
 
     private GradientDrawable topBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.WHITE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(bgColor());
+        drawable.setStroke(dp(1), borderColor());
         return drawable;
     }
 
     private GradientDrawable rowBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(SURFACE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(8));
         return drawable;
     }

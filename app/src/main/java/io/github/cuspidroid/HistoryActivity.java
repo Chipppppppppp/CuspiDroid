@@ -26,6 +26,26 @@ public class HistoryActivity extends Activity {
     private SharedPreferences preferences;
     private LinearLayout list;
 
+    private int bgColor() {
+        return Theme.background(this);
+    }
+
+    private int surfaceColor() {
+        return Theme.surface(this);
+    }
+
+    private int textColor() {
+        return Theme.text(this);
+    }
+
+    private int mutedColor() {
+        return Theme.muted(this);
+    }
+
+    private int borderColor() {
+        return Theme.border(this);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -35,8 +55,9 @@ public class HistoryActivity extends Activity {
     }
 
     private void buildLayout() {
+        Theme.applySystemBars(this);
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(bgColor());
         setContentView(root);
 
         ScrollView scroll = new ScrollView(this);
@@ -54,7 +75,7 @@ public class HistoryActivity extends Activity {
         topBar.setBackground(topBarBackground());
         TextView title = new TextView(this);
         title.setText(MainActivity.text("\u30b9\u30ec\u5c65\u6b74", "Thread History"));
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(22);
         topBar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
@@ -95,7 +116,7 @@ public class HistoryActivity extends Activity {
                     ? "\n" + MainActivity.text("\u6700\u7d42\u95b2\u89a7: ", "Last viewed: ") + MainActivity.formatHistoryTime(item.lastViewedAt)
                     : "";
             TextView text = helperText(item.title + "\n" + item.url + viewedAt);
-            text.setTextColor(TEXT);
+            text.setTextColor(textColor());
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history item"));
@@ -117,7 +138,7 @@ public class HistoryActivity extends Activity {
     private TextView helperText(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(MUTED);
+        view.setTextColor(mutedColor());
         view.setTextSize(14);
         view.setPadding(0, dp(4), 0, dp(4));
         return view;
@@ -127,7 +148,7 @@ public class HistoryActivity extends Activity {
         ImageButton button = new ImageButton(this);
         button.setImageResource(iconRes);
         button.setContentDescription(description);
-        button.setColorFilter(TEXT);
+        button.setColorFilter(textColor());
         button.setBackground(iconButtonBackground());
         button.setPadding(dp(10), dp(10), dp(10), dp(10));
         button.setScaleType(ImageButton.ScaleType.CENTER);
@@ -136,15 +157,15 @@ public class HistoryActivity extends Activity {
 
     private GradientDrawable topBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.WHITE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(bgColor());
+        drawable.setStroke(dp(1), borderColor());
         return drawable;
     }
 
     private GradientDrawable rowBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(SURFACE);
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(8));
         return drawable;
     }

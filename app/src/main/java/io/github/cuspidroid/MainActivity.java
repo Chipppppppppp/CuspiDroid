@@ -109,6 +109,7 @@ public class MainActivity extends Activity {
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
+    static final String PREF_THEME_MODE = "theme_mode";
     static final String PREF_BBS_LINKS = "bbs_links";
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_NG_RULES = "ng_rules";
@@ -173,6 +174,35 @@ public class MainActivity extends Activity {
     private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private boolean imgurLoadInFlight;
+    private String appliedThemeMode;
+
+    private int bgColor() {
+        return Theme.background(this);
+    }
+
+    private int surfaceColor() {
+        return Theme.surface(this);
+    }
+
+    private int postColor() {
+        return Theme.post(this);
+    }
+
+    private int textColor() {
+        return Theme.text(this);
+    }
+
+    private int mutedColor() {
+        return Theme.muted(this);
+    }
+
+    private int borderColor() {
+        return Theme.border(this);
+    }
+
+    private int menuColor() {
+        return Theme.menu(this);
+    }
 
     static String text(String ja, String en) {
         return Locale.JAPANESE.getLanguage().equals(Locale.getDefault().getLanguage()) ? ja : en;
@@ -182,6 +212,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        appliedThemeMode = themeMode();
         buildLayout();
         contentFrame.addView(loadingView(""));
 
@@ -216,11 +247,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (bottomToolbar != null && addressBarTop != addressBarOnTop()) {
+        String currentThemeMode = themeMode();
+        boolean themeChanged = appliedThemeMode != null && !appliedThemeMode.equals(currentThemeMode);
+        if (bottomToolbar != null && (addressBarTop != addressBarOnTop() || themeChanged)) {
             CuspTab tab = currentTab();
             if (tab != null) {
                 rememberThreadScroll(tab);
             }
+            appliedThemeMode = currentThemeMode;
             buildLayout();
             if (pendingNewTab) {
                 showPendingNewTab(pendingHistoryAll);
@@ -308,10 +342,11 @@ public class MainActivity extends Activity {
 
     private void buildLayout() {
         addressBarTop = addressBarOnTop();
+        applySystemBarTheme();
         toolbarButtons.clear();
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(bgColor());
         root.setFocusableInTouchMode(true);
         root.requestFocus();
         setContentView(root);
@@ -329,7 +364,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         suggestionsPanel = new LinearLayout(this);
         suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
-        suggestionsPanel.setBackgroundColor(Color.WHITE);
+        suggestionsPanel.setBackgroundColor(menuColor());
         suggestionsPanel.setPadding(dp(12), dp(12), dp(12), dp(12));
         suggestionsPanel.setVisibility(View.GONE);
         FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
@@ -347,7 +382,7 @@ public class MainActivity extends Activity {
         threadSearchInput = new EditText(this);
         threadSearchInput.setSingleLine(true);
         threadSearchInput.setTextSize(14);
-        threadSearchInput.setTextColor(TEXT);
+        threadSearchInput.setTextColor(textColor());
         threadSearchInput.setHint(text("\u30b9\u30ec\u5185\u691c\u7d22", "Find in thread"));
         threadSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         threadSearchInput.setBackground(addressBarBackground());
@@ -390,7 +425,7 @@ public class MainActivity extends Activity {
         });
         threadSearchBar.addView(threadSearchInput, new LinearLayout.LayoutParams(0, dp(40), 1));
         threadSearchCount = new TextView(this);
-        threadSearchCount.setTextColor(Color.rgb(79, 91, 103));
+        threadSearchCount.setTextColor(mutedColor());
         threadSearchCount.setTextSize(12);
         threadSearchCount.setGravity(Gravity.CENTER);
         threadSearchBar.addView(threadSearchCount, new LinearLayout.LayoutParams(dp(42), dp(40)));
@@ -405,7 +440,7 @@ public class MainActivity extends Activity {
         bottomThreadBar.setBackground(bottomBarBackground());
 
         bottomThreadTitle = new TextView(this);
-        bottomThreadTitle.setTextColor(TEXT);
+        bottomThreadTitle.setTextColor(textColor());
         bottomThreadTitle.setTextSize(14);
         bottomThreadTitle.setSingleLine(false);
         bottomThreadTitle.setMaxLines(2);
@@ -423,7 +458,7 @@ public class MainActivity extends Activity {
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
         bottomToolbar.setGravity(Gravity.CENTER_VERTICAL);
         bottomToolbar.setPadding(dp(6), dp(5), dp(6), dp(5));
-        bottomToolbar.setBackgroundColor(Color.rgb(242, 246, 249));
+        bottomToolbar.setBackgroundColor(Theme.topBar(this));
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
@@ -436,7 +471,7 @@ public class MainActivity extends Activity {
         addressBar.setTextSize(15);
         addressBar.setIncludeFontPadding(false);
         addressBar.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        addressBar.setTextColor(TEXT);
+        addressBar.setTextColor(textColor());
         addressBar.setHint(text("\u691c\u7d22\u307e\u305f\u306fURL", "Search or URL"));
         addressBar.setSelectAllOnFocus(true);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
@@ -543,7 +578,7 @@ public class MainActivity extends Activity {
         ImageButton button = new ImageButton(this);
         button.setImageResource(iconRes);
         button.setContentDescription(description);
-        button.setColorFilter(TEXT);
+        button.setColorFilter(textColor());
         button.setBackground(iconButtonBackground());
         button.setPadding(dp(9), dp(9), dp(9), dp(9));
         button.setScaleType(ImageButton.ScaleType.CENTER);
@@ -556,7 +591,7 @@ public class MainActivity extends Activity {
 
     private TextView tabCountButton() {
         TextView view = new TextView(this);
-        view.setTextColor(TEXT);
+        view.setTextColor(textColor());
         view.setTextSize(13);
         view.setGravity(Gravity.CENTER);
         view.setSingleLine(true);
@@ -571,8 +606,8 @@ public class MainActivity extends Activity {
 
     private GradientDrawable tabCountBackground(boolean selected) {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(selected ? Color.rgb(231, 247, 244) : Color.TRANSPARENT);
-        drawable.setStroke(dp(2), selected ? TEAL : TEXT);
+        drawable.setColor(selected ? Theme.active(this) : Color.TRANSPARENT);
+        drawable.setStroke(dp(2), selected ? TEAL : textColor());
         drawable.setCornerRadius(dp(5));
         return drawable;
     }
@@ -658,9 +693,9 @@ public class MainActivity extends Activity {
     private TextView suggestionItem(String label, String value) {
         TextView view = new TextView(this);
         view.setText(label + "\n" + value);
-        view.setTextColor(TEXT);
+        view.setTextColor(textColor());
         view.setTextSize(14);
-        view.setBackgroundColor(Color.WHITE);
+        view.setBackgroundColor(menuColor());
         view.setPadding(dp(12), dp(10), dp(12), dp(10));
         view.setMinHeight(dp(58));
         return view;
@@ -668,7 +703,7 @@ public class MainActivity extends Activity {
 
     private View suggestionDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(BORDER);
+        divider.setBackgroundColor(borderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
@@ -726,6 +761,10 @@ public class MainActivity extends Activity {
         showAddressMenuAtToolbarEdge(popup, menu, true);
     }
 
+    private void applySystemBarTheme() {
+        Theme.applySystemBars(this);
+    }
+
     private void showAddressMenuAtToolbarEdge(PopupWindow popup, View menu, boolean alignLeft) {
         int[] toolbarLocation = new int[2];
         bottomToolbar.getLocationOnScreen(toolbarLocation);
@@ -747,7 +786,7 @@ public class MainActivity extends Activity {
     private TextView menuItem(String text, View.OnClickListener listener) {
         TextView view = new TextView(this);
         view.setText(text);
-        view.setTextColor(TEXT);
+        view.setTextColor(textColor());
         view.setTextSize(14);
         view.setGravity(Gravity.CENTER);
         view.setMinWidth(dp(82));
@@ -904,11 +943,11 @@ public class MainActivity extends Activity {
         row.setOnClickListener(listener);
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
-        icon.setColorFilter(TEXT);
+        icon.setColorFilter(textColor());
         row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
         TextView label = new TextView(this);
         label.setText(text);
-        label.setTextColor(TEXT);
+        label.setTextColor(textColor());
         label.setTextSize(14);
         label.setPadding(dp(12), 0, 0, 0);
         row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -917,14 +956,14 @@ public class MainActivity extends Activity {
 
     private View verticalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(BORDER);
+        divider.setBackgroundColor(borderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT));
         return divider;
     }
 
     private View horizontalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(BORDER);
+        divider.setBackgroundColor(borderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
     }
@@ -991,29 +1030,29 @@ public class MainActivity extends Activity {
     }
 
     private GradientDrawable postBackground(boolean unread) {
-        return roundedFill(unread ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252), dp(12));
+        return roundedFill(unread ? Theme.unread(this) : postColor(), dp(12));
     }
 
     private GradientDrawable addressBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.rgb(241, 245, 249));
-        drawable.setStroke(dp(1), BORDER);
+        drawable.setColor(Theme.field(this));
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(20));
         return drawable;
     }
 
     private GradientDrawable menuBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.WHITE);
-        drawable.setStroke(dp(2), Color.rgb(148, 163, 184));
+        drawable.setColor(menuColor());
+        drawable.setStroke(dp(2), Theme.strongBorder(this));
         drawable.setCornerRadius(dp(10));
         return drawable;
     }
 
     private GradientDrawable bottomBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.rgb(242, 246, 249));
-        drawable.setStroke(dp(1), Color.rgb(176, 188, 199));
+        drawable.setColor(Theme.topBar(this));
+        drawable.setStroke(dp(1), borderColor());
         return drawable;
     }
 
@@ -1138,6 +1177,10 @@ public class MainActivity extends Activity {
         } catch (Exception error) {
             return false;
         }
+    }
+
+    private String themeMode() {
+        return preferences.getString(PREF_THEME_MODE, Theme.MODE_SYSTEM);
     }
 
     private void hydrateRestoredTabs(int selected) {
@@ -1504,7 +1547,7 @@ public class MainActivity extends Activity {
         SpannableStringBuilder builder = new SpannableStringBuilder(title).append(badge);
         int start = builder.length() - badge.trim().length();
         int end = builder.length();
-        builder.setSpan(new BackgroundColorSpan(Color.rgb(219, 234, 254)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        builder.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         builder.setSpan(new ForegroundColorSpan(Color.rgb(29, 78, 216)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         view.setText(builder);
     }
@@ -1954,7 +1997,7 @@ public class MainActivity extends Activity {
         box.addView(spinner, new LinearLayout.LayoutParams(dp(44), dp(44)));
         TextView text = new TextView(this);
         text.setText(message);
-        text.setTextColor(TEXT);
+        text.setTextColor(textColor());
         text.setTextSize(16);
         text.setPadding(0, dp(10), 0, 0);
         if (message != null && !message.isEmpty()) {
@@ -1978,7 +2021,7 @@ public class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         setThreadTitleText(title, page, page.title);
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(20);
         title.setGravity(Gravity.START);
         title.setPadding(0, 0, 0, dp(10));
@@ -2270,7 +2313,7 @@ public class MainActivity extends Activity {
             }, matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         meta.setText(text);
-        meta.setTextColor(Color.rgb(79, 91, 103));
+        meta.setTextColor(mutedColor());
         meta.setLinkTextColor(TEAL);
         meta.setTextSize(12);
         meta.setPadding(0, 0, 0, dp(5));
@@ -2325,7 +2368,7 @@ public class MainActivity extends Activity {
         metaRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView meta = new TextView(this);
         meta.setText(postHeaderText(post));
-        meta.setTextColor(Color.rgb(79, 91, 103));
+        meta.setTextColor(mutedColor());
         meta.setTextSize(12);
         meta.setTextIsSelectable(true);
         metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -2353,7 +2396,7 @@ public class MainActivity extends Activity {
                 && isAaPost(preferences, tab.threadPage.url, post.number);
         TextView body = new TextView(this);
         body.setText(post.body);
-        body.setTextColor(TEXT);
+        body.setTextColor(textColor());
         body.setTextSize(aa ? 13 : 15);
         body.setTypeface(aa ? Typeface.MONOSPACE : Typeface.DEFAULT);
         body.setIncludeFontPadding(!aa);
@@ -2393,7 +2436,7 @@ public class MainActivity extends Activity {
         view.setOrientation(LinearLayout.HORIZONTAL);
         view.setGravity(Gravity.CENTER_VERTICAL);
         view.setPadding(dp(12), 0, dp(12), 0);
-        view.setBackground(roundedDrawable(Color.rgb(250, 251, 252), BORDER, dp(8)));
+        view.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         params.setMargins(0, 0, 0, dp(8));
@@ -2404,7 +2447,7 @@ public class MainActivity extends Activity {
         view.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
         TextView textView = new TextView(this);
         textView.setText(label);
-        textView.setTextColor(TEXT);
+        textView.setTextColor(textColor());
         textView.setTextSize(16);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         textParams.setMargins(dp(12), 0, 0, 0);
@@ -2419,7 +2462,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(8), dp(18), 0);
         TextView body = new TextView(this);
         body.setText(postCopyText(post));
-        body.setTextColor(TEXT);
+        body.setTextColor(textColor());
         body.setTextSize(15);
         body.setTextIsSelectable(true);
         body.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -2560,7 +2603,7 @@ public class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText(page.title);
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(20);
         title.setPadding(0, 0, 0, dp(10));
         list.addView(title);
@@ -2579,7 +2622,7 @@ public class MainActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.VERTICAL);
             row.setPadding(dp(10), dp(9), dp(10), dp(9));
-            row.setBackgroundColor(Color.rgb(250, 251, 252));
+            row.setBackgroundColor(postColor());
             row.setOnClickListener(v -> routeLink(result.url, currentTab()));
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2587,14 +2630,14 @@ public class MainActivity extends Activity {
 
             TextView resultTitle = new TextView(this);
             resultTitle.setText(result.title);
-            resultTitle.setTextColor(TEXT);
+            resultTitle.setTextColor(textColor());
             resultTitle.setTextSize(16);
             resultTitle.setPadding(0, 0, 0, dp(4));
             row.addView(resultTitle);
 
             TextView meta = new TextView(this);
             meta.setText(styledResultMeta(result.meta));
-            meta.setTextColor(Color.rgb(79, 91, 103));
+            meta.setTextColor(mutedColor());
             meta.setTextSize(12);
             row.addView(meta);
             list.addView(row, rowParams);
@@ -3020,7 +3063,7 @@ public class MainActivity extends Activity {
 
     private View buildTabOverviewView() {
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(bgColor());
 
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
@@ -3042,7 +3085,7 @@ public class MainActivity extends Activity {
         }
 
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs());
-        reloadAll.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(22)));
+        reloadAll.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
         FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
         reloadParams.setMargins(0, 0, dp(84), dp(18));
         root.addView(reloadAll, reloadParams);
@@ -3064,10 +3107,10 @@ public class MainActivity extends Activity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(14), 0, dp(6), 0);
-        bar.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(8)));
+        bar.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
         TextView message = new TextView(this);
         message.setText(text("\u30bf\u30d6\u3092\u9589\u3058\u307e\u3057\u305f", "Tab closed"));
-        message.setTextColor(TEXT);
+        message.setTextColor(textColor());
         message.setTextSize(14);
         bar.addView(message, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView undo = new TextView(this);
@@ -3105,7 +3148,7 @@ public class MainActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(78));
-        row.setBackground(roundedDrawable(Color.rgb(250, 251, 252), selected ? TEAL : Color.rgb(226, 232, 240), dp(8)));
+        row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(v -> selectTabFromOverview(index));
 
         LinearLayout textBox = new LinearLayout(this);
@@ -3117,7 +3160,7 @@ public class MainActivity extends Activity {
         } else {
             title.setText(rowTitle);
         }
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(14);
         title.setSingleLine(false);
         title.setMaxLines(2);
@@ -3129,7 +3172,7 @@ public class MainActivity extends Activity {
         }
         TextView url = new TextView(this);
         url.setText(tab.url == null || tab.url.trim().isEmpty() ? text("\u65b0\u898f\u30bf\u30d6", "New tab") : tab.url);
-        url.setTextColor(Color.rgb(79, 91, 103));
+        url.setTextColor(mutedColor());
         url.setTextSize(12);
         url.setSingleLine(true);
         url.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
@@ -3318,7 +3361,7 @@ public class MainActivity extends Activity {
     private TextView sectionTitleView(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(TEXT);
+        view.setTextColor(textColor());
         view.setTextSize(18);
         view.setPadding(0, dp(10), 0, dp(8));
         return view;
@@ -3327,7 +3370,7 @@ public class MainActivity extends Activity {
     private TextView helperLine(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(Color.rgb(79, 91, 103));
+        view.setTextColor(mutedColor());
         view.setTextSize(14);
         view.setPadding(dp(10), dp(8), dp(10), dp(10));
         return view;
@@ -3336,7 +3379,7 @@ public class MainActivity extends Activity {
     private TextView actionRow(String value) {
         TextView view = helperLine(value);
         view.setTextColor(TEAL);
-        view.setBackgroundColor(Color.rgb(250, 251, 252));
+        view.setBackgroundColor(postColor());
         return view;
     }
 
@@ -3348,7 +3391,7 @@ public class MainActivity extends Activity {
         LinearLayout shell = new LinearLayout(this);
         shell.setOrientation(LinearLayout.HORIZONTAL);
         shell.setGravity(Gravity.CENTER_VERTICAL);
-        shell.setBackgroundColor(Color.rgb(250, 251, 252));
+        shell.setBackgroundColor(postColor());
         LinearLayout.LayoutParams shellParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         shellParams.setMargins(0, 0, 0, dp(8));
@@ -3365,13 +3408,13 @@ public class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText(item.title);
-        title.setTextColor(TEXT);
+        title.setTextColor(textColor());
         title.setTextSize(16);
         row.addView(title);
 
         TextView url = new TextView(this);
         url.setText(item.url);
-        url.setTextColor(Color.rgb(79, 91, 103));
+        url.setTextColor(mutedColor());
         url.setTextSize(12);
         row.addView(url);
         if (item.lastViewedAt > 0) {
@@ -3387,7 +3430,7 @@ public class MainActivity extends Activity {
             removeThreadHistory(preferences, item.url);
             refreshCurrentHomeOrHistoryView(fullHistory);
         });
-        delete.setColorFilter(Color.rgb(79, 91, 103));
+        delete.setColorFilter(mutedColor());
         delete.setBackgroundColor(Color.TRANSPARENT);
         LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(42), dp(42));
         deleteParams.setMargins(dp(6), 0, dp(4), 0);
@@ -3436,8 +3479,8 @@ public class MainActivity extends Activity {
 
     private void addBoardFolder(LinearLayout list, String folder, String[][] boards) {
         TextView header = helperLine(folder);
-        header.setTextColor(TEXT);
-        header.setBackgroundColor(Color.rgb(229, 233, 238));
+        header.setTextColor(textColor());
+        header.setBackgroundColor(surfaceColor());
         list.addView(header);
         for (String[] board : boards) {
             TextView row = actionRow("  " + board[0]);
@@ -3473,7 +3516,7 @@ public class MainActivity extends Activity {
         replaceUrlSpans(linkedText);
         replaceReplySpans(linkedText, page);
         text.setText(linkedText);
-        text.setTextColor(TEXT);
+        text.setTextColor(textColor());
         text.setLinkTextColor(TEAL);
         text.setTextSize(15);
         text.setLineSpacing(0, 1.15f);
@@ -3543,7 +3586,7 @@ public class MainActivity extends Activity {
         replaceUrlSpans(aaText);
         replaceReplySpans(aaText, page);
         body.setText(aaText);
-        body.setTextColor(TEXT);
+        body.setTextColor(textColor());
         body.setTextSize(13);
         body.setTypeface(Typeface.MONOSPACE);
         body.setIncludeFontPadding(false);
@@ -3622,7 +3665,7 @@ public class MainActivity extends Activity {
         String needle = query.trim().toLowerCase(Locale.ROOT);
         int index = haystack.indexOf(needle);
         while (index >= 0) {
-            text.setSpan(new BackgroundColorSpan(Color.rgb(187, 247, 208)),
+            text.setSpan(new BackgroundColorSpan(Theme.searchHighlight(this)),
                     index, index + needle.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             index = haystack.indexOf(needle, index + needle.length());
         }
@@ -3661,9 +3704,9 @@ public class MainActivity extends Activity {
         Button reveal = new Button(this);
         reveal.setText(text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
         reveal.setAllCaps(false);
-        reveal.setTextColor(TEXT);
+        reveal.setTextColor(textColor());
         reveal.setVisibility(View.GONE);
-        reveal.setBackground(roundedDrawable(Color.WHITE, BORDER, dp(8)));
+        reveal.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
         FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(112), dp(44));
         revealParams.gravity = Gravity.CENTER;
         frame.addView(reveal, revealParams);
@@ -4491,7 +4534,7 @@ public class MainActivity extends Activity {
         popupScroll.setScrollbarFadingEnabled(true);
         if (jumpEachPost) {
             popupScroll.setPadding(dp(8), dp(8), dp(8), dp(8));
-            popupScroll.setBackground(roundedFill(Color.WHITE, dp(12)));
+            popupScroll.setBackground(roundedFill(menuColor(), dp(12)));
             popupRoot.addView(popupPostShadowLayer(Color.argb(28, 15, 23, 42)), popupPostShadowParams(0));
             popupRoot.addView(popupPostShadowLayer(Color.argb(22, 15, 23, 42)), popupPostShadowParams(dp(2)));
             popupRoot.addView(popupPostShadowLayer(Color.argb(18, 15, 23, 42)), popupPostShadowParams(dp(4)));
@@ -4558,7 +4601,7 @@ public class MainActivity extends Activity {
         }
         int cardInset = showShadow ? dp(7) : 0;
         View swipeBackground = new View(this);
-        swipeBackground.setBackground(roundedFill(Color.WHITE, dp(12)));
+        swipeBackground.setBackground(roundedFill(menuColor(), dp(12)));
         FrameLayout.LayoutParams swipeBackgroundParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         swipeBackgroundParams.setMargins(cardInset, cardInset, cardInset, cardInset);
@@ -4790,7 +4833,7 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        int fill = unread ? Color.rgb(232, 247, 244) : Color.rgb(250, 251, 252);
+        int fill = unread ? Theme.unread(this) : postColor();
         target.setBackground(roundedDrawable(fill, TEAL, dp(8)));
     }
 
@@ -4967,7 +5010,7 @@ public class MainActivity extends Activity {
     private void showCopyablePostFailure(String messageText) {
         TextView message = new TextView(this);
         message.setText(messageText);
-        message.setTextColor(TEXT);
+        message.setTextColor(textColor());
         message.setTextSize(14);
         message.setTextIsSelectable(true);
         message.setPadding(dp(20), dp(12), dp(20), 0);
