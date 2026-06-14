@@ -123,6 +123,8 @@ public class MainActivity extends Activity {
     static final String PREF_IMGUR_META = "imgur_meta";
     static final String PREF_BOARD_FAVORITES = "board_favorites";
     static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
+    static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
+    static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -1480,6 +1482,12 @@ public class MainActivity extends Activity {
             item.put("title", result.title);
             item.put("url", result.url);
             item.put("meta", result.meta);
+            item.put("responses", result.responses);
+            item.put("velocity", result.velocity);
+            item.put("boardOrder", result.boardOrder);
+            if (result.priorityMatch != null) {
+                item.put("priorityMatch", result.priorityMatch);
+            }
             results.put(item);
         }
         object.put("results", results);
@@ -1504,6 +1512,13 @@ public class MainActivity extends Activity {
                 result.title = item.optString("title", "");
                 result.url = item.optString("url", "");
                 result.meta = item.optString("meta", "");
+                result.responses = item.optInt("responses", 0);
+                result.velocity = item.optDouble("velocity", 0d);
+                result.boardOrder = item.optInt("boardOrder", i);
+                result.priorityMatch = item.optString("priorityMatch", null);
+                if (result.priorityMatch != null && result.priorityMatch.isEmpty()) {
+                    result.priorityMatch = null;
+                }
                 page.results.add(result);
             }
         }
@@ -2907,7 +2922,7 @@ public class MainActivity extends Activity {
             rowParams.setMargins(0, 0, 0, dp(8));
 
             TextView resultTitle = new TextView(this);
-            resultTitle.setText(result.title);
+            resultTitle.setText(styledResultTitle(result));
             resultTitle.setTextColor(textColor());
             resultTitle.setTextSize(16);
             resultTitle.setPadding(0, 0, 0, dp(4));
@@ -2940,6 +2955,27 @@ public class MainActivity extends Activity {
         applyMetaNumberStyle(text, value, "(?:\u30ec\u30b9|Posts):\\s*(\\d+)", false);
         applyMetaNumberStyle(text, value, "(?:\u52e2\u3044|Speed):\\s*(\\d+(?:\\.\\d+)?)", true);
         return text;
+    }
+
+    private CharSequence styledResultTitle(SearchResult result) {
+        String title = result == null || result.title == null ? "" : result.title;
+        String match = result == null ? null : result.priorityMatch;
+        if (match == null || match.isEmpty()) {
+            return title;
+        }
+        String lowerTitle = title.toLowerCase(Locale.ROOT);
+        String lowerMatch = match.toLowerCase(Locale.ROOT);
+        SpannableString highlighted = new SpannableString(title);
+        int index = lowerTitle.indexOf(lowerMatch);
+        while (index >= 0) {
+            int end = index + match.length();
+            highlighted.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)),
+                    index, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            highlighted.setSpan(new StyleSpan(Typeface.BOLD),
+                    index, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            index = lowerTitle.indexOf(lowerMatch, end);
+        }
+        return highlighted;
     }
 
     private ImageButton saveToggleButtonForResult(SearchResult result) {
@@ -7043,9 +7079,13 @@ public class MainActivity extends Activity {
             SearchResult result = new SearchResult();
             result.title = title;
             result.url = subject.threadBase + key + "/";
-            result.meta = boardThreadMeta(board, responses, threadVelocity(key, responses));
+            result.responses = responses;
+            result.velocity = threadVelocity(key, responses);
+            result.priorityMatch = matchingBoardPriorityWord(title);
+            result.meta = boardThreadMeta(board, responses, result.velocity);
             page.results.add(result);
         }
+        sortBoardResults(page.results);
         return page;
     }
 
@@ -7295,6 +7335,44 @@ public class MainActivity extends Activity {
         }
         double days = Math.max(1d / 24d, (System.currentTimeMillis() / 1000d - created) / 86400d);
         return responses / days;
+    }
+
+    private void sortBoardResults(List<SearchResult> results) {
+        if (results == null || results.isEmpty()) {
+            return;
+        }
+        final boolean sortBySpeed = preferences.getBoolean(PREF_BOARD_SORT_BY_SPEED, false);
+        for (int i = 0; i < results.size(); i++) {
+            results.get(i).boardOrder = i;
+        }
+        Collections.sort(results, (left, right) -> {
+            int leftPriority = left.priorityMatch == null ? 0 : 1;
+            int rightPriority = right.priorityMatch == null ? 0 : 1;
+            if (leftPriority != rightPriority) {
+                return Integer.compare(rightPriority, leftPriority);
+            }
+            if (sortBySpeed) {
+                int velocity = Double.compare(right.velocity, left.velocity);
+                if (velocity != 0) {
+                    return velocity;
+                }
+            }
+            return Integer.compare(left.boardOrder, right.boardOrder);
+        });
+    }
+
+    private String matchingBoardPriorityWord(String title) {
+        if (title == null || title.isEmpty()) {
+            return null;
+        }
+        String lowerTitle = title.toLowerCase(Locale.ROOT);
+        for (String word : readBoardPriorityWords(preferences)) {
+            String trimmed = word.trim();
+            if (!trimmed.isEmpty() && lowerTitle.contains(trimmed.toLowerCase(Locale.ROOT))) {
+                return trimmed;
+            }
+        }
+        return null;
     }
 
     private String boardThreadMeta(String board, int responses, double velocity) {
@@ -7875,6 +7953,61 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         preferences.edit().putString(PREF_BBS_LINKS, array.toString()).apply();
+    }
+
+    static List<String> readBoardPriorityWords(SharedPreferences preferences) {
+        List<String> words = new ArrayList<>();
+        if (preferences == null) {
+            return words;
+        }
+        try {
+            JSONArray array = new JSONArray(preferences.getString(PREF_BOARD_PRIORITY_WORDS, "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                String word = array.optString(i, "").trim();
+                if (!word.isEmpty()) {
+                    words.add(word);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return words;
+    }
+
+    static void addBoardPriorityWord(SharedPreferences preferences, String word) {
+        String normalized = word == null ? "" : word.trim();
+        if (normalized.isEmpty()) {
+            return;
+        }
+        List<String> words = readBoardPriorityWords(preferences);
+        for (String existing : words) {
+            if (existing.equalsIgnoreCase(normalized)) {
+                return;
+            }
+        }
+        words.add(normalized);
+        saveBoardPriorityWords(preferences, words);
+    }
+
+    static void removeBoardPriorityWord(SharedPreferences preferences, String word) {
+        String normalized = word == null ? "" : word.trim();
+        List<String> words = readBoardPriorityWords(preferences);
+        for (int i = words.size() - 1; i >= 0; i--) {
+            if (words.get(i).equalsIgnoreCase(normalized)) {
+                words.remove(i);
+            }
+        }
+        saveBoardPriorityWords(preferences, words);
+    }
+
+    private static void saveBoardPriorityWords(SharedPreferences preferences, List<String> words) {
+        JSONArray array = new JSONArray();
+        for (String word : words) {
+            String normalized = word == null ? "" : word.trim();
+            if (!normalized.isEmpty()) {
+                array.put(normalized);
+            }
+        }
+        preferences.edit().putString(PREF_BOARD_PRIORITY_WORDS, array.toString()).apply();
     }
 
     private boolean isThreadUrl(String url) {
@@ -8542,6 +8675,10 @@ public class MainActivity extends Activity {
         String title;
         String url;
         String meta;
+        int responses;
+        double velocity;
+        int boardOrder;
+        String priorityMatch;
     }
 
     private static class BoardSubject {
