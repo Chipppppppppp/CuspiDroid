@@ -1544,6 +1544,8 @@ public class MainActivity extends Activity {
         object.put("url", page.url);
         object.put("title", page.title);
         object.put("archived", page.archived);
+        object.put("datUrl", page.datUrl == null ? "" : page.datUrl);
+        object.put("datByteLength", page.datByteLength);
         JSONArray posts = new JSONArray();
         for (Post post : page.posts) {
             JSONObject item = new JSONObject();
@@ -1565,6 +1567,8 @@ public class MainActivity extends Activity {
         page.url = object.optString("url", "");
         page.title = object.optString("title", hostTitle(page.url));
         page.archived = object.optBoolean("archived", false);
+        page.datUrl = object.optString("datUrl", "");
+        page.datByteLength = object.optLong("datByteLength", 0);
         JSONArray posts = object.optJSONArray("posts");
         if (posts != null) {
             for (int i = 0; i < posts.length(); i++) {
@@ -2047,16 +2051,28 @@ public class MainActivity extends Activity {
         }
         ioExecutor.execute(() -> {
             ThreadPage page;
+            boolean partialUpdate = false;
             try {
-                page = downloadDatThread(tab.url);
-                if (page == null) {
-                    String html = download(tab.url);
-                    page = parseThread(tab.url, html);
+                ThreadPage partialPage = null;
+                try {
+                    partialPage = downloadNewDatPosts(tab);
+                } catch (Exception ignored) {
+                }
+                if (partialPage != null) {
+                    page = partialPage;
+                    partialUpdate = true;
+                } else {
+                    page = downloadDatThread(tab.url);
+                    if (page == null) {
+                        String html = download(tab.url);
+                        page = parseThread(tab.url, html);
+                    }
                 }
             } catch (Exception error) {
                 page = ThreadPage.error(tab.url, error.getMessage());
             }
             ThreadPage result = page;
+            boolean wasPartialUpdate = partialUpdate;
             runOnUiThread(() -> {
                 if (centerSpinner) {
                     hideCenterSpinner();
@@ -2071,7 +2087,9 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, result.error, Toast.LENGTH_SHORT).show();
                     return;
                 }
-                int oldCount = tab.threadPage == null ? 0 : tab.threadPage.posts.size();
+                int oldCount = wasPartialUpdate
+                        ? Math.max(0, result.posts.size() - result.newPostCount)
+                        : (tab.threadPage == null ? 0 : tab.threadPage.posts.size());
                 if (oldCount <= 0 || tab.threadList == null || tab.postViews == null) {
                     tab.threadPage = result;
                     tab.readPostNumber = readPostNumberForTab(tab, result.url);
@@ -2180,6 +2198,10 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage downloadThreadPage(String url) throws Exception {
+        ThreadPage datPage = downloadDatThread(url);
+        if (datPage != null && !datPage.posts.isEmpty()) {
+            return datPage;
+        }
         ThreadPage htmlPage = null;
         Exception htmlError = null;
         try {
@@ -2190,11 +2212,6 @@ public class MainActivity extends Activity {
             }
         } catch (Exception error) {
             htmlError = error;
-        }
-        ThreadPage datPage = downloadDatThread(url);
-        if (datPage != null && !datPage.posts.isEmpty()) {
-            datPage.archived = true;
-            return datPage;
         }
         if (htmlPage != null) {
             return htmlPage;
@@ -7542,6 +7559,10 @@ public class MainActivity extends Activity {
     }
 
     private HttpURLConnection openConnectionFollowingRedirects(String urlText, String userAgent) throws Exception {
+        return openConnectionFollowingRedirects(urlText, userAgent, null);
+    }
+
+    private HttpURLConnection openConnectionFollowingRedirects(String urlText, String userAgent, Map<String, String> headers) throws Exception {
         String current = urlText;
         for (int i = 0; i < 8; i++) {
             HttpURLConnection connection = (HttpURLConnection) new URL(current).openConnection();
@@ -7550,6 +7571,11 @@ public class MainActivity extends Activity {
             connection.setReadTimeout(16000);
             connection.setRequestProperty("User-Agent", userAgent);
             connection.setRequestProperty("Accept", "*/*");
+            if (headers != null) {
+                for (Map.Entry<String, String> header : headers.entrySet()) {
+                    connection.setRequestProperty(header.getKey(), header.getValue());
+                }
+            }
             applyCookies(connection, current, null);
             int code = connection.getResponseCode();
             storeCookies(current, connection.getHeaderFields().get("Set-Cookie"));
@@ -7609,24 +7635,105 @@ public class MainActivity extends Activity {
         List<String> candidates = datCandidates(address);
         for (String candidate : candidates) {
             try {
-                HttpURLConnection connection = openConnectionFollowingRedirects(
-                        candidate,
-                        "Monazilla/1.00 CuspiDroid/0.1");
-                int code = connection.getResponseCode();
-                InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-                if (stream == null) {
-                    throw new IllegalStateException("HTTP " + code);
-                }
-                byte[] bytes = readBytes(stream);
-                String body = new String(bytes, Charset.forName("MS932"));
-                if (code >= 400) {
-                    throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
-                }
-                return parseDatThread(threadUrl, body);
+                DatDownload download = downloadDatBytes(candidate, 0);
+                ThreadPage page = parseDatThread(threadUrl, download.body);
+                page.datUrl = download.url;
+                page.datByteLength = download.totalByteLength;
+                page.archived = isArchiveDatUrl(download.url);
+                return page;
             } catch (Exception error) {
             }
         }
         return null;
+    }
+
+    private ThreadPage downloadNewDatPosts(CuspTab tab) throws Exception {
+        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty()
+                || tab.threadPage.datUrl == null || tab.threadPage.datUrl.isEmpty()
+                || tab.threadPage.datByteLength <= 0) {
+            return null;
+        }
+        DatDownload download = downloadDatBytes(tab.threadPage.datUrl, tab.threadPage.datByteLength);
+        if (!download.partial || download.body.trim().isEmpty()) {
+            return null;
+        }
+        ThreadPage additional = parseDatThread(tab.url, download.body,
+                tab.threadPage.posts.get(tab.threadPage.posts.size() - 1).number + 1);
+        if (additional.posts.isEmpty()) {
+            return null;
+        }
+        ThreadPage merged = cloneThreadPage(tab.threadPage);
+        merged.datUrl = download.url;
+        merged.datByteLength = download.totalByteLength;
+        merged.archived = tab.threadPage.archived || isArchiveDatUrl(download.url);
+        for (Post post : additional.posts) {
+            merged.posts.add(post);
+            merged.postsByNumber.put(post.number, post);
+        }
+        merged.newPostCount = additional.posts.size();
+        return merged;
+    }
+
+    private DatDownload downloadDatBytes(String url, long rangeStart) throws Exception {
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (rangeStart > 0) {
+            headers.put("Range", "bytes=" + rangeStart + "-");
+        }
+        HttpURLConnection connection = openConnectionFollowingRedirects(
+                url,
+                "Monazilla/1.00 CuspiDroid/0.1",
+                headers);
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        if (stream == null) {
+            throw new IllegalStateException("HTTP " + code);
+        }
+        byte[] bytes = readBytes(stream);
+        String body = new String(bytes, Charset.forName("MS932"));
+        if (code >= 400) {
+            throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
+        }
+        boolean partial = rangeStart > 0 && code == HttpURLConnection.HTTP_PARTIAL;
+        long totalLength = partial ? totalLengthFromContentRange(connection.getHeaderField("Content-Range")) : bytes.length;
+        if (totalLength <= 0) {
+            totalLength = rangeStart + bytes.length;
+        }
+        return new DatDownload(connection.getURL().toString(), body, totalLength, partial);
+    }
+
+    private long totalLengthFromContentRange(String value) {
+        if (value == null) {
+            return 0;
+        }
+        Matcher matcher = Pattern.compile("/(\\d+)\\s*$").matcher(value);
+        if (!matcher.find()) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(matcher.group(1));
+        } catch (Exception error) {
+            return 0;
+        }
+    }
+
+    private boolean isArchiveDatUrl(String url) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        return lower.contains("/kako/") || lower.contains("/oyster/");
+    }
+
+    private ThreadPage cloneThreadPage(ThreadPage source) {
+        ThreadPage copy = new ThreadPage();
+        copy.url = source.url;
+        copy.title = source.title;
+        copy.error = source.error;
+        copy.archived = source.archived;
+        copy.datUrl = source.datUrl;
+        copy.datByteLength = source.datByteLength;
+        for (Post post : source.posts) {
+            copy.posts.add(post);
+            copy.postsByNumber.put(post.number, post);
+        }
+        return copy;
     }
 
     private List<String> datCandidates(DatAddress address) {
@@ -7704,11 +7811,15 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage parseDatThread(String threadUrl, String dat) {
+        return parseDatThread(threadUrl, dat, 1);
+    }
+
+    private ThreadPage parseDatThread(String threadUrl, String dat, int firstNumber) {
         ThreadPage page = new ThreadPage();
         page.url = threadUrl;
         page.title = hostTitle(threadUrl);
         String[] lines = dat.split("\\r?\\n");
-        int number = 1;
+        int number = Math.max(1, firstNumber);
         for (String line : lines) {
             if (line.trim().isEmpty()) {
                 continue;
@@ -9481,6 +9592,9 @@ public class MainActivity extends Activity {
         String url;
         String title;
         String error;
+        String datUrl;
+        long datByteLength;
+        int newPostCount;
         boolean archived;
         List<Post> posts = new ArrayList<>();
         Map<Integer, Post> postsByNumber = new LinkedHashMap<>();
@@ -9491,6 +9605,20 @@ public class MainActivity extends Activity {
             page.title = text("\u8aad\u307f\u8fbc\u307f\u5931\u6557", "Load failed");
             page.error = message == null ? "Unknown error" : message;
             return page;
+        }
+    }
+
+    private static class DatDownload {
+        final String url;
+        final String body;
+        final long totalByteLength;
+        final boolean partial;
+
+        DatDownload(String url, String body, long totalByteLength, boolean partial) {
+            this.url = url;
+            this.body = body;
+            this.totalByteLength = totalByteLength;
+            this.partial = partial;
         }
     }
 
