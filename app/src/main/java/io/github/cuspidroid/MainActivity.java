@@ -204,7 +204,7 @@ public class MainActivity extends Activity {
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private boolean imgurLoadInFlight;
     private Runnable lazyImgurTask;
-    private Runnable pendingScrollToBottomTask;
+    private CuspTab pendingScrollToBottomTab;
     private String appliedThemeMode;
 
     private int bgColor() {
@@ -3469,8 +3469,19 @@ public class MainActivity extends Activity {
         frame.getLocationOnScreen(frameLocation);
         float localY = y - frameLocation[1] - thumbHeight / 2f;
         float ratio = Math.max(0f, Math.min(1f, localY / usable));
-        scroll.scrollTo(0, (int) (range * ratio));
+        scrollToScrubberRatio(scroll, ratio);
         return true;
+    }
+
+    private void scrollToScrubberRatio(ScrollView scroll, float ratio) {
+        int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight();
+        if (range <= 0) {
+            return;
+        }
+        int target = (int) (range * Math.max(0f, Math.min(1f, ratio)));
+        scroll.scrollTo(0, target);
+        scroll.postDelayed(() -> scroll.scrollTo(0, target), 16);
+        scroll.postDelayed(() -> scroll.scrollTo(0, target), 48);
     }
 
     private void enableBottomPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
@@ -6248,23 +6259,18 @@ public class MainActivity extends Activity {
 
     private void scrollCurrentThreadToBottom() {
         CuspTab tab = currentTab();
-        if (tab != null && tab.threadPage != null && tab.postViews != null
-                && tab.postViews.size() < tab.threadPage.posts.size()) {
-            pendingScrollToBottomTask = () -> scrollThreadToBottom(tab, true);
-        }
-        scrollThreadToBottom(tab, false);
+        pendingScrollToBottomTab = tab;
+        scrollThreadToBottomWhenReady(tab, 0);
     }
 
     private void runPendingScrollToBottom(CuspTab tab) {
-        if (pendingScrollToBottomTask == null || tab != currentTab()) {
+        if (pendingScrollToBottomTab == null || pendingScrollToBottomTab != tab || tab != currentTab()) {
             return;
         }
-        Runnable task = pendingScrollToBottomTask;
-        pendingScrollToBottomTask = null;
-        mainHandler.post(task);
+        scrollThreadToBottomWhenReady(tab, 0);
     }
 
-    private void scrollThreadToBottom(CuspTab tab, boolean immediate) {
+    private void scrollThreadToBottomWhenReady(CuspTab tab, int attempt) {
         ScrollView scroll = tab == null ? visibleThreadScroll : tab.threadScroll;
         if (scroll == null && tab != null) {
             scroll = findScrollView(tab.readerView);
@@ -6277,14 +6283,36 @@ public class MainActivity extends Activity {
         }
         clearAddressFocus();
         final ScrollView targetScroll = scroll;
+        if (!lastPostViewReady(tab) && attempt < 80) {
+            targetScroll.postDelayed(() -> scrollThreadToBottomWhenReady(tab, attempt + 1), 25);
+            return;
+        }
         targetScroll.post(() -> {
             int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
-            if (immediate) {
-                targetScroll.scrollTo(0, range);
-            } else {
-                targetScroll.smoothScrollTo(0, range);
+            targetScroll.scrollTo(0, range);
+            if (attempt < 80 && !isThreadAtBottom(targetScroll)) {
+                targetScroll.postDelayed(() -> scrollThreadToBottomWhenReady(tab, attempt + 1), 25);
+            } else if (pendingScrollToBottomTab == tab) {
+                pendingScrollToBottomTab = null;
             }
         });
+    }
+
+    private boolean lastPostViewReady(CuspTab tab) {
+        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty() || tab.postViews == null) {
+            return true;
+        }
+        Post last = tab.threadPage.posts.get(tab.threadPage.posts.size() - 1);
+        View view = tab.postViews.get(last.number);
+        return view != null && view.getHeight() > 0 && view.isShown();
+    }
+
+    private boolean isThreadAtBottom(ScrollView scroll) {
+        if (scroll == null || scroll.getChildCount() == 0) {
+            return true;
+        }
+        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+        return scroll.getScrollY() >= range - dp(2);
     }
 
     private ScrollView findScrollView(View view) {
