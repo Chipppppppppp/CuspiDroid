@@ -35,6 +35,7 @@ public class SettingsActivity extends Activity {
     private CheckBox blurImgurImages;
     private CheckBox addressBarTop;
     private CheckBox treeView;
+    private CheckBox treeSkipFirstReply;
     private RadioButton themeSystem;
     private RadioButton themeLight;
     private RadioButton themeDark;
@@ -130,6 +131,12 @@ public class SettingsActivity extends Activity {
         treeView.setTextColor(textColor());
         treeView.setTextSize(16);
         root.addView(treeView);
+
+        treeSkipFirstReply = new CheckBox(this);
+        treeSkipFirstReply.setText(MainActivity.text(">>1\u3092\u30c4\u30ea\u30fc\u8868\u793a\u3057\u306a\u3044", "Do not tree replies to >>1"));
+        treeSkipFirstReply.setTextColor(textColor());
+        treeSkipFirstReply.setTextSize(16);
+        root.addView(treeSkipFirstReply);
 
         root.addView(sectionTitle(MainActivity.text("\u30c6\u30fc\u30de", "Theme")));
         themeGroup = new RadioGroup(this);
@@ -244,6 +251,7 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
         addressBarTop.setChecked(preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false));
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, false));
+        treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
         String themeMode = preferences.getString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
         if (Theme.MODE_DARK.equals(themeMode)) {
             themeDark.setChecked(true);
@@ -270,6 +278,7 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        treeSkipFirstReply.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
             saveThemeMode();
             group.post(this::recreate);
@@ -338,6 +347,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
+                .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, treeSkipFirstReply.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();

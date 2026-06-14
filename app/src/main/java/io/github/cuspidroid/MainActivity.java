@@ -110,6 +110,7 @@ public class MainActivity extends Activity {
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TREE_VIEW = "tree_view";
+    static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
     static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
     static final String PREF_THEME_MODE = "theme_mode";
     static final String PREF_BBS_LINKS = "bbs_links";
@@ -1839,29 +1840,6 @@ public class MainActivity extends Activity {
                     }
                     return;
                 }
-                if (treeViewEnabled()) {
-                    tab.threadPage = result;
-                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
-                    if (!centerSpinner && !forceScrollToBottom) {
-                        markReadTo(tab, maxPostNumber(result), false);
-                    }
-                    tab.postViews = new LinkedHashMap<>();
-                    tab.readerView = buildThreadView(result, tab);
-                    tab.title = result.title;
-                    cacheThreadPage(result);
-                    addThreadHistory(result.url, result.title);
-                    if (tab == currentTab()) {
-                        switchToTab(currentIndex);
-                        if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
-                            updateThreadSearch(tab.threadSearchQuery, false);
-                        }
-                        if (forceScrollToBottom) {
-                            scrollCurrentThreadToBottom();
-                        }
-                    }
-                    renderTabs();
-                    return;
-                }
                 tab.threadPage = result;
                 tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumber(preferences, result.url));
                 if (!centerSpinner && !forceScrollToBottom) {
@@ -2242,13 +2220,9 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        List<PostRenderItem> items = new ArrayList<>();
-        for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
-            Post post = page.posts.get(i);
-            if (!matchesNgPost(post)) {
-                items.add(new PostRenderItem(post, 0, new LinkedHashSet<>()));
-            }
-        }
+        List<PostRenderItem> items = treeViewEnabled()
+                ? treePostRenderItems(page, Math.max(0, fromPostIndex))
+                : flatPostRenderItems(page, Math.max(0, fromPostIndex));
         if (items.isEmpty()) {
             if (onComplete != null) {
                 onComplete.run();
@@ -2302,8 +2276,13 @@ public class MainActivity extends Activity {
     }
 
     private List<PostRenderItem> flatPostRenderItems(ThreadPage page) {
+        return flatPostRenderItems(page, 0);
+    }
+
+    private List<PostRenderItem> flatPostRenderItems(ThreadPage page, int fromPostIndex) {
         List<PostRenderItem> items = new ArrayList<>();
-        for (Post post : page.posts) {
+        for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
+            Post post = page.posts.get(i);
             if (!matchesNgPost(post)) {
                 items.add(new PostRenderItem(post, 0, new LinkedHashSet<>()));
             }
@@ -2312,9 +2291,14 @@ public class MainActivity extends Activity {
     }
 
     private List<PostRenderItem> treePostRenderItems(ThreadPage page) {
+        return treePostRenderItems(page, 0);
+    }
+
+    private List<PostRenderItem> treePostRenderItems(ThreadPage page, int fromPostIndex) {
         List<Post> visible = new ArrayList<>();
         Set<Integer> visibleNumbers = new LinkedHashSet<>();
-        for (Post post : page.posts) {
+        for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
+            Post post = page.posts.get(i);
             if (!matchesNgPost(post)) {
                 visible.add(post);
                 visibleNumbers.add(post.number);
@@ -2432,6 +2416,9 @@ public class MainActivity extends Activity {
             int first = Math.min(from, to);
             int last = Math.max(from, to);
             for (int number = first; number <= last; number++) {
+                if (number == 1 && skipFirstReplyInTree()) {
+                    continue;
+                }
                 if (number > 0 && number < post.number && visibleNumbers.contains(number)) {
                     return number;
                 }
@@ -5745,6 +5732,10 @@ public class MainActivity extends Activity {
 
     private boolean treeViewEnabled() {
         return preferences.getBoolean(PREF_TREE_VIEW, false);
+    }
+
+    private boolean skipFirstReplyInTree() {
+        return preferences.getBoolean(PREF_TREE_SKIP_FIRST_REPLY, false);
     }
 
     private boolean externalLinksInApp() {
