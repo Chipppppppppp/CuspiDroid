@@ -136,6 +136,7 @@ public class MainActivity extends Activity {
     private static final String NATIVE_SEARCH = "search";
     private static final String NATIVE_SEARCH_HOME = "search_home";
     private static final String NATIVE_BOARD = "board";
+    private static final Charset POST_CHARSET = Charset.forName("UTF-8");
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
@@ -6092,7 +6093,7 @@ public class MainActivity extends Activity {
                 + "&" + formField("mail", mail)
                 + "&" + formField("MESSAGE", message)
                 + "&" + formField("submit", "\u66f8\u304d\u8fbc\u3080");
-        byte[] body = payload.getBytes(Charset.forName("MS932"));
+        byte[] body = payload.getBytes(POST_CHARSET);
         HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
         connection.setConnectTimeout(12000);
         connection.setReadTimeout(18000);
@@ -6101,7 +6102,7 @@ public class MainActivity extends Activity {
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
         connection.setRequestProperty("Referer", threadUrl);
-        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
         connection.setRequestProperty("Content-Length", String.valueOf(body.length));
         try (OutputStream stream = connection.getOutputStream()) {
             stream.write(body);
@@ -6203,7 +6204,7 @@ public class MainActivity extends Activity {
     }
 
     private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie) throws Exception {
-        byte[] body = payload.getBytes(Charset.forName("MS932"));
+        byte[] body = payload.getBytes(POST_CHARSET);
         HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
         connection.setConnectTimeout(12000);
         connection.setReadTimeout(18000);
@@ -6212,7 +6213,7 @@ public class MainActivity extends Activity {
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
         connection.setRequestProperty("Referer", referer);
-        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
         connection.setRequestProperty("Content-Length", String.valueOf(body.length));
         applyCookies(connection, endpoint, cookie);
         try (OutputStream stream = connection.getOutputStream()) {
@@ -6308,7 +6309,8 @@ public class MainActivity extends Activity {
     }
 
     private String formField(String name, String value) throws Exception {
-        return URLEncoder.encode(name, "MS932") + "=" + URLEncoder.encode(value == null ? "" : value, "MS932");
+        return URLEncoder.encode(name, POST_CHARSET.name()) + "="
+                + URLEncoder.encode(value == null ? "" : value, POST_CHARSET.name());
     }
 
     private void rememberThreadScroll(CuspTab tab) {
