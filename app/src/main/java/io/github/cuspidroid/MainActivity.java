@@ -6506,11 +6506,16 @@ public class MainActivity extends Activity {
         page.title = boardTitle(boardUrl);
         for (String line : body.split("\\r?\\n")) {
             int sep = line.indexOf("<>");
+            int sepLength = 2;
+            if (sep <= 0) {
+                sep = line.indexOf(",");
+                sepLength = 1;
+            }
             if (sep <= 0) {
                 continue;
             }
             String dat = line.substring(0, sep);
-            String title = cleanText(line.substring(sep + 2));
+            String title = cleanText(line.substring(sep + sepLength));
             if (!dat.endsWith(".dat") && !dat.endsWith(".cgi")) {
                 continue;
             }
