@@ -201,7 +201,7 @@ public class MainActivity extends Activity {
 
     private int bgColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(2, 18, 43) : Color.rgb(232, 242, 255);
+            return Theme.dark(this) ? Color.rgb(1, 12, 31) : Color.rgb(219, 234, 254);
         }
         return Theme.background(this);
     }
@@ -232,7 +232,7 @@ public class MainActivity extends Activity {
 
     private int barColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(3, 30, 66) : Color.rgb(219, 234, 254);
+            return Theme.dark(this) ? Color.rgb(2, 23, 53) : Color.rgb(199, 220, 252);
         }
         return Theme.topBar(this);
     }
@@ -242,7 +242,28 @@ public class MainActivity extends Activity {
     }
 
     private int privateBlue() {
-        return Color.rgb(37, 99, 235);
+        return Theme.dark(this) ? Color.rgb(59, 130, 246) : Color.rgb(29, 78, 216);
+    }
+
+    private int privateButtonFill(boolean active) {
+        if (!active) {
+            return Theme.dark(this) ? Color.rgb(17, 24, 39) : menuColor();
+        }
+        return Theme.dark(this) ? Color.rgb(8, 47, 99) : Color.rgb(191, 219, 254);
+    }
+
+    private int privateButtonStroke(boolean active) {
+        if (!active) {
+            return Theme.dark(this) ? Color.rgb(51, 65, 85) : borderColor();
+        }
+        return Theme.dark(this) ? Color.rgb(37, 99, 235) : Color.rgb(29, 78, 216);
+    }
+
+    private int privateButtonIcon(boolean active) {
+        if (!active && Theme.dark(this)) {
+            return Color.rgb(147, 197, 253);
+        }
+        return privateBlue();
     }
 
     static String text(String ja, String en) {
@@ -3732,9 +3753,9 @@ public class MainActivity extends Activity {
     private ImageButton privateModeButton(boolean active, View.OnClickListener listener) {
         ImageButton button = iconButton(R.drawable.ic_private_glasses,
                 text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8", "Private"), listener);
-        button.setBackground(roundedDrawable(active ? Color.rgb(219, 234, 254) : menuColor(),
-                active ? privateBlue() : borderColor(), dp(20)));
-        button.setColorFilter(privateBlue());
+        button.setBackground(roundedDrawable(privateButtonFill(active),
+                privateButtonStroke(active), dp(20)));
+        button.setColorFilter(privateButtonIcon(active));
         return button;
     }
 
@@ -3935,7 +3956,7 @@ public class MainActivity extends Activity {
         if (tab.privateBrowsing) {
             ImageView privateIcon = new ImageView(this);
             privateIcon.setImageResource(R.drawable.ic_private_glasses);
-            privateIcon.setColorFilter(privateBlue());
+            privateIcon.setColorFilter(privateButtonIcon(true));
             LinearLayout.LayoutParams privateIconParams = new LinearLayout.LayoutParams(dp(26), dp(26));
             privateIconParams.setMargins(dp(8), 0, 0, 0);
             row.addView(privateIcon, privateIconParams);
@@ -9097,7 +9118,11 @@ public class MainActivity extends Activity {
             this.continuationDepths = item.continuationDepths;
             this.hasReplies = item.hasReplies;
             this.indent = indent;
-            paint.setColor(Color.rgb(169, 216, 210));
+            int nightMode = context.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            paint.setColor(nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                    ? Color.rgb(43, 95, 91)
+                    : Color.rgb(169, 216, 210));
             paint.setStrokeWidth(Math.max(2f, context.getResources().getDisplayMetrics().density * 2f));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
