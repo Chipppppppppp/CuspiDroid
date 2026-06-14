@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
+import android.content.pm.ResolveInfo;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -2162,6 +2163,9 @@ public class MainActivity extends Activity {
         final boolean[] dragging = new boolean[1];
         trigger.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                if (v instanceof TextView) {
+                    v.setTag(touchedUrl((TextView) v, event));
+                }
                 downX[0] = event.getRawX();
                 downY[0] = event.getRawY();
                 dragging[0] = false;
@@ -2186,6 +2190,9 @@ public class MainActivity extends Activity {
                 }
             }
             if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (event.getAction() == MotionEvent.ACTION_CANCEL && v instanceof TextView) {
+                    v.setTag(null);
+                }
                 if (dragging[0]) {
                     float tx = card.getTranslationX();
                     post.lastSwipeAt = System.currentTimeMillis();
@@ -4997,18 +5004,58 @@ public class MainActivity extends Activity {
     }
 
     private void openExternal(String url) {
-        if (externalLinksInApp()) {
-            Intent intent = new Intent(this, AuthActivity.class);
-            intent.putExtra(AuthActivity.EXTRA_URL, url);
-            startActivity(intent);
+        if (externalLinksInApp() && openInDefaultBrowserCustomTab(url)) {
             return;
         }
+        openInDefaultBrowser(url);
+    }
+
+    private boolean openInDefaultBrowserCustomTab(String url) {
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            intent.putExtra("android.support.customtabs.extra.SESSION", (android.os.Bundle) null);
+            intent.putExtra("android.support.customtabs.extra.TITLE_VISIBILITY", 1);
+            String browserPackage = defaultBrowserPackage(url);
+            if (browserPackage != null && !browserPackage.equals(getPackageName())) {
+                intent.setPackage(browserPackage);
+            }
+            startActivity(intent);
+            return true;
+        } catch (ActivityNotFoundException error) {
+            return false;
+        }
+    }
+
+    private void openInDefaultBrowser(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            String browserPackage = defaultBrowserPackage(url);
+            if (browserPackage != null && !browserPackage.equals(getPackageName())) {
+                intent.setPackage(browserPackage);
+            }
             startActivity(intent);
         } catch (ActivityNotFoundException error) {
             Toast.makeText(this, text("\u958b\u3051\u308b\u30a2\u30d7\u30ea\u304c\u3042\u308a\u307e\u305b\u3093", "No app can open this link."), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String defaultBrowserPackage(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            ResolveInfo info = getPackageManager().resolveActivity(intent, 0);
+            if (info == null || info.activityInfo == null) {
+                return null;
+            }
+            String packageName = info.activityInfo.packageName;
+            if (packageName == null || packageName.equals("android")) {
+                return null;
+            }
+            return packageName;
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
