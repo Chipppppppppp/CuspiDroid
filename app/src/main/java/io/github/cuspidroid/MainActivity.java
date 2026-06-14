@@ -10,8 +10,10 @@ import android.content.pm.ResolveInfo;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -170,6 +172,7 @@ public class MainActivity extends Activity {
     private Runnable threadSearchHighlightTask;
     private Runnable saveTabsTask;
     private boolean suppressNextAddressClick;
+    private boolean addressFocusedOnDown;
     private View imageOverlay;
     private View highlightedPostView;
     private Interpreter graphicViolenceInterpreter;
@@ -547,11 +550,27 @@ public class MainActivity extends Activity {
         addressBar.setOnLongClickListener(v -> {
             suppressNextAddressClick = true;
             mainHandler.postDelayed(() -> suppressNextAddressClick = false, 900);
-            if (addressBar.hasFocus()) {
+            if (addressFocusedOnDown) {
                 return true;
             }
+            clearAddressFocus();
             showAddressEditMenu();
             return true;
+        });
+        addressBar.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                addressFocusedOnDown = addressBar.hasFocus();
+            }
+            if (suppressNextAddressClick
+                    && (event.getActionMasked() == MotionEvent.ACTION_UP
+                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL)) {
+                suppressNextAddressClick = false;
+                if (!addressFocusedOnDown) {
+                    clearAddressFocus();
+                }
+                return true;
+            }
+            return false;
         });
         addressBar.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
             if (scrollX != 0 || scrollY != 0) {
@@ -2145,6 +2164,12 @@ public class MainActivity extends Activity {
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, Post post, int index, int depth) {
+        addPostCard(list, page, tab, new PostRenderItem(post, depth, new LinkedHashSet<>()), index);
+    }
+
+    private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, PostRenderItem item, int index) {
+        Post post = item.post;
+        int depth = item.depth;
         if (matchesNgPost(post)) {
             return;
         }
@@ -2156,6 +2181,11 @@ public class MainActivity extends Activity {
         ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
         shell.addView(replyAction);
+        if (treeViewEnabled() && depth > 0) {
+            shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
+                    new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT));
+        }
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -2216,7 +2246,7 @@ public class MainActivity extends Activity {
         for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
             Post post = page.posts.get(i);
             if (!matchesNgPost(post)) {
-                items.add(new PostRenderItem(post, 0));
+                items.add(new PostRenderItem(post, 0, new LinkedHashSet<>()));
             }
         }
         if (items.isEmpty()) {
@@ -2245,7 +2275,7 @@ public class MainActivity extends Activity {
         while (i < items.size() && (rendered < 18
                 || android.os.SystemClock.uptimeMillis() < deadline)) {
             PostRenderItem item = items.get(i);
-            addPostCard(list, page, tab, item.post, list.getChildCount(), item.depth);
+        addPostCard(list, page, tab, item, list.getChildCount());
             i++;
             rendered++;
         }
@@ -2275,7 +2305,7 @@ public class MainActivity extends Activity {
         List<PostRenderItem> items = new ArrayList<>();
         for (Post post : page.posts) {
             if (!matchesNgPost(post)) {
-                items.add(new PostRenderItem(post, 0));
+                items.add(new PostRenderItem(post, 0, new LinkedHashSet<>()));
             }
         }
         return items;
@@ -2308,28 +2338,36 @@ public class MainActivity extends Activity {
         List<PostRenderItem> items = new ArrayList<>();
         Set<Integer> rendered = new LinkedHashSet<>();
         for (Post post : roots) {
-            collectTreePostRenderItems(post, children, rendered, 0, items);
+            collectTreePostRenderItems(post, children, rendered, 0, new LinkedHashSet<>(), items);
         }
         for (Post post : visible) {
             if (!rendered.contains(post.number)) {
-                collectTreePostRenderItems(post, children, rendered, 0, items);
+                collectTreePostRenderItems(post, children, rendered, 0, new LinkedHashSet<>(), items);
             }
         }
         return items;
     }
 
     private void collectTreePostRenderItems(Post post, Map<Integer, List<Post>> children,
-                                            Set<Integer> rendered, int depth, List<PostRenderItem> items) {
+                                            Set<Integer> rendered, int depth, Set<Integer> continuationDepths,
+                                            List<PostRenderItem> items) {
         if (!rendered.add(post.number)) {
             return;
         }
-        items.add(new PostRenderItem(post, depth));
+        items.add(new PostRenderItem(post, depth, continuationDepths));
         List<Post> replies = children.get(post.number);
         if (replies == null) {
             return;
         }
-        for (Post child : replies) {
-            collectTreePostRenderItems(child, children, rendered, depth + 1, items);
+        for (int i = 0; i < replies.size(); i++) {
+            Set<Integer> childContinuations = new LinkedHashSet<>(continuationDepths);
+            if (i < replies.size() - 1) {
+                childContinuations.add(depth + 1);
+            } else {
+                childContinuations.remove(depth + 1);
+            }
+            collectTreePostRenderItems(replies.get(i), children, rendered, depth + 1,
+                    childContinuations, items);
         }
     }
 
@@ -7640,10 +7678,56 @@ public class MainActivity extends Activity {
     private static class PostRenderItem {
         final Post post;
         final int depth;
+        final Set<Integer> continuationDepths;
 
-        PostRenderItem(Post post, int depth) {
+        PostRenderItem(Post post, int depth, Set<Integer> continuationDepths) {
             this.post = post;
             this.depth = depth;
+            this.continuationDepths = continuationDepths == null
+                    ? new LinkedHashSet<>()
+                    : new LinkedHashSet<>(continuationDepths);
+        }
+    }
+
+    private static class TreeConnectorView extends View {
+        private final int depth;
+        private final Set<Integer> continuationDepths;
+        private final int indent;
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        TreeConnectorView(Context context, PostRenderItem item, int indent, int color) {
+            super(context);
+            this.depth = item.depth;
+            this.continuationDepths = item.continuationDepths;
+            this.indent = indent;
+            paint.setColor(color);
+            paint.setStrokeWidth(Math.max(2f, context.getResources().getDisplayMetrics().density * 2f));
+            paint.setStyle(Paint.Style.STROKE);
+            setWillNotDraw(false);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (depth <= 0) {
+                return;
+            }
+            float branchY = Math.min(getHeight() - 1f, Math.max(indent, getHeight() * 0.28f));
+            for (Integer level : continuationDepths) {
+                if (level == null || level <= 0 || level >= depth) {
+                    continue;
+                }
+                float x = connectorX(level);
+                canvas.drawLine(x, 0, x, getHeight(), paint);
+            }
+            float currentX = connectorX(depth);
+            float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
+            canvas.drawLine(currentX, 0, currentX, currentEndY, paint);
+            canvas.drawLine(currentX, branchY, Math.max(currentX, depth * indent), branchY, paint);
+        }
+
+        private float connectorX(int level) {
+            return (level - 1) * indent + indent / 2f;
         }
     }
 
