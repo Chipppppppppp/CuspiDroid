@@ -58,15 +58,18 @@ import android.content.Intent;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.MediaController;
 import android.widget.ProgressBar;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.VideoView;
 import android.webkit.CookieManager;
 
 import org.json.JSONArray;
@@ -4923,7 +4926,7 @@ public class MainActivity extends Activity {
     }
 
     private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction,
-                             List<ImgurLink> imgurLinks) {
+                             List<ImgurLink> mediaLinks) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         TextView bodyText = postBodyText(value, page, highlight);
@@ -4944,10 +4947,32 @@ public class MainActivity extends Activity {
         }
         box.addView(bodyText);
 
-        for (ImgurLink link : imgurLinks) {
-            box.addView(deferredMediaPreview(link.originalUrl, link.imageUrl, longClickAction));
+        if (!mediaLinks.isEmpty()) {
+            box.addView(mediaGrid(mediaLinks, longClickAction));
         }
         return box;
+    }
+
+    private View mediaGrid(List<ImgurLink> mediaLinks, Runnable longClickAction) {
+        GridLayout grid = new GridLayout(this);
+        int count = mediaLinks.size();
+        int available = Math.max(dp(96), getResources().getDisplayMetrics().widthPixels - dp(56));
+        int minCell = dp(96);
+        int gap = dp(6);
+        int columns = Math.max(1, Math.min(count, Math.max(1, (available + gap) / (minCell + gap))));
+        int cellSize = Math.max(dp(72), (available - gap * Math.max(0, columns - 1)) / columns);
+        grid.setColumnCount(columns);
+        grid.setPadding(0, dp(6), 0, dp(2));
+        for (int i = 0; i < count; i++) {
+            ImgurLink link = mediaLinks.get(i);
+            View cell = deferredMediaPreview(link, longClickAction, cellSize);
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+            params.width = cellSize;
+            params.height = cellSize;
+            params.setMargins(0, 0, (i % columns == columns - 1) ? 0 : gap, gap);
+            grid.addView(cell, params);
+        }
+        return grid;
     }
 
     private TextView postBodyText(String value, ThreadPage page, String highlight) {
@@ -5009,9 +5034,9 @@ public class MainActivity extends Activity {
         Set<String> added = new LinkedHashSet<>();
         while (matcher.find()) {
             String cleanUrl = stripTrailingUrlPunctuation(matcher.group());
-            String imageUrl = previewImageUrl(cleanUrl);
-            if (imageUrl != null && added.add(imageUrl)) {
-                links.add(new ImgurLink(cleanUrl, imageUrl));
+            ImgurLink media = previewMediaLink(cleanUrl);
+            if (media != null && added.add(media.imageUrl)) {
+                links.add(media);
             }
         }
         return links;
@@ -5126,7 +5151,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View imgurPreview(String originalUrl, String imageUrl, Runnable longClickAction) {
+    private View imgurPreview(String originalUrl, String imageUrl, Runnable longClickAction, int cellSize) {
         FrameLayout frame = new FrameLayout(this);
         frame.setClickable(true);
         if (longClickAction != null) {
@@ -5135,13 +5160,9 @@ public class MainActivity extends Activity {
                 return true;
             });
         }
-        LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(176));
-        frameParams.setMargins(0, dp(6), 0, dp(6));
-        frame.setLayoutParams(frameParams);
 
         ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.FIT_START);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setVisibility(View.GONE);
         if (longClickAction != null) {
             image.setOnLongClickListener(v -> {
@@ -5212,9 +5233,46 @@ public class MainActivity extends Activity {
         return frame;
     }
 
-    private View deferredMediaPreview(String originalUrl, String imageUrl, Runnable longClickAction) {
+    private View videoPreview(String originalUrl, String videoUrl, Runnable longClickAction, int cellSize) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setClickable(true);
+        frame.setBackgroundColor(Color.BLACK);
+        if (longClickAction != null) {
+            frame.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
+
+        VideoView video = new VideoView(this);
+        video.setVideoURI(Uri.parse(videoUrl));
+        video.setOnPreparedListener(player -> {
+            player.setVolume(0f, 0f);
+            video.seekTo(1);
+            video.pause();
+        });
+        video.setOnErrorListener((player, what, extra) -> true);
+        frame.addView(video, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        TextView play = new TextView(this);
+        play.setText("▶");
+        play.setTextColor(Color.WHITE);
+        play.setTextSize(34);
+        play.setGravity(Gravity.CENTER);
+        play.setBackgroundColor(Color.argb(82, 0, 0, 0));
+        frame.addView(play, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        frame.setOnClickListener(v -> showVideoViewer(originalUrl, videoUrl));
+        video.start();
+        return frame;
+    }
+
+    private View deferredMediaPreview(ImgurLink link, Runnable longClickAction, int cellSize) {
         FrameLayout placeholder = new FrameLayout(this);
         placeholder.setClickable(true);
+        placeholder.setClipToOutline(true);
         placeholder.setBackgroundColor(Theme.dark(this) ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
         if (longClickAction != null) {
             placeholder.setOnLongClickListener(v -> {
@@ -5222,17 +5280,13 @@ public class MainActivity extends Activity {
                 return true;
             });
         }
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(176));
-        params.setMargins(0, dp(6), 0, dp(6));
-        placeholder.setLayoutParams(params);
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
         spinner.setAlpha(0.55f);
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(28), dp(28));
         spinnerParams.gravity = Gravity.CENTER;
         placeholder.addView(spinner, spinnerParams);
-        DeferredMediaPreview preview = new DeferredMediaPreview(originalUrl, imageUrl, placeholder, longClickAction);
+        DeferredMediaPreview preview = new DeferredMediaPreview(link, placeholder, longClickAction, cellSize);
         placeholder.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
@@ -5328,7 +5382,17 @@ public class MainActivity extends Activity {
             ViewGroup group = (ViewGroup) parent;
             int index = group.indexOfChild(preview.placeholder);
             ViewGroup.LayoutParams params = preview.placeholder.getLayoutParams();
-            View media = imgurPreview(preview.originalUrl, preview.imageUrl, preview.longClickAction);
+            if (preview.link.resolvePage) {
+                resolveDeferredMediaPreview(preview);
+                created++;
+                if (created >= 3) {
+                    break;
+                }
+                continue;
+            }
+            View media = preview.link.video
+                    ? videoPreview(preview.link.originalUrl, preview.link.imageUrl, preview.longClickAction, preview.cellSize)
+                    : imgurPreview(preview.link.originalUrl, preview.link.imageUrl, preview.longClickAction, preview.cellSize);
             group.removeView(preview.placeholder);
             group.addView(media, Math.max(0, index), params);
             deferredMediaPreviews.remove(preview);
@@ -5340,6 +5404,54 @@ public class MainActivity extends Activity {
         if (created > 0 && !deferredMediaPreviews.isEmpty()) {
             scheduleDeferredMediaLoads();
         }
+    }
+
+    private void resolveDeferredMediaPreview(DeferredMediaPreview preview) {
+        deferredMediaPreviews.remove(preview);
+        ioExecutor.execute(() -> {
+            String resolved = resolveTadaupPageMediaUrl(preview.link.imageUrl);
+            ImgurLink resolvedLink = resolved == null
+                    ? null
+                    : new ImgurLink(preview.link.originalUrl, resolved, isVideoUrl(resolved), false);
+            runOnUiThread(() -> {
+                if (!preview.placeholder.isAttachedToWindow()) {
+                    return;
+                }
+                ViewParent parent = preview.placeholder.getParent();
+                if (!(parent instanceof ViewGroup)) {
+                    return;
+                }
+                ViewGroup group = (ViewGroup) parent;
+                int index = group.indexOfChild(preview.placeholder);
+                ViewGroup.LayoutParams params = preview.placeholder.getLayoutParams();
+                View media = resolvedLink == null
+                        ? unavailableMediaPreview(preview.longClickAction)
+                        : (resolvedLink.video
+                                ? videoPreview(resolvedLink.originalUrl, resolvedLink.imageUrl, preview.longClickAction, preview.cellSize)
+                                : imgurPreview(resolvedLink.originalUrl, resolvedLink.imageUrl, preview.longClickAction, preview.cellSize));
+                group.removeView(preview.placeholder);
+                group.addView(media, Math.max(0, index), params);
+            });
+        });
+    }
+
+    private View unavailableMediaPreview(Runnable longClickAction) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(Theme.dark(this) ? Color.rgb(24, 24, 27) : Color.rgb(226, 232, 240));
+        if (longClickAction != null) {
+            frame.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
+        TextView label = new TextView(this);
+        label.setText(text("\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Unavailable"));
+        label.setTextColor(mutedColor());
+        label.setGravity(Gravity.CENTER);
+        label.setTextSize(12);
+        frame.addView(label, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return frame;
     }
 
     private void scheduleLazyImgurLoads() {
@@ -5505,6 +5617,69 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void showVideoViewer(String originalUrl, String videoUrl) {
+        clearAddressFocus();
+        FrameLayout overlay = new FrameLayout(this);
+        imageOverlay = overlay;
+        overlay.setBackgroundColor(Color.BLACK);
+        overlay.setClickable(true);
+
+        VideoView video = new VideoView(this);
+        video.setVideoURI(Uri.parse(videoUrl));
+        overlay.addView(video, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        MediaController controller = new MediaController(this);
+        controller.setAnchorView(video);
+        video.setMediaController(controller);
+
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(44), dp(44));
+        spinnerParams.gravity = Gravity.CENTER;
+        overlay.addView(spinner, spinnerParams);
+
+        ImageButton close = iconButton(R.drawable.ic_close, text("\u52d5\u753b\u3092\u9589\u3058\u308b", "Close video"), v -> closeImageViewer());
+        close.setColorFilter(Color.WHITE);
+        close.setBackgroundColor(Color.argb(80, 0, 0, 0));
+        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(dp(48), dp(48));
+        closeParams.gravity = Gravity.TOP | Gravity.RIGHT;
+        closeParams.setMargins(0, dp(18), dp(14), 0);
+        overlay.addView(close, closeParams);
+
+        ImageButton open = iconButton(R.drawable.ic_arrow_forward, text("\u52d5\u753b\u30ea\u30f3\u30af\u3092\u958b\u304f", "Open video link"),
+                v -> openExternal(originalUrl));
+        open.setColorFilter(Color.WHITE);
+        open.setBackgroundColor(Color.argb(80, 0, 0, 0));
+        FrameLayout.LayoutParams openParams = new FrameLayout.LayoutParams(dp(48), dp(48));
+        openParams.gravity = Gravity.TOP | Gravity.RIGHT;
+        openParams.setMargins(0, dp(18), dp(68), 0);
+        overlay.addView(open, openParams);
+
+        ImageButton download = iconButton(R.drawable.ic_download, text("\u52d5\u753b\u3092\u4fdd\u5b58", "Download video"),
+                v -> downloadImgurImage(videoUrl));
+        download.setColorFilter(Color.WHITE);
+        download.setBackgroundColor(Color.argb(80, 0, 0, 0));
+        FrameLayout.LayoutParams downloadParams = new FrameLayout.LayoutParams(dp(48), dp(48));
+        downloadParams.gravity = Gravity.TOP | Gravity.RIGHT;
+        downloadParams.setMargins(0, dp(18), dp(122), 0);
+        overlay.addView(download, downloadParams);
+
+        video.setOnPreparedListener(player -> {
+            spinner.setVisibility(View.GONE);
+            video.start();
+            controller.show();
+        });
+        video.setOnErrorListener((player, what, extra) -> {
+            spinner.setVisibility(View.GONE);
+            Toast.makeText(this, "Video failed to load.", Toast.LENGTH_SHORT).show();
+            return true;
+        });
+
+        addContentView(overlay, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
     private void closeImageViewer() {
         if (imageOverlay == null) {
             return;
@@ -5550,6 +5725,9 @@ public class MainActivity extends Activity {
     private DownloadedImageBytes downloadOriginalImageBytes(String imageUrl) {
         List<String> candidates = new ArrayList<>();
         candidates.add(imageUrl);
+        if (imageUrl.startsWith("https://i.imgur.com/") && imageUrl.endsWith(".gifv")) {
+            candidates.add(imageUrl.substring(0, imageUrl.length() - 5) + ".mp4");
+        }
         if (imageUrl.startsWith("https://i.imgur.com/") && imageUrl.endsWith(".jpg")) {
             String base = imageUrl.substring(0, imageUrl.length() - 4);
             candidates.add(base + ".png");
@@ -5604,13 +5782,17 @@ public class MainActivity extends Activity {
     }
 
     private void saveImageBytesToPictures(String fileName, String mime, byte[] bytes) throws Exception {
+        boolean video = mime != null && mime.startsWith("video/");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContentValues values = new ContentValues();
             values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
-            values.put(MediaStore.Images.Media.MIME_TYPE, mime);
-            values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/CuspiDroid");
-            values.put(MediaStore.Images.Media.IS_PENDING, 1);
-            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            values.put(video ? MediaStore.Video.Media.MIME_TYPE : MediaStore.Images.Media.MIME_TYPE, mime);
+            values.put(video ? MediaStore.Video.Media.RELATIVE_PATH : MediaStore.Images.Media.RELATIVE_PATH,
+                    (video ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES) + "/CuspiDroid");
+            values.put(video ? MediaStore.Video.Media.IS_PENDING : MediaStore.Images.Media.IS_PENDING, 1);
+            Uri uri = getContentResolver().insert(video
+                    ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    : MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
                 throw new IllegalStateException(text("\u4fdd\u5b58\u5148\u3092\u4f5c\u6210\u3067\u304d\u307e\u305b\u3093", "Could not create destination."));
             }
@@ -5621,11 +5803,11 @@ public class MainActivity extends Activity {
                 output.write(bytes);
             }
             values.clear();
-            values.put(MediaStore.Images.Media.IS_PENDING, 0);
+            values.put(video ? MediaStore.Video.Media.IS_PENDING : MediaStore.Images.Media.IS_PENDING, 0);
             getContentResolver().update(uri, values, null, null);
             return;
         }
-        File baseDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        File baseDir = getExternalFilesDir(video ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES);
         if (baseDir == null) {
             throw new IllegalStateException(text("\u4fdd\u5b58\u5148\u3092\u958b\u3051\u307e\u305b\u3093", "Could not open destination."));
         }
@@ -5642,6 +5824,15 @@ public class MainActivity extends Activity {
 
     private String imageMimeType(String url, byte[] bytes) {
         String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) {
+            return "video/mp4";
+        }
+        if (lower.endsWith(".webm")) {
+            return "video/webm";
+        }
+        if (lower.endsWith(".mov")) {
+            return "video/quicktime";
+        }
         if (lower.endsWith(".png")) {
             return "image/png";
         }
@@ -5665,7 +5856,13 @@ public class MainActivity extends Activity {
 
     private String imgurFileName(String url, String mime) {
         String ext = ".jpg";
-        if ("image/png".equals(mime)) {
+        if ("video/mp4".equals(mime)) {
+            ext = ".mp4";
+        } else if ("video/webm".equals(mime)) {
+            ext = ".webm";
+        } else if ("video/quicktime".equals(mime)) {
+            ext = ".mov";
+        } else if ("image/png".equals(mime)) {
             ext = ".png";
         } else if ("image/webp".equals(mime)) {
             ext = ".webp";
@@ -5703,6 +5900,9 @@ public class MainActivity extends Activity {
         ImageLoadResult result = downloadBitmapOnce(url, maxWidth, maxHeight);
         if (result != null) {
             return result;
+        }
+        if (url.startsWith("https://i.imgur.com/") && url.endsWith(".gifv")) {
+            return downloadBitmapOnce(url.substring(0, url.length() - 5) + ".mp4", maxWidth, maxHeight);
         }
         if (url.startsWith("https://i.imgur.com/") && url.endsWith(".jpg")) {
             String base = url.substring(0, url.length() - 4);
@@ -5827,6 +6027,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    private String resolveTadaupPageMediaUrl(String pageUrl) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(pageUrl).openConnection();
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(15000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+            if (connection.getResponseCode() >= 400) {
+                return null;
+            }
+            try (InputStream stream = connection.getInputStream()) {
+                return extractTadaupImageUrl(readBytes(stream), pageUrl);
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
     private String extractTadaupImageUrl(byte[] bytes, String pageUrl) {
         try {
             String html = new String(bytes, Charset.forName("UTF-8"));
@@ -5840,6 +6063,14 @@ public class MainActivity extends Activity {
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
             while (srcset.find()) {
                 resolved = bestImageFromSrcset(pageUrl, srcset.group(1));
+                if (isUsableTadaupImage(resolved)) {
+                    return resolved;
+                }
+            }
+            Matcher source = Pattern.compile("<(?:video|source)\\b[^>]+src=[\"']([^\"']+\\.(?:mp4|webm|mov|m4v))(?:\\?[^\"']*)?[\"'][^>]*>",
+                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
+            while (source.find()) {
+                resolved = tadaupImageUrl(absoluteUrl(pageUrl, cleanText(source.group(1))));
                 if (isUsableTadaupImage(resolved)) {
                     return resolved;
                 }
@@ -6162,12 +6393,13 @@ public class MainActivity extends Activity {
         return url.substring(0, end);
     }
 
-    private String previewImageUrl(String rawUrl) {
+    private ImgurLink previewMediaLink(String rawUrl) {
         String imgur = imgurImageUrl(rawUrl);
         if (imgur != null) {
-            return imgur;
+            return new ImgurLink(rawUrl, imgur, isVideoUrl(imgur), false);
         }
-        return tadaupImageUrl(rawUrl);
+        String tadaup = tadaupImageUrl(rawUrl);
+        return tadaup == null ? null : new ImgurLink(rawUrl, tadaup, isVideoUrl(tadaup), isTadaupPageUrl(tadaup));
     }
 
     private String imgurImageUrl(String rawUrl) {
@@ -6197,7 +6429,10 @@ public class MainActivity extends Activity {
             }
             if (dot > 0) {
                 String ext = file.substring(dot + 1).toLowerCase(Locale.ROOT);
-                if (!ext.matches("jpe?g|png|webp|gif")) {
+                if ("gifv".equals(ext)) {
+                    return "https://i.imgur.com/" + id + ".mp4";
+                }
+                if (!ext.matches("jpe?g|png|webp|gif|mp4|webm")) {
                     return null;
                 }
                 return "https://i.imgur.com/" + file;
@@ -6238,8 +6473,8 @@ public class MainActivity extends Activity {
                 return null;
             }
             String lower = path.toLowerCase(Locale.ROOT);
-            if (lower.matches(".+\\.(jpe?g|png|webp|gif)$")) {
-                return normalized.replaceFirst("-(\\d{2,5})x(\\d{2,5})(\\.(?i:jpe?g|png|webp|gif))$", "$3");
+            if (lower.matches(".+\\.(jpe?g|png|webp|gif|mp4|webm|mov)$")) {
+                return normalized.replaceFirst("-(\\d{2,5})x(\\d{2,5})(\\.(?i:jpe?g|png|webp|gif|mp4|webm|mov))$", "$3");
             }
             if (path.matches("/\\d{10,}/?")) {
                 return normalized;
@@ -6247,6 +6482,23 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    private boolean isTadaupPageUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            String path = uri.getPath();
+            return host != null && host.equalsIgnoreCase("tadaup.jp")
+                    && path != null && path.matches("/\\d{10,}/?");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isVideoUrl(String url) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov") || lower.endsWith(".m4v");
     }
 
     private void installLinkTouchTracking(TextView text) {
@@ -10180,17 +10432,17 @@ public class MainActivity extends Activity {
     }
 
     private static class DeferredMediaPreview {
-        final String originalUrl;
-        final String imageUrl;
+        final ImgurLink link;
         final FrameLayout placeholder;
         final Runnable longClickAction;
+        final int cellSize;
         boolean created;
 
-        DeferredMediaPreview(String originalUrl, String imageUrl, FrameLayout placeholder, Runnable longClickAction) {
-            this.originalUrl = originalUrl;
-            this.imageUrl = imageUrl;
+        DeferredMediaPreview(ImgurLink link, FrameLayout placeholder, Runnable longClickAction, int cellSize) {
+            this.link = link;
             this.placeholder = placeholder;
             this.longClickAction = longClickAction;
+            this.cellSize = cellSize;
         }
     }
 
@@ -10611,10 +10863,14 @@ public class MainActivity extends Activity {
     private static class ImgurLink {
         final String originalUrl;
         final String imageUrl;
+        final boolean video;
+        final boolean resolvePage;
 
-        ImgurLink(String originalUrl, String imageUrl) {
+        ImgurLink(String originalUrl, String imageUrl, boolean video, boolean resolvePage) {
             this.originalUrl = originalUrl;
             this.imageUrl = imageUrl;
+            this.video = video;
+            this.resolvePage = resolvePage;
         }
     }
 
