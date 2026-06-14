@@ -2611,12 +2611,44 @@ public class MainActivity extends Activity {
             return "";
         }
         SpannableString text = new SpannableString(value);
-        Matcher matcher = Pattern.compile("(?:(?:\u30ec\u30b9|Posts):\\s*[^\\s]+|(?:\u52e2\u3044|Speed):\\s*[^\\s]+)").matcher(value);
-        while (matcher.find()) {
-            text.setSpan(new ForegroundColorSpan(TEAL), matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            text.setSpan(new StyleSpan(Typeface.BOLD), matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
+        applyMetaNumberStyle(text, value, "(?:\u30ec\u30b9|Posts):\\s*(\\d+)", false);
+        applyMetaNumberStyle(text, value, "(?:\u52e2\u3044|Speed):\\s*(\\d+(?:\\.\\d+)?)", true);
         return text;
+    }
+
+    private void applyMetaNumberStyle(SpannableString text, String value, String pattern, boolean velocity) {
+        Matcher matcher = Pattern.compile(pattern).matcher(value);
+        while (matcher.find()) {
+            int start = matcher.start(1);
+            int end = matcher.end(1);
+            double number;
+            try {
+                number = Double.parseDouble(matcher.group(1));
+            } catch (Exception ignored) {
+                continue;
+            }
+            text.setSpan(new ForegroundColorSpan(metaBlue(number, velocity)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+    }
+
+    private int metaBlue(double value, boolean velocity) {
+        double[] steps = velocity
+                ? new double[]{10, 50, 100, 300, 800}
+                : new double[]{50, 200, 500, 1000, 3000};
+        int[] colors = {
+                Color.rgb(96, 165, 250),
+                Color.rgb(59, 130, 246),
+                Color.rgb(37, 99, 235),
+                Color.rgb(29, 78, 216),
+                Color.rgb(30, 64, 175),
+                Color.rgb(23, 37, 84)
+        };
+        int level = 0;
+        while (level < steps.length && value >= steps[level]) {
+            level++;
+        }
+        return colors[level];
     }
 
     private View withScrollScrubber(ScrollView scroll) {
