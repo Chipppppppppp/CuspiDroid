@@ -2513,18 +2513,17 @@ public class MainActivity extends Activity {
         if (tab.postViews == null) {
             tab.postViews = new LinkedHashMap<>();
         }
-        tab.threadRendering = true;
-        refreshThreadScrollChrome(tab);
         List<PostRenderItem> items = treeViewEnabled()
                 ? treePostRenderItems(page)
                 : flatPostRenderItems(page);
-        if (items.isEmpty()) {
-            tab.threadRendering = false;
-            finishThreadRender(tab);
-            return;
-        }
         int generation = ++tab.threadRenderGeneration;
-        renderPostChunk(list, page, tab, items, 0, generation);
+        for (PostRenderItem item : items) {
+            if (tab.threadRenderGeneration != generation || tab.threadList != list) {
+                return;
+            }
+            addPostCard(list, page, tab, item, list.getChildCount());
+        }
+        completeThreadRender(tab, null);
     }
 
     private void renderAdditionalPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab,
@@ -2538,66 +2537,35 @@ public class MainActivity extends Activity {
         List<PostRenderItem> items = treeViewEnabled()
                 ? treePostRenderItems(page, Math.max(0, fromPostIndex))
                 : flatPostRenderItems(page, Math.max(0, fromPostIndex));
-        if (items.isEmpty()) {
-            tab.threadRendering = false;
-            finishThreadRender(tab);
-            if (onComplete != null) {
-                onComplete.run();
-            }
-            return;
-        }
-        tab.threadRendering = true;
-        refreshThreadScrollChrome(tab);
         int generation = ++tab.threadRenderGeneration;
-        renderPostChunk(list, page, tab, items, 0, generation, onComplete);
-    }
-
-    private void renderPostChunk(LinearLayout list, ThreadPage page, CuspTab tab,
-                                 List<PostRenderItem> items, int start, int generation) {
-        renderPostChunk(list, page, tab, items, start, generation, null);
-    }
-
-    private void renderPostChunk(LinearLayout list, ThreadPage page, CuspTab tab,
-                                 List<PostRenderItem> items, int start, int generation, Runnable onComplete) {
-        if (tab.threadRenderGeneration != generation || tab.threadList != list) {
-            return;
-        }
-        boolean fastToBottom = tab.fastRenderToBottom;
-        long deadline = android.os.SystemClock.uptimeMillis() + (fastToBottom ? 18 : 6);
-        int i = start;
-        int rendered = 0;
-        while (i < items.size()
-                && rendered < (fastToBottom ? 48 : 8)
-                && android.os.SystemClock.uptimeMillis() < deadline) {
-            PostRenderItem item = items.get(i);
+        for (PostRenderItem item : items) {
+            if (tab.threadRenderGeneration != generation || tab.threadList != list) {
+                return;
+            }
             addPostCard(list, page, tab, item, list.getChildCount());
-            i++;
-            rendered++;
         }
-        if (i < items.size()) {
-            int next = i;
-            mainHandler.postDelayed(() -> renderPostChunk(list, page, tab, items, next, generation, onComplete),
-                    fastToBottom ? 0 : 16);
-        } else {
-            tab.threadRendering = false;
-            finishThreadRender(tab);
-            scheduleLazyImgurLoads();
-            if (tab == currentTab()) {
-                visiblePostViews.clear();
-                if (tab.postViews != null) {
-                    visiblePostViews.putAll(tab.postViews);
-                }
-                if (tab.threadSearchOpen && tab.threadSearchQuery != null
-                        && !tab.threadSearchQuery.trim().isEmpty()) {
-                    updateThreadSearch(tab.threadSearchQuery, false);
-                }
-                restoreThreadScroll(tab);
-                runPendingScrollToBottom(tab);
+        completeThreadRender(tab, onComplete);
+    }
+
+    private void completeThreadRender(CuspTab tab, Runnable onComplete) {
+        tab.threadRendering = false;
+        finishThreadRender(tab);
+        scheduleLazyImgurLoads();
+        if (tab == currentTab()) {
+            visiblePostViews.clear();
+            if (tab.postViews != null) {
+                visiblePostViews.putAll(tab.postViews);
             }
-            tab.fastRenderToBottom = false;
-            if (onComplete != null) {
-                onComplete.run();
+            if (tab.threadSearchOpen && tab.threadSearchQuery != null
+                    && !tab.threadSearchQuery.trim().isEmpty()) {
+                updateThreadSearch(tab.threadSearchQuery, false);
             }
+            restoreThreadScroll(tab);
+            runPendingScrollToBottom(tab);
+        }
+        tab.fastRenderToBottom = false;
+        if (onComplete != null) {
+            onComplete.run();
         }
     }
 
