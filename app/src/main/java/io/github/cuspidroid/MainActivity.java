@@ -1978,7 +1978,7 @@ public class MainActivity extends Activity {
             tab.readPostNumber = readPostNumberForTab(tab, cached.url);
             tab.postViews = new LinkedHashMap<>();
             tab.readerView = buildThreadView(cached, tab);
-            if (showFullLoading || tab == currentTab()) {
+            if (!tabOverviewVisible && (showFullLoading || tab == currentTab())) {
                 switchToTab(tabs.indexOf(tab));
                 restoreThreadScroll(tab);
             }
@@ -2029,7 +2029,7 @@ public class MainActivity extends Activity {
                 if (result.error != null || result.posts.isEmpty()) {
                     progressBar.setVisibility(View.GONE);
                 }
-                if (tab == currentTab()) {
+                if (tab == currentTab() && !tabOverviewVisible) {
                     switchToTab(currentIndex);
                     if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                         updateThreadSearch(tab.threadSearchQuery, false);
@@ -3238,6 +3238,71 @@ public class MainActivity extends Activity {
         return withScrollScrubber(scroll);
     }
 
+    private View buildBbsCategoryIndexView(SearchPage page) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = new TextView(this);
+        title.setText(page.title);
+        title.setTextColor(textColor());
+        title.setTextSize(20);
+        title.setPadding(0, 0, 0, dp(10));
+        list.addView(title);
+
+        if (page.error != null) {
+            TextView error = postText(page.error, null);
+            error.setTextColor(Color.rgb(185, 28, 28));
+            list.addView(error);
+            return scroll;
+        }
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (SearchResult result : page.results) {
+            String category = result.category == null ? "" : result.category.trim();
+            counts.put(category, counts.containsKey(category) ? counts.get(category) + 1 : 1);
+        }
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            String category = entry.getKey();
+            String label = category.isEmpty() ? text("\u305d\u306e\u4ed6", "Other") : category;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(12), dp(12), dp(12), dp(12));
+            row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+            TextView name = new TextView(this);
+            name.setText(label);
+            name.setTextColor(textColor());
+            name.setTextSize(16);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            TextView count = new TextView(this);
+            count.setText(String.valueOf(entry.getValue()));
+            count.setTextColor(mutedColor());
+            count.setTextSize(13);
+            row.addView(count);
+            row.setOnClickListener(v -> openBbsCategory(category));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.setMargins(0, 0, 0, dp(8));
+            list.addView(row, params);
+        }
+        return scroll;
+    }
+
+    private void openBbsCategory(String category) {
+        String token = encodeNewTabToken(category);
+        if (pendingNewTab) {
+            showFiveChCategoryView(token, true);
+            return;
+        }
+        showFiveChCategoryView(token, false);
+    }
+
     private TextView categoryHeader(String value) {
         TextView header = new TextView(this);
         header.setText(value == null ? "" : value);
@@ -3856,6 +3921,47 @@ public class MainActivity extends Activity {
             SearchPage result = page;
             runOnUiThread(() -> {
                 progressBar.setVisibility(View.GONE);
+                View resultView = buildBbsCategoryIndexView(result);
+                if (pendingNewTab) {
+                    contentFrame.removeAllViews();
+                    contentFrame.addView(resultView);
+                } else {
+                    CuspTab tab = currentTab();
+                    if (tab != null) {
+                        tab.readerView = resultView;
+                    }
+                    if (!tabOverviewVisible) {
+                        contentFrame.removeAllViews();
+                        contentFrame.addView(resultView);
+                    }
+                }
+            });
+        });
+    }
+
+    private void showFiveChCategoryView(String encodedCategory, boolean record) {
+        String category = decodeNewTabToken(encodedCategory);
+        if (record) {
+            recordNewTabPage("5ch-category:" + encodeNewTabToken(category));
+        }
+        View view = loadingView("");
+        contentFrame.removeAllViews();
+        contentFrame.addView(view);
+        progressBar.setVisibility(View.VISIBLE);
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                SearchPage all = downloadBbsDirectory(FIVE_CH_BBSMENU_URL);
+                page = filterBbsCategory(all, category);
+                page.title = category == null || category.isEmpty()
+                        ? text("5ch\u677f\u4e00\u89a7", "5ch boards")
+                        : category;
+            } catch (Exception error) {
+                page = SearchPage.error(FIVE_CH_BBSMENU_URL, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                progressBar.setVisibility(View.GONE);
                 View resultView = buildSearchView(result);
                 if (pendingNewTab) {
                     contentFrame.removeAllViews();
@@ -3865,11 +3971,35 @@ public class MainActivity extends Activity {
                     if (tab != null) {
                         tab.readerView = resultView;
                     }
-                    contentFrame.removeAllViews();
-                    contentFrame.addView(resultView);
+                    if (!tabOverviewVisible) {
+                        contentFrame.removeAllViews();
+                        contentFrame.addView(resultView);
+                    }
                 }
             });
         });
+    }
+
+    private SearchPage filterBbsCategory(SearchPage source, String category) {
+        SearchPage page = new SearchPage();
+        page.url = source.url;
+        page.title = category;
+        page.error = source.error;
+        for (SearchResult result : source.results) {
+            if (TextUtils.equals(category, result.category)) {
+                SearchResult copy = new SearchResult();
+                copy.title = result.title;
+                copy.url = result.url;
+                copy.meta = result.meta;
+                copy.responses = result.responses;
+                copy.velocity = result.velocity;
+                copy.boardOrder = result.boardOrder;
+                copy.priorityMatch = result.priorityMatch;
+                copy.category = "";
+                page.results.add(copy);
+            }
+        }
+        return page;
     }
 
     private void addHistorySection(LinearLayout list, boolean fullHistory) {
@@ -4343,6 +4473,22 @@ public class MainActivity extends Activity {
         newTabNavigationIndex = newTabNavigationHistory.size() - 1;
     }
 
+    private String encodeNewTabToken(String value) {
+        try {
+            return URLEncoder.encode(value == null ? "" : value, "UTF-8");
+        } catch (Exception error) {
+            return value == null ? "" : value;
+        }
+    }
+
+    private String decodeNewTabToken(String value) {
+        try {
+            return URLDecoder.decode(value == null ? "" : value, "UTF-8");
+        } catch (Exception error) {
+            return value == null ? "" : value;
+        }
+    }
+
     private void navigateNewTabHistory(int direction) {
         int next = newTabNavigationIndex + direction;
         if (next < 0 || next >= newTabNavigationHistory.size()) {
@@ -4362,6 +4508,8 @@ public class MainActivity extends Activity {
             contentFrame.addView(buildHistoryView());
         } else if ("5ch".equals(page)) {
             showFiveChBoardsView(record);
+        } else if (page != null && page.startsWith("5ch-category:")) {
+            showFiveChCategoryView(page.substring("5ch-category:".length()), record);
         } else if (page != null && page.startsWith("saved:")) {
             showSavedItemsView(page.substring("saved:".length()), record);
         } else {
