@@ -6,6 +6,7 @@ import android.animation.LayoutTransition;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ContentValues;
 import android.content.SharedPreferences;
 import android.content.pm.ResolveInfo;
 import android.content.res.AssetFileDescriptor;
@@ -22,8 +23,10 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.graphics.Rect;
 import android.text.Html;
 import android.text.Layout;
@@ -2766,6 +2769,7 @@ public class MainActivity extends Activity {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(18), dp(8), dp(18), 0);
+        menu.setBackgroundColor(surfaceColor());
         menu.addView(postActionPreview(tab, post));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -2785,6 +2789,7 @@ public class MainActivity extends Activity {
             toggleAaMode(tab, post, anchor);
         }));
         dialog.show();
+        Theme.styleDialog(dialog, this);
     }
 
     private View postActionPreview(CuspTab tab, Post post) {
@@ -2816,13 +2821,36 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setScrollbarFadingEnabled(true);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.addView(body, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        scrollParams.height = Math.min(dp(380), previewBodyHeight(post));
         card.addView(scroll, scrollParams);
+        scroll.post(() -> adjustPostActionPreviewScroll(scroll, body));
         return card;
+    }
+
+    private void adjustPostActionPreviewScroll(ScrollView scroll, TextView body) {
+        int maxHeight = dp(380);
+        int contentHeight = body.getHeight();
+        if (contentHeight <= 0) {
+            body.measure(
+                    View.MeasureSpec.makeMeasureSpec(Math.max(1, scroll.getWidth()), View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            contentHeight = body.getMeasuredHeight();
+        }
+        ViewGroup.LayoutParams params = scroll.getLayoutParams();
+        if (contentHeight > maxHeight) {
+            params.height = maxHeight;
+            scroll.setVerticalScrollBarEnabled(true);
+            scroll.setOnTouchListener(null);
+        } else {
+            params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            scroll.setVerticalScrollBarEnabled(false);
+            scroll.setOnTouchListener((v, event) -> event.getActionMasked() == MotionEvent.ACTION_MOVE);
+        }
+        scroll.setLayoutParams(params);
     }
 
     private TextView postActionPreviewBody(CuspTab tab, Post post) {
@@ -4539,7 +4567,7 @@ public class MainActivity extends Activity {
             if (imageUrl == null || added.contains(imageUrl)) {
                 continue;
             }
-            box.addView(imgurPreview(cleanUrl, imageUrl));
+            box.addView(imgurPreview(cleanUrl, imageUrl, longClickAction));
             added.add(imageUrl);
         }
         return box;
@@ -4649,9 +4677,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View imgurPreview(String originalUrl, String imageUrl) {
+    private View imgurPreview(String originalUrl, String imageUrl, Runnable longClickAction) {
         FrameLayout frame = new FrameLayout(this);
         frame.setClickable(true);
+        if (longClickAction != null) {
+            frame.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
         LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(176));
         frameParams.setMargins(0, dp(6), 0, dp(6));
@@ -4660,6 +4694,12 @@ public class MainActivity extends Activity {
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.FIT_START);
         image.setVisibility(View.GONE);
+        if (longClickAction != null) {
+            image.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
         frame.addView(image, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -4676,6 +4716,12 @@ public class MainActivity extends Activity {
         error.setGravity(Gravity.CENTER);
         error.setVisibility(View.GONE);
         error.setOnClickListener(v -> openExternal(originalUrl));
+        if (longClickAction != null) {
+            error.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
         frame.addView(error, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -4685,6 +4731,12 @@ public class MainActivity extends Activity {
         reveal.setTextColor(textColor());
         reveal.setVisibility(View.GONE);
         reveal.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
+        if (longClickAction != null) {
+            reveal.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
         FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(112), dp(44));
         revealParams.gravity = Gravity.CENTER;
         frame.addView(reveal, revealParams);
@@ -4834,6 +4886,15 @@ public class MainActivity extends Activity {
         openParams.setMargins(0, dp(18), dp(68), 0);
         overlay.addView(open, openParams);
 
+        ImageButton download = iconButton(R.drawable.ic_download, text("\u753b\u50cf\u3092\u4fdd\u5b58", "Download image"),
+                v -> downloadImgurImage(imageUrl));
+        download.setColorFilter(Color.WHITE);
+        download.setBackgroundColor(Color.argb(80, 0, 0, 0));
+        FrameLayout.LayoutParams downloadParams = new FrameLayout.LayoutParams(dp(48), dp(48));
+        downloadParams.gravity = Gravity.TOP | Gravity.RIGHT;
+        downloadParams.setMargins(0, dp(18), dp(122), 0);
+        overlay.addView(download, downloadParams);
+
         addContentView(overlay, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -4863,6 +4924,164 @@ public class MainActivity extends Activity {
             parent.removeView(imageOverlay);
         }
         imageOverlay = null;
+    }
+
+    private void downloadImgurImage(String imageUrl) {
+        Toast.makeText(this, text("\u753b\u50cf\u3092\u4fdd\u5b58\u4e2d", "Saving image..."), Toast.LENGTH_SHORT).show();
+        ioExecutor.execute(() -> {
+            String error = null;
+            String savedName = null;
+            try {
+                DownloadedImageBytes image = downloadOriginalImageBytes(imageUrl);
+                if (image == null || image.bytes == null || image.bytes.length == 0) {
+                    throw new IllegalStateException(text("\u753b\u50cf\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093", "Image could not be downloaded."));
+                }
+                String mime = imageMimeType(image.url, image.bytes);
+                savedName = imgurFileName(image.url, mime);
+                saveImageBytesToPictures(savedName, mime, image.bytes);
+            } catch (Exception exception) {
+                error = exception.getMessage() == null
+                        ? text("\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f", "Save failed.")
+                        : exception.getMessage();
+            }
+            String finalError = error;
+            String finalSavedName = savedName;
+            runOnUiThread(() -> {
+                if (finalError == null) {
+                    Toast.makeText(this, text("\u753b\u50cf\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f", "Image saved.") + "\n" + finalSavedName,
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, finalError, Toast.LENGTH_LONG).show();
+                }
+            });
+        });
+    }
+
+    private DownloadedImageBytes downloadOriginalImageBytes(String imageUrl) {
+        List<String> candidates = new ArrayList<>();
+        candidates.add(imageUrl);
+        if (imageUrl.startsWith("https://i.imgur.com/") && imageUrl.endsWith(".jpg")) {
+            String base = imageUrl.substring(0, imageUrl.length() - 4);
+            candidates.add(base + ".png");
+            candidates.add(base + ".webp");
+        }
+        for (String candidate : candidates) {
+            try {
+                File cached = imageCacheFile(candidate);
+                if (cached.exists() && cached.length() > 0 && !isCachedImageMissing(candidate)) {
+                    return new DownloadedImageBytes(candidate, readFileBytes(cached));
+                }
+            } catch (Exception ignored) {
+            }
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(candidate).openConnection();
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(20000);
+                connection.setInstanceFollowRedirects(true);
+                connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+                int code = connection.getResponseCode();
+                String contentType = connection.getContentType();
+                if (code >= 400 || isImgurMissingResponse(connection, contentType)) {
+                    continue;
+                }
+                try (InputStream stream = connection.getInputStream()) {
+                    byte[] bytes = readBytes(stream);
+                    if (looksLikeImgurMissing(bytes, contentType)) {
+                        continue;
+                    }
+                    cacheImageBytes(candidate, bytes);
+                    return new DownloadedImageBytes(candidate, bytes);
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+        }
+        return null;
+    }
+
+    private void saveImageBytesToPictures(String fileName, String mime, byte[] bytes) throws Exception {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+            values.put(MediaStore.Images.Media.MIME_TYPE, mime);
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/CuspiDroid");
+            values.put(MediaStore.Images.Media.IS_PENDING, 1);
+            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                throw new IllegalStateException(text("\u4fdd\u5b58\u5148\u3092\u4f5c\u6210\u3067\u304d\u307e\u305b\u3093", "Could not create destination."));
+            }
+            try (OutputStream output = getContentResolver().openOutputStream(uri)) {
+                if (output == null) {
+                    throw new IllegalStateException(text("\u4fdd\u5b58\u5148\u3092\u958b\u3051\u307e\u305b\u3093", "Could not open destination."));
+                }
+                output.write(bytes);
+            }
+            values.clear();
+            values.put(MediaStore.Images.Media.IS_PENDING, 0);
+            getContentResolver().update(uri, values, null, null);
+            return;
+        }
+        File baseDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        if (baseDir == null) {
+            throw new IllegalStateException(text("\u4fdd\u5b58\u5148\u3092\u958b\u3051\u307e\u305b\u3093", "Could not open destination."));
+        }
+        File dir = new File(baseDir, "CuspiDroid");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IllegalStateException(text("\u4fdd\u5b58\u5148\u3092\u4f5c\u6210\u3067\u304d\u307e\u305b\u3093", "Could not create destination."));
+        }
+        File file = new File(dir, fileName);
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(bytes);
+        }
+        sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(file)));
+    }
+
+    private String imageMimeType(String url, byte[] bytes) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lower.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (lower.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (bytes != null && bytes.length >= 12
+                && bytes[0] == (byte) 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4e && bytes[3] == 0x47) {
+            return "image/png";
+        }
+        if (bytes != null && bytes.length >= 12
+                && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
+            return "image/webp";
+        }
+        return "image/jpeg";
+    }
+
+    private String imgurFileName(String url, String mime) {
+        String ext = ".jpg";
+        if ("image/png".equals(mime)) {
+            ext = ".png";
+        } else if ("image/webp".equals(mime)) {
+            ext = ".webp";
+        } else if ("image/gif".equals(mime)) {
+            ext = ".gif";
+        }
+        String id = "imgur";
+        try {
+            String path = Uri.parse(url).getLastPathSegment();
+            if (path != null && !path.trim().isEmpty()) {
+                int dot = path.lastIndexOf('.');
+                id = dot > 0 ? path.substring(0, dot) : path;
+            }
+        } catch (Exception ignored) {
+        }
+        return "CuspiDroid-" + id + "-" + System.currentTimeMillis() + ext;
     }
 
     private void positionRevealButton(FrameLayout frame, Button reveal, Bitmap bitmap) {
@@ -9307,6 +9526,16 @@ public class MainActivity extends Activity {
         ImageLoadResult(Bitmap bitmap, boolean missing) {
             this.bitmap = bitmap;
             this.missing = missing;
+        }
+    }
+
+    private static class DownloadedImageBytes {
+        final String url;
+        final byte[] bytes;
+
+        DownloadedImageBytes(String url, byte[] bytes) {
+            this.url = url;
+            this.bytes = bytes;
         }
     }
 
