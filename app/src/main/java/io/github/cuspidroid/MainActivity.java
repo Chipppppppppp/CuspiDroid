@@ -194,6 +194,7 @@ public class MainActivity extends Activity {
     private Runnable saveTabsTask;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
+    private boolean addressKeyboardVisible;
     private View imageOverlay;
     private View highlightedPostView;
     private final List<String> newTabNavigationHistory = new ArrayList<>();
@@ -421,6 +422,7 @@ public class MainActivity extends Activity {
         root.setFocusableInTouchMode(true);
         root.requestFocus();
         setContentView(root);
+        installKeyboardFocusWatcher(root);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
@@ -436,12 +438,12 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         suggestionsPanel = new LinearLayout(this);
         suggestionsPanel.setOrientation(LinearLayout.VERTICAL);
-        suggestionsPanel.setBackgroundColor(menuColor());
+        suggestionsPanel.setBackgroundColor(Color.TRANSPARENT);
         suggestionsPanel.setPadding(dp(12), dp(12), dp(12), dp(12));
         suggestionsPanel.setVisibility(View.GONE);
         FrameLayout.LayoutParams suggestionsParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        suggestionsParams.gravity = Gravity.TOP;
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        suggestionsParams.gravity = addressBarTop ? Gravity.TOP : Gravity.BOTTOM;
         overlayFrame.addView(suggestionsPanel, suggestionsParams);
 
         threadSearchBar = new LinearLayout(this);
@@ -760,6 +762,7 @@ public class MainActivity extends Activity {
                 && addressBar.getSelectionEnd() == addressBar.getText().length();
         String query = allSelected ? "" : addressBar.getText().toString().trim().toLowerCase(Locale.ROOT);
         String clipboardLink = query.isEmpty() ? clipboardLink() : null;
+        configureSuggestionsPanel(!query.isEmpty());
         if (!query.isEmpty()) {
             int count = 0;
             for (ThreadHistoryItem history : threadHistory()) {
@@ -783,7 +786,7 @@ public class MainActivity extends Activity {
         }
         if (clipboardLink != null) {
             boolean hasRows = suggestionsPanel.getChildCount() > 0;
-            if (!addressBarTop) {
+            if (!query.isEmpty() && !addressBarTop) {
                 suggestionsPanel.addView(new View(this), new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
             }
@@ -802,10 +805,29 @@ public class MainActivity extends Activity {
             suggestionsPanel.addView(item);
         }
         if (suggestionsPanel.getChildCount() == 0) {
+            if (query.isEmpty()) {
+                suggestionsPanel.setVisibility(View.GONE);
+                return;
+            }
             TextView empty = suggestionItem(text("\u5019\u88dc\u306a\u3057", "No suggestions"), text("\u691c\u7d22\u8a9e\u307e\u305f\u306fURL\u3092\u5165\u529b", "Enter a search term or URL"));
             suggestionsPanel.addView(empty);
         }
         suggestionsPanel.setVisibility(View.VISIBLE);
+    }
+
+    private void configureSuggestionsPanel(boolean fullScreen) {
+        if (suggestionsPanel == null) {
+            return;
+        }
+        ViewGroup.LayoutParams currentParams = suggestionsPanel.getLayoutParams();
+        FrameLayout.LayoutParams params = currentParams instanceof FrameLayout.LayoutParams
+                ? (FrameLayout.LayoutParams) currentParams
+                : new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+        params.height = fullScreen ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+        params.gravity = addressBarTop ? Gravity.TOP : Gravity.BOTTOM;
+        suggestionsPanel.setLayoutParams(params);
+        suggestionsPanel.setBackgroundColor(fullScreen ? menuColor() : Color.TRANSPARENT);
     }
 
     private TextView suggestionItem(String label, String value) {
@@ -3596,6 +3618,8 @@ public class MainActivity extends Activity {
     }
 
     private View buildSearchHomeView(boolean fullHistory) {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(bgColor());
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(bgColor());
         scroll.setVerticalScrollBarEnabled(false);
@@ -3610,8 +3634,7 @@ public class MainActivity extends Activity {
         topRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView fiveChTitle = sectionTitleView("5ch");
         topRow.addView(fiveChTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        ImageButton privateTab = privateModeButton(currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
-        topRow.addView(privateTab, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        topRow.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(topRow);
         TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
         fiveCh.setOnClickListener(v -> showFiveChBoardsView(true));
@@ -3634,7 +3657,10 @@ public class MainActivity extends Activity {
         list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
         list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         addHistorySection(list, fullHistory);
-        return scroll;
+        root.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        addPrivateModeOverlay(root, currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
+        return root;
     }
 
     private void showFiveChBoardsView() {
@@ -3785,9 +3811,9 @@ public class MainActivity extends Activity {
                 ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tabs")
                 : text("\u901a\u5e38\u30bf\u30d6", "Normal tabs"));
         header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        header.addView(privateModeButton(tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode()),
-                new LinearLayout.LayoutParams(dp(38), dp(38)));
+        header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
+        addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
         addTabOverviewSection(list, tabOverviewPrivateMode);
 
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs());
@@ -3817,6 +3843,13 @@ public class MainActivity extends Activity {
         button.setPadding(dp(7), dp(7), dp(7), dp(7));
         button.setTranslationY(-dp(2));
         return button;
+    }
+
+    private void addPrivateModeOverlay(FrameLayout root, boolean active, View.OnClickListener listener) {
+        ImageButton button = privateModeButton(active, listener);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.TOP | Gravity.RIGHT);
+        params.setMargins(0, dp(10), dp(12), 0);
+        root.addView(button, params);
     }
 
     private void togglePendingPrivateNewTab() {
@@ -9115,6 +9148,30 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             Toast.makeText(this, text("\u958b\u3044\u3066\u3044\u307e\u3059", "Opening..."), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void installKeyboardFocusWatcher(View root) {
+        root.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            Rect visibleFrame = new Rect();
+            root.getWindowVisibleDisplayFrame(visibleFrame);
+            int rootHeight = root.getRootView().getHeight();
+            if (rootHeight <= 0) {
+                return;
+            }
+            boolean keyboardVisible = rootHeight - visibleFrame.height() > rootHeight * 0.15f;
+            if (addressKeyboardVisible && !keyboardVisible && addressBar != null && addressBar.hasFocus()) {
+                addressBar.clearFocus();
+                addressBar.setSelection(addressBar.getText().length());
+                if (suggestionsPanel != null) {
+                    suggestionsPanel.setVisibility(View.GONE);
+                }
+                updateAddressFocusUi(false);
+                if (contentFrame != null) {
+                    contentFrame.requestFocus();
+                }
+            }
+            addressKeyboardVisible = keyboardVisible;
+        });
     }
 
     private void showKeyboard() {
