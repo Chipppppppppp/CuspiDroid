@@ -5921,14 +5921,12 @@ public class MainActivity extends Activity {
         float ratio = aaChars / (float) nonWhitespace;
         boolean aaRatio = aaChars >= (singleLine ? 14 : 12) && ratio >= (singleLine ? 0.40f : 0.34f);
         boolean structuralRatio = structural >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f);
-        boolean layout = !singleLine && spaces >= 8 && structural >= 8 && aaChars >= 10;
         boolean denseMulti = !singleLine && aaChars >= 18 && ratio >= 0.28f;
         String reason = aaRatio ? "aa-ratio"
                 : structuralRatio ? "structural-ratio"
-                : layout ? "layout"
                 : denseMulti ? "dense-multi"
                 : "below";
-        return new AaDebugMetrics(aaRatio || structuralRatio || layout || denseMulti, reason,
+        return new AaDebugMetrics(aaRatio || structuralRatio || denseMulti, reason,
                 lines.length, nonWhitespace, aaChars, structural, spaces, singleLine);
     }
 
@@ -12198,7 +12196,7 @@ public class MainActivity extends Activity {
             float ratio = nonWhitespace <= 0 ? 0f : aaChars / (float) nonWhitespace;
             String thresholds = singleLine
                     ? "single: aa>=14 & 40%, structural>=12 & 34%"
-                    : "multi: aa>=12 & 34%, structural>=10 & 28%, spaces>=8 structural>=8 aa>=10, aa>=18 & 28%";
+                    : "multi: aa>=12 & 34%, structural>=10 & 28%, aa>=18 & 28%";
             return String.format(Locale.ROOT,
                     "AA debug: %s (%s) lines=%d nonws=%d aa=%d %.1f%% structural=%d spaces=%d | %s",
                     aa ? "YES" : "NO", reason, lines, nonWhitespace, aaChars, ratio * 100f,
