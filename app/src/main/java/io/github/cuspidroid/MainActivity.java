@@ -5613,6 +5613,7 @@ public class MainActivity extends Activity {
             });
         }
         box.addView(bodyText);
+        box.addView(aaDebugView(value));
 
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClickAction));
@@ -5767,6 +5768,7 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.addView(body);
+        box.addView(aaDebugView(post.body));
         List<ImgurLink> mediaLinks = imgurLinks(post);
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClick));
@@ -5868,12 +5870,26 @@ public class MainActivity extends Activity {
     }
 
     private static boolean likelyAaPost(String body) {
+        return aaDebugMetrics(body).aa;
+    }
+
+    private View aaDebugView(String body) {
+        TextView view = new TextView(this);
+        view.setText(aaDebugMetrics(body).debugText());
+        view.setTextColor(mutedColor());
+        view.setTextSize(11);
+        view.setLineSpacing(0, 1.05f);
+        view.setPadding(0, dp(6), 0, dp(2));
+        return view;
+    }
+
+    private static AaDebugMetrics aaDebugMetrics(String body) {
         if (body == null) {
-            return false;
+            return new AaDebugMetrics(false, "null", 0, 0, 0, 0, 0, true);
         }
         String value = removeLooseUrlsFromAaCandidate(body).trim();
         if (value.length() < 8) {
-            return false;
+            return new AaDebugMetrics(false, "len<8", 0, 0, 0, 0, 0, true);
         }
         String[] lines = value.split("\\n", -1);
         int nonWhitespace = 0;
@@ -5900,13 +5916,20 @@ public class MainActivity extends Activity {
         }
         boolean singleLine = lines.length <= 1;
         if (nonWhitespace < 8) {
-            return false;
+            return new AaDebugMetrics(false, "nonws<8", lines.length, nonWhitespace, aaChars, structural, spaces, singleLine);
         }
         float ratio = aaChars / (float) nonWhitespace;
-        return (aaChars >= (singleLine ? 14 : 12) && ratio >= (singleLine ? 0.40f : 0.34f))
-                || (structural >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f))
-                || (!singleLine && spaces >= 8 && structural >= 8 && aaChars >= 10)
-                || (!singleLine && aaChars >= 18 && ratio >= 0.28f);
+        boolean aaRatio = aaChars >= (singleLine ? 14 : 12) && ratio >= (singleLine ? 0.40f : 0.34f);
+        boolean structuralRatio = structural >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f);
+        boolean layout = !singleLine && spaces >= 8 && structural >= 8 && aaChars >= 10;
+        boolean denseMulti = !singleLine && aaChars >= 18 && ratio >= 0.28f;
+        String reason = aaRatio ? "aa-ratio"
+                : structuralRatio ? "structural-ratio"
+                : layout ? "layout"
+                : denseMulti ? "dense-multi"
+                : "below";
+        return new AaDebugMetrics(aaRatio || structuralRatio || layout || denseMulti, reason,
+                lines.length, nonWhitespace, aaChars, structural, spaces, singleLine);
     }
 
     private static String removeLooseUrlsFromAaCandidate(String body) {
@@ -12146,6 +12169,40 @@ public class MainActivity extends Activity {
             this.value = value;
             this.page = page;
             this.highlight = highlight;
+        }
+    }
+
+    private static class AaDebugMetrics {
+        final boolean aa;
+        final String reason;
+        final int lines;
+        final int nonWhitespace;
+        final int aaChars;
+        final int structural;
+        final int spaces;
+        final boolean singleLine;
+
+        AaDebugMetrics(boolean aa, String reason, int lines, int nonWhitespace,
+                       int aaChars, int structural, int spaces, boolean singleLine) {
+            this.aa = aa;
+            this.reason = reason;
+            this.lines = lines;
+            this.nonWhitespace = nonWhitespace;
+            this.aaChars = aaChars;
+            this.structural = structural;
+            this.spaces = spaces;
+            this.singleLine = singleLine;
+        }
+
+        String debugText() {
+            float ratio = nonWhitespace <= 0 ? 0f : aaChars / (float) nonWhitespace;
+            String thresholds = singleLine
+                    ? "single: aa>=14 & 40%, structural>=12 & 34%"
+                    : "multi: aa>=12 & 34%, structural>=10 & 28%, spaces>=8 structural>=8 aa>=10, aa>=18 & 28%";
+            return String.format(Locale.ROOT,
+                    "AA debug: %s (%s) lines=%d nonws=%d aa=%d %.1f%% structural=%d spaces=%d | %s",
+                    aa ? "YES" : "NO", reason, lines, nonWhitespace, aaChars, ratio * 100f,
+                    structural, spaces, thresholds);
         }
     }
 
