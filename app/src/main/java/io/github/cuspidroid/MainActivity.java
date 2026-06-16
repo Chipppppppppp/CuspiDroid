@@ -4431,6 +4431,7 @@ public class MainActivity extends Activity {
         if (holder == null || slot == null || slot.rendered) {
             return;
         }
+        int oldHeight = currentSlotHeight(holder, slot);
         PostCardShell postCard = createPostCardShell(slot.page, slot.tab, slot.item);
         if (postCard == null) {
             return;
@@ -4454,10 +4455,7 @@ public class MainActivity extends Activity {
             visiblePostViews.put(slot.item.post.number, postCard.card);
         }
         holder.post(() -> {
-            int measured = holder.getHeight();
-            if (measured > 0) {
-                slot.height = measured;
-            }
+            updateVirtualSlotHeight(holder, slot, oldHeight);
             scheduleThreadScrollChromeRefresh(slot.tab, 3);
         });
     }
@@ -4466,10 +4464,8 @@ public class MainActivity extends Activity {
         if (holder == null || slot == null || !slot.rendered || highlightedPostView == slot.card) {
             return;
         }
-        int measured = holder.getHeight();
-        if (measured > 0) {
-            slot.height = measured;
-        }
+        int oldHeight = currentSlotHeight(holder, slot);
+        updateVirtualSlotHeight(holder, slot, oldHeight);
         holder.removeAllViews();
         ViewGroup.LayoutParams holderParams = holder.getLayoutParams();
         if (holderParams != null && holderParams.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
@@ -4488,6 +4484,41 @@ public class MainActivity extends Activity {
         }
         slot.card = null;
         slot.shell = null;
+    }
+
+    private int currentSlotHeight(FrameLayout holder, VirtualPostSlot slot) {
+        if (holder != null && holder.getHeight() > 0) {
+            return holder.getHeight();
+        }
+        return slot == null ? 0 : Math.max(0, slot.height);
+    }
+
+    private void updateVirtualSlotHeight(FrameLayout holder, VirtualPostSlot slot, int previousHeight) {
+        if (holder == null || slot == null) {
+            return;
+        }
+        int childHeight = holder.getChildCount() == 0 ? 0 : holder.getChildAt(0).getHeight();
+        int measured = childHeight > 0 ? childHeight : holder.getHeight();
+        if (measured <= 0) {
+            return;
+        }
+        slot.height = measured;
+        preserveThreadScrollAfterSlotResize(slot.tab, holder, previousHeight, measured);
+    }
+
+    private void preserveThreadScrollAfterSlotResize(CuspTab tab, View slotView, int previousHeight, int nextHeight) {
+        if (tab == null || tab.threadScroll == null || slotView == null || previousHeight <= 0) {
+            return;
+        }
+        int delta = nextHeight - previousHeight;
+        if (delta == 0 || tab.threadScroll.getChildCount() == 0) {
+            return;
+        }
+        int scrollY = tab.threadScroll.getScrollY();
+        if (descendantTopWithin(slotView, tab.threadScroll.getChildAt(0)) < scrollY) {
+            tab.threadScroll.scrollTo(0, Math.max(0, scrollY + delta));
+            rememberThreadScroll(tab);
+        }
     }
 
     private View postSlotSpacer(int height) {
@@ -6153,12 +6184,9 @@ public class MainActivity extends Activity {
                 FrameLayout holder = current instanceof FrameLayout ? (FrameLayout) current : null;
                 VirtualPostSlot slot = (VirtualPostSlot) tag;
                 if (holder != null && slot.rendered) {
+                    int oldHeight = currentSlotHeight(holder, slot);
                     holder.setMinimumHeight(0);
-                    int childHeight = holder.getChildCount() == 0 ? 0 : holder.getChildAt(0).getHeight();
-                    int measured = childHeight > 0 ? childHeight : holder.getHeight();
-                    if (measured > 0) {
-                        slot.height = measured;
-                    }
+                    updateVirtualSlotHeight(holder, slot, oldHeight);
                     holder.requestLayout();
                     if (holder.getParent() instanceof View) {
                         ((View) holder.getParent()).requestLayout();
