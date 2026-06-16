@@ -1962,6 +1962,7 @@ public class MainActivity extends Activity {
             mainHandler.removeCallbacks(tab.threadScrollChromeTask);
             tab.threadScrollChromeTask = null;
         }
+        tab.threadScrollChromeFrames = 0;
         tab.readerView = null;
         tab.threadScroll = null;
         tab.threadList = null;
@@ -2206,6 +2207,7 @@ public class MainActivity extends Activity {
         updateBottomThreadBar(tab);
         updateThreadSearchBar(tab);
         renderTabs();
+        scheduleThreadScrollChromeRefresh(tab, 5);
         scheduleTabUnload();
     }
 
@@ -2319,10 +2321,6 @@ public class MainActivity extends Activity {
             createTab(url, true, -1, true, privateBrowsing);
             return;
         }
-        CuspTab current = currentTab();
-        if (current != null && urlLike && isThreadUrl(url)) {
-            current.forceTopOnNextThreadLoad = true;
-        }
         openInCurrentTab(url);
     }
 
@@ -2409,19 +2407,14 @@ public class MainActivity extends Activity {
 
     private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
         final String loadUrl = url;
-        boolean forceTop = tab.forceTopOnNextThreadLoad;
-        tab.forceTopOnNextThreadLoad = false;
         rememberThreadScroll(tab);
         if (showFullLoading) {
             prepareChromeForLoading();
         }
-        boolean keepExistingScroll = !forceTop && tab.hasSavedThreadScroll && loadUrl.equals(tab.threadScrollUrl);
+        boolean keepExistingScroll = tab.hasSavedThreadScroll && loadUrl.equals(tab.threadScrollUrl);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
         tab.url = loadUrl;
-        if (forceTop) {
-            forceThreadScrollTop(tab, loadUrl);
-        }
         tab.title = hostTitle(loadUrl);
         tab.searchPage = null;
         if (showFullLoading || tab.readerView == null) {
@@ -2429,11 +2422,11 @@ public class MainActivity extends Activity {
             switchToTab(tabs.indexOf(tab));
         }
         progressBar.setVisibility(View.VISIBLE);
-        mainHandler.post(() -> loadThreadAfterLoading(tab, loadUrl, keepExistingScroll, forceTop, showFullLoading));
+        mainHandler.post(() -> loadThreadAfterLoading(tab, loadUrl, keepExistingScroll, showFullLoading));
     }
 
     private void loadThreadAfterLoading(CuspTab tab, String loadUrl, boolean keepExistingScroll,
-                                        boolean forceTop, boolean showFullLoading) {
+                                        boolean showFullLoading) {
         if (tab == null || !loadUrl.equals(tab.url)) {
             return;
         }
@@ -2477,9 +2470,6 @@ public class MainActivity extends Activity {
                         progressBar.setVisibility(View.GONE);
                     }
                     if (tab == currentTab()) {
-                        if (forceTop) {
-                            forceThreadScrollTop(tab, loadUrl);
-                        }
                         restoreThreadScroll(tab);
                     }
                     renderTabs();
@@ -2490,10 +2480,7 @@ public class MainActivity extends Activity {
                 tab.readPostNumber = readPostNumberForTab(tab, result.url);
                 tab.postViews = new LinkedHashMap<>();
                 tab.readerView = buildThreadView(result, tab);
-                tab.hasSavedThreadScroll = forceTop || keepExistingScroll;
-                if (forceTop) {
-                    forceThreadScrollTop(tab, loadUrl);
-                }
+                tab.hasSavedThreadScroll = keepExistingScroll;
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
                     addThreadHistory(tab, result.url, result.title);
@@ -4451,6 +4438,11 @@ public class MainActivity extends Activity {
             return;
         }
         holder.removeAllViews();
+        ViewGroup.LayoutParams holderParams = holder.getLayoutParams();
+        if (holderParams != null && holderParams.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+            holderParams.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            holder.setLayoutParams(holderParams);
+        }
         holder.addView(postCard.shell, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         slot.rendered = true;
@@ -4463,6 +4455,13 @@ public class MainActivity extends Activity {
         if (slot.tab == currentTab()) {
             visiblePostViews.put(slot.item.post.number, postCard.card);
         }
+        holder.post(() -> {
+            int measured = holder.getHeight();
+            if (measured > 0) {
+                slot.height = measured;
+            }
+            scheduleThreadScrollChromeRefresh(slot.tab, 3);
+        });
     }
 
     private void recycleVirtualPostSlot(FrameLayout holder, VirtualPostSlot slot) {
@@ -4474,6 +4473,11 @@ public class MainActivity extends Activity {
             slot.height = measured;
         }
         holder.removeAllViews();
+        ViewGroup.LayoutParams holderParams = holder.getLayoutParams();
+        if (holderParams != null && holderParams.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+            holderParams.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            holder.setLayoutParams(holderParams);
+        }
         holder.addView(postSlotSpacer(slot.height), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
         slot.rendered = false;
@@ -4759,14 +4763,19 @@ public class MainActivity extends Activity {
         if (tab == null || tab.threadScroll == null || tab.scrollScrubber == null) {
             return;
         }
+        tab.threadScrollChromeFrames = Math.max(tab.threadScrollChromeFrames, Math.max(1, frames));
         if (tab.threadScrollChromeTask != null) {
             return;
         }
-        long delay = tab.threadRendering ? 160L : Math.max(1, frames) * 16L;
         tab.threadScrollChromeTask = () -> {
             tab.threadScrollChromeTask = null;
+            tab.threadScrollChromeFrames = Math.max(0, tab.threadScrollChromeFrames - 1);
             refreshThreadScrollChrome(tab);
+            if (tab.threadScrollChromeFrames > 0 && tab.threadScroll != null && tab.scrollScrubber != null) {
+                scheduleThreadScrollChromeRefresh(tab, tab.threadScrollChromeFrames);
+            }
         };
+        long delay = tab.threadRendering ? 160L : 16L;
         mainHandler.postDelayed(tab.threadScrollChromeTask, delay);
     }
 
@@ -5967,7 +5976,6 @@ public class MainActivity extends Activity {
         applyAaTypeface(body);
         body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
         body.setSingleLine(false);
-        body.setMaxLines(Math.max(1, aaBody.split("\\n", -1).length));
         body.setHorizontallyScrolling(true);
         body.setPadding(0, 0, 0, 0);
         body.setMinHeight(0);
@@ -9625,17 +9633,6 @@ public class MainActivity extends Activity {
         tab.hasSavedThreadScroll = true;
     }
 
-    private void forceThreadScrollTop(CuspTab tab, String url) {
-        if (tab == null) {
-            return;
-        }
-        tab.threadScrollRatio = 0f;
-        tab.threadBottomOffset = 0;
-        tab.threadScrollUrl = url == null ? threadUrl(tab) : url;
-        tab.hasSavedThreadScroll = true;
-        tab.restoreFromBottom = false;
-    }
-
     private void restoreThreadScroll(CuspTab tab) {
         restoreThreadScroll(tab, 0);
     }
@@ -9674,7 +9671,7 @@ public class MainActivity extends Activity {
                 scrollToUnreadBoundary(tab);
             }
             revealThreadAfterScrollRestore(tab, attempt);
-            scheduleThreadScrollChromeRefresh(tab, 2);
+            scheduleThreadScrollChromeRefresh(tab, 6);
         });
     }
 
@@ -12787,9 +12784,9 @@ public class MainActivity extends Activity {
         long lastActivatedAt = android.os.SystemClock.uptimeMillis();
         long lastScrollAt;
         long lastThreadScrollSaveAt;
+        int threadScrollChromeFrames;
         boolean hasSavedThreadScroll;
         boolean restoreFromBottom;
-        boolean forceTopOnNextThreadLoad;
         boolean threadSearchOpen;
         String threadSearchQuery = "";
         List<Integer> threadSearchMatches = new ArrayList<>();
