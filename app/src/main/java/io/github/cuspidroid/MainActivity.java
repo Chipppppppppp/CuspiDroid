@@ -137,6 +137,7 @@ public class MainActivity extends Activity {
     static final String PREF_READ_POSTS = "read_posts";
     static final String PREF_AA_POSTS = "aa_posts";
     static final String PREF_AUTO_AA = "auto_aa";
+    static final String PREF_AA_DEBUG = "aa_debug";
     static final String PREF_MY_POSTS = "my_posts";
     static final String PREF_IMGUR_META = "imgur_meta";
     static final String PREF_IMGUR_CLIENT_ID = "imgur_client_id";
@@ -199,6 +200,11 @@ public class MainActivity extends Activity {
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
     private static final int AA_LEADING_SPACE_MIN_LINES = 3;
     private static final float AA_LEADING_SPACE_RATIO_THRESHOLD = 0.45f;
+    private static final String AA_LEADING_MARKERS =
+            "|/\\()[]{}<>＜＞（）［］｛｝【】「」『』〈〉《》"
+                    + "│┃｜／＼＿_￣¯―─━┏┓┗┛┣┫┳┻╋┌┐└┘├┤┬┴┼"
+                    + "∧∨⊂⊃∩∪≡≠＝=＋+－-＊*※☆★○●◎◇◆□■△▲▽▼"
+                    + "彡ヽヾゝゞ゛゜｀´'";
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -5650,7 +5656,9 @@ public class MainActivity extends Activity {
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClickAction));
         }
-        box.addView(aaDebugView(value));
+        if (aaDebugEnabled()) {
+            box.addView(aaDebugView(value));
+        }
         return box;
     }
 
@@ -5815,7 +5823,9 @@ public class MainActivity extends Activity {
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClick));
         }
-        box.addView(aaDebugView(post.body));
+        if (aaDebugEnabled()) {
+            box.addView(aaDebugView(post.body));
+        }
         return box;
     }
 
@@ -5964,12 +5974,13 @@ public class MainActivity extends Activity {
 
     private static AaDebugMetrics aaDebugMetrics(String body) {
         if (body == null) {
-            return new AaDebugMetrics(false, "null", 0, 0, 0f);
+            return new AaDebugMetrics(false, "null", 0, 0, 0, 0, 0f);
         }
         String value = body.replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = value.split("\\n", -1);
         int countedLines = 0;
         int leadingSpaceLines = 0;
+        int leadingMarkerLines = 0;
         for (String line : lines) {
             if (line.isEmpty()) {
                 continue;
@@ -5978,15 +5989,23 @@ public class MainActivity extends Activity {
             char first = line.charAt(0);
             if (first == ' ' || first == '\u3000') {
                 leadingSpaceLines++;
+            } else if (isAaLeadingMarker(first)) {
+                leadingMarkerLines++;
             }
         }
+        int aaLeadingLines = leadingSpaceLines + leadingMarkerLines;
         if (countedLines < AA_LEADING_SPACE_MIN_LINES) {
-            return new AaDebugMetrics(false, "lines<3", countedLines, leadingSpaceLines, 0f);
+            return new AaDebugMetrics(false, "lines<3", countedLines, leadingSpaceLines,
+                    leadingMarkerLines, aaLeadingLines, 0f);
         }
-        float ratio = leadingSpaceLines / (float) countedLines;
+        float ratio = aaLeadingLines / (float) countedLines;
         boolean aa = ratio > AA_LEADING_SPACE_RATIO_THRESHOLD;
-        return new AaDebugMetrics(aa, aa ? "leading-space-ratio" : "below",
-                countedLines, leadingSpaceLines, ratio);
+        return new AaDebugMetrics(aa, aa ? "leading-aa-line-ratio" : "below",
+                countedLines, leadingSpaceLines, leadingMarkerLines, aaLeadingLines, ratio);
+    }
+
+    private static boolean isAaLeadingMarker(char ch) {
+        return AA_LEADING_MARKERS.indexOf(ch) >= 0;
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
@@ -9907,6 +9926,10 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_AUTO_AA, true);
     }
 
+    private boolean aaDebugEnabled() {
+        return preferences.getBoolean(PREF_AA_DEBUG, false);
+    }
+
     private boolean addressBarOnTop() {
         return preferences.getBoolean(PREF_ADDRESS_BAR_TOP, false);
     }
@@ -12659,20 +12682,26 @@ public class MainActivity extends Activity {
         final String reason;
         final int lines;
         final int leadingSpaceLines;
+        final int leadingMarkerLines;
+        final int aaLeadingLines;
         final float ratio;
 
-        AaDebugMetrics(boolean aa, String reason, int lines, int leadingSpaceLines, float ratio) {
+        AaDebugMetrics(boolean aa, String reason, int lines, int leadingSpaceLines,
+                       int leadingMarkerLines, int aaLeadingLines, float ratio) {
             this.aa = aa;
             this.reason = reason;
             this.lines = lines;
             this.leadingSpaceLines = leadingSpaceLines;
+            this.leadingMarkerLines = leadingMarkerLines;
+            this.aaLeadingLines = aaLeadingLines;
             this.ratio = ratio;
         }
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) lines=%d leading-space=%d %.1f%% | threshold: lines>=%d & leading-space>%.0f%%",
-                    aa ? "YES" : "NO", reason, lines, leadingSpaceLines, ratio * 100f,
+                    "AA debug: %s (%s) lines=%d aa-leading=%d %.1f%% space=%d marker=%d | threshold: lines>=%d & aa-leading>%.0f%%",
+                    aa ? "YES" : "NO", reason, lines, aaLeadingLines, ratio * 100f,
+                    leadingSpaceLines, leadingMarkerLines,
                     AA_LEADING_SPACE_MIN_LINES, AA_LEADING_SPACE_RATIO_THRESHOLD * 100f);
         }
     }
