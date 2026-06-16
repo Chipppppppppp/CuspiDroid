@@ -1,6 +1,7 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -32,10 +33,12 @@ public class SettingsActivity extends Activity {
     private CheckBox open5chInNewTab;
     private CheckBox externalLinkInApp;
     private CheckBox blurImgurImages;
+    private CheckBox blurVideoThumbnails;
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
     private CheckBox treeView;
     private CheckBox treeSkipFirstReply;
+    private CheckBox autoAa;
     private CheckBox boardSortBySpeed;
     private RadioButton themeSystem;
     private RadioButton themeLight;
@@ -97,30 +100,20 @@ public class SettingsActivity extends Activity {
         title.setPadding(0, 0, 0, dp(16));
         root.addView(title);
 
-        root.addView(sectionTitle(MainActivity.text("\u30ea\u30f3\u30af", "Links")));
-        open5chInNewTab = new CheckBox(this);
-        open5chInNewTab.setText(MainActivity.text("5ch\u30ea\u30f3\u30af\u3092\u65b0\u898f\u30bf\u30d6\u3067\u958b\u304f", "Open 5ch links in a new tab"));
-        open5chInNewTab.setTextColor(textColor());
-        open5chInNewTab.setTextSize(16);
-        Theme.tintCompoundButton(this, open5chInNewTab);
-        root.addView(open5chInNewTab);
+        root.addView(sectionTitle(MainActivity.text("\u8868\u793a\u3068\u64cd\u4f5c", "Display & Controls")));
+        themeGroup = new RadioGroup(this);
+        themeGroup.setOrientation(RadioGroup.VERTICAL);
+        themeSystem = radio(MainActivity.text("\u7aef\u672b\u306e\u30c6\u30fc\u30de\u306b\u5f93\u3046", "Follow device theme"));
+        themeLight = radio(MainActivity.text("\u30e9\u30a4\u30c8", "Light"));
+        themeDark = radio(MainActivity.text("\u30c0\u30fc\u30af", "Dark"));
+        themeSystem.setId(View.generateViewId());
+        themeLight.setId(View.generateViewId());
+        themeDark.setId(View.generateViewId());
+        themeGroup.addView(themeSystem);
+        themeGroup.addView(themeLight);
+        themeGroup.addView(themeDark);
+        root.addView(themeGroup);
 
-        externalLinkInApp = new CheckBox(this);
-        externalLinkInApp.setText(MainActivity.text("\u5916\u90e8\u30ea\u30f3\u30af\u3092\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u3067\u958b\u304f", "Open external links in the in-app browser"));
-        externalLinkInApp.setTextColor(textColor());
-        externalLinkInApp.setTextSize(16);
-        Theme.tintCompoundButton(this, externalLinkInApp);
-        root.addView(externalLinkInApp);
-
-        root.addView(sectionTitle(MainActivity.text("\u753b\u50cf", "Images")));
-        blurImgurImages = new CheckBox(this);
-        blurImgurImages.setText(MainActivity.text("imgur\u306e\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic imgur images"));
-        blurImgurImages.setTextColor(textColor());
-        blurImgurImages.setTextSize(16);
-        Theme.tintCompoundButton(this, blurImgurImages);
-        root.addView(blurImgurImages);
-
-        root.addView(sectionTitle(MainActivity.text("\u8868\u793a", "Display")));
         RadioGroup addressBarPosition = new RadioGroup(this);
         addressBarPosition.setOrientation(RadioGroup.HORIZONTAL);
         addressBarBottom = radio(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0b\u306b\u8868\u793a", "Address bar at bottom"));
@@ -130,6 +123,11 @@ public class SettingsActivity extends Activity {
         addressBarPosition.addView(addressBarBottom, new RadioGroup.LayoutParams(0, dp(44), 1));
         addressBarPosition.addView(addressBarTop, new RadioGroup.LayoutParams(0, dp(44), 1));
         root.addView(addressBarPosition);
+
+        root.addView(managementRow(R.drawable.ic_jump_arrow,
+                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
+                MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
+                v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u8868\u793a", "Thread View")));
         treeView = new CheckBox(this);
@@ -146,6 +144,13 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, treeSkipFirstReply);
         root.addView(treeSkipFirstReply);
 
+        autoAa = new CheckBox(this);
+        autoAa.setText(MainActivity.text("AA\u3092\u81ea\u52d5\u5224\u5b9a\u3057\u3066\u8868\u793a", "Automatically detect and show AA"));
+        autoAa.setTextColor(textColor());
+        autoAa.setTextSize(16);
+        Theme.tintCompoundButton(this, autoAa);
+        root.addView(autoAa);
+
         root.addView(sectionTitle(MainActivity.text("\u677f\u30b9\u30ec\u4e00\u89a7", "Board Thread List")));
         boardSortBySpeed = new CheckBox(this);
         boardSortBySpeed.setText(MainActivity.text("\u677f\u306e\u30b9\u30ec\u3092\u52e2\u3044\u9806\u306b\u4e26\u3079\u308b", "Sort board threads by speed"));
@@ -159,21 +164,21 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u3067\u512a\u5148\u3059\u308b\u30ef\u30fc\u30c9\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit words prioritized in board thread lists"),
                 v -> startActivity(new Intent(this, BoardPriorityRulesActivity.class))));
 
-        root.addView(sectionTitle(MainActivity.text("\u30c6\u30fc\u30de", "Theme")));
-        themeGroup = new RadioGroup(this);
-        themeGroup.setOrientation(RadioGroup.VERTICAL);
-        themeSystem = radio(MainActivity.text("\u7aef\u672b\u306e\u30c6\u30fc\u30de\u306b\u5f93\u3046", "Follow device theme"));
-        themeLight = radio(MainActivity.text("\u30e9\u30a4\u30c8", "Light"));
-        themeDark = radio(MainActivity.text("\u30c0\u30fc\u30af", "Dark"));
-        themeSystem.setId(View.generateViewId());
-        themeLight.setId(View.generateViewId());
-        themeDark.setId(View.generateViewId());
-        themeGroup.addView(themeSystem);
-        themeGroup.addView(themeLight);
-        themeGroup.addView(themeDark);
-        root.addView(themeGroup);
+        root.addView(sectionTitle(MainActivity.text("\u30ea\u30f3\u30af\u3068\u691c\u7d22", "Links & Search")));
+        open5chInNewTab = new CheckBox(this);
+        open5chInNewTab.setText(MainActivity.text("5ch\u30ea\u30f3\u30af\u3092\u65b0\u898f\u30bf\u30d6\u3067\u958b\u304f", "Open 5ch links in a new tab"));
+        open5chInNewTab.setTextColor(textColor());
+        open5chInNewTab.setTextSize(16);
+        Theme.tintCompoundButton(this, open5chInNewTab);
+        root.addView(open5chInNewTab);
 
-        root.addView(sectionTitle(MainActivity.text("\u6a19\u6e96\u691c\u7d22\u30a8\u30f3\u30b8\u30f3", "Default Search Engine")));
+        externalLinkInApp = new CheckBox(this);
+        externalLinkInApp.setText(MainActivity.text("\u5916\u90e8\u30ea\u30f3\u30af\u3092\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u3067\u958b\u304f", "Open external links in the in-app browser"));
+        externalLinkInApp.setTextColor(textColor());
+        externalLinkInApp.setTextSize(16);
+        Theme.tintCompoundButton(this, externalLinkInApp);
+        root.addView(externalLinkInApp);
+
         RadioGroup searchGroup = new RadioGroup(this);
         searchGroup.setOrientation(RadioGroup.VERTICAL);
         searchFind5chIo = radio("find.5ch.io");
@@ -201,12 +206,6 @@ public class SettingsActivity extends Activity {
         TextView hint = helperText(MainActivity.text("\u691c\u7d22\u8a9e\u3092\u5165\u308c\u308b\u5834\u6240\u306b %s \u3092\u4f7f\u3046", "Use %s where the encoded query should be inserted."));
         root.addView(hint);
 
-        root.addView(sectionTitle(MainActivity.text("NG\u8a2d\u5b9a", "NG Rules")));
-        root.addView(managementRow(R.drawable.ic_close,
-                MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
-                MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
-                v -> startActivity(new Intent(this, NgRulesActivity.class))));
-
         root.addView(sectionTitle(MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links")));
         root.addView(helperText(MainActivity.text(
                 "\u8a8d\u8a3c\u304c\u5fc5\u8981\u306aBBS\u306f\u3001\u30b9\u30ec\u3092WebView\u3067\u958b\u3044\u3066\u8a8d\u8a3c\u3059\u308b\u3068\u3001\u305d\u306e\u30af\u30c3\u30ad\u30fc\u3092\u4f7f\u3063\u3066\u95b2\u89a7\u30fb\u66f8\u304d\u8fbc\u307f\u3067\u304d\u307e\u3059\u3002",
@@ -216,17 +215,41 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u306e\u540d\u524d\u3068\u677fURL\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit custom BBS names and board URLs"),
                 v -> startActivity(new Intent(this, BbsLinksActivity.class))));
 
-        root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u5c65\u6b74", "Thread History")));
+        root.addView(sectionTitle(MainActivity.text("\u753b\u50cf\u3068\u30d5\u30a3\u30eb\u30bf", "Images & Filters")));
+        blurImgurImages = new CheckBox(this);
+        blurImgurImages.setText(MainActivity.text("\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic images"));
+        blurImgurImages.setTextColor(textColor());
+        blurImgurImages.setTextSize(16);
+        Theme.tintCompoundButton(this, blurImgurImages);
+        root.addView(blurImgurImages);
+
+        blurVideoThumbnails = new CheckBox(this);
+        blurVideoThumbnails.setText(MainActivity.text("\u52d5\u753b\u30b5\u30e0\u30cd\u30a4\u30eb\u3082\u5224\u5b9a\u3057\u3066\u307c\u304b\u3059", "Also check and blur video thumbnails"));
+        blurVideoThumbnails.setTextColor(textColor());
+        blurVideoThumbnails.setTextSize(16);
+        Theme.tintCompoundButton(this, blurVideoThumbnails);
+        root.addView(blurVideoThumbnails);
+
+        root.addView(managementRow(R.drawable.ic_close,
+                MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
+                MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
+                v -> startActivity(new Intent(this, NgRulesActivity.class))));
+
+        root.addView(sectionTitle(MainActivity.text("\u30c7\u30fc\u30bf\u7ba1\u7406", "Data Management")));
         root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
                 MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
                 MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
                 v -> startActivity(new Intent(this, HistoryActivity.class))));
 
-        root.addView(sectionTitle(MainActivity.text("\u65e2\u8aad", "Read Positions")));
         root.addView(managementRow(R.drawable.ic_check,
                 MainActivity.text("\u65e2\u8aad\u3092\u7ba1\u7406", "Manage read positions"),
                 MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u4f4d\u7f6e\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read positions by thread"),
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
+
+        root.addView(managementRow(android.R.drawable.ic_menu_revert,
+                MainActivity.text("\u8a2d\u5b9a\u3092\u30c7\u30d5\u30a9\u30eb\u30c8\u306b\u623b\u3059", "Reset all settings"),
+                MainActivity.text("\u8868\u793a\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3059", "Restore display, search, gesture, and related settings"),
+                v -> confirmResetDefaults()));
 
     }
 
@@ -234,6 +257,8 @@ public class SettingsActivity extends Activity {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
         externalLinkInApp.setChecked(preferences.getBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
+        blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
+        updateVideoThumbnailBlurDependentSettings();
         if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
             addressBarTop.setChecked(true);
         } else {
@@ -241,6 +266,7 @@ public class SettingsActivity extends Activity {
         }
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
+        autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
         boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
         String themeMode = preferences.getString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
@@ -266,7 +292,11 @@ public class SettingsActivity extends Activity {
     private void setupAutoSave() {
         open5chInNewTab.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         externalLinkInApp.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
-        blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            updateVideoThumbnailBlurDependentSettings();
+            saveSettings(false);
+        });
+        blurVideoThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -274,6 +304,7 @@ public class SettingsActivity extends Activity {
             saveSettings(false);
         });
         treeSkipFirstReply.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
             saveThemeMode();
@@ -341,10 +372,13 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, externalLinkInApp.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
+                .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS,
+                        blurImgurImages.isChecked() && blurVideoThumbnails.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
                         treeView.isChecked() && treeSkipFirstReply.isChecked())
+                .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
@@ -361,10 +395,55 @@ public class SettingsActivity extends Activity {
         preferences.edit().putString(MainActivity.PREF_THEME_MODE, themeMode).apply();
     }
 
+    private void confirmResetDefaults() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("\u8a2d\u5b9a\u3092\u30c7\u30d5\u30a9\u30eb\u30c8\u306b\u623b\u3059", "Reset all settings"))
+                .setMessage(MainActivity.text(
+                        "\u8868\u793a\u3001\u64cd\u4f5c\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3057\u307e\u3059\u3002BBS\u30ea\u30f3\u30af\u3001NG\u8a2d\u5b9a\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u81ea\u5206\u306e\u66f8\u304d\u8fbc\u307f\u60c5\u5831\u306f\u6b8b\u308a\u307e\u3059\u3002",
+                        "Restore display, controls, search, gesture, and related settings. BBS links, NG rules, history, read positions, bookmarks, and your post markers are kept."))
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u623b\u3059", "Reset"), (d, which) -> resetSettingsDefaults())
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private void resetSettingsDefaults() {
+        SharedPreferences.Editor editor = preferences.edit()
+                .putBoolean(MainActivity.PREF_5CH_NEW_TAB, true)
+                .putString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE)
+                .putBoolean(MainActivity.PREF_BLUR_IMGUR, true)
+                .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)
+                .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
+                .putBoolean(MainActivity.PREF_TREE_VIEW, true)
+                .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
+                .putBoolean(MainActivity.PREF_AUTO_AA, true)
+                .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
+                .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)
+                .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
+                .putString(MainActivity.PREF_BOARD_PRIORITY_WORDS, "[]")
+                .putBoolean(MainActivity.PREF_GESTURES_ENABLED, false)
+                .putInt(MainActivity.PREF_GESTURE_SENSITIVITY, 2);
+        for (String action : MainActivity.GESTURE_ACTIONS) {
+            editor.putString(MainActivity.PREF_GESTURE_PREFIX + action,
+                    MainActivity.defaultGestureForAction(action));
+        }
+        editor.apply();
+        loadSettings();
+        Toast.makeText(this, MainActivity.text("\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3057\u307e\u3057\u305f", "Settings restored to defaults"), Toast.LENGTH_SHORT).show();
+        recreate();
+    }
+
     private void updateTreeDependentSettings() {
         boolean enabled = treeView.isChecked();
         treeSkipFirstReply.setEnabled(enabled);
         treeSkipFirstReply.setAlpha(enabled ? 1f : 0.45f);
+    }
+
+    private void updateVideoThumbnailBlurDependentSettings() {
+        boolean enabled = blurImgurImages.isChecked();
+        blurVideoThumbnails.setEnabled(enabled);
+        blurVideoThumbnails.setAlpha(enabled ? 1f : 0.45f);
     }
 
     private TextView sectionTitle(String value) {

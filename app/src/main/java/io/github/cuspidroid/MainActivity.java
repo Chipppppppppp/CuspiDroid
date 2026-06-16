@@ -13,10 +13,12 @@ import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.ColorFilter;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.ImageDecoder;
 import android.graphics.drawable.AnimatedImageDrawable;
@@ -118,6 +120,7 @@ public class MainActivity extends Activity {
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
+    static final String PREF_BLUR_VIDEO_THUMBNAILS = "blur_video_thumbnails";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
@@ -128,12 +131,36 @@ public class MainActivity extends Activity {
     static final String PREF_NG_RULES = "ng_rules";
     static final String PREF_READ_POSTS = "read_posts";
     static final String PREF_AA_POSTS = "aa_posts";
+    static final String PREF_AUTO_AA = "auto_aa";
     static final String PREF_MY_POSTS = "my_posts";
     static final String PREF_IMGUR_META = "imgur_meta";
     static final String PREF_BOARD_FAVORITES = "board_favorites";
     static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
     static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
+    static final String PREF_GESTURES_ENABLED = "gestures_enabled";
+    static final String PREF_GESTURE_SENSITIVITY = "gesture_sensitivity";
+    static final String PREF_GESTURE_PREFIX = "gesture_";
+    static final String GESTURE_TAB_OVERVIEW = "tab_overview";
+    static final String GESTURE_BACK = "back";
+    static final String GESTURE_FORWARD = "forward";
+    static final String GESTURE_TOP = "top";
+    static final String GESTURE_BOTTOM = "bottom";
+    static final String GESTURE_RELOAD = "reload";
+    static final String GESTURE_CLOSE_TAB = "close_tab";
+    static final String GESTURE_NEW_TAB = "new_tab";
+    static final String GESTURE_RIGHT_TAB = "right_tab";
+    static final String GESTURE_LEFT_TAB = "left_tab";
+    static final String GESTURE_SETTINGS = "settings";
+    static final String GESTURE_NEXT_THREAD = "next_thread";
+    static final String GESTURE_FIND = "find";
+    static final String GESTURE_BOARD = "board";
+    static final String[] GESTURE_ACTIONS = {
+            GESTURE_TAB_OVERVIEW, GESTURE_BACK, GESTURE_FORWARD, GESTURE_TOP,
+            GESTURE_BOTTOM, GESTURE_RELOAD, GESTURE_CLOSE_TAB, GESTURE_NEW_TAB,
+            GESTURE_RIGHT_TAB, GESTURE_LEFT_TAB, GESTURE_SETTINGS, GESTURE_NEXT_THREAD,
+            GESTURE_FIND, GESTURE_BOARD
+    };
     private static final String PREF_TABS = "saved_tabs";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
@@ -151,11 +178,16 @@ public class MainActivity extends Activity {
     private static final int TEXT = Color.rgb(31, 41, 55);
     private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?[;:]//|ttps?[;:]//|ttp[;:]//)\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
-    private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-‐-―]\\s*(\\d{1,5}))?");
+    private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2015\\u2212\\uff0d~\\uff5e]\\s*(\\d{1,5}))?");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
-    private static final int INITIAL_THREAD_RENDER_BATCH = 24;
-    private static final int THREAD_RENDER_BATCH = 8;
     private static final int MEDIA_GRID_CELL_DP = 108;
+    private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
+    private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
+    private static final int THREAD_VISIBLE_RENDER_BUDGET = 4;
+    private static final int THREAD_IDLE_RENDER_BUDGET = 12;
+    private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
+    private static final String AA_FONT_FAMILY = "MS PGothic";
+    private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -223,6 +255,154 @@ public class MainActivity extends Activity {
     private String appliedThemeMode;
     private String cachedNgRulesKey;
     private NgRules cachedNgRules;
+    private Typeface aaTypeface;
+    private float gestureDownX;
+    private float gestureDownY;
+    private float gestureLastX;
+    private float gestureLastY;
+    private boolean gestureTracking;
+    private boolean gestureMoved;
+    private boolean gestureIntercepting;
+    private final StringBuilder gestureSequence = new StringBuilder();
+    private TextView gestureOverlay;
+
+    static String gestureActionLabel(String action) {
+        if (GESTURE_TAB_OVERVIEW.equals(action)) {
+            return text("\u30bf\u30d6\u4e00\u89a7", "Tab list");
+        }
+        if (GESTURE_BACK.equals(action)) {
+            return text("\u623b\u308b", "Back");
+        }
+        if (GESTURE_FORWARD.equals(action)) {
+            return text("\u9032\u3080", "Forward");
+        }
+        if (GESTURE_TOP.equals(action)) {
+            return text("\u5148\u982d\u3078", "Top");
+        }
+        if (GESTURE_BOTTOM.equals(action)) {
+            return text("\u672b\u5c3e\u3078", "Bottom");
+        }
+        if (GESTURE_RELOAD.equals(action)) {
+            return text("\u66f4\u65b0", "Reload");
+        }
+        if (GESTURE_CLOSE_TAB.equals(action)) {
+            return text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab");
+        }
+        if (GESTURE_NEW_TAB.equals(action)) {
+            return text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        }
+        if (GESTURE_RIGHT_TAB.equals(action)) {
+            return text("\u53f3\u306e\u30bf\u30d6", "Right tab");
+        }
+        if (GESTURE_LEFT_TAB.equals(action)) {
+            return text("\u5de6\u306e\u30bf\u30d6", "Left tab");
+        }
+        if (GESTURE_SETTINGS.equals(action)) {
+            return text("\u8a2d\u5b9a", "Settings");
+        }
+        if (GESTURE_NEXT_THREAD.equals(action)) {
+            return text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread");
+        }
+        if (GESTURE_FIND.equals(action)) {
+            return text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page");
+        }
+        if (GESTURE_BOARD.equals(action)) {
+            return text("\u677f\u3078", "Go to board");
+        }
+        return action;
+    }
+
+    static String defaultGestureForAction(String action) {
+        if (GESTURE_TAB_OVERVIEW.equals(action)) {
+            return "RUL";
+        }
+        if (GESTURE_BACK.equals(action)) {
+            return "R";
+        }
+        if (GESTURE_FORWARD.equals(action)) {
+            return "L";
+        }
+        if (GESTURE_TOP.equals(action)) {
+            return "RD";
+        }
+        if (GESTURE_BOTTOM.equals(action)) {
+            return "RU";
+        }
+        if (GESTURE_RELOAD.equals(action)) {
+            return "RDL";
+        }
+        if (GESTURE_CLOSE_TAB.equals(action)) {
+            return "LDR";
+        }
+        if (GESTURE_NEW_TAB.equals(action)) {
+            return "LUR";
+        }
+        return "";
+    }
+
+    static String gestureForAction(SharedPreferences preferences, String action) {
+        if (preferences == null || action == null) {
+            return "";
+        }
+        return preferences.getString(PREF_GESTURE_PREFIX + action, defaultGestureForAction(action));
+    }
+
+    static void saveGestureForAction(SharedPreferences preferences, String action, String gesture) {
+        if (preferences == null || action == null) {
+            return;
+        }
+        String normalized = normalizeGesture(gesture);
+        preferences.edit().putString(PREF_GESTURE_PREFIX + action,
+                validGesture(normalized) ? normalized : "").apply();
+    }
+
+    static String normalizeGesture(String gesture) {
+        if (gesture == null) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < gesture.length(); i++) {
+            char value = Character.toUpperCase(gesture.charAt(i));
+            if (value != 'L' && value != 'R' && value != 'U' && value != 'D') {
+                continue;
+            }
+            int length = builder.length();
+            if (length == 0 || builder.charAt(length - 1) != value) {
+                builder.append(value);
+            }
+        }
+        return builder.toString();
+    }
+
+    static boolean validGesture(String gesture) {
+        String normalized = normalizeGesture(gesture);
+        return !normalized.isEmpty()
+                && (normalized.charAt(0) == 'L' || normalized.charAt(0) == 'R');
+    }
+
+    static String gestureArrows(String gesture) {
+        String normalized = normalizeGesture(gesture);
+        if (normalized.isEmpty()) {
+            return text("\u672a\u8a2d\u5b9a", "Unassigned");
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < normalized.length(); i++) {
+            if (i > 0) {
+                builder.append(' ');
+            }
+            char value = normalized.charAt(i);
+            if (value == 'L') {
+                builder.append("\u2190");
+            } else if (value == 'R') {
+                builder.append("\u2192");
+            } else if (value == 'U') {
+                builder.append("\u2191");
+            } else if (value == 'D') {
+                builder.append("\u2193");
+            }
+        }
+        return builder.toString();
+    }
 
     private int bgColor() {
         if (privateUiActive()) {
@@ -432,7 +612,25 @@ public class MainActivity extends Activity {
                 clearAddressFocus();
             }
         }
+        boolean wasGestureIntercepting = gestureIntercepting;
+        boolean consumeGesture = trackGestureEvent(event);
+        if (consumeGesture) {
+            if (!wasGestureIntercepting && gestureIntercepting) {
+                cancelChildTouch(event);
+            }
+            return true;
+        }
         return super.dispatchTouchEvent(event);
+    }
+
+    private void cancelChildTouch(MotionEvent event) {
+        MotionEvent cancel = MotionEvent.obtain(event);
+        cancel.setAction(MotionEvent.ACTION_CANCEL);
+        try {
+            super.dispatchTouchEvent(cancel);
+        } finally {
+            cancel.recycle();
+        }
     }
 
     private void buildLayout() {
@@ -965,6 +1163,10 @@ public class MainActivity extends Activity {
         if (tab != null) {
             tab.threadRenderGeneration++;
             tab.threadRendering = false;
+            if (tab.threadPostVisibilityTask != null) {
+                mainHandler.removeCallbacks(tab.threadPostVisibilityTask);
+                tab.threadPostVisibilityTask = null;
+            }
             if (tab.threadScrollChromeTask != null) {
                 mainHandler.removeCallbacks(tab.threadScrollChromeTask);
                 tab.threadScrollChromeTask = null;
@@ -1027,6 +1229,17 @@ public class MainActivity extends Activity {
             menu.getChildAt(0).setAlpha(0.45f);
         }
         menu.addView(horizontalDivider());
+        String boardUrl = currentThreadBoardUrl(tab);
+        View openBoard = menuIconItem(R.drawable.ic_arrow_up, text("\u677f\u3078", "Go to board"), v -> {
+            dismissPopupAnimated(popup);
+            openInCurrentTab(boardUrl);
+        });
+        if (boardUrl == null) {
+            openBoard.setEnabled(false);
+            openBoard.setAlpha(0.45f);
+        }
+        menu.addView(openBoard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_search, text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page"), v -> {
             dismissPopupAnimated(popup);
             showThreadSearchDialog();
@@ -1045,6 +1258,28 @@ public class MainActivity extends Activity {
         menu.addView(menuNavigationRow(popup), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         showMenuWithinScreen(popup, menu, anchor);
+    }
+
+    private String currentThreadBoardUrl(CuspTab tab) {
+        if (tab == null || tab.url == null || !isThreadUrl(tab.url)) {
+            return null;
+        }
+        DatAddress address = datAddress(tab.url);
+        if (address == null || address.host == null || address.board == null
+                || address.host.isEmpty() || address.board.isEmpty()) {
+            return null;
+        }
+        String scheme = address.scheme == null || address.scheme.isEmpty() ? "https" : address.scheme;
+        return scheme + "://" + address.host + "/" + address.board + "/";
+    }
+
+    private void openCurrentThreadBoard() {
+        String boardUrl = currentThreadBoardUrl(currentTab());
+        if (boardUrl == null) {
+            Toast.makeText(this, text("\u677fURL\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board URL found."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        openInCurrentTab(boardUrl);
     }
 
     private LinearLayout menuNavigationRow(PopupWindow popup) {
@@ -1240,22 +1475,16 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
-    private GradientDrawable postBackground(boolean unread) {
-        return roundedFill(unread ? Theme.unread(this) : postColor(), dp(12));
+    private Drawable postBackground(boolean unread) {
+        return postBackground(unread, false);
     }
 
-    private View myPostMarker() {
-        View marker = new View(this);
-        marker.setBackground(roundedFill(Theme.accent(this), dp(3)));
-        return marker;
-    }
-
-    private FrameLayout.LayoutParams myPostMarkerParams(int left, int top, int bottom) {
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(4),
-                ViewGroup.LayoutParams.MATCH_PARENT);
-        params.setMargins(left, top + dp(7), 0, bottom + dp(7));
-        params.gravity = Gravity.LEFT;
-        return params;
+    private Drawable postBackground(boolean unread, boolean myPost) {
+        int fill = unread ? Theme.unread(this) : postColor();
+        if (!myPost) {
+            return roundedFill(fill, dp(12));
+        }
+        return new MyPostBackgroundDrawable(fill, Color.rgb(37, 99, 235), dp(12), dp(5));
     }
 
     private GradientDrawable addressBarBackground() {
@@ -2209,6 +2438,7 @@ public class MainActivity extends Activity {
                 }
                 tab.threadPage = result;
                 tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
+                markReadTo(tab, lastExistingPostNumber(result, oldCount), false);
                 tab.title = result.title;
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
@@ -2459,14 +2689,12 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
-        scroll.setClipChildren(false);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleThreadMediaLoads);
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
-        list.setClipChildren(false);
         tab.threadList = list;
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -2523,12 +2751,23 @@ public class MainActivity extends Activity {
     }
 
     private void addPostCard(LinearLayout list, ThreadPage page, CuspTab tab, PostRenderItem item, int index) {
+        PostCardShell postCard = createPostCardShell(page, tab, item);
+        if (postCard == null) {
+            return;
+        }
+        list.addView(postCard.shell, Math.max(0, Math.min(index, list.getChildCount())),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+        tab.postViews.put(item.post.number, postCard.card);
+    }
+
+    private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item) {
         Post post = item.post;
         int depth = item.depth;
         if (matchesNgPost(post)) {
-            return;
+            return null;
         }
-        post.aaMode = isAaPost(preferences, page.url, post.number);
+        post.aaMode = aaModeForPost(page, post);
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
@@ -2545,7 +2784,7 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(postBackground(post.number > tab.readPostNumber));
+        card.setBackground(postBackground(post.number > tab.readPostNumber, isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
                 return true;
@@ -2571,81 +2810,69 @@ public class MainActivity extends Activity {
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         shell.addView(card, cardFrameParams);
-        if (isMyPost(page, post)) {
-            shell.addView(myPostMarker(), myPostMarkerParams(indentLeft, 0, dp(8)));
-        }
-        list.addView(shell, Math.max(0, Math.min(index, list.getChildCount())),
-                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT));
-        tab.postViews.put(post.number, card);
+        return new PostCardShell(shell, card);
     }
 
     private void renderPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab) {
         if (tab.postViews == null) {
             tab.postViews = new LinkedHashMap<>();
         }
+        if (tab.postSlots == null) {
+            tab.postSlots = new LinkedHashMap<>();
+        }
+        if (tab.renderedPostSlots == null) {
+            tab.renderedPostSlots = new LinkedHashSet<>();
+        }
+        tab.postViews.clear();
+        tab.postSlots.clear();
+        tab.renderedPostSlots.clear();
         List<PostRenderItem> items = treeViewEnabled()
-                ? treePostRenderItems(page)
+                ? treePostRenderItemsForReadBoundary(page, tab.readPostNumber)
                 : flatPostRenderItems(page);
         int generation = ++tab.threadRenderGeneration;
         tab.threadRendering = true;
-        renderPostCardBatch(list, page, tab, items, 0, generation, null, true);
+        renderPostSlots(list, page, tab, items, list.getChildCount(), generation, null);
     }
 
     private void renderAdditionalPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab,
                                                         int fromPostIndex, Runnable onComplete) {
-        if (list == null || tab == null || tab.postViews == null) {
+        if (list == null || tab == null || tab.postViews == null || tab.postSlots == null) {
             if (onComplete != null) {
                 onComplete.run();
             }
             return;
         }
         List<PostRenderItem> items = treeViewEnabled()
-                ? treePostRenderItems(page, Math.max(0, fromPostIndex))
+                ? treePostRenderItems(page, Math.max(0, fromPostIndex), tab.readPostNumber)
                 : flatPostRenderItems(page, Math.max(0, fromPostIndex));
         int generation = ++tab.threadRenderGeneration;
         tab.threadRendering = true;
-        renderPostCardBatch(list, page, tab, items, 0, generation, onComplete, true);
+        renderPostSlots(list, page, tab, items, list.getChildCount(), generation, onComplete);
     }
 
-    private void renderPostCardBatch(LinearLayout list, ThreadPage page, CuspTab tab, List<PostRenderItem> items,
-                                     int start, int generation, Runnable onComplete, boolean firstBatch) {
+    private void renderPostSlots(LinearLayout list, ThreadPage page, CuspTab tab, List<PostRenderItem> items,
+                                 int insertIndex, int generation, Runnable onComplete) {
         if (tab.threadRenderGeneration != generation || tab.threadList != list) {
             return;
         }
-        int batchSize = firstBatch ? INITIAL_THREAD_RENDER_BATCH : THREAD_RENDER_BATCH;
-        int end = Math.min(items.size(), start + batchSize);
-        for (int i = start; i < end; i++) {
-            if (tab.threadRenderGeneration != generation || tab.threadList != list) {
-                return;
-            }
-            addPostCard(list, page, tab, items.get(i), list.getChildCount());
+        for (PostRenderItem item : items) {
+            VirtualPostSlot slot = new VirtualPostSlot(page, tab, item, estimatePostSlotHeight(item));
+            FrameLayout holder = new FrameLayout(this);
+            holder.setTag(slot);
+            holder.addView(postSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+            int index = Math.max(0, Math.min(insertIndex++, list.getChildCount()));
+            list.addView(holder, index, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            tab.postSlots.put(item.post.number, holder);
         }
-        if (firstBatch) {
-            revealInitialThreadRender(tab);
-        }
-        if (end >= items.size()) {
-            completeThreadRender(tab, onComplete);
-            return;
-        }
-        mainHandler.postDelayed(() -> renderPostCardBatch(list, page, tab, items, end, generation, onComplete, false), 12);
-    }
-
-    private void revealInitialThreadRender(CuspTab tab) {
-        if (tab != currentTab()) {
-            return;
-        }
-        progressBar.setVisibility(View.GONE);
-        if (tab.postViews != null) {
-            visiblePostViews.clear();
-            visiblePostViews.putAll(tab.postViews);
-        }
-        scheduleThreadMediaLoads();
+        completeThreadRender(tab, onComplete);
     }
 
     private void completeThreadRender(CuspTab tab, Runnable onComplete) {
         tab.threadRendering = false;
         finishThreadRender(tab);
+        scheduleThreadPostVisibilityRefresh(tab);
         scheduleLazyImgurLoads();
         if (tab == currentTab()) {
             visiblePostViews.clear();
@@ -2659,7 +2886,9 @@ public class MainActivity extends Activity {
             restoreThreadScroll(tab);
             runPendingScrollToBottom(tab);
         }
-        tab.fastRenderToBottom = false;
+        if (pendingScrollToBottomTab != tab) {
+            tab.fastRenderToBottom = false;
+        }
         if (onComplete != null) {
             onComplete.run();
         }
@@ -2691,10 +2920,18 @@ public class MainActivity extends Activity {
     }
 
     private List<PostRenderItem> treePostRenderItems(ThreadPage page) {
-        return treePostRenderItems(page, 0);
+        return treePostRenderItems(page, 0, 0);
+    }
+
+    private List<PostRenderItem> treePostRenderItemsForReadBoundary(ThreadPage page, int readPostNumber) {
+        return treePostRenderItems(page, 0, readPostNumber);
     }
 
     private List<PostRenderItem> treePostRenderItems(ThreadPage page, int fromPostIndex) {
+        return treePostRenderItems(page, fromPostIndex, 0);
+    }
+
+    private List<PostRenderItem> treePostRenderItems(ThreadPage page, int fromPostIndex, int readPostNumber) {
         List<Post> visible = new ArrayList<>();
         Set<Integer> visibleNumbers = new LinkedHashSet<>();
         for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
@@ -2707,7 +2944,7 @@ public class MainActivity extends Activity {
         Map<Integer, List<Post>> children = new LinkedHashMap<>();
         List<Post> roots = new ArrayList<>();
         for (Post post : visible) {
-            int parent = firstQuotedParent(post, visibleNumbers);
+            int parent = firstQuotedParent(post, visibleNumbers, readPostNumber);
             if (parent > 0) {
                 List<Post> childList = children.get(parent);
                 if (childList == null) {
@@ -2767,7 +3004,7 @@ public class MainActivity extends Activity {
         Map<Integer, List<Post>> children = new LinkedHashMap<>();
         List<Post> roots = new ArrayList<>();
         for (Post post : visible) {
-            int parent = firstQuotedParent(post, visibleNumbers);
+            int parent = firstQuotedParent(post, visibleNumbers, tab == null ? 0 : tab.readPostNumber);
             if (parent > 0) {
                 List<Post> items = children.get(parent);
                 if (items == null) {
@@ -2806,9 +3043,14 @@ public class MainActivity extends Activity {
     }
 
     private int firstQuotedParent(Post post, Set<Integer> visibleNumbers) {
+        return firstQuotedParent(post, visibleNumbers, 0);
+    }
+
+    private int firstQuotedParent(Post post, Set<Integer> visibleNumbers, int readPostNumber) {
         if (post == null || post.body == null) {
             return 0;
         }
+        boolean unreadPost = post.number > readPostNumber;
         Matcher matcher = REPLY_PATTERN.matcher(post.body);
         while (matcher.find()) {
             int from = parsePositiveInt(matcher.group(1), -1);
@@ -2817,6 +3059,9 @@ public class MainActivity extends Activity {
             int last = Math.max(from, to);
             for (int number = first; number <= last; number++) {
                 if (number == 1 && skipFirstReplyInTree()) {
+                    continue;
+                }
+                if (unreadPost && number <= readPostNumber) {
                     continue;
                 }
                 if (number > 0 && number < post.number && visibleNumbers.contains(number)) {
@@ -2852,7 +3097,12 @@ public class MainActivity extends Activity {
         final float[] downX = new float[1];
         final float[] downY = new float[1];
         final boolean[] dragging = new boolean[1];
+        final boolean[] horizontalIntent = new boolean[1];
+        final Map<View, Boolean> longClickStates = new LinkedHashMap<>();
         trigger.setOnTouchListener((v, event) -> {
+            if (gesturesEnabled()) {
+                return false;
+            }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 if (v instanceof TextView) {
                     String url = touchedUrl((TextView) v, event);
@@ -2861,23 +3111,36 @@ public class MainActivity extends Activity {
                 downX[0] = event.getRawX();
                 downY[0] = event.getRawY();
                 dragging[0] = false;
+                horizontalIntent[0] = false;
                 card.clearAnimation();
                 return false;
             }
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 float dx = event.getRawX() - downX[0];
                 float dy = event.getRawY() - downY[0];
-                if (!dragging[0] && Math.abs(dx) > dp(12) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
-                    dragging[0] = true;
+                if (!horizontalIntent[0] && Math.abs(dx) > dp(3) && Math.abs(dx) > Math.abs(dy) * 1.05f) {
+                    horizontalIntent[0] = true;
                     post.swiping = true;
                     post.lastSwipeAt = System.currentTimeMillis();
-                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                    v.cancelLongPress();
+                    card.cancelLongPress();
+                    setLongClickableDeep(card, false, longClickStates);
+                    requestDisallowInterceptDeep(v, true);
+                    if (v instanceof TextView) {
+                        v.setTag(null);
+                    }
+                }
+                if (!dragging[0] && horizontalIntent[0] && Math.abs(dx) > dp(6)) {
+                    dragging[0] = true;
                 }
                 if (dragging[0]) {
                     float translation = Math.max(-dp(92), Math.min(dp(92), dx * 0.55f));
                     card.setTranslationX(translation);
                     readAction.setAlpha(Math.max(0f, Math.min(1f, translation / dp(64))));
                     replyAction.setAlpha(Math.max(0f, Math.min(1f, -translation / dp(64))));
+                    return true;
+                }
+                if (horizontalIntent[0]) {
                     return true;
                 }
             }
@@ -2892,21 +3155,66 @@ public class MainActivity extends Activity {
                     readAction.animate().alpha(0f).setDuration(130).start();
                     replyAction.animate().alpha(0f).setDuration(130).start();
                     mainHandler.postDelayed(() -> post.swiping = false, 220);
+                    requestDisallowInterceptDeep(v, false);
+                    restoreLongClickableStates(longClickStates);
                     if (event.getAction() == MotionEvent.ACTION_UP) {
                         if (tx <= -dp(54)) {
                             showWriteDialog(">>" + post.number + "\n");
                         } else if (tx >= dp(54)) {
-                            setReadThrough(tab, post.number);
-                            card.setBackground(postBackground(false));
+                            setReadThroughPost(tab, post);
+                            card.setBackground(postBackground(false, isMyPost(tab == null ? null : tab.threadPage, post)));
                         }
                     }
                     return true;
                 }
+                if (horizontalIntent[0]) {
+                    post.swiping = false;
+                    post.lastSwipeAt = System.currentTimeMillis();
+                    requestDisallowInterceptDeep(v, false);
+                    restoreLongClickableStates(longClickStates);
+                    return true;
+                }
                 post.swiping = false;
                 post.lastSwipeAt = System.currentTimeMillis();
+                requestDisallowInterceptDeep(v, false);
+                restoreLongClickableStates(longClickStates);
             }
             return false;
         });
+    }
+
+    private void setLongClickableDeep(View view, boolean enabled, Map<View, Boolean> oldStates) {
+        if (view == null || oldStates == null) {
+            return;
+        }
+        if (!oldStates.containsKey(view)) {
+            oldStates.put(view, view.isLongClickable());
+        }
+        view.setLongClickable(enabled);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                setLongClickableDeep(group.getChildAt(i), enabled, oldStates);
+            }
+        }
+    }
+
+    private void restoreLongClickableStates(Map<View, Boolean> oldStates) {
+        if (oldStates == null || oldStates.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<View, Boolean> entry : oldStates.entrySet()) {
+            entry.getKey().setLongClickable(entry.getValue());
+        }
+        oldStates.clear();
+    }
+
+    private void requestDisallowInterceptDeep(View view, boolean disallow) {
+        ViewParent parent = view == null ? null : view.getParent();
+        while (parent != null) {
+            parent.requestDisallowInterceptTouchEvent(disallow);
+            parent = parent instanceof View ? ((View) parent).getParent() : null;
+        }
     }
 
     private boolean isPostSwipeBlocked(Post post) {
@@ -2987,7 +3295,7 @@ public class MainActivity extends Activity {
         }));
         menu.addView(dialogAction(R.drawable.ic_check, text("\u3053\u3053\u307e\u3067\u8aad\u3093\u3060", "Read to here"), () -> {
             dialog.dismiss();
-            setReadThrough(tab, post.number);
+            setReadThroughPost(tab, post);
         }));
         menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
             dialog.dismiss();
@@ -3001,7 +3309,8 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber));
+        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber,
+                isMyPost(tab == null ? null : tab.threadPage, post)));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(0, 0, 0, dp(10));
@@ -3059,15 +3368,18 @@ public class MainActivity extends Activity {
     }
 
     private TextView postActionPreviewBody(CuspTab tab, Post post) {
-        boolean aa = tab != null && tab.threadPage != null
-                && isAaPost(preferences, tab.threadPage.url, post.number);
+        boolean aa = tab != null && tab.threadPage != null && aaModeForPost(tab.threadPage, post);
         TextView body = new TextView(this);
         body.setText(post.body);
         body.setTextColor(textColor());
         body.setTextSize(aa ? 13 : 15);
-        body.setTypeface(aa ? Typeface.MONOSPACE : Typeface.DEFAULT);
-        body.setIncludeFontPadding(!aa);
-        body.setLineSpacing(0, aa ? 1.0f : 1.15f);
+        if (aa) {
+            applyAaTypeface(body);
+        } else {
+            body.setTypeface(Typeface.DEFAULT);
+            body.setIncludeFontPadding(true);
+        }
+        body.setLineSpacing(0, aa ? AA_LINE_SPACING_MULTIPLIER : 1.15f);
         body.setTextIsSelectable(true);
         body.setPadding(0, dp(4), 0, 0);
         if (aa) {
@@ -3296,7 +3608,18 @@ public class MainActivity extends Activity {
             return scroll;
         }
 
+        renderSearchSlots(scroll, list, page);
+
+        if (page.results.isEmpty()) {
+            list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
+        }
+        return withScrollScrubber(scroll);
+    }
+
+    private void renderSearchSlots(ScrollView scroll, LinearLayout list, SearchPage page) {
+        list.setTag(new VirtualSearchState());
         String renderedCategory = null;
+        int count = 0;
         for (SearchResult result : page.results) {
             if (matchesNgThread(result.title)) {
                 continue;
@@ -3304,44 +3627,195 @@ public class MainActivity extends Activity {
             if (result.category != null && !result.category.trim().isEmpty()
                     && !result.category.equals(renderedCategory)) {
                 renderedCategory = result.category;
-                list.addView(categoryHeader(renderedCategory));
+                addVirtualSearchSlot(list, new VirtualSearchSlot(renderedCategory, null, true));
             }
-            LinearLayout shell = new LinearLayout(this);
-            shell.setOrientation(LinearLayout.HORIZONTAL);
-            shell.setGravity(Gravity.CENTER_VERTICAL);
-            shell.setBackgroundColor(postColor());
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.VERTICAL);
-            row.setPadding(dp(10), dp(9), dp(10), dp(9));
-            row.setOnClickListener(v -> routeLink(result.url, currentTab()));
-            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            rowParams.setMargins(0, 0, 0, dp(8));
+            addVirtualSearchSlot(list, new VirtualSearchSlot(null, result, false));
+            count++;
+        }
+        if (count > 0) {
+            final Runnable[] refreshTask = new Runnable[1];
+            refreshTask[0] = () -> refreshSearchSlots(scroll, list);
+            scroll.getViewTreeObserver().addOnScrollChangedListener(() -> {
+                if (list.getTag() instanceof VirtualSearchState) {
+                    ((VirtualSearchState) list.getTag()).lastScrollAt = android.os.SystemClock.uptimeMillis();
+                }
+                list.removeCallbacks(refreshTask[0]);
+                list.postDelayed(refreshTask[0], 16);
+            });
+            list.post(refreshTask[0]);
+        }
+    }
 
-            TextView resultTitle = new TextView(this);
-            resultTitle.setText(styledResultTitle(result));
-            resultTitle.setTextColor(textColor());
-            resultTitle.setTextSize(16);
-            resultTitle.setPadding(0, 0, 0, dp(4));
-            row.addView(resultTitle);
+    private void addVirtualSearchSlot(LinearLayout list, VirtualSearchSlot slot) {
+        FrameLayout holder = new FrameLayout(this);
+        holder.setTag(slot);
+        holder.addView(searchSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (slot.categoryHeader) {
+            params.setMargins(0, dp(8), 0, dp(8));
+        } else {
+            params.setMargins(0, 0, 0, dp(8));
+        }
+        list.addView(holder, params);
+    }
 
-            TextView meta = new TextView(this);
-            meta.setText(styledResultMeta(result.meta));
-            meta.setTextColor(mutedColor());
-            meta.setTextSize(12);
-            row.addView(meta);
-            shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            ImageButton save = saveToggleButtonForResult(result);
-            if (save != null) {
-                shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
+    private void refreshSearchSlots(ScrollView scroll, LinearLayout list) {
+        if (scroll == null || list == null) {
+            return;
+        }
+        int scrollY = scroll.getScrollY();
+        int height = scroll.getHeight();
+        if (height <= 0) {
+            return;
+        }
+        VirtualSearchState state = list.getTag() instanceof VirtualSearchState
+                ? (VirtualSearchState) list.getTag() : null;
+        boolean scrolling = state != null
+                && android.os.SystemClock.uptimeMillis() - state.lastScrollAt < 180;
+        int top = Math.max(0, scrollY - height * 2);
+        int bottom = scrollY + height * 5;
+        int start = firstChildWithBottomAtLeast(list, top);
+        int end = lastChildWithTopAtMost(list, bottom);
+        Set<FrameLayout> keep = new LinkedHashSet<>();
+        for (int i = start; i <= end && i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualSearchSlot)) {
+                continue;
             }
-            list.addView(shell, rowParams);
+            FrameLayout holder = (FrameLayout) child;
+            VirtualSearchSlot slot = (VirtualSearchSlot) tag;
+            renderSearchSlot(holder, slot);
+            keep.add(holder);
         }
+        if (!scrolling && state != null && !state.renderedSlots.isEmpty()) {
+            for (FrameLayout holder : new ArrayList<>(state.renderedSlots)) {
+                if (keep.contains(holder)) {
+                    continue;
+                }
+                Object tag = holder.getTag();
+                if (tag instanceof VirtualSearchSlot) {
+                    recycleSearchSlot(holder, (VirtualSearchSlot) tag);
+                }
+            }
+        }
+    }
 
-        if (page.results.isEmpty()) {
-            list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
+    private void renderSearchSlot(FrameLayout holder, VirtualSearchSlot slot) {
+        if (holder == null || slot == null || slot.rendered) {
+            return;
         }
-        return withScrollScrubber(scroll);
+        View view = slot.categoryHeader ? categoryHeader(slot.category) : searchResultRow(slot.result);
+        holder.removeAllViews();
+        holder.addView(view, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        slot.rendered = true;
+        if (holder.getParent() instanceof View) {
+            View parent = (View) holder.getParent();
+            if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualSearchState) {
+                ((VirtualSearchState) parent.getTag()).renderedSlots.add(holder);
+            }
+        }
+    }
+
+    private void recycleSearchSlot(FrameLayout holder, VirtualSearchSlot slot) {
+        if (holder == null || slot == null || !slot.rendered) {
+            return;
+        }
+        int measured = holder.getHeight();
+        if (measured > 0) {
+            slot.height = Math.max(slot.height, measured);
+        }
+        holder.removeAllViews();
+        holder.addView(searchSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        slot.rendered = false;
+        if (holder.getParent() instanceof View) {
+            View parent = (View) holder.getParent();
+            if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualSearchState) {
+                ((VirtualSearchState) parent.getTag()).renderedSlots.remove(holder);
+            }
+        }
+    }
+
+    private View searchSlotSpacer(int height) {
+        View spacer = new View(this);
+        spacer.setMinimumHeight(Math.max(dp(44), height));
+        return spacer;
+    }
+
+    private int estimateSearchResultHeight(SearchResult result) {
+        String title = result == null || result.title == null ? "" : result.title;
+        String meta = result == null || result.meta == null ? "" : result.meta;
+        int titleLines = Math.max(1, title.length() / 24 + 1);
+        int metaLines = meta.isEmpty() ? 0 : Math.max(1, meta.length() / 42 + 1);
+        return dp(26 + Math.min(3, titleLines) * 20 + Math.min(2, metaLines) * 16);
+    }
+
+    private int firstChildWithBottomAtLeast(ViewGroup group, int y) {
+        int low = 0;
+        int high = group == null ? -1 : group.getChildCount() - 1;
+        int answer = high + 1;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            View child = group.getChildAt(mid);
+            if (child.getBottom() >= y) {
+                answer = mid;
+                high = mid - 1;
+            } else {
+                low = mid + 1;
+            }
+        }
+        return Math.max(0, answer);
+    }
+
+    private int lastChildWithTopAtMost(ViewGroup group, int y) {
+        int low = 0;
+        int high = group == null ? -1 : group.getChildCount() - 1;
+        int answer = -1;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            View child = group.getChildAt(mid);
+            if (child.getTop() <= y) {
+                answer = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return answer;
+    }
+
+    private View searchResultRow(SearchResult result) {
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.HORIZONTAL);
+        shell.setGravity(Gravity.CENTER_VERTICAL);
+        shell.setBackgroundColor(postColor());
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(10), dp(9), dp(10), dp(9));
+        row.setOnClickListener(v -> routeLink(result.url, currentTab()));
+
+        TextView resultTitle = new TextView(this);
+        resultTitle.setText(styledResultTitle(result));
+        resultTitle.setTextColor(textColor());
+        resultTitle.setTextSize(16);
+        resultTitle.setPadding(0, 0, 0, dp(4));
+        row.addView(resultTitle);
+
+        TextView meta = new TextView(this);
+        meta.setText(styledResultMeta(result.meta));
+        meta.setTextColor(mutedColor());
+        meta.setTextSize(12);
+        row.addView(meta);
+        shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton save = saveToggleButtonForResult(result);
+        if (save != null) {
+            shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        }
+        return shell;
     }
 
     private View buildBbsCategoryIndexView(SearchPage page) {
@@ -3551,7 +4025,7 @@ public class MainActivity extends Activity {
             tab.scrollScrubber = scrubber;
         }
         root.addView(scrubber, new LinearLayout.LayoutParams(
-                dp(34), ViewGroup.LayoutParams.MATCH_PARENT));
+                dp(24), ViewGroup.LayoutParams.MATCH_PARENT));
 
         View rail = new View(this);
         rail.setBackgroundColor(Color.argb(28, 31, 41, 55));
@@ -3571,28 +4045,39 @@ public class MainActivity extends Activity {
         thumbBackground.setColor(Color.argb(170, 15, 118, 110));
         thumbBackground.setCornerRadius(dp(8));
         thumb.setBackground(thumbBackground);
-        FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(dp(16), dp(56));
+        FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(dp(10), dp(56));
         thumbParams.gravity = Gravity.CENTER_HORIZONTAL;
         scrubber.addView(thumb, thumbParams);
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
             if (tab != null && tab.threadRendering) {
-                thumb.setVisibility(View.GONE);
-                unreadMarkers.removeAllViews();
+                updateScrollThumb(scroll, scrubber, thumb);
+                if (scrollY != oldScrollY) {
+                    tab.lastScrollAt = android.os.SystemClock.uptimeMillis();
+                }
                 scheduleLazyImgurLoads();
+                scheduleThreadPostVisibilityRefresh(tab);
                 return;
             }
             updateScrollThumb(scroll, scrubber, thumb);
             if (tab != null && scrollY != oldScrollY) {
-                tab.lastScrollAt = android.os.SystemClock.uptimeMillis();
-                rememberThreadScroll(tab);
-                requestSaveTabsSoon();
+                long now = android.os.SystemClock.uptimeMillis();
+                tab.lastScrollAt = now;
+                if (isBottomJumpActive(tab)) {
+                    pinThreadScrollToBottom(tab);
+                } else if (now - tab.lastThreadScrollSaveAt >= THREAD_SCROLL_SAVE_INTERVAL_MS) {
+                    tab.lastThreadScrollSaveAt = now;
+                    rememberThreadScroll(tab);
+                    requestSaveTabsSoon();
+                }
+                scheduleThreadPostVisibilityRefresh(tab);
             }
             scheduleLazyImgurLoads();
         });
         scrubber.post(() -> {
             updateScrollThumb(scroll, scrubber, thumb);
             scheduleLazyImgurLoads();
+            scheduleThreadPostVisibilityRefresh(tab);
         });
         if (tab != null) {
             scrubber.post(() -> updateUnreadScrollMarkers(tab));
@@ -3614,22 +4099,20 @@ public class MainActivity extends Activity {
         if (tab.threadRendering) {
             return;
         }
-        int contentHeight = Math.max(1, tab.threadScroll.getChildAt(0).getHeight());
+        View content = tab.threadScroll.getChildAt(0);
+        int contentHeight = Math.max(1, content.getHeight());
         int frameHeight = Math.max(1, tab.scrollScrubber.getHeight());
-        int firstUnreadTop = -1;
-        for (Post post : tab.threadPage.posts) {
-            if (post.number <= tab.readPostNumber) {
-                continue;
-            }
-            View card = tab.postViews.get(post.number);
-            if (card == null || card.getParent() == null) {
-                continue;
-            }
-            View markerSource = (View) card.getParent();
-            firstUnreadTop = Math.max(0, markerSource.getTop());
-            break;
+        int firstUnreadIndex = firstPostIndexAfter(tab.threadPage.posts, tab.readPostNumber);
+        if (firstUnreadIndex < 0) {
+            return;
         }
-        if (firstUnreadTop < 0) {
+        View markerSource = postAnchorView(tab, tab.threadPage.posts.get(firstUnreadIndex).number);
+        if (markerSource == null) {
+            return;
+        }
+        int firstUnreadTop = Math.max(0, descendantTopWithin(markerSource, content));
+        if (firstUnreadTop == 0 && firstUnreadIndex > 0 && !markerSource.isLaidOut()) {
+            scheduleThreadScrollChromeRefresh(tab, 2);
             return;
         }
         int markerTop = Math.max(0, Math.min(frameHeight - dp(2), firstUnreadTop * frameHeight / contentHeight));
@@ -3639,6 +4122,176 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(dp(2), frameHeight - markerTop));
         params.topMargin = markerTop;
         markers.addView(marker, params);
+    }
+
+    private int firstPostIndexAfter(List<Post> posts, int number) {
+        if (posts == null || posts.isEmpty()) {
+            return -1;
+        }
+        int low = 0;
+        int high = posts.size() - 1;
+        int answer = -1;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            Post post = posts.get(mid);
+            int postNumber = post == null ? 0 : post.number;
+            if (postNumber > number) {
+                answer = mid;
+                high = mid - 1;
+            } else {
+                low = mid + 1;
+            }
+        }
+        return answer;
+    }
+
+    private void scheduleThreadPostVisibilityRefresh(CuspTab tab) {
+        if (tab == null || tab.threadList == null || tab.threadScroll == null) {
+            return;
+        }
+        if (tab.threadPostVisibilityTask != null) {
+            return;
+        }
+        tab.threadPostVisibilityTask = () -> {
+            tab.threadPostVisibilityTask = null;
+            refreshThreadPostVisibility(tab);
+        };
+        mainHandler.postDelayed(tab.threadPostVisibilityTask, THREAD_POST_VISIBILITY_INTERVAL_MS);
+    }
+
+    private void refreshThreadPostVisibility(CuspTab tab) {
+        if (tab == null || tab.threadList == null || tab.threadScroll == null) {
+            return;
+        }
+        int scrollY = tab.threadScroll.getScrollY();
+        int height = tab.threadScroll.getHeight();
+        if (height <= 0) {
+            return;
+        }
+        boolean scrolling = recentlyScrolled(tab);
+        int top = Math.max(0, scrollY - (scrolling ? height : height * 2));
+        int bottom = scrollY + (scrolling ? height * 2 : height * 5);
+        ViewGroup list = tab.threadList;
+        int start = firstChildWithBottomAtLeast(list, top);
+        int end = lastChildWithTopAtMost(list, bottom);
+        int visibleStart = firstChildWithBottomAtLeast(list, scrollY);
+        int visibleEnd = lastChildWithTopAtMost(list, scrollY + height);
+        int[] rendered = {0};
+        boolean[] budgetReached = {false};
+        Set<FrameLayout> keep = scrolling ? null : new LinkedHashSet<>();
+        renderVirtualPostSlotsInRange(list, visibleStart, visibleEnd, THREAD_VISIBLE_RENDER_BUDGET,
+                rendered, budgetReached, keep);
+        int budget = scrolling ? THREAD_SCROLL_RENDER_BUDGET : THREAD_IDLE_RENDER_BUDGET;
+        renderVirtualPostSlotsInRange(list, start, end, budget, rendered, budgetReached, keep);
+        if (budgetReached[0]) {
+            scheduleThreadPostVisibilityRefresh(tab);
+        }
+        if (!scrolling && !budgetReached[0] && tab.renderedPostSlots != null && !tab.renderedPostSlots.isEmpty()) {
+            for (FrameLayout holder : new ArrayList<>(tab.renderedPostSlots)) {
+                if (keep.contains(holder)) {
+                    continue;
+                }
+                Object tag = holder.getTag();
+                if (tag instanceof VirtualPostSlot) {
+                    recycleVirtualPostSlot(holder, (VirtualPostSlot) tag);
+                }
+            }
+        }
+        if (isBottomJumpActive(tab)) {
+            pinThreadScrollToBottom(tab);
+        }
+    }
+
+    private void renderVirtualPostSlotsInRange(ViewGroup list, int start, int end, int budget,
+                                               int[] rendered, boolean[] budgetReached,
+                                               Set<FrameLayout> keep) {
+        if (list == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualPostSlot)) {
+                continue;
+            }
+            FrameLayout holder = (FrameLayout) child;
+            VirtualPostSlot slot = (VirtualPostSlot) tag;
+            if (keep != null) {
+                keep.add(holder);
+            }
+            if (slot.rendered) {
+                continue;
+            }
+            if (rendered[0] >= budget) {
+                budgetReached[0] = true;
+                return;
+            }
+            renderVirtualPostSlot(holder, slot);
+            rendered[0]++;
+        }
+    }
+
+    private void renderVirtualPostSlot(FrameLayout holder, VirtualPostSlot slot) {
+        if (holder == null || slot == null || slot.rendered) {
+            return;
+        }
+        PostCardShell postCard = createPostCardShell(slot.page, slot.tab, slot.item);
+        if (postCard == null) {
+            return;
+        }
+        holder.removeAllViews();
+        holder.addView(postCard.shell, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        slot.rendered = true;
+        slot.card = postCard.card;
+        slot.shell = postCard.shell;
+        slot.tab.postViews.put(slot.item.post.number, postCard.card);
+        if (slot.tab.renderedPostSlots != null) {
+            slot.tab.renderedPostSlots.add(holder);
+        }
+        if (slot.tab == currentTab()) {
+            visiblePostViews.put(slot.item.post.number, postCard.card);
+        }
+    }
+
+    private void recycleVirtualPostSlot(FrameLayout holder, VirtualPostSlot slot) {
+        if (holder == null || slot == null || !slot.rendered || highlightedPostView == slot.card) {
+            return;
+        }
+        int measured = holder.getHeight();
+        if (measured > 0) {
+            slot.height = Math.max(slot.height, measured);
+        }
+        holder.removeAllViews();
+        holder.addView(postSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        slot.rendered = false;
+        if (slot.tab.renderedPostSlots != null) {
+            slot.tab.renderedPostSlots.remove(holder);
+        }
+        slot.tab.postViews.remove(slot.item.post.number);
+        if (slot.tab == currentTab()) {
+            visiblePostViews.remove(slot.item.post.number);
+        }
+        slot.card = null;
+        slot.shell = null;
+    }
+
+    private View postSlotSpacer(int height) {
+        View spacer = new View(this);
+        spacer.setMinimumHeight(Math.max(dp(56), height));
+        return spacer;
+    }
+
+    private int estimatePostSlotHeight(PostRenderItem item) {
+        Post post = item == null ? null : item.post;
+        String body = post == null || post.body == null ? "" : post.body;
+        int lines = Math.max(1, body.split("\\n", -1).length);
+        int wrapped = Math.max(0, body.length() / 32);
+        int mediaRows = post == null ? 0 : (int) Math.ceil(imgurLinks(post).size() / 3.0);
+        int depthPad = item == null ? 0 : Math.min(item.depth, 8) * 2;
+        return dp(62 + Math.min(22, lines + wrapped) * 18 + mediaRows * (MEDIA_GRID_CELL_DP + 10) + depthPad);
     }
 
     private View.OnTouchListener scrubberTouchListener(ScrollView scroll, View frame, View thumb) {
@@ -3677,6 +4330,10 @@ public class MainActivity extends Activity {
         frame.getLocationOnScreen(frameLocation);
         float localY = y - frameLocation[1] - thumbHeight / 2f;
         float ratio = Math.max(0f, Math.min(1f, localY / usable));
+        CuspTab tab = currentTab();
+        if (ratio < 0.995f && isBottomJumpActive(tab)) {
+            cancelBottomJump(tab);
+        }
         scrollToScrubberRatio(scroll, ratio);
         return true;
     }
@@ -3720,6 +4377,11 @@ public class MainActivity extends Activity {
                     resetBottomRefreshLoader(loader);
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                CuspTab tab = currentTab();
+                if (isBottomJumpActive(tab) && event.getY() > downY[0] + dp(4)) {
+                    cancelBottomJump(tab);
+                    return false;
+                }
                 if (!startedAtBottom[0] && !dragging[0] && !refreshing[0]
                         && !scroll.canScrollVertically(1)) {
                     startedAtBottom[0] = true;
@@ -3871,17 +4533,14 @@ public class MainActivity extends Activity {
         }
         View thumb = tab.scrollScrubber.getChildCount() >= 3 ? tab.scrollScrubber.getChildAt(2) : null;
         tab.scrollScrubber.post(() -> {
-            tab.scrollScrubber.setAlpha(tab.threadRendering ? 0.35f : 1f);
+            tab.scrollScrubber.setAlpha(1f);
+            updateScrollThumb(tab.threadScroll, tab.scrollScrubber, thumb);
             if (tab.threadRendering) {
-                if (thumb != null) {
-                    thumb.setVisibility(View.GONE);
-                }
                 if (tab.unreadMarkerLayer != null) {
                     tab.unreadMarkerLayer.removeAllViews();
                 }
                 return;
             }
-            updateScrollThumb(tab.threadScroll, tab.scrollScrubber, thumb);
             updateUnreadScrollMarkers(tab);
         });
     }
@@ -3893,7 +4552,7 @@ public class MainActivity extends Activity {
         if (tab.threadScrollChromeTask != null) {
             return;
         }
-        long delay = Math.max(1, frames) * 16L;
+        long delay = tab.threadRendering ? 160L : Math.max(1, frames) * 16L;
         tab.threadScrollChromeTask = () -> {
             tab.threadScrollChromeTask = null;
             refreshThreadScrollChrome(tab);
@@ -4935,6 +5594,7 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         TextView bodyText = postBodyText(value, page, highlight);
+        bodyText.setTag(R.id.tag_post_swipe_text, true);
         if (longClickAction != null) {
             bodyText.setOnLongClickListener(v -> {
                 if (showLinkCopyPopupIfAny(bodyText)) {
@@ -5070,9 +5730,8 @@ public class MainActivity extends Activity {
         body.setText(aaText);
         body.setTextColor(textColor());
         body.setTextSize(13);
-        body.setTypeface(Typeface.MONOSPACE);
-        body.setIncludeFontPadding(false);
-        body.setLineSpacing(0, 1.0f);
+        applyAaTypeface(body);
+        body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
         body.setSingleLine(false);
         body.setHorizontallyScrolling(true);
         body.setPadding(0, 0, 0, 0);
@@ -5094,29 +5753,62 @@ public class MainActivity extends Activity {
         return body;
     }
 
+    private void applyAaTypeface(TextView body) {
+        body.setTypeface(aaTypeface());
+        body.setIncludeFontPadding(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            body.setLetterSpacing(0f);
+        }
+    }
+
+    private Typeface aaTypeface() {
+        if (aaTypeface != null) {
+            return aaTypeface;
+        }
+        try {
+            aaTypeface = Typeface.createFromAsset(getAssets(), "fonts/mona.ttf");
+        } catch (Exception ignored) {
+            aaTypeface = Typeface.create(AA_FONT_FAMILY, Typeface.NORMAL);
+        }
+        return aaTypeface;
+    }
+
     private void fitAaTextSize(TextView body) {
         int available = body.getWidth() - body.getPaddingLeft() - body.getPaddingRight();
         if (available <= 0) {
             return;
         }
         String[] lines = body.getText().toString().split("\\n", -1);
-        float longest = 0f;
-        for (String line : lines) {
-            longest = Math.max(longest, body.getPaint().measureText(line));
-        }
+        body.setTextScaleX(1f);
+        float longest = longestLineWidth(body, lines, body.getTextSize());
         if (longest <= 0f) {
             return;
         }
-        float size = body.getTextSize();
-        float min = dp(7);
-        while (longest > available && size > min) {
-            size = Math.max(min, size * 0.92f);
-            body.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
-            longest = 0f;
-            for (String line : lines) {
-                longest = Math.max(longest, body.getPaint().measureText(line));
+        if (longest > available) {
+            float high = body.getTextSize();
+            float low = 1f;
+            for (int i = 0; i < 14; i++) {
+                float mid = (low + high) / 2f;
+                if (longestLineWidth(body, lines, mid) <= available) {
+                    low = mid;
+                } else {
+                    high = mid;
+                }
             }
+            body.setTextSize(TypedValue.COMPLEX_UNIT_PX, low);
         }
+        body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
+        body.requestLayout();
+    }
+
+    private float longestLineWidth(TextView body, String[] lines, float textSizePx) {
+        TextPaint paint = new TextPaint(body.getPaint());
+        paint.setTextSize(textSizePx);
+        float longest = 0f;
+        for (String line : lines) {
+            longest = Math.max(longest, paint.measureText(line));
+        }
+        return longest;
     }
 
     private void toggleAaMode(CuspTab tab, Post post) {
@@ -5138,7 +5830,95 @@ public class MainActivity extends Activity {
         if (card.getChildCount() >= 2) {
             card.removeViewAt(1);
             card.addView(postBodyView(card, tab.threadPage, tab, post), 1);
+            View holder = (View) card.getParent();
+            if (holder != null && holder.getParent() instanceof FrameLayout
+                    && ((View) holder.getParent()).getTag() instanceof VirtualPostSlot) {
+                View slotHolder = (View) holder.getParent();
+                ViewGroup.LayoutParams params = slotHolder.getLayoutParams();
+                if (params != null) {
+                    params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    slotHolder.setLayoutParams(params);
+                }
+            }
         }
+    }
+
+    private static boolean likelyAaPost(String body) {
+        if (body == null) {
+            return false;
+        }
+        String value = body.trim();
+        if (value.length() < 12) {
+            return false;
+        }
+        String[] lines = value.split("\\n", -1);
+        int maxWidth = 0;
+        int nonWhitespace = 0;
+        int aaChars = 0;
+        int structural = 0;
+        int spaces = 0;
+        for (String line : lines) {
+            int width = 0;
+            for (int i = 0; i < line.length(); i++) {
+                char ch = line.charAt(i);
+                width += visualWidth(ch);
+                if (Character.isWhitespace(ch)) {
+                    if (ch == ' ' || ch == '\u3000') {
+                        spaces++;
+                    }
+                    continue;
+                }
+                nonWhitespace++;
+                if (isAaCharacter(ch)) {
+                    aaChars++;
+                }
+                if (isAaStructuralCharacter(ch)) {
+                    structural++;
+                }
+            }
+            maxWidth = Math.max(maxWidth, width);
+        }
+        boolean singleLine = lines.length <= 1;
+        if (nonWhitespace < 16 || maxWidth < 42) {
+            return false;
+        }
+        float ratio = aaChars / (float) nonWhitespace;
+        if (singleLine && maxWidth < 58) {
+            return false;
+        }
+        return (aaChars >= (singleLine ? 15 : 12) && ratio >= (singleLine ? 0.31f : 0.26f))
+                || (structural >= (singleLine ? 21 : 16) && ratio >= (singleLine ? 0.24f : 0.21f))
+                || (!singleLine && spaces >= 8 && structural >= 12 && ratio >= 0.18f);
+    }
+
+    private static int visualWidth(char ch) {
+        return ch <= 0x007f || (ch >= 0xff61 && ch <= 0xff9f) ? 1 : 2;
+    }
+
+    private static boolean isAaCharacter(char ch) {
+        return isAaStructuralCharacter(ch)
+                || ch == '\u2200' || ch == '\u0414' || ch == '\u0434' || ch == '\u03c9'
+                || ch == '\u30fc' || ch == '\uff3f' || ch == '\uffe3' || ch == '\uff40'
+                || ch == '\u00b4' || ch == '\u02c6' || ch == '^' || ch == '\u309b'
+                || ch == '\u309c' || ch == '\u3002' || ch == '\u30fb' || ch == '\uff65'
+                || ch == '\u5f61' || ch == '\u203b' || ch == '\u2261' || ch == '\u2266'
+                || ch == '\u2267' || ch == '\u2260' || ch == '\u2252' || ch == '\u2282'
+                || ch == '\u2283' || ch == '\u2286' || ch == '\u2287' || ch == '\u22a5'
+                || ch == '\u22bf' || ch == '\u2227' || ch == '\u2228' || ch == '\u2229'
+                || ch == '\u222a';
+    }
+
+    private static boolean isAaStructuralCharacter(char ch) {
+        if ("()[]{}<>/\\|!?=_-".indexOf(ch) >= 0) {
+            return true;
+        }
+        if (ch >= '\u2500' && ch <= '\u257f') {
+            return true;
+        }
+        return ch == '\uff08' || ch == '\uff09' || ch == '\uff3b' || ch == '\uff3d'
+                || ch == '\uff5b' || ch == '\uff5d' || ch == '\uff1c' || ch == '\uff1e'
+                || ch == '\uff0f' || ch == '\uff3c' || ch == '\uff5c' || ch == '\uff01'
+                || ch == '\uff1f' || ch == '\uff1d';
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
@@ -5183,11 +5963,7 @@ public class MainActivity extends Activity {
         spinnerParams.gravity = Gravity.CENTER;
         frame.addView(spinner, spinnerParams);
 
-        TextView error = new TextView(this);
-        error.setText(text("imgur\u753b\u50cf\u3092\u958b\u304f", "Open imgur image"));
-        error.setTextColor(TEAL);
-        error.setTextSize(14);
-        error.setGravity(Gravity.CENTER);
+        TextView error = unavailableMediaLabel(text("\u753b\u50cf\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Image unavailable"));
         error.setVisibility(View.GONE);
         error.setOnClickListener(v -> openExternal(originalUrl));
         if (longClickAction != null) {
@@ -5202,6 +5978,7 @@ public class MainActivity extends Activity {
         Button reveal = new Button(this);
         reveal.setText(text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
         reveal.setAllCaps(false);
+        reveal.setTextSize(12);
         reveal.setTextColor(textColor());
         reveal.setVisibility(View.GONE);
         reveal.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
@@ -5211,7 +5988,7 @@ public class MainActivity extends Activity {
                 return true;
             });
         }
-        FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(112), dp(44));
+        FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(92), dp(36));
         revealParams.gravity = Gravity.CENTER;
         frame.addView(reveal, revealParams);
 
@@ -5241,6 +6018,8 @@ public class MainActivity extends Activity {
         FrameLayout frame = new FrameLayout(this);
         frame.setClickable(true);
         frame.setBackgroundColor(Color.BLACK);
+        frame.setMinimumWidth(cellSize);
+        frame.setMinimumHeight(cellSize);
         if (longClickAction != null) {
             frame.setOnLongClickListener(v -> {
                 longClickAction.run();
@@ -5248,29 +6027,136 @@ public class MainActivity extends Activity {
             });
         }
 
-        VideoView video = new VideoView(this);
-        video.setVideoURI(Uri.parse(videoUrl));
-        video.setOnPreparedListener(player -> {
-            player.setVolume(0f, 0f);
-            video.seekTo(1);
-            video.pause();
-        });
-        video.setOnErrorListener((player, what, extra) -> true);
-        frame.addView(video, new FrameLayout.LayoutParams(
+        ImageView thumbnail = new ImageView(this);
+        thumbnail.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        thumbnail.setVisibility(View.GONE);
+        frame.addView(thumbnail, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        spinner.setAlpha(0.55f);
+        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(28), dp(28));
+        spinnerParams.gravity = Gravity.CENTER;
+        frame.addView(spinner, spinnerParams);
+
+        TextView error = unavailableMediaLabel(text("\u52d5\u753b\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Video unavailable"));
+        error.setVisibility(View.GONE);
+        error.setOnClickListener(v -> openExternal(originalUrl));
+        if (longClickAction != null) {
+            error.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
+
         TextView play = new TextView(this);
-        play.setText("▶");
+        play.setText("髫ｨ繝ｻ・ｽ・ｶ");
         play.setTextColor(Color.WHITE);
         play.setTextSize(34);
         play.setGravity(Gravity.CENTER);
         play.setBackgroundColor(Color.argb(82, 0, 0, 0));
         frame.addView(play, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        frame.addView(error, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        Button reveal = new Button(this);
+        reveal.setText(text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
+        reveal.setAllCaps(false);
+        reveal.setTextSize(12);
+        reveal.setTextColor(textColor());
+        reveal.setVisibility(View.GONE);
+        reveal.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
+        if (longClickAction != null) {
+            reveal.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
+        FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(92), dp(36));
+        revealParams.gravity = Gravity.CENTER;
+        frame.addView(reveal, revealParams);
 
         frame.setOnClickListener(v -> showVideoViewer(originalUrl, videoUrl));
-        video.start();
+        loadVideoThumbnail(videoUrl, thumbnail, spinner, error, play, reveal);
         return frame;
+    }
+
+    private void loadVideoThumbnail(String videoUrl, ImageView thumbnail, ProgressBar spinner,
+                                    TextView error, TextView play, Button reveal) {
+        String thumbnailUrl = videoThumbnailUrl(videoUrl);
+        if (thumbnailUrl == null) {
+            spinner.setVisibility(View.GONE);
+            play.setVisibility(View.GONE);
+            error.setVisibility(View.VISIBLE);
+            return;
+        }
+        ioExecutor.execute(() -> {
+            ImageLoadResult loaded = downloadBitmap(thumbnailUrl, dp(MEDIA_GRID_CELL_DP), dp(MEDIA_GRID_CELL_DP));
+            boolean missing = loaded == null || loaded.missing;
+            Bitmap bitmap = missing ? null : loaded.bitmap;
+            Drawable drawable = missing ? null : loaded.drawable;
+            Bitmap displayBitmap = bitmap;
+            boolean sensitive = false;
+            if (bitmap != null && blurVideoThumbnails()) {
+                Boolean cachedSensitive = readCachedImageSensitive(thumbnailUrl);
+                if (cachedSensitive != null) {
+                    sensitive = cachedSensitive;
+                } else {
+                    sensitive = isGraphicViolenceImage(bitmap);
+                    saveImageSensitive(thumbnailUrl, sensitive);
+                }
+                if (sensitive) {
+                    displayBitmap = blurredBitmap(bitmap);
+                }
+            }
+            Bitmap finalDisplayBitmap = displayBitmap;
+            boolean finalSensitive = sensitive;
+            runOnUiThread(() -> {
+                if (!thumbnail.isAttachedToWindow()) {
+                    return;
+                }
+                spinner.setVisibility(View.GONE);
+                if (bitmap == null && drawable == null) {
+                    play.setVisibility(View.GONE);
+                    error.setVisibility(View.VISIBLE);
+                    return;
+                }
+                if (drawable != null) {
+                    thumbnail.setImageDrawable(drawable);
+                    startAnimatedDrawable(drawable);
+                } else {
+                    thumbnail.setImageBitmap(finalDisplayBitmap);
+                }
+                thumbnail.setVisibility(View.VISIBLE);
+                if (finalSensitive && bitmap != null && blurVideoThumbnails()) {
+                    reveal.setVisibility(View.VISIBLE);
+                    reveal.setOnClickListener(v -> {
+                        thumbnail.setImageBitmap(bitmap);
+                        reveal.setVisibility(View.GONE);
+                    });
+                }
+            });
+        });
+    }
+
+    private String videoThumbnailUrl(String videoUrl) {
+        if (videoUrl == null || videoUrl.isEmpty()) {
+            return null;
+        }
+        String clean = stripTrailingUrlPunctuation(videoUrl);
+        String lower = clean.toLowerCase(Locale.ROOT);
+        if (clean.startsWith("https://i.imgur.com/")) {
+            if (lower.endsWith(".gifv")) {
+                return clean.substring(0, clean.length() - 5) + ".jpg";
+            }
+            if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov") || lower.endsWith(".m4v")) {
+                int dot = clean.lastIndexOf('.');
+                return dot > 0 ? clean.substring(0, dot) + ".jpg" : null;
+            }
+        }
+        return null;
     }
 
     private View deferredMediaPreview(ImgurLink link, Runnable longClickAction, int cellSize) {
@@ -5384,7 +6270,7 @@ public class MainActivity extends Activity {
         }
         int created = 0;
         for (DeferredMediaPreview preview : new ArrayList<>(deferredMediaPreviews)) {
-            if (preview.created || !isNearViewport(preview.placeholder)) {
+            if (preview.created || !isInViewport(preview.placeholder)) {
                 continue;
             }
             preview.created = true;
@@ -5427,7 +6313,7 @@ public class MainActivity extends Activity {
     private void resolveDeferredMediaPreview(DeferredMediaPreview preview) {
         deferredMediaPreviews.remove(preview);
         ioExecutor.execute(() -> {
-            String resolved = resolveTadaupPageMediaUrl(preview.link.imageUrl);
+            String resolved = resolvePreviewPageMediaUrl(preview.link.imageUrl);
             ImgurLink resolvedLink = resolved == null
                     ? null
                     : new ImgurLink(preview.link.originalUrl, resolved, isVideoUrl(resolved), false);
@@ -5443,7 +6329,8 @@ public class MainActivity extends Activity {
                 int index = group.indexOfChild(preview.placeholder);
                 ViewGroup.LayoutParams params = preview.placeholder.getLayoutParams();
                 View media = resolvedLink == null
-                        ? unavailableMediaPreview(preview.longClickAction)
+                        ? unavailableMediaPreview(preview.longClickAction, preview.cellSize,
+                                text("\u30e1\u30c7\u30a3\u30a2\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Media unavailable"))
                         : (resolvedLink.video
                                 ? videoPreview(resolvedLink.originalUrl, resolvedLink.imageUrl, preview.longClickAction, preview.cellSize)
                                 : imgurPreview(resolvedLink.originalUrl, resolvedLink.imageUrl, preview.longClickAction, preview.cellSize));
@@ -5453,23 +6340,36 @@ public class MainActivity extends Activity {
         });
     }
 
-    private View unavailableMediaPreview(Runnable longClickAction) {
+    private View unavailableMediaPreview(Runnable longClickAction, int cellSize, String message) {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(Theme.dark(this) ? Color.rgb(24, 24, 27) : Color.rgb(226, 232, 240));
+        frame.setMinimumWidth(cellSize);
+        frame.setMinimumHeight(cellSize);
+        frame.setBackgroundColor(unavailableMediaColor());
         if (longClickAction != null) {
             frame.setOnLongClickListener(v -> {
                 longClickAction.run();
                 return true;
             });
         }
-        TextView label = new TextView(this);
-        label.setText(text("\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Unavailable"));
-        label.setTextColor(mutedColor());
-        label.setGravity(Gravity.CENTER);
-        label.setTextSize(12);
+        TextView label = unavailableMediaLabel(message);
         frame.addView(label, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         return frame;
+    }
+
+    private TextView unavailableMediaLabel(String message) {
+        TextView label = new TextView(this);
+        label.setText(message);
+        label.setTextColor(mutedColor());
+        label.setGravity(Gravity.CENTER);
+        label.setTextSize(16);
+        label.setPadding(dp(8), dp(8), dp(8), dp(8));
+        label.setBackgroundColor(unavailableMediaColor());
+        return label;
+    }
+
+    private int unavailableMediaColor() {
+        return Theme.dark(this) ? Color.rgb(24, 24, 27) : Color.rgb(226, 232, 240);
     }
 
     private void scheduleLazyImgurLoads() {
@@ -5487,6 +6387,11 @@ public class MainActivity extends Activity {
         if (imgurLoadInFlight) {
             return;
         }
+        CuspTab current = currentTab();
+        if (recentlyScrolled(current)) {
+            scheduleLazyImgurLoads();
+            return;
+        }
         for (int i = lazyImgurPreviews.size() - 1; i >= 0; i--) {
             LazyImgurPreview preview = lazyImgurPreviews.get(i);
             if (!preview.frame.isAttachedToWindow()) {
@@ -5494,7 +6399,7 @@ public class MainActivity extends Activity {
             }
         }
         for (LazyImgurPreview preview : new ArrayList<>(lazyImgurPreviews)) {
-            if (!preview.started && isNearViewport(preview.frame)) {
+            if (!preview.started && isInViewport(preview.frame)) {
                 startLazyImgurLoad(preview);
                 return;
             }
@@ -5510,6 +6415,16 @@ public class MainActivity extends Activity {
         int buffer = Math.max(dp(240), visible.height() / 2);
         visible.top -= buffer;
         visible.bottom += buffer;
+        Rect bounds = new Rect();
+        return view.getGlobalVisibleRect(bounds) && Rect.intersects(visible, bounds);
+    }
+
+    private boolean isInViewport(View view) {
+        if (view == null || !view.isShown()) {
+            return false;
+        }
+        Rect visible = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(visible);
         Rect bounds = new Rect();
         return view.getGlobalVisibleRect(bounds) && Rect.intersects(visible, bounds);
     }
@@ -5542,42 +6457,51 @@ public class MainActivity extends Activity {
             Bitmap finalDisplayBitmap = displayBitmap;
             boolean finalSensitive = sensitive;
             runOnUiThread(() -> {
-                imgurLoadInFlight = false;
-                if (!preview.frame.isAttachedToWindow()) {
-                    lazyImgurPreviews.remove(preview);
-                    scheduleLazyImgurLoads();
-                    return;
-                }
-                preview.spinner.setVisibility(View.GONE);
-                if (finalBitmap == null && finalDrawable == null) {
-                    preview.error.setVisibility(View.VISIBLE);
-                    scheduleLazyImgurLoads();
-                    return;
-                }
-                boolean shouldBlur = blurImgurImages() && finalSensitive;
-                if (finalDrawable != null) {
-                    preview.image.setImageDrawable(finalDrawable);
-                    startAnimatedDrawable(finalDrawable);
-                } else {
-                    preview.image.setImageBitmap(finalDisplayBitmap);
-                }
-                preview.image.setVisibility(View.VISIBLE);
-                if (finalDrawable != null) {
-                    preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
-                } else if (shouldBlur && finalSensitive) {
-                    positionRevealButton(preview.frame, preview.reveal, finalBitmap);
-                    preview.reveal.setVisibility(View.VISIBLE);
-                    preview.reveal.setOnClickListener(v -> {
-                        preview.image.setImageBitmap(finalBitmap);
-                        preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
-                        preview.reveal.setVisibility(View.GONE);
-                    });
-                } else if (!shouldBlur) {
-                    preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
-                }
-                scheduleLazyImgurLoads();
+                applyLazyImgurLoadResultWhenIdle(preview, finalBitmap, finalDrawable, finalDisplayBitmap, finalSensitive);
             });
         });
+    }
+
+    private void applyLazyImgurLoadResultWhenIdle(LazyImgurPreview preview, Bitmap bitmap, Drawable drawable,
+                                                  Bitmap displayBitmap, boolean sensitive) {
+        if (recentlyScrolled(currentTab())) {
+            mainHandler.postDelayed(() -> applyLazyImgurLoadResultWhenIdle(preview, bitmap, drawable, displayBitmap, sensitive), 180);
+            return;
+        }
+        imgurLoadInFlight = false;
+        if (!preview.frame.isAttachedToWindow()) {
+            lazyImgurPreviews.remove(preview);
+            scheduleLazyImgurLoads();
+            return;
+        }
+        preview.spinner.setVisibility(View.GONE);
+        if (bitmap == null && drawable == null) {
+            preview.error.setVisibility(View.VISIBLE);
+            scheduleLazyImgurLoads();
+            return;
+        }
+        boolean shouldBlur = blurImgurImages() && sensitive;
+        if (drawable != null) {
+            preview.image.setImageDrawable(drawable);
+            startAnimatedDrawable(drawable);
+        } else {
+            preview.image.setImageBitmap(displayBitmap);
+        }
+        preview.image.setVisibility(View.VISIBLE);
+        if (drawable != null) {
+            preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
+        } else if (shouldBlur && sensitive) {
+            positionRevealButton(preview.frame, preview.reveal, bitmap);
+            preview.reveal.setVisibility(View.VISIBLE);
+            preview.reveal.setOnClickListener(v -> {
+                preview.image.setImageBitmap(bitmap);
+                preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
+                preview.reveal.setVisibility(View.GONE);
+            });
+        } else if (!shouldBlur) {
+            preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
+        }
+        scheduleLazyImgurLoads();
     }
 
     private void showImageViewer(String originalUrl, String imageUrl) {
@@ -5788,8 +6712,8 @@ public class MainActivity extends Activity {
                 }
                 try (InputStream stream = connection.getInputStream()) {
                     byte[] bytes = readBytes(stream);
-                    if (isHtmlContent(contentType) && isTadaupUrl(candidate)) {
-                        String resolved = extractTadaupImageUrl(bytes, candidate);
+                    if (isHtmlContent(contentType) && isPreviewPageUrl(candidate)) {
+                        String resolved = extractPreviewPageImageUrl(bytes, candidate);
                         if (resolved != null && !resolved.equals(candidate)) {
                             DownloadedImageBytes image = downloadOriginalImageBytes(resolved);
                             if (image != null) {
@@ -6090,6 +7014,43 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isPreviewPageUrl(String url) {
+        return isTadaupUrl(url) || isXxupUrl(url);
+    }
+
+    private boolean isXxupUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            return isXxupHost(host);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String resolvePreviewPageMediaUrl(String pageUrl) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(pageUrl).openConnection();
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(15000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+            if (connection.getResponseCode() >= 400) {
+                return null;
+            }
+            try (InputStream stream = connection.getInputStream()) {
+                return extractPreviewPageImageUrl(readBytes(stream), pageUrl);
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
     private String resolveTadaupPageMediaUrl(String pageUrl) {
         HttpURLConnection connection = null;
         try {
@@ -6114,35 +7075,39 @@ public class MainActivity extends Activity {
     }
 
     private String extractTadaupImageUrl(byte[] bytes, String pageUrl) {
+        return extractPreviewPageImageUrl(bytes, pageUrl);
+    }
+
+    private String extractPreviewPageImageUrl(byte[] bytes, String pageUrl) {
         try {
             String html = new String(bytes, Charset.forName("UTF-8"));
-            String resolved = tadaupImageUrl(absoluteUrl(pageUrl, firstHtmlAttribute(html,
+            String resolved = previewImageUrl(absoluteUrl(pageUrl, firstHtmlAttribute(html,
                     "<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]*>",
                     "content")));
-            if (isUsableTadaupImage(resolved)) {
+            if (isUsablePreviewImage(resolved)) {
                 return resolved;
             }
             Matcher srcset = Pattern.compile("<img\\b[^>]+srcset=[\"']([^\"']+)[\"'][^>]*>",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
             while (srcset.find()) {
                 resolved = bestImageFromSrcset(pageUrl, srcset.group(1));
-                if (isUsableTadaupImage(resolved)) {
+                if (isUsablePreviewImage(resolved)) {
                     return resolved;
                 }
             }
             Matcher source = Pattern.compile("<(?:video|source)\\b[^>]+src=[\"']([^\"']+\\.(?:mp4|webm|mov|m4v))(?:\\?[^\"']*)?[\"'][^>]*>",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
             while (source.find()) {
-                resolved = tadaupImageUrl(absoluteUrl(pageUrl, cleanText(source.group(1))));
-                if (isUsableTadaupImage(resolved)) {
+                resolved = previewImageUrl(absoluteUrl(pageUrl, cleanText(source.group(1))));
+                if (isUsablePreviewImage(resolved)) {
                     return resolved;
                 }
             }
             Matcher src = Pattern.compile("<img\\b[^>]+src=[\"']([^\"']+\\.(?:jpe?g|png|webp|gif))(?:\\?[^\"']*)?[\"'][^>]*>",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
             while (src.find()) {
-                resolved = tadaupImageUrl(absoluteUrl(pageUrl, cleanText(src.group(1))));
-                if (isUsableTadaupImage(resolved)) {
+                resolved = previewImageUrl(absoluteUrl(pageUrl, cleanText(src.group(1))));
+                if (isUsablePreviewImage(resolved)) {
                     return resolved;
                 }
             }
@@ -6151,7 +7116,23 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private String previewImageUrl(String rawUrl) {
+        String tadaup = tadaupImageUrl(rawUrl);
+        if (tadaup != null && !isTadaupPageUrl(tadaup)) {
+            return tadaup;
+        }
+        String xxup = xxupImageUrl(rawUrl);
+        if (xxup != null && !isXxupPageUrl(xxup)) {
+            return xxup;
+        }
+        return null;
+    }
+
     private boolean isUsableTadaupImage(String url) {
+        return isUsablePreviewImage(url);
+    }
+
+    private boolean isUsablePreviewImage(String url) {
         return url != null
                 && !url.contains("/pass")
                 && !url.contains("/logo")
@@ -6178,7 +7159,7 @@ public class MainActivity extends Activity {
                 bestWidth = width;
             }
         }
-        return best == null ? null : tadaupImageUrl(absoluteUrl(pageUrl, cleanText(best)));
+        return best == null ? null : previewImageUrl(absoluteUrl(pageUrl, cleanText(best)));
     }
 
     private String firstHtmlAttribute(String html, String tagPattern, String attribute) {
@@ -6193,22 +7174,28 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap missingImgurBitmap(int maxWidth, int maxHeight) {
-        int width = Math.max(dp(220), Math.min(Math.max(1, maxWidth), dp(520)));
-        int height = Math.max(dp(120), Math.min(Math.max(1, maxHeight), dp(176)));
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        int size = Math.max(dp(108), Math.min(Math.max(1, Math.min(maxWidth, maxHeight)), dp(MEDIA_GRID_CELL_DP)));
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
         android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        paint.setColor(Color.rgb(245, 247, 250));
-        canvas.drawRect(0, 0, width, height, paint);
+        paint.setColor(unavailableMediaColor());
+        canvas.drawRect(0, 0, size, size, paint);
         paint.setStyle(android.graphics.Paint.Style.STROKE);
         paint.setStrokeWidth(dp(1));
-        paint.setColor(Color.rgb(203, 213, 225));
-        canvas.drawRect(dp(1), dp(1), width - dp(1), height - dp(1), paint);
+        paint.setColor(borderColor());
+        canvas.drawRect(dp(1), dp(1), size - dp(1), size - dp(1), paint);
         paint.setStyle(android.graphics.Paint.Style.FILL);
         paint.setTextAlign(android.graphics.Paint.Align.CENTER);
-        paint.setColor(Color.rgb(79, 91, 103));
-        paint.setTextSize(dp(14));
-        canvas.drawText(text("\u753b\u50cf\u306f\u5229\u7528\u3067\u304d\u307e\u305b\u3093", "Image not available"), width / 2f, height / 2f, paint);
+        paint.setColor(mutedColor());
+        paint.setTextSize(dp(16));
+        android.graphics.Paint.FontMetrics metrics = paint.getFontMetrics();
+        String[] lines = text("\u753b\u50cf\u3092\u8868\u793a\n\u3067\u304d\u307e\u305b\u3093", "Image\nunavailable").split("\\n", -1);
+        float lineHeight = metrics.descent - metrics.ascent;
+        float y = size / 2f - lineHeight * (lines.length - 1) / 2f - (metrics.ascent + metrics.descent) / 2f;
+        for (String line : lines) {
+            canvas.drawText(line, size / 2f, y, paint);
+            y += lineHeight;
+        }
         return bitmap;
     }
 
@@ -6315,10 +7302,10 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap blurredBitmap(Bitmap bitmap) {
-        int smallWidth = Math.max(1, bitmap.getWidth() / 22);
-        int smallHeight = Math.max(1, bitmap.getHeight() / 22);
+        int smallWidth = Math.max(1, bitmap.getWidth() / 12);
+        int smallHeight = Math.max(1, bitmap.getHeight() / 12);
         Bitmap small = Bitmap.createScaledBitmap(bitmap, smallWidth, smallHeight, true);
-        small = boxBlur(small, 2);
+        small = boxBlur(small, 1);
         return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
     }
 
@@ -6462,7 +7449,11 @@ public class MainActivity extends Activity {
             return new ImgurLink(rawUrl, imgur, isVideoUrl(imgur), false);
         }
         String tadaup = tadaupImageUrl(rawUrl);
-        return tadaup == null ? null : new ImgurLink(rawUrl, tadaup, isVideoUrl(tadaup), isTadaupPageUrl(tadaup));
+        if (tadaup != null) {
+            return new ImgurLink(rawUrl, tadaup, isVideoUrl(tadaup), isTadaupPageUrl(tadaup));
+        }
+        String xxup = xxupImageUrl(rawUrl);
+        return xxup == null ? null : new ImgurLink(rawUrl, xxup, isVideoUrl(xxup), isXxupPageUrl(xxup));
     }
 
     private String imgurImageUrl(String rawUrl) {
@@ -6547,6 +7538,27 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private String xxupImageUrl(String rawUrl) {
+        try {
+            String normalized = normalizeUrl(rawUrl);
+            Uri uri = Uri.parse(normalized);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null || !isXxupHost(host)) {
+                return null;
+            }
+            String lower = path.toLowerCase(Locale.ROOT);
+            if (lower.matches(".+\\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$")) {
+                return normalized;
+            }
+            if (path.length() > 1) {
+                return normalized;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
     private boolean isTadaupPageUrl(String url) {
         try {
             Uri uri = Uri.parse(normalizeUrl(url));
@@ -6557,6 +7569,24 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private boolean isXxupPageUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null || !isXxupHost(host)) {
+                return false;
+            }
+            return !path.toLowerCase(Locale.ROOT).matches(".+\\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isXxupHost(String host) {
+        return host != null && (host.equalsIgnoreCase("xxup.org") || host.toLowerCase(Locale.ROOT).endsWith(".xxup.org"));
     }
 
     private boolean isVideoUrl(String url) {
@@ -6570,6 +7600,9 @@ public class MainActivity extends Activity {
     }
 
     private void installLinkTouchTracking(TextView text) {
+        if (Boolean.TRUE.equals(text.getTag(R.id.tag_post_swipe_text))) {
+            return;
+        }
         text.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 String url = touchedUrl(text, event);
@@ -6850,7 +7883,7 @@ public class MainActivity extends Activity {
     private View popupPostCard(ThreadPage page, Post post, boolean showShadow) {
         CuspTab tab = currentTab();
         if (tab != null) {
-            post.aaMode = isAaPost(preferences, page.url, post.number);
+            post.aaMode = aaModeForPost(page, post);
         }
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
@@ -6876,7 +7909,7 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber));
+        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber, isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
                 return true;
@@ -6920,9 +7953,6 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(cardInset, cardInset, cardInset, cardInset);
         shell.addView(card, cardParams);
-        if (isMyPost(page, post)) {
-            shell.addView(myPostMarker(), myPostMarkerParams(cardInset, cardInset, cardInset));
-        }
         return shell;
     }
 
@@ -7083,6 +8113,9 @@ public class MainActivity extends Activity {
     }
 
     private boolean isTouchInsideView(MotionEvent event, View view) {
+        if (event == null || view == null || view.getVisibility() != View.VISIBLE) {
+            return false;
+        }
         int[] location = new int[2];
         view.getLocationOnScreen(location);
         Rect bounds = new Rect(
@@ -7093,17 +8126,223 @@ public class MainActivity extends Activity {
         return bounds.contains((int) event.getRawX(), (int) event.getRawY());
     }
 
+    private boolean trackGestureEvent(MotionEvent event) {
+        if (!gesturesEnabled() || shouldIgnoreGestureEvent(event)) {
+            resetGestureTracking();
+            return false;
+        }
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            gestureTracking = true;
+            gestureMoved = false;
+            gestureIntercepting = false;
+            gestureSequence.setLength(0);
+            gestureDownX = gestureLastX = event.getRawX();
+            gestureDownY = gestureLastY = event.getRawY();
+            hideGestureOverlay();
+            return false;
+        }
+        if (!gestureTracking) {
+            return gestureIntercepting;
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            addGestureMove(event.getRawX(), event.getRawY());
+            if (gestureMoved) {
+                gestureIntercepting = true;
+            }
+            String matched = matchedGestureAction(gestureSequence.toString());
+            if (matched != null) {
+                showGestureOverlay(gestureActionLabel(matched));
+            } else if (gestureMoved) {
+                showGestureOverlay(gestureArrows(gestureSequence.toString()));
+            }
+            return gestureIntercepting;
+        }
+        if (action == MotionEvent.ACTION_UP) {
+            boolean consumed = gestureIntercepting;
+            String matched = matchedGestureAction(gestureSequence.toString());
+            hideGestureOverlay();
+            resetGestureTracking();
+            if (matched != null) {
+                performGestureAction(matched);
+            }
+            return consumed;
+        }
+        if (action == MotionEvent.ACTION_CANCEL) {
+            boolean consumed = gestureIntercepting;
+            hideGestureOverlay();
+            resetGestureTracking();
+            return consumed;
+        }
+        return gestureIntercepting;
+    }
+
+    private boolean shouldIgnoreGestureEvent(MotionEvent event) {
+        if (event == null || event.getPointerCount() > 1 || imageOverlay != null || !animatedPopups.isEmpty()
+                || !replyPopups.isEmpty()) {
+            return true;
+        }
+        return isTouchInsideView(event, addressBar)
+                || isTouchInsideView(event, threadSearchInput)
+                || isTouchInsideView(event, suggestionsPanel)
+                || isTouchInsideView(event, bottomToolbar)
+                || isTouchInsideView(event, bottomThreadBar)
+                || isTouchInsideView(event, threadSearchBar);
+    }
+
+    private void addGestureMove(float x, float y) {
+        float dx = x - gestureLastX;
+        float dy = y - gestureLastY;
+        int threshold = gestureThresholdPx();
+        if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) {
+            return;
+        }
+        char direction = Math.abs(dx) >= Math.abs(dy)
+                ? (dx > 0 ? 'R' : 'L')
+                : (dy > 0 ? 'D' : 'U');
+        if (gestureSequence.length() == 0 && (direction == 'U' || direction == 'D')) {
+            resetGestureTracking();
+            hideGestureOverlay();
+            return;
+        }
+        int length = gestureSequence.length();
+        if (length == 0 || gestureSequence.charAt(length - 1) != direction) {
+            gestureSequence.append(direction);
+            gestureMoved = true;
+        }
+        gestureLastX = x;
+        gestureLastY = y;
+    }
+
+    private void resetGestureTracking() {
+        gestureTracking = false;
+        gestureMoved = false;
+        gestureIntercepting = false;
+        gestureSequence.setLength(0);
+    }
+
+    private boolean gesturesEnabled() {
+        return preferences != null && preferences.getBoolean(PREF_GESTURES_ENABLED, false);
+    }
+
+    private int gestureThresholdPx() {
+        int level = preferences == null ? 2 : preferences.getInt(PREF_GESTURE_SENSITIVITY, 2);
+        int[] dpValues = {96, 72, 56, 42, 30};
+        int index = Math.max(0, Math.min(level, dpValues.length - 1));
+        return dp(dpValues[index]);
+    }
+
+    private String matchedGestureAction(String sequence) {
+        if (sequence == null || sequence.isEmpty()) {
+            return null;
+        }
+        for (String action : GESTURE_ACTIONS) {
+            String gesture = gestureForAction(preferences, action);
+            if (validGesture(gesture) && sequence.equals(gesture)) {
+                return action;
+            }
+        }
+        return null;
+    }
+
+    private void showGestureOverlay(String value) {
+        if (value == null || value.isEmpty()) {
+            hideGestureOverlay();
+            return;
+        }
+        if (gestureOverlay == null) {
+            gestureOverlay = new TextView(this);
+            gestureOverlay.setTextColor(Color.WHITE);
+            gestureOverlay.setTextSize(22);
+            gestureOverlay.setGravity(Gravity.CENTER);
+            gestureOverlay.setTypeface(Typeface.DEFAULT_BOLD);
+            gestureOverlay.setPadding(dp(22), dp(14), dp(22), dp(14));
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(Color.argb(205, 31, 41, 55));
+            background.setCornerRadius(dp(18));
+            gestureOverlay.setBackground(background);
+        }
+        gestureOverlay.setText(value);
+        if (gestureOverlay.getParent() == null) {
+            ViewGroup content = findViewById(android.R.id.content);
+            content.addView(gestureOverlay, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER));
+        }
+        gestureOverlay.bringToFront();
+        gestureOverlay.setVisibility(View.VISIBLE);
+    }
+
+    private void hideGestureOverlay() {
+        if (gestureOverlay != null) {
+            gestureOverlay.setVisibility(View.GONE);
+        }
+    }
+
+    private void performGestureAction(String action) {
+        if (GESTURE_TAB_OVERVIEW.equals(action)) {
+            showTabOverview();
+        } else if (GESTURE_BACK.equals(action)) {
+            onBackPressed();
+        } else if (GESTURE_FORWARD.equals(action)) {
+            goForward();
+        } else if (GESTURE_TOP.equals(action)) {
+            scrollCurrentPageToTop();
+        } else if (GESTURE_BOTTOM.equals(action)) {
+            scrollCurrentPageToBottom();
+        } else if (GESTURE_RELOAD.equals(action)) {
+            reloadFromMenu();
+        } else if (GESTURE_CLOSE_TAB.equals(action)) {
+            closeCurrentTab();
+        } else if (GESTURE_NEW_TAB.equals(action)) {
+            createBlankTab();
+        } else if (GESTURE_RIGHT_TAB.equals(action)) {
+            switchRelativeTab(1);
+        } else if (GESTURE_LEFT_TAB.equals(action)) {
+            switchRelativeTab(-1);
+        } else if (GESTURE_SETTINGS.equals(action)) {
+            openSettings();
+        } else if (GESTURE_NEXT_THREAD.equals(action)) {
+            searchNextThread();
+        } else if (GESTURE_FIND.equals(action)) {
+            showThreadSearchDialog();
+        } else if (GESTURE_BOARD.equals(action)) {
+            openCurrentThreadBoard();
+        }
+    }
+
     private void jumpToPost(int number) {
         View target = visiblePostViews.get(number);
+        if (target == null) {
+            target = renderPostForJump(number);
+        }
         if (target == null || visibleThreadScroll == null || visibleThreadScroll.getChildCount() == 0) {
             Toast.makeText(this, text("\u53c2\u7167\u5148\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "Referenced post is not visible."), Toast.LENGTH_SHORT).show();
             return;
         }
+        final View jumpTarget = target;
         visibleThreadScroll.post(() -> {
-            int top = descendantTopWithin(target, visibleThreadScroll.getChildAt(0));
+            int top = descendantTopWithin(jumpTarget, visibleThreadScroll.getChildAt(0));
             visibleThreadScroll.smoothScrollTo(0, Math.max(0, top - dp(8)));
-            highlightPost(target);
+            ensurePostShellVisible(jumpTarget);
+            highlightPost(jumpTarget);
+            scheduleThreadPostVisibilityRefresh(currentTab());
         });
+    }
+
+    private View renderPostForJump(int number) {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.postSlots == null) {
+            return null;
+        }
+        FrameLayout holder = tab.postSlots.get(number);
+        if (holder == null || !(holder.getTag() instanceof VirtualPostSlot)) {
+            return tab.postViews == null ? null : tab.postViews.get(number);
+        }
+        VirtualPostSlot slot = (VirtualPostSlot) holder.getTag();
+        renderVirtualPostSlot(holder, slot);
+        return slot.card;
     }
 
     private int descendantTopWithin(View target, View ancestor) {
@@ -7117,6 +8356,13 @@ public class MainActivity extends Activity {
             current = (View) current.getParent();
         }
         return top;
+    }
+
+    private void ensurePostShellVisible(View postCard) {
+        if (postCard == null || !(postCard.getParent() instanceof View)) {
+            return;
+        }
+        ((View) postCard.getParent()).setVisibility(View.VISIBLE);
     }
 
     private void highlightPost(View target) {
@@ -7147,13 +8393,41 @@ public class MainActivity extends Activity {
 
     private void scrollCurrentThreadToBottom() {
         CuspTab tab = currentTab();
-        pendingScrollToBottomTab = null;
         if (tab == null) {
             return;
         }
-        tab.fastRenderToBottom = false;
-        tab.bottomScrollLockUntil = 0;
-        scrollToLastRenderedPost(tab);
+        pendingScrollToBottomTab = tab;
+        tab.fastRenderToBottom = true;
+        tab.bottomScrollLockUntil = android.os.SystemClock.uptimeMillis() + 1800;
+        scrollThreadToBottomWhenReady(tab, 0);
+    }
+
+    private void scrollCurrentPageToTop() {
+        ScrollView scroll = visibleThreadScroll;
+        CuspTab tab = currentTab();
+        if (scroll == null && tab != null) {
+            scroll = tab.threadScroll == null ? findScrollView(tab.readerView) : tab.threadScroll;
+        }
+        if (scroll == null) {
+            scroll = findScrollView(contentFrame);
+        }
+        if (scroll != null) {
+            scroll.smoothScrollTo(0, 0);
+        }
+    }
+
+    private void scrollCurrentPageToBottom() {
+        CuspTab tab = currentTab();
+        if (tab != null && NATIVE_THREAD.equals(tab.nativeKind)) {
+            scrollCurrentThreadToBottom();
+            return;
+        }
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0) {
+            return;
+        }
+        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+        scroll.smoothScrollTo(0, range);
     }
 
     private void scrollToLastRenderedPost(CuspTab tab) {
@@ -7178,15 +8452,22 @@ public class MainActivity extends Activity {
             int top = descendantTopWithin(target, targetScroll.getChildAt(0));
             int maxY = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
             targetScroll.scrollTo(0, Math.max(0, Math.min(top - dp(8), maxY)));
+            ensurePostShellVisible(target);
+            scheduleThreadPostVisibilityRefresh(tab);
         });
     }
 
     private View lastRenderedPostView(CuspTab tab) {
-        if (tab == null || tab.threadPage == null || tab.postViews == null || tab.postViews.isEmpty()) {
+        if (tab == null || tab.threadPage == null) {
             return null;
         }
         for (int i = tab.threadPage.posts.size() - 1; i >= 0; i--) {
-            View view = tab.postViews.get(tab.threadPage.posts.get(i).number);
+            int number = tab.threadPage.posts.get(i).number;
+            View view = tab.postViews == null ? null : tab.postViews.get(number);
+            if (view != null && view.getParent() != null) {
+                return view;
+            }
+            view = tab.postSlots == null ? null : tab.postSlots.get(number);
             if (view != null && view.getParent() != null) {
                 return view;
             }
@@ -7202,6 +8483,10 @@ public class MainActivity extends Activity {
     }
 
     private void scrollThreadToRenderedBottom(CuspTab tab) {
+        scrollThreadToRenderedBottom(tab, 0);
+    }
+
+    private void scrollThreadToRenderedBottom(CuspTab tab, int attempt) {
         ScrollView scroll = tab == null ? visibleThreadScroll : tab.threadScroll;
         if (scroll == null && tab != null) {
             scroll = findScrollView(tab.readerView);
@@ -7209,6 +8494,7 @@ public class MainActivity extends Activity {
         if (scroll == null || scroll.getChildCount() == 0) {
             return;
         }
+        clearAddressFocus();
         final ScrollView targetScroll = scroll;
         targetScroll.fling(0);
         targetScroll.clearAnimation();
@@ -7220,6 +8506,10 @@ public class MainActivity extends Activity {
             targetScroll.clearAnimation();
             int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
             targetScroll.scrollTo(0, range);
+            scheduleThreadPostVisibilityRefresh(tab);
+            if (attempt < 12) {
+                targetScroll.postDelayed(() -> scrollThreadToRenderedBottom(tab, attempt + 1), 40);
+            }
         });
     }
 
@@ -7247,6 +8537,8 @@ public class MainActivity extends Activity {
             targetScroll.clearAnimation();
             int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());
             targetScroll.scrollTo(0, range);
+            rememberThreadBottom(tab, targetScroll);
+            scheduleThreadPostVisibilityRefresh(tab);
             boolean keepLocked = shouldKeepBottomLocked(tab);
             if (attempt < 160 && (!isThreadAtBottom(targetScroll) || keepLocked)) {
                 targetScroll.postDelayed(() -> scrollThreadToBottomWhenReady(tab, attempt + 1), 25);
@@ -7260,6 +8552,42 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void pinThreadScrollToBottom(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
+            return;
+        }
+        tab.threadScroll.post(() -> {
+            if (tab.threadScroll == null || tab.threadScroll.getChildCount() == 0 || !isBottomJumpActive(tab)) {
+                return;
+            }
+            int range = Math.max(0, tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight());
+            tab.threadScroll.scrollTo(0, range);
+            rememberThreadBottom(tab, tab.threadScroll);
+        });
+    }
+
+    private void cancelBottomJump(CuspTab tab) {
+        if (tab == null) {
+            return;
+        }
+        if (pendingScrollToBottomTab == tab) {
+            pendingScrollToBottomTab = null;
+        }
+        tab.fastRenderToBottom = false;
+        tab.bottomScrollLockUntil = 0;
+    }
+
+    private void rememberThreadBottom(CuspTab tab, ScrollView scroll) {
+        if (tab == null || scroll == null || scroll.getChildCount() == 0) {
+            return;
+        }
+        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+        tab.threadScrollRatio = range <= 0 ? 0f : 1f;
+        tab.threadBottomOffset = 0;
+        tab.threadScrollUrl = threadUrl(tab);
+        tab.hasSavedThreadScroll = true;
+    }
+
     private boolean shouldKeepBottomLocked(CuspTab tab) {
         return isBottomJumpActive(tab)
                 && (tab.threadRendering || android.os.SystemClock.uptimeMillis() < tab.bottomScrollLockUntil);
@@ -7270,11 +8598,14 @@ public class MainActivity extends Activity {
     }
 
     private boolean lastPostViewReady(CuspTab tab) {
-        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty() || tab.postViews == null) {
+        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty()) {
             return true;
         }
         Post last = tab.threadPage.posts.get(tab.threadPage.posts.size() - 1);
-        View view = tab.postViews.get(last.number);
+        View view = tab.postViews == null ? null : tab.postViews.get(last.number);
+        if (view == null && tab.postSlots != null) {
+            view = tab.postSlots.get(last.number);
+        }
         return view != null && view.getHeight() > 0 && view.isShown();
     }
 
@@ -7343,33 +8674,37 @@ public class MainActivity extends Activity {
 
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(18), dp(8), dp(18), 0);
+        form.setPadding(dp(18), dp(10), dp(18), dp(6));
         form.setBackgroundColor(surfaceColor());
 
         EditText name = new EditText(this);
         name.setSingleLine(true);
-        name.setHint("Name");
+        name.setHint(text("\u540d\u524d", "Name"));
         name.setTextColor(textColor());
         name.setHintTextColor(mutedColor());
         name.setBackground(addressBarBackground());
         name.setPadding(dp(12), 0, dp(12), 0);
-        form.addView(name, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        nameParams.setMargins(0, 0, 0, dp(8));
+        form.addView(name, nameParams);
 
         EditText mail = new EditText(this);
         mail.setSingleLine(true);
-        mail.setHint("Mail");
+        mail.setHint(text("\u30e1\u30fc\u30eb", "Mail"));
         mail.setTextColor(textColor());
         mail.setHintTextColor(mutedColor());
         mail.setBackground(addressBarBackground());
         mail.setPadding(dp(12), 0, dp(12), 0);
-        form.addView(mail, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        LinearLayout.LayoutParams mailParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        mailParams.setMargins(0, 0, 0, dp(10));
+        form.addView(mail, mailParams);
 
         EditText message = new EditText(this);
-        message.setMinLines(5);
+        message.setMinLines(9);
         message.setGravity(Gravity.TOP | Gravity.START);
-        message.setHint("Message");
+        message.setHint(text("\u672c\u6587", "Message"));
         message.setTextColor(textColor());
         message.setHintTextColor(mutedColor());
         message.setBackground(addressBarBackground());
@@ -7377,7 +8712,7 @@ public class MainActivity extends Activity {
         message.setText(initialMessage == null ? "" : initialMessage);
         message.setSelection(message.getText().length());
         form.addView(message, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(280)));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(tab.threadPage == null ? text("\u66f8\u304d\u8fbc\u307f", "Write") : tab.threadPage.title)
@@ -7390,7 +8725,7 @@ public class MainActivity extends Activity {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String body = message.getText().toString();
             if (body.trim().isEmpty()) {
-                Toast.makeText(this, "Enter a message.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, text("\u672c\u6587\u3092\u5165\u529b", "Enter a message."), Toast.LENGTH_SHORT).show();
                 return;
             }
             dialog.dismiss();
@@ -7415,6 +8750,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5148\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Cannot find thread write target."), Toast.LENGTH_SHORT).show();
             return;
         }
+        int readNumberBeforePost = tab.readPostNumber;
         progressBar.setVisibility(View.VISIBLE);
         Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u4e2d", "Posting..."), Toast.LENGTH_SHORT).show();
         ioExecutor.execute(() -> {
@@ -7437,12 +8773,35 @@ public class MainActivity extends Activity {
                 if (posted) {
                     Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5b8c\u4e86", "Posted."), Toast.LENGTH_SHORT).show();
                     saveMyPost(tab, message);
-                    refreshThreadFromBottom(tab, true);
+                    refreshThreadFromBottom(tab, true, false, true,
+                            () -> markPostedOwnPostReadIfNextUnread(tab, message, readNumberBeforePost));
                 } else {
                     showCopyablePostFailure(messageText);
                 }
             });
         });
+    }
+
+    private void markPostedOwnPostReadIfNextUnread(CuspTab tab, String body, int readNumberBeforePost) {
+        if (tab == null || tab.threadPage == null || body == null) {
+            return;
+        }
+        String submittedHash = postBodyHash(body);
+        if (submittedHash.isEmpty()) {
+            return;
+        }
+        Post firstUnread = null;
+        for (Post post : tab.threadPage.posts) {
+            if (post.number > readNumberBeforePost) {
+                firstUnread = post;
+                break;
+            }
+        }
+        if (firstUnread == null || !submittedHash.equals(postBodyHash(firstUnread.body))) {
+            return;
+        }
+        markReadTo(tab, firstUnread.number, false);
+        renderTabs();
     }
 
     private void showCopyablePostFailure(String messageText) {
@@ -7720,7 +9079,13 @@ public class MainActivity extends Activity {
         if (tab == null || tab.threadScroll == null) {
             return;
         }
+        if (isBottomJumpActive(tab)) {
+            return;
+        }
         tab.threadScroll.post(() -> {
+            if (isBottomJumpActive(tab)) {
+                return;
+            }
             if (tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
                 revealThreadAfterScrollRestore(tab, attempt);
                 return;
@@ -7771,18 +9136,18 @@ public class MainActivity extends Activity {
     }
 
     private void scrollToUnreadBoundary(CuspTab tab) {
-        if (tab == null || tab.threadScroll == null || tab.threadPage == null || tab.postViews == null) {
+        if (tab == null || tab.threadScroll == null || tab.threadPage == null) {
             return;
         }
         View target = null;
         for (Post post : tab.threadPage.posts) {
             if (post.number > tab.readPostNumber) {
-                target = tab.postViews.get(post.number);
+                target = postAnchorView(tab, post.number);
                 break;
             }
         }
         if (target == null && !tab.threadPage.posts.isEmpty()) {
-            target = tab.postViews.get(tab.threadPage.posts.get(tab.threadPage.posts.size() - 1).number);
+            target = postAnchorView(tab, tab.threadPage.posts.get(tab.threadPage.posts.size() - 1).number);
         }
         if (target == null) {
             return;
@@ -7797,6 +9162,17 @@ public class MainActivity extends Activity {
         }
         int maxY = Math.max(0, scrollChild.getHeight() - tab.threadScroll.getHeight());
         tab.threadScroll.scrollTo(0, Math.max(0, Math.min(y - dp(8), maxY)));
+    }
+
+    private View postAnchorView(CuspTab tab, int postNumber) {
+        if (tab == null) {
+            return null;
+        }
+        View view = tab.postViews == null ? null : tab.postViews.get(postNumber);
+        if (view != null) {
+            return view;
+        }
+        return tab.postSlots == null ? null : tab.postSlots.get(postNumber);
     }
 
     private boolean routeLink(String rawUrl, CuspTab sourceTab) {
@@ -7891,6 +9267,14 @@ public class MainActivity extends Activity {
 
     private boolean blurImgurImages() {
         return preferences.getBoolean(PREF_BLUR_IMGUR, true);
+    }
+
+    private boolean blurVideoThumbnails() {
+        return blurImgurImages() && preferences.getBoolean(PREF_BLUR_VIDEO_THUMBNAILS, true);
+    }
+
+    private boolean autoAaEnabled() {
+        return preferences.getBoolean(PREF_AUTO_AA, true);
     }
 
     private boolean addressBarOnTop() {
@@ -8595,6 +9979,17 @@ public class MainActivity extends Activity {
         closeTab(currentIndex);
     }
 
+    private void switchRelativeTab(int delta) {
+        if (tabs.isEmpty() || pendingNewTab) {
+            return;
+        }
+        int target = currentIndex + delta;
+        if (target < 0 || target >= tabs.size()) {
+            return;
+        }
+        switchToTab(target);
+    }
+
     private void closeTab(int index) {
         if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
             return;
@@ -9076,7 +10471,7 @@ public class MainActivity extends Activity {
             page.results.add(result);
         }
         if (page.results.isEmpty()) {
-            throw new IllegalStateException(text("板リンクが見つかりません", "No board links found."));
+            throw new IllegalStateException(text("\u677f\u30ea\u30f3\u30af\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board links found."));
         }
         return page;
     }
@@ -9777,15 +11172,27 @@ public class MainActivity extends Activity {
         saveReadPostNumber(preferences, url, number);
     }
 
-    private static boolean isAaPost(SharedPreferences preferences, String url, int number) {
-        if (url == null || url.isEmpty()) {
+    private boolean aaModeForPost(ThreadPage page, Post post) {
+        if (page == null || post == null) {
             return false;
+        }
+        Boolean manual = aaPostOverride(preferences, page.url, post.number);
+        if (manual != null) {
+            return manual;
+        }
+        return autoAaEnabled() && likelyAaPost(post.body);
+    }
+
+    private static Boolean aaPostOverride(SharedPreferences preferences, String url, int number) {
+        if (url == null || url.isEmpty()) {
+            return null;
         }
         try {
             JSONObject object = new JSONObject(preferences.getString(PREF_AA_POSTS, "{}"));
-            return object.optBoolean(url + "#" + number, false);
+            String key = url + "#" + number;
+            return object.has(key) ? object.optBoolean(key, false) : null;
         } catch (Exception ignored) {
-            return false;
+            return null;
         }
     }
 
@@ -9796,11 +11203,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject object = new JSONObject(preferences.getString(PREF_AA_POSTS, "{}"));
             String key = url + "#" + number;
-            if (enabled) {
-                object.put(key, true);
-            } else {
-                object.remove(key);
-            }
+            object.put(key, enabled);
             preferences.edit().putString(PREF_AA_POSTS, object.toString()).apply();
         } catch (Exception ignored) {
         }
@@ -9916,6 +11319,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void setReadThroughPost(CuspTab tab, Post post) {
+        if (tab == null || post == null) {
+            return;
+        }
+        setReadThrough(tab, post.number);
+    }
+
+    private int lastExistingPostNumber(ThreadPage page, int oldCount) {
+        if (page == null || page.posts == null || page.posts.isEmpty() || oldCount <= 0) {
+            return 0;
+        }
+        int index = Math.min(oldCount, page.posts.size()) - 1;
+        Post post = page.posts.get(index);
+        return post == null ? 0 : post.number;
+    }
+
     private int unreadCount(CuspTab tab) {
         if (tab == null || tab.threadPage == null) {
             return 0;
@@ -9946,7 +11365,7 @@ public class MainActivity extends Activity {
         for (Post post : tab.threadPage.posts) {
             View card = tab.postViews.get(post.number);
             if (card != null) {
-                card.setBackground(postBackground(post.number > tab.readPostNumber));
+                card.setBackground(postBackground(post.number > tab.readPostNumber, isMyPost(tab.threadPage, post)));
             }
         }
         updateUnreadScrollMarkers(tab);
@@ -10722,6 +12141,8 @@ public class MainActivity extends Activity {
         FrameLayout scrollScrubber;
         ViewGroup unreadMarkerLayer;
         Map<Integer, View> postViews;
+        Map<Integer, FrameLayout> postSlots;
+        Set<FrameLayout> renderedPostSlots;
         String nativeKind;
         float threadScrollRatio;
         int threadBottomOffset;
@@ -10729,6 +12150,7 @@ public class MainActivity extends Activity {
         int readPostNumber;
         long bottomScrollLockUntil;
         long lastScrollAt;
+        long lastThreadScrollSaveAt;
         boolean hasSavedThreadScroll;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
@@ -10749,6 +12171,110 @@ public class MainActivity extends Activity {
         boolean fastRenderToBottom;
         boolean threadRendering;
         Runnable threadScrollChromeTask;
+        Runnable threadPostVisibilityTask;
+    }
+
+    private static class PostCardShell {
+        final FrameLayout shell;
+        final LinearLayout card;
+
+        PostCardShell(FrameLayout shell, LinearLayout card) {
+            this.shell = shell;
+            this.card = card;
+        }
+    }
+
+    private static class MyPostBackgroundDrawable extends Drawable {
+        private final int fillColor;
+        private final int markerColor;
+        private final int radius;
+        private final int markerWidth;
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF bounds = new RectF();
+        private final Path clip = new Path();
+        private ColorFilter colorFilter;
+        private int alpha = 255;
+
+        MyPostBackgroundDrawable(int fillColor, int markerColor, int radius, int markerWidth) {
+            this.fillColor = fillColor;
+            this.markerColor = markerColor;
+            this.radius = radius;
+            this.markerWidth = markerWidth;
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            android.graphics.Rect rawBounds = getBounds();
+            bounds.set(rawBounds.left, rawBounds.top, rawBounds.right, rawBounds.bottom);
+            paint.setColor(fillColor);
+            paint.setAlpha(alpha);
+            paint.setColorFilter(colorFilter);
+            canvas.drawRoundRect(bounds, radius, radius, paint);
+
+            int save = canvas.save();
+            clip.reset();
+            clip.addRoundRect(bounds, radius, radius, Path.Direction.CW);
+            canvas.clipPath(clip);
+            paint.setColor(markerColor);
+            paint.setAlpha(alpha);
+            canvas.drawRect(rawBounds.left, rawBounds.top,
+                    Math.min(rawBounds.right, rawBounds.left + markerWidth), rawBounds.bottom, paint);
+            canvas.restoreToCount(save);
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            this.alpha = alpha;
+            invalidateSelf();
+        }
+
+        @Override
+        public void setColorFilter(ColorFilter colorFilter) {
+            this.colorFilter = colorFilter;
+            invalidateSelf();
+        }
+
+        @Override
+        public int getOpacity() {
+            return android.graphics.PixelFormat.TRANSLUCENT;
+        }
+    }
+
+    private static class VirtualPostSlot {
+        final ThreadPage page;
+        final CuspTab tab;
+        final PostRenderItem item;
+        int height;
+        boolean rendered;
+        FrameLayout shell;
+        LinearLayout card;
+
+        VirtualPostSlot(ThreadPage page, CuspTab tab, PostRenderItem item, int height) {
+            this.page = page;
+            this.tab = tab;
+            this.item = item;
+            this.height = height;
+        }
+    }
+
+    private class VirtualSearchSlot {
+        final String category;
+        final SearchResult result;
+        final boolean categoryHeader;
+        int height;
+        boolean rendered;
+
+        VirtualSearchSlot(String category, SearchResult result, boolean categoryHeader) {
+            this.category = category;
+            this.result = result;
+            this.categoryHeader = categoryHeader;
+            this.height = categoryHeader ? dp(50) : estimateSearchResultHeight(result);
+        }
+    }
+
+    private static class VirtualSearchState {
+        final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
+        long lastScrollAt;
     }
 
     static class ThreadHistoryItem {
