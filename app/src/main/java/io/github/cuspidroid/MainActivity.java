@@ -1020,6 +1020,27 @@ public class MainActivity extends Activity {
         String clipboardLink = query.isEmpty() ? clipboardLink() : null;
         configureSuggestionsPanel(!query.isEmpty());
         if (!query.isEmpty()) {
+            int tabCount = 0;
+            for (int i = 0; i < tabs.size(); i++) {
+                CuspTab tab = tabs.get(i);
+                String title = tabSuggestionTitle(tab);
+                String url = tab.url == null ? "" : tab.url;
+                if (!title.toLowerCase(Locale.ROOT).contains(query)
+                        && !url.toLowerCase(Locale.ROOT).contains(query)) {
+                    continue;
+                }
+                int index = i;
+                TextView item = suggestionItem(text("\u30bf\u30d6", "Tab"), title);
+                item.setOnClickListener(v -> switchToTab(index));
+                if (suggestionsPanel.getChildCount() > 0) {
+                    suggestionsPanel.addView(suggestionDivider());
+                }
+                suggestionsPanel.addView(item);
+                tabCount++;
+                if (tabCount >= 6) {
+                    break;
+                }
+            }
             int count = 0;
             for (ThreadHistoryItem history : threadHistory()) {
                 if (history.title.toLowerCase(Locale.ROOT).contains(query)) {
@@ -1069,6 +1090,19 @@ public class MainActivity extends Activity {
             suggestionsPanel.addView(empty);
         }
         suggestionsPanel.setVisibility(View.VISIBLE);
+    }
+
+    private String tabSuggestionTitle(CuspTab tab) {
+        if (tab == null) {
+            return text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        }
+        if (tab.title != null && !tab.title.trim().isEmpty()) {
+            return tab.title.trim();
+        }
+        if (tab.url != null && !tab.url.trim().isEmpty()) {
+            return tab.url.trim();
+        }
+        return text("\u65b0\u898f\u30bf\u30d6", "New tab");
     }
 
     private void configureSuggestionsPanel(boolean fullScreen) {
@@ -3406,7 +3440,7 @@ public class MainActivity extends Activity {
     private TextView postActionPreviewBody(CuspTab tab, Post post) {
         boolean aa = tab != null && tab.threadPage != null && aaModeForPost(tab.threadPage, post);
         TextView body = new TextView(this);
-        body.setText(post.body);
+        body.setText(aa ? trimTrailingBlankLines(post.body) : post.body);
         body.setTextColor(textColor());
         body.setTextSize(POST_TEXT_SIZE_SP);
         if (aa) {
@@ -4302,7 +4336,7 @@ public class MainActivity extends Activity {
         }
         int measured = holder.getHeight();
         if (measured > 0) {
-            slot.height = Math.max(slot.height, measured);
+            slot.height = measured;
         }
         holder.removeAllViews();
         holder.addView(postSlotSpacer(slot.height), new FrameLayout.LayoutParams(
@@ -5782,13 +5816,15 @@ public class MainActivity extends Activity {
             return postContent(post.body, page, tab.threadSearchQuery, longClick, imgurLinks(post));
         }
         TextView body = new TextView(this);
-        SpannableString aaText = decoratedPostText(post.body, page, tab.threadSearchQuery);
+        String aaBody = trimTrailingBlankLines(post.body);
+        SpannableString aaText = decoratedPostText(aaBody, page, tab.threadSearchQuery);
         body.setText(aaText);
         body.setTextColor(textColor());
         body.setTextSize(POST_TEXT_SIZE_SP);
         applyAaTypeface(body);
         body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
         body.setSingleLine(false);
+        body.setMaxLines(Math.max(1, aaBody.split("\\n", -1).length));
         body.setHorizontallyScrolling(true);
         body.setPadding(0, 0, 0, 0);
         body.setMinHeight(0);
@@ -5818,7 +5854,8 @@ public class MainActivity extends Activity {
         });
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.addView(body);
+        box.addView(body, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         List<ImgurLink> mediaLinks = imgurLinks(post);
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClick));
@@ -5835,6 +5872,51 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             body.setLetterSpacing(0f);
         }
+    }
+
+    private static String trimTrailingBlankLines(String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        int end = value.length();
+        while (end > 0) {
+            int lineEnd = end;
+            while (lineEnd > 0) {
+                char ch = value.charAt(lineEnd - 1);
+                if (ch != '\n' && ch != '\r') {
+                    break;
+                }
+                lineEnd--;
+            }
+            int lineStart = lineEnd;
+            while (lineStart > 0) {
+                char ch = value.charAt(lineStart - 1);
+                if (ch == '\n' || ch == '\r') {
+                    break;
+                }
+                lineStart--;
+            }
+            boolean blank = true;
+            for (int i = lineStart; i < lineEnd; i++) {
+                char ch = value.charAt(i);
+                if (ch != ' ' && ch != '\t' && ch != '\u3000') {
+                    blank = false;
+                    break;
+                }
+            }
+            if (!blank) {
+                return value.substring(0, lineEnd);
+            }
+            end = lineStart;
+            while (end > 0) {
+                char ch = value.charAt(end - 1);
+                if (ch != '\n' && ch != '\r') {
+                    break;
+                }
+                end--;
+            }
+        }
+        return "";
     }
 
     private Typeface aaTypeface() {
@@ -5895,6 +5977,9 @@ public class MainActivity extends Activity {
         }
         applyAaTextSizeIfNeeded(body, targetSize);
         body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
+        body.setMinHeight(0);
+        body.setMinimumHeight(0);
+        body.requestLayout();
     }
 
     private void applyAaTextSizeIfNeeded(TextView body, float textSizePx) {
