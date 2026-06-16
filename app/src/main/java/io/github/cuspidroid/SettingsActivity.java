@@ -32,6 +32,7 @@ public class SettingsActivity extends Activity {
     private SharedPreferences preferences;
     private CheckBox open5chInNewTab;
     private CheckBox externalLinkInApp;
+    private CheckBox showMediaPreviews;
     private CheckBox blurImgurImages;
     private CheckBox blurVideoThumbnails;
     private RadioButton addressBarTop;
@@ -216,6 +217,13 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, BbsLinksActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u753b\u50cf\u3068\u30d5\u30a3\u30eb\u30bf", "Images & Filters")));
+        showMediaPreviews = new CheckBox(this);
+        showMediaPreviews.setText(MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5185\u306e\u30e1\u30c7\u30a3\u30a2\u3092\u8868\u793a", "Show media in posts"));
+        showMediaPreviews.setTextColor(textColor());
+        showMediaPreviews.setTextSize(16);
+        Theme.tintCompoundButton(this, showMediaPreviews);
+        root.addView(showMediaPreviews);
+
         blurImgurImages = new CheckBox(this);
         blurImgurImages.setText(MainActivity.text("\u30b0\u30ed\u753b\u50cf\u3092\u307c\u304b\u3059", "Blur graphic images"));
         blurImgurImages.setTextColor(textColor());
@@ -256,9 +264,10 @@ public class SettingsActivity extends Activity {
     private void loadSettings() {
         open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
         externalLinkInApp.setChecked(preferences.getBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false));
+        showMediaPreviews.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_MEDIA, true));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
         blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
-        updateVideoThumbnailBlurDependentSettings();
+        updateMediaDependentSettings();
         if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
             addressBarTop.setChecked(true);
         } else {
@@ -292,8 +301,12 @@ public class SettingsActivity extends Activity {
     private void setupAutoSave() {
         open5chInNewTab.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         externalLinkInApp.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        showMediaPreviews.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            updateMediaDependentSettings();
+            saveSettings(false);
+        });
         blurImgurImages.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            updateVideoThumbnailBlurDependentSettings();
+            updateMediaDependentSettings();
             saveSettings(false);
         });
         blurVideoThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -371,6 +384,7 @@ public class SettingsActivity extends Activity {
         preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, externalLinkInApp.isChecked())
+                .putBoolean(MainActivity.PREF_SHOW_MEDIA, showMediaPreviews.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS,
                         blurImgurImages.isChecked() && blurVideoThumbnails.isChecked())
@@ -412,6 +426,7 @@ public class SettingsActivity extends Activity {
         SharedPreferences.Editor editor = preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, true)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE)
+                .putBoolean(MainActivity.PREF_SHOW_MEDIA, true)
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, true)
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
@@ -440,10 +455,13 @@ public class SettingsActivity extends Activity {
         treeSkipFirstReply.setAlpha(enabled ? 1f : 0.45f);
     }
 
-    private void updateVideoThumbnailBlurDependentSettings() {
-        boolean enabled = blurImgurImages.isChecked();
-        blurVideoThumbnails.setEnabled(enabled);
-        blurVideoThumbnails.setAlpha(enabled ? 1f : 0.45f);
+    private void updateMediaDependentSettings() {
+        boolean mediaEnabled = showMediaPreviews.isChecked();
+        blurImgurImages.setEnabled(mediaEnabled);
+        blurImgurImages.setAlpha(mediaEnabled ? 1f : 0.45f);
+        boolean videoBlurEnabled = mediaEnabled && blurImgurImages.isChecked();
+        blurVideoThumbnails.setEnabled(videoBlurEnabled);
+        blurVideoThumbnails.setAlpha(videoBlurEnabled ? 1f : 0.45f);
     }
 
     private TextView sectionTitle(String value) {

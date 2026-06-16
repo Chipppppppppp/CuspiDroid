@@ -119,6 +119,7 @@ public class MainActivity extends Activity {
     static final String PREFS_NAME = "cuspidroid_settings";
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
+    static final String PREF_SHOW_MEDIA = "show_media";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_BLUR_VIDEO_THUMBNAILS = "blur_video_thumbnails";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
@@ -5692,7 +5693,7 @@ public class MainActivity extends Activity {
 
     private List<ImgurLink> imgurLinks(String value) {
         List<ImgurLink> links = new ArrayList<>();
-        if (value == null || value.isEmpty()) {
+        if (value == null || value.isEmpty() || !showMediaPreviews()) {
             return links;
         }
         Matcher matcher = URL_TEXT_PATTERN.matcher(value);
@@ -5708,6 +5709,9 @@ public class MainActivity extends Activity {
     }
 
     private List<ImgurLink> imgurLinks(Post post) {
+        if (!showMediaPreviews()) {
+            return new ArrayList<>();
+        }
         if (post == null) {
             return new ArrayList<>();
         }
@@ -5751,7 +5755,14 @@ public class MainActivity extends Activity {
         installLinkTouchTracking(body);
         body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitAaTextSize(body));
         body.post(() -> fitAaTextSize(body));
-        return body;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(body);
+        List<ImgurLink> mediaLinks = imgurLinks(post);
+        if (!mediaLinks.isEmpty()) {
+            box.addView(mediaGrid(mediaLinks, longClick));
+        }
+        return box;
     }
 
     private void applyAaTypeface(TextView body) {
@@ -5851,7 +5862,7 @@ public class MainActivity extends Activity {
         if (body == null) {
             return false;
         }
-        String value = body.trim();
+        String value = URL_TEXT_PATTERN.matcher(body).replaceAll(" ").trim();
         if (value.length() < 8) {
             return false;
         }
@@ -5883,10 +5894,10 @@ public class MainActivity extends Activity {
             return false;
         }
         float ratio = aaChars / (float) nonWhitespace;
-        return (aaChars >= (singleLine ? 10 : 8) && ratio >= (singleLine ? 0.28f : 0.22f))
-                || (structural >= (singleLine ? 8 : 6) && ratio >= (singleLine ? 0.22f : 0.18f))
-                || (!singleLine && spaces >= 4 && structural >= 4 && aaChars >= 6)
-                || (!singleLine && aaChars >= 10 && ratio >= 0.16f);
+        return (aaChars >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f))
+                || (structural >= (singleLine ? 10 : 8) && ratio >= (singleLine ? 0.28f : 0.23f))
+                || (!singleLine && spaces >= 6 && structural >= 6 && aaChars >= 8)
+                || (!singleLine && aaChars >= 14 && ratio >= 0.22f);
     }
 
     private static boolean isAaCharacter(char ch) {
@@ -9361,8 +9372,12 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_5CH_NEW_TAB, true);
     }
 
+    private boolean showMediaPreviews() {
+        return preferences.getBoolean(PREF_SHOW_MEDIA, true);
+    }
+
     private boolean blurImgurImages() {
-        return preferences.getBoolean(PREF_BLUR_IMGUR, true);
+        return showMediaPreviews() && preferences.getBoolean(PREF_BLUR_IMGUR, true);
     }
 
     private boolean blurVideoThumbnails() {
