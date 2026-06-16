@@ -4359,6 +4359,10 @@ public class MainActivity extends Activity {
             return;
         }
         boolean scrolling = recentlyScrolled(tab);
+        if (scrolling && !isBottomJumpActive(tab)) {
+            scheduleThreadPostVisibilityRefresh(tab);
+            return;
+        }
         int top = Math.max(0, scrollY - (scrolling ? height / 3 : height));
         int bottom = scrollY + height + (scrolling ? height / 2 : height * 2);
         int unloadTop = Math.max(0, scrollY - (scrolling ? height : height * 2));
