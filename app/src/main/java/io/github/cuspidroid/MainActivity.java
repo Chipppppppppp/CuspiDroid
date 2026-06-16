@@ -203,11 +203,6 @@ public class MainActivity extends Activity {
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
     private static final int AA_LEADING_SPACE_MIN_LINES = 3;
     private static final float AA_LEADING_SPACE_RATIO_THRESHOLD = 0.45f;
-    private static final String AA_LEADING_MARKERS =
-            "|/\\()[]{}<>＜＞（）［］｛｝【】「」『』〈〉《》"
-                    + "│┃｜／＼＿_￣¯―─━┏┓┗┛┣┫┳┻╋┌┐└┘├┤┬┴┼"
-                    + "∧∨⊂⊃∩∪≡≠＝=＋+－-＊*※☆★○●◎◇◆□■△▲▽▼"
-                    + "彡ヽヾゝゞ゛゜｀´'";
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -6225,7 +6220,7 @@ public class MainActivity extends Activity {
                 continue;
             }
             countedLines++;
-            char first = line.charAt(0);
+            int first = line.codePointAt(0);
             if (first == ' ' || first == '\u3000') {
                 leadingSpaceLines++;
             } else if (isAaLeadingMarker(first)) {
@@ -6243,8 +6238,23 @@ public class MainActivity extends Activity {
                 countedLines, leadingSpaceLines, leadingMarkerLines, aaLeadingLines, ratio);
     }
 
-    private static boolean isAaLeadingMarker(char ch) {
-        return AA_LEADING_MARKERS.indexOf(ch) >= 0;
+    private static boolean isAaLeadingMarker(int codePoint) {
+        switch (Character.getType(codePoint)) {
+            case Character.CONNECTOR_PUNCTUATION:
+            case Character.DASH_PUNCTUATION:
+            case Character.START_PUNCTUATION:
+            case Character.END_PUNCTUATION:
+            case Character.INITIAL_QUOTE_PUNCTUATION:
+            case Character.FINAL_QUOTE_PUNCTUATION:
+            case Character.OTHER_PUNCTUATION:
+            case Character.MATH_SYMBOL:
+            case Character.CURRENCY_SYMBOL:
+            case Character.MODIFIER_SYMBOL:
+            case Character.OTHER_SYMBOL:
+                return true;
+            default:
+                return false;
+        }
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
