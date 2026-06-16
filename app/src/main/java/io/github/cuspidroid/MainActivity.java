@@ -187,6 +187,7 @@ public class MainActivity extends Activity {
     private static final int THREAD_IDLE_RENDER_BUDGET = 12;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
     private static final String AA_FONT_FAMILY = "Textar";
+    private static final float AA_TEXT_SIZE_SP = 13f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
 
     private final List<CuspTab> tabs = new ArrayList<>();
@@ -3325,7 +3326,7 @@ public class MainActivity extends Activity {
         meta.setTextSize(12);
         meta.setTextIsSelectable(true);
         metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        ImageButton copy = iconButton(R.drawable.ic_copy, text("\u5168\u4f53\u3092\u30b3\u30d4\u30fc", "Copy all"), v -> copyPost(post));
+        ImageButton copy = iconButton(R.drawable.ic_copy, text("\u672c\u6587\u3092\u30b3\u30d4\u30fc", "Copy body"), v -> copyPost(post));
         copy.setColorFilter(TEAL);
         copy.setBackgroundColor(Color.TRANSPARENT);
         metaRow.addView(copy, new LinearLayout.LayoutParams(dp(36), dp(34)));
@@ -3372,7 +3373,7 @@ public class MainActivity extends Activity {
         TextView body = new TextView(this);
         body.setText(post.body);
         body.setTextColor(textColor());
-        body.setTextSize(aa ? 13 : 15);
+        body.setTextSize(aa ? AA_TEXT_SIZE_SP : 15);
         if (aa) {
             applyAaTypeface(body);
         } else {
@@ -3399,7 +3400,7 @@ public class MainActivity extends Activity {
     }
 
     private String postCopyText(Post post) {
-        return postHeaderText(post) + "\n" + (post.body == null ? "" : post.body);
+        return post == null || post.body == null ? "" : post.body;
     }
 
     private void copyPost(Post post) {
@@ -3451,7 +3452,7 @@ public class MainActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(320)));
         Button copyAll = new Button(this);
-        copyAll.setText(text("\u5168\u4f53\u3092\u30b3\u30d4\u30fc", "Copy all"));
+        copyAll.setText(text("\u672c\u6587\u3092\u30b3\u30d4\u30fc", "Copy body"));
         copyAll.setAllCaps(false);
         root.addView(copyAll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
@@ -5729,7 +5730,7 @@ public class MainActivity extends Activity {
         SpannableString aaText = decoratedPostText(post.body, page, tab.threadSearchQuery);
         body.setText(aaText);
         body.setTextColor(textColor());
-        body.setTextSize(13);
+        body.setTextSize(AA_TEXT_SIZE_SP);
         applyAaTypeface(body);
         body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
         body.setSingleLine(false);
@@ -5780,12 +5781,15 @@ public class MainActivity extends Activity {
         }
         String[] lines = body.getText().toString().split("\\n", -1);
         body.setTextScaleX(1f);
-        float longest = longestLineWidth(body, lines, body.getTextSize());
+        float baseSize = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, AA_TEXT_SIZE_SP, getResources().getDisplayMetrics());
+        body.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseSize);
+        float longest = longestLineWidth(body, lines, baseSize);
         if (longest <= 0f) {
             return;
         }
         if (longest > available) {
-            float high = body.getTextSize();
+            float high = baseSize;
             float low = 1f;
             for (int i = 0; i < 14; i++) {
                 float mid = (low + high) / 2f;
@@ -8693,6 +8697,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void applyWriteMessageAaMode(EditText message, boolean aaMode) {
+        if (aaMode) {
+            message.setTextSize(AA_TEXT_SIZE_SP);
+            applyAaTypeface(message);
+            message.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
+            message.setSingleLine(false);
+            message.setHorizontallyScrolling(true);
+            message.post(() -> fitAaTextSize(message));
+        } else {
+            message.setTextSize(15);
+            message.setTypeface(Typeface.DEFAULT);
+            message.setIncludeFontPadding(true);
+            message.setLineSpacing(0, 1.15f);
+            message.setSingleLine(false);
+            message.setHorizontallyScrolling(false);
+            message.setTextScaleX(1f);
+        }
+    }
+
+    private void updateWriteAaToggleLabel(TextView label, boolean aaMode) {
+        if (label != null) {
+            label.setText(aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"));
+        }
+    }
+
     private void showWriteDialog(String initialMessage) {
         CuspTab tab = currentTab();
         if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
@@ -8740,6 +8769,44 @@ public class MainActivity extends Activity {
         message.setPadding(dp(12), dp(10), dp(12), dp(10));
         message.setText(initialMessage == null ? "" : initialMessage);
         message.setSelection(message.getText().length());
+        applyWriteMessageAaMode(message, false);
+
+        boolean[] writeAaMode = new boolean[]{false};
+        TextView[] aaToggleLabel = new TextView[1];
+        View aaToggle = dialogAction(R.drawable.ic_text_fields, text("AA\u8868\u793a", "AA view"), () -> {
+            writeAaMode[0] = !writeAaMode[0];
+            applyWriteMessageAaMode(message, writeAaMode[0]);
+            updateWriteAaToggleLabel(aaToggleLabel[0], writeAaMode[0]);
+            message.requestFocus();
+            message.setSelection(message.getText().length());
+        });
+        if (aaToggle instanceof LinearLayout) {
+            LinearLayout row = (LinearLayout) aaToggle;
+            if (row.getChildCount() > 1 && row.getChildAt(1) instanceof TextView) {
+                aaToggleLabel[0] = (TextView) row.getChildAt(1);
+            }
+        }
+        LinearLayout.LayoutParams aaToggleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        aaToggleParams.setMargins(0, 0, 0, dp(8));
+        form.addView(aaToggle, aaToggleParams);
+
+        message.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (writeAaMode[0]) {
+                    message.post(() -> fitAaTextSize(message));
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
         form.addView(message, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(280)));
 
