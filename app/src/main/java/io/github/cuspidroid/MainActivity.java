@@ -4418,6 +4418,9 @@ public class MainActivity extends Activity {
             if (slot.rendered) {
                 continue;
             }
+            if (isSlotFullyAboveViewport(holder, slot.tab)) {
+                continue;
+            }
             if (rendered[0] >= budget) {
                 budgetReached[0] = true;
                 return;
@@ -4435,11 +4438,6 @@ public class MainActivity extends Activity {
         if (postCard == null) {
             return;
         }
-        int oldHeight = Math.max(holder.getHeight(), slot.height);
-        int oldBottom = holder.getBottom();
-        int oldScrollY = slot.tab != null && slot.tab.threadScroll != null
-                ? slot.tab.threadScroll.getScrollY()
-                : 0;
         holder.removeAllViews();
         ViewGroup.LayoutParams holderParams = holder.getLayoutParams();
         if (holderParams != null && holderParams.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
@@ -4460,7 +4458,10 @@ public class MainActivity extends Activity {
         }
         holder.post(() -> {
             int measured = renderedSlotContentHeight(holder);
-            applyAnchoredSlotHeight(slot.tab, holder, slot, oldHeight, measured, oldBottom, oldScrollY);
+            if (measured > 0 && !isSlotFullyAboveViewport(holder, slot.tab)) {
+                slot.height = measured;
+                holder.requestLayout();
+            }
             scheduleThreadScrollChromeRefresh(slot.tab, 3);
         });
     }
@@ -4497,6 +4498,13 @@ public class MainActivity extends Activity {
         View spacer = new View(this);
         spacer.setMinimumHeight(Math.max(dp(56), height));
         return spacer;
+    }
+
+    private boolean isSlotFullyAboveViewport(View holder, CuspTab tab) {
+        return holder != null
+                && tab != null
+                && tab.threadScroll != null
+                && holder.getBottom() <= tab.threadScroll.getScrollY();
     }
 
     private int estimatePostSlotHeight(PostRenderItem item) {
@@ -6156,14 +6164,14 @@ public class MainActivity extends Activity {
                 FrameLayout holder = current instanceof FrameLayout ? (FrameLayout) current : null;
                 VirtualPostSlot slot = (VirtualPostSlot) tag;
                 if (holder != null && slot.rendered) {
+                    if (isSlotFullyAboveViewport(holder, slot.tab)) {
+                        return;
+                    }
                     holder.setMinimumHeight(0);
-                    int oldHeight = Math.max(holder.getHeight(), slot.height);
-                    int oldBottom = holder.getBottom();
-                    int oldScrollY = slot.tab != null && slot.tab.threadScroll != null
-                            ? slot.tab.threadScroll.getScrollY()
-                            : 0;
                     int measured = renderedSlotContentHeight(holder);
-                    applyAnchoredSlotHeight(slot.tab, holder, slot, oldHeight, measured, oldBottom, oldScrollY);
+                    if (measured > 0) {
+                        slot.height = measured;
+                    }
                     holder.requestLayout();
                     if (holder.getParent() instanceof View) {
                         ((View) holder.getParent()).requestLayout();
@@ -6197,26 +6205,6 @@ public class MainActivity extends Activity {
         }
         int childHeight = child.getHeight();
         return childHeight > 0 ? childHeight : holder.getHeight();
-    }
-
-    private void applyAnchoredSlotHeight(CuspTab tab, FrameLayout holder, VirtualPostSlot slot,
-                                         int oldHeight, int measuredHeight,
-                                         int oldBottom, int oldScrollY) {
-        if (slot == null || measuredHeight <= 0) {
-            return;
-        }
-        int delta = measuredHeight - oldHeight;
-        slot.height = measuredHeight;
-        if (delta == 0 || tab == null || tab.threadScroll == null || holder == null) {
-            return;
-        }
-        if (tab != currentTab() || oldBottom > oldScrollY) {
-            return;
-        }
-        ScrollView scroll = tab.threadScroll;
-        int range = scroll.getChildCount() == 0 ? 0 : scroll.getChildAt(0).getHeight() - scroll.getHeight() + delta;
-        int target = Math.max(0, Math.min(oldScrollY + delta, Math.max(0, range)));
-        scroll.scrollTo(0, target);
     }
 
     private void applyAaTextSizeIfNeeded(TextView body, float textSizePx) {
