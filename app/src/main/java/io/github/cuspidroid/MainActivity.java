@@ -6276,8 +6276,8 @@ public class MainActivity extends Activity {
         String thumbnailUrl = videoThumbnailUrl(videoUrl);
         if (thumbnailUrl == null) {
             spinner.setVisibility(View.GONE);
-            play.setVisibility(View.GONE);
-            error.setVisibility(View.VISIBLE);
+            play.setVisibility(View.VISIBLE);
+            error.setVisibility(View.GONE);
             return;
         }
         ioExecutor.execute(() -> {
@@ -7685,6 +7685,10 @@ public class MainActivity extends Activity {
     }
 
     private ImgurLink previewMediaLink(String rawUrl) {
+        String direct = directMediaUrl(rawUrl);
+        if (direct != null) {
+            return new ImgurLink(rawUrl, direct, isVideoUrl(direct), false);
+        }
         String imgur = imgurImageUrl(rawUrl);
         if (imgur != null) {
             return new ImgurLink(rawUrl, imgur, isVideoUrl(imgur), false);
@@ -7695,6 +7699,23 @@ public class MainActivity extends Activity {
         }
         String xxup = xxupImageUrl(rawUrl);
         return xxup == null ? null : new ImgurLink(rawUrl, xxup, isVideoUrl(xxup), isXxupPageUrl(xxup));
+    }
+
+    private String directMediaUrl(String rawUrl) {
+        try {
+            String normalized = normalizeUrl(rawUrl);
+            Uri uri = Uri.parse(normalized);
+            String path = uri.getPath();
+            if (path == null) {
+                return null;
+            }
+            String lower = path.toLowerCase(Locale.ROOT);
+            return lower.matches(".+\\.(jpe?g|png|webp|gif|bmp|avif|mp4|webm|mov|m4v)$")
+                    ? normalized
+                    : null;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String imgurImageUrl(String rawUrl) {
@@ -7831,13 +7852,22 @@ public class MainActivity extends Activity {
     }
 
     private boolean isVideoUrl(String url) {
-        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        String lower = mediaPath(url);
         return lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov") || lower.endsWith(".m4v");
     }
 
     private boolean isGifUrl(String url) {
-        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        String lower = mediaPath(url);
         return lower.endsWith(".gif");
+    }
+
+    private String mediaPath(String url) {
+        try {
+            String path = Uri.parse(normalizeUrl(url)).getPath();
+            return path == null ? "" : path.toLowerCase(Locale.ROOT);
+        } catch (Exception ignored) {
+            return url == null ? "" : url.toLowerCase(Locale.ROOT);
+        }
     }
 
     private void installLinkTouchTracking(TextView text) {
@@ -8968,6 +8998,30 @@ public class MainActivity extends Activity {
         showPopupNearAnchor(popup, menu, anchor);
     }
 
+    private LinearLayout writeDialogTitleRow(String title, ImageButton menuButton) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(20), dp(14), dp(12), dp(4));
+        row.setBackgroundColor(surfaceColor());
+
+        TextView titleView = new TextView(this);
+        titleView.setText(title == null || title.trim().isEmpty()
+                ? text("\u66f8\u304d\u8fbc\u307f", "Write")
+                : title.trim());
+        titleView.setTextColor(textColor());
+        titleView.setTextSize(18);
+        titleView.setMaxLines(2);
+        titleView.setEllipsize(TextUtils.TruncateAt.END);
+        titleView.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        row.addView(titleView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        LinearLayout.LayoutParams menuParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+        menuParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(menuButton, menuParams);
+        return row;
+    }
+
     private void showWriteDialog(String initialMessage) {
         CuspTab tab = currentTab();
         if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
@@ -9021,15 +9075,7 @@ public class MainActivity extends Activity {
         TextView[] aaToggleLabel = new TextView[1];
         ImageButton writeMenu = iconButton(R.drawable.ic_more_vert, text("\u66f8\u304d\u8fbc\u307f\u30e1\u30cb\u30e5\u30fc", "Write menu"),
                 v -> showWriteActionMenu(v, tab, message, writeAaMode, aaToggleLabel));
-        writeMenu.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
-        writeMenu.setColorFilter(TEAL);
-        LinearLayout writeMenuRow = new LinearLayout(this);
-        writeMenuRow.setGravity(Gravity.RIGHT);
-        writeMenuRow.addView(writeMenu, new LinearLayout.LayoutParams(dp(48), dp(44)));
-        LinearLayout.LayoutParams writeMenuParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        writeMenuParams.setMargins(0, 0, 0, dp(8));
-        form.addView(writeMenuRow, writeMenuParams);
+        writeMenu.setColorFilter(textColor());
 
         message.addTextChangedListener(new TextWatcher() {
             @Override
@@ -9050,8 +9096,11 @@ public class MainActivity extends Activity {
         form.addView(message, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(280)));
 
+        LinearLayout titleRow = writeDialogTitleRow(
+                tab.threadPage == null ? text("\u66f8\u304d\u8fbc\u307f", "Write") : tab.threadPage.title,
+                writeMenu);
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(tab.threadPage == null ? text("\u66f8\u304d\u8fbc\u307f", "Write") : tab.threadPage.title)
+                .setCustomTitle(titleRow)
                 .setView(form)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Post", null)
