@@ -195,8 +195,10 @@ public class MainActivity extends Activity {
     private static final int THREAD_IDLE_RENDER_BUDGET = 5;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 1;
     private static final String AA_FONT_FAMILY = "Textar";
-    private static final float AA_TEXT_SIZE_SP = 13f;
+    private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
+    private static final int AA_LEADING_SPACE_MIN_LINES = 3;
+    private static final float AA_LEADING_SPACE_RATIO_THRESHOLD = 0.45f;
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -3400,7 +3402,7 @@ public class MainActivity extends Activity {
         TextView body = new TextView(this);
         body.setText(post.body);
         body.setTextColor(textColor());
-        body.setTextSize(aa ? AA_TEXT_SIZE_SP : 15);
+        body.setTextSize(POST_TEXT_SIZE_SP);
         if (aa) {
             applyAaTypeface(body);
         } else {
@@ -5775,7 +5777,7 @@ public class MainActivity extends Activity {
         SpannableString aaText = decoratedPostText(post.body, page, tab.threadSearchQuery);
         body.setText(aaText);
         body.setTextColor(textColor());
-        body.setTextSize(AA_TEXT_SIZE_SP);
+        body.setTextSize(POST_TEXT_SIZE_SP);
         applyAaTypeface(body);
         body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
         body.setSingleLine(false);
@@ -5847,7 +5849,7 @@ public class MainActivity extends Activity {
             return;
         }
         float baseSize = TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_SP, AA_TEXT_SIZE_SP, getResources().getDisplayMetrics());
+                TypedValue.COMPLEX_UNIT_SP, POST_TEXT_SIZE_SP, getResources().getDisplayMetrics());
         if (post != null && post.cachedAaFitWidth == available && post.cachedAaFitTextSizePx > 0f) {
             applyAaTextSizeIfNeeded(body, post.cachedAaFitTextSizePx);
             return;
@@ -5962,127 +5964,29 @@ public class MainActivity extends Activity {
 
     private static AaDebugMetrics aaDebugMetrics(String body) {
         if (body == null) {
-            return new AaDebugMetrics(false, "null", 0, 0, 0, 0, 0, true);
+            return new AaDebugMetrics(false, "null", 0, 0, 0f);
         }
-        String value = removeLooseUrlsFromAaCandidate(body).trim();
-        if (value.length() < 8) {
-            return new AaDebugMetrics(false, "len<8", 0, 0, 0, 0, 0, true);
-        }
+        String value = body.replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = value.split("\\n", -1);
-        int nonWhitespace = 0;
-        int aaChars = 0;
-        int structural = 0;
-        int spaces = 0;
+        int countedLines = 0;
+        int leadingSpaceLines = 0;
         for (String line : lines) {
-            for (int i = 0; i < line.length(); i++) {
-                char ch = line.charAt(i);
-                if (Character.isWhitespace(ch)) {
-                    if (ch == ' ' || ch == '\u3000') {
-                        spaces++;
-                    }
-                    continue;
-                }
-                nonWhitespace++;
-                if (isAaCharacter(ch)) {
-                    aaChars++;
-                }
-                if (isAaStructuralCharacter(ch)) {
-                    structural++;
-                }
+            if (line.isEmpty()) {
+                continue;
+            }
+            countedLines++;
+            char first = line.charAt(0);
+            if (first == ' ' || first == '\u3000') {
+                leadingSpaceLines++;
             }
         }
-        boolean singleLine = lines.length <= 1;
-        if (nonWhitespace < 8) {
-            return new AaDebugMetrics(false, "nonws<8", lines.length, nonWhitespace, aaChars, structural, spaces, singleLine);
+        if (countedLines < AA_LEADING_SPACE_MIN_LINES) {
+            return new AaDebugMetrics(false, "lines<3", countedLines, leadingSpaceLines, 0f);
         }
-        float ratio = aaChars / (float) nonWhitespace;
-        boolean aaRatio = aaChars >= (singleLine ? 14 : 12) && ratio >= (singleLine ? 0.40f : 0.34f);
-        boolean structuralRatio = structural >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f);
-        boolean denseMulti = !singleLine && aaChars >= 18 && ratio >= 0.28f;
-        String reason = aaRatio ? "aa-ratio"
-                : structuralRatio ? "structural-ratio"
-                : denseMulti ? "dense-multi"
-                : "below";
-        return new AaDebugMetrics(aaRatio || structuralRatio || denseMulti, reason,
-                lines.length, nonWhitespace, aaChars, structural, spaces, singleLine);
-    }
-
-    private static String removeLooseUrlsFromAaCandidate(String body) {
-        StringBuilder builder = new StringBuilder(body);
-        Matcher matcher = URL_TEXT_PATTERN.matcher(body);
-        while (matcher.find()) {
-            String raw = stripTrailingUrlPunctuation(matcher.group());
-            int end = Math.min(builder.length(), matcher.start() + raw.length());
-            for (int i = matcher.start(); i < end; i++) {
-                builder.setCharAt(i, ' ');
-            }
-        }
-        return builder.toString();
-    }
-
-    private static boolean isAaCharacter(char ch) {
-        return isAaStructuralCharacter(ch)
-                || isAaFaceCharacter(ch)
-                || isAaShapeCharacter(ch)
-                || isAaMathCharacter(ch)
-                || isAaDecorativeCharacter(ch);
-    }
-
-    private static boolean isAaStructuralCharacter(char ch) {
-        if ("()[]{}<>/\\|!-_=+*:,.;'\"`~".indexOf(ch) >= 0) {
-            return true;
-        }
-        if (ch >= '\u2500' && ch <= '\u257f') {
-            return true;
-        }
-        return ch == '\uff08' || ch == '\uff09' || ch == '\uff3b' || ch == '\uff3d'
-                || ch == '\uff5b' || ch == '\uff5d' || ch == '\uff1c' || ch == '\uff1e'
-                || ch == '\uff0f' || ch == '\uff3c' || ch == '\uff5c' || ch == '\uff01'
-                || ch == '\uff1f' || ch == '\uff1d' || ch == '\u3010' || ch == '\u3011'
-                || ch == '\u300c' || ch == '\u300d' || ch == '\u300e' || ch == '\u300f'
-                || ch == '\u3014' || ch == '\u3015' || ch == '\u3016' || ch == '\u3017'
-                || ch == '\u3018' || ch == '\u3019' || ch == '\u301a' || ch == '\u301b';
-    }
-
-    private static boolean isAaFaceCharacter(char ch) {
-        return ch == '\u2200' || ch == '\u0414' || ch == '\u0434' || ch == '\u03c9'
-                || ch == '\u03b5' || ch == '\u03b4' || ch == '\u03c3' || ch == '\u30ee'
-                || ch == '\u30ed' || ch == '\u30ce' || ch == '\u30fd' || ch == '\u30f2'
-                || ch == '\u30e2' || ch == '\u30ca' || ch == '\u03a3' || ch == '\u03bc'
-                || ch == '\u00b4' || ch == '\uff40' || ch == '\u02d8' || ch == '\u02c6'
-                || ch == '\u02c7' || ch == '\u2032' || ch == '\u2035';
-    }
-
-    private static boolean isAaShapeCharacter(char ch) {
-        if (ch >= '\u25a0' && ch <= '\u25ff') {
-            return true;
-        }
-        if (ch >= '\u2580' && ch <= '\u259f') {
-            return true;
-        }
-        return ch == '\u25cb' || ch == '\u25cf' || ch == '\u25ce' || ch == '\u25c7'
-                || ch == '\u25c6' || ch == '\u25a1' || ch == '\u25a0' || ch == '\u25b3'
-                || ch == '\u25b2' || ch == '\u25bd' || ch == '\u25bc' || ch == '\u2605'
-                || ch == '\u2606' || ch == '\u2665' || ch == '\u2661' || ch == '\u266a'
-                || ch == '\u266b' || ch == '\u203b';
-    }
-
-    private static boolean isAaMathCharacter(char ch) {
-        return ch == '\u2227' || ch == '\u2228' || ch == '\u2229' || ch == '\u222a'
-                || ch == '\u2282' || ch == '\u2283' || ch == '\u2286' || ch == '\u2287'
-                || ch == '\u22a5' || ch == '\u22bf' || ch == '\u2235' || ch == '\u2234'
-                || ch == '\u2260' || ch == '\u2252' || ch == '\u2266' || ch == '\u2267'
-                || ch == '\u221e' || ch == '\u2211' || ch == '\u221a' || ch == '\u2220'
-                || ch == '\u222e';
-    }
-
-    private static boolean isAaDecorativeCharacter(char ch) {
-        return ch == '\uff3f' || ch == '\uffe3' || ch == '\u203e' || ch == '\u02c9'
-                || ch == '\u30fc' || ch == '\u2015' || ch == '\u2014' || ch == '\u2010'
-                || ch == '\u3001' || ch == '\u3002' || ch == '\u30fb' || ch == '\uff65'
-                || ch == '\u309b' || ch == '\u309c' || ch == '\uff9e' || ch == '\uff9f'
-                || ch == '\u5f61' || ch == '\u5f50' || ch == '\u4e36' || ch == '\u4e3f'
-                || ch == '\u4e5a' || ch == '\u4e85' || ch == '\u4e28';
+        float ratio = leadingSpaceLines / (float) countedLines;
+        boolean aa = ratio > AA_LEADING_SPACE_RATIO_THRESHOLD;
+        return new AaDebugMetrics(aa, aa ? "leading-space-ratio" : "below",
+                countedLines, leadingSpaceLines, ratio);
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
@@ -6156,22 +6060,16 @@ public class MainActivity extends Activity {
         revealParams.gravity = Gravity.CENTER;
         frame.addView(reveal, revealParams);
 
-        Button play = new Button(this);
-        play.setText("▶");
-        play.setAllCaps(false);
-        play.setTextSize(22);
-        play.setTextColor(Color.WHITE);
+        TextView play = mediaPlayOverlay();
         play.setVisibility(View.GONE);
-        play.setBackground(roundedDrawable(Color.argb(130, 0, 0, 0), Color.TRANSPARENT, dp(18)));
         if (longClickAction != null) {
             play.setOnLongClickListener(v -> {
                 longClickAction.run();
                 return true;
             });
         }
-        FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(dp(52), dp(44));
-        playParams.gravity = Gravity.CENTER;
-        frame.addView(play, playParams);
+        frame.addView(play, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         LazyImgurPreview preview = new LazyImgurPreview(originalUrl, imageUrl, frame, image, spinner, error, reveal, play);
         frame.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
@@ -6193,6 +6091,16 @@ public class MainActivity extends Activity {
             scheduleLazyImgurLoads();
         }
         return frame;
+    }
+
+    private TextView mediaPlayOverlay() {
+        TextView play = new TextView(this);
+        play.setText("\u25b6");
+        play.setTextColor(Color.WHITE);
+        play.setTextSize(34);
+        play.setGravity(Gravity.CENTER);
+        play.setBackgroundColor(Color.argb(82, 0, 0, 0));
+        return play;
     }
 
     private View videoPreview(String originalUrl, String videoUrl, Runnable longClickAction, int cellSize) {
@@ -6231,12 +6139,7 @@ public class MainActivity extends Activity {
             });
         }
 
-        TextView play = new TextView(this);
-        play.setText("▶");
-        play.setTextColor(Color.WHITE);
-        play.setTextSize(34);
-        play.setGravity(Gravity.CENTER);
-        play.setBackgroundColor(Color.argb(82, 0, 0, 0));
+        TextView play = mediaPlayOverlay();
         frame.addView(play, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         frame.addView(error, new FrameLayout.LayoutParams(
@@ -6733,15 +6636,10 @@ public class MainActivity extends Activity {
         spinnerParams.gravity = Gravity.CENTER;
         overlay.addView(spinner, spinnerParams);
 
-        Button play = new Button(this);
-        play.setText("▶");
-        play.setAllCaps(false);
-        play.setTextSize(26);
-        play.setTextColor(Color.WHITE);
+        TextView play = mediaPlayOverlay();
         play.setVisibility(View.GONE);
-        play.setBackground(roundedDrawable(Color.argb(130, 0, 0, 0), Color.TRANSPARENT, dp(22)));
-        FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(dp(64), dp(52), Gravity.CENTER);
-        overlay.addView(play, playParams);
+        overlay.addView(play, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ImageButton close = iconButton(R.drawable.ic_close, text("\u753b\u50cf\u3092\u9589\u3058\u308b", "Close image"), v -> {
             closeImageViewer();
@@ -8905,14 +8803,14 @@ public class MainActivity extends Activity {
 
     private void applyWriteMessageAaMode(EditText message, boolean aaMode) {
         if (aaMode) {
-            message.setTextSize(AA_TEXT_SIZE_SP);
+            message.setTextSize(POST_TEXT_SIZE_SP);
             applyAaTypeface(message);
             message.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
             message.setSingleLine(false);
             message.setHorizontallyScrolling(true);
             message.post(() -> fitAaTextSize(message));
         } else {
-            message.setTextSize(15);
+            message.setTextSize(POST_TEXT_SIZE_SP);
             message.setTypeface(Typeface.DEFAULT);
             message.setIncludeFontPadding(true);
             message.setLineSpacing(0, 1.15f);
@@ -12710,11 +12608,11 @@ public class MainActivity extends Activity {
         final ProgressBar spinner;
         final TextView error;
         final Button reveal;
-        final Button play;
+        final TextView play;
         boolean started;
 
         LazyImgurPreview(String originalUrl, String imageUrl, FrameLayout frame,
-                         ImageView image, ProgressBar spinner, TextView error, Button reveal, Button play) {
+                         ImageView image, ProgressBar spinner, TextView error, Button reveal, TextView play) {
             this.originalUrl = originalUrl;
             this.imageUrl = imageUrl;
             this.frame = frame;
@@ -12760,33 +12658,22 @@ public class MainActivity extends Activity {
         final boolean aa;
         final String reason;
         final int lines;
-        final int nonWhitespace;
-        final int aaChars;
-        final int structural;
-        final int spaces;
-        final boolean singleLine;
+        final int leadingSpaceLines;
+        final float ratio;
 
-        AaDebugMetrics(boolean aa, String reason, int lines, int nonWhitespace,
-                       int aaChars, int structural, int spaces, boolean singleLine) {
+        AaDebugMetrics(boolean aa, String reason, int lines, int leadingSpaceLines, float ratio) {
             this.aa = aa;
             this.reason = reason;
             this.lines = lines;
-            this.nonWhitespace = nonWhitespace;
-            this.aaChars = aaChars;
-            this.structural = structural;
-            this.spaces = spaces;
-            this.singleLine = singleLine;
+            this.leadingSpaceLines = leadingSpaceLines;
+            this.ratio = ratio;
         }
 
         String debugText() {
-            float ratio = nonWhitespace <= 0 ? 0f : aaChars / (float) nonWhitespace;
-            String thresholds = singleLine
-                    ? "single: aa>=14 & 40%, structural>=12 & 34%"
-                    : "multi: aa>=12 & 34%, structural>=10 & 28%, aa>=18 & 28%";
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) lines=%d nonws=%d aa=%d %.1f%% structural=%d spaces=%d | %s",
-                    aa ? "YES" : "NO", reason, lines, nonWhitespace, aaChars, ratio * 100f,
-                    structural, spaces, thresholds);
+                    "AA debug: %s (%s) lines=%d leading-space=%d %.1f%% | threshold: lines>=%d & leading-space>%.0f%%",
+                    aa ? "YES" : "NO", reason, lines, leadingSpaceLines, ratio * 100f,
+                    AA_LEADING_SPACE_MIN_LINES, AA_LEADING_SPACE_RATIO_THRESHOLD * 100f);
         }
     }
 
