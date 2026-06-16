@@ -196,6 +196,7 @@ public class MainActivity extends Activity {
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 2;
     private static final int THREAD_IDLE_RENDER_BUDGET = 5;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 1;
+    private static final int THREAD_SLOT_INSERT_BATCH = 12;
     private static final long TAB_UNLOAD_INTERVAL_MS = 60_000L;
     private static final long TAB_UNLOAD_AFTER_MS = 180_000L;
     private static final String AA_FONT_FAMILY = "Textar";
@@ -3031,7 +3032,7 @@ public class MainActivity extends Activity {
                 : flatPostRenderItems(page);
         int generation = ++tab.threadRenderGeneration;
         tab.threadRendering = true;
-        renderPostSlots(list, page, tab, items, list.getChildCount(), generation, null);
+        renderPostSlots(list, page, tab, items, 0, list.getChildCount(), generation, null);
     }
 
     private void renderAdditionalPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab,
@@ -3047,15 +3048,17 @@ public class MainActivity extends Activity {
                 : flatPostRenderItems(page, Math.max(0, fromPostIndex));
         int generation = ++tab.threadRenderGeneration;
         tab.threadRendering = true;
-        renderPostSlots(list, page, tab, items, list.getChildCount(), generation, onComplete);
+        renderPostSlots(list, page, tab, items, 0, list.getChildCount(), generation, onComplete);
     }
 
     private void renderPostSlots(LinearLayout list, ThreadPage page, CuspTab tab, List<PostRenderItem> items,
-                                 int insertIndex, int generation, Runnable onComplete) {
+                                 int start, int insertIndex, int generation, Runnable onComplete) {
         if (tab.threadRenderGeneration != generation || tab.threadList != list) {
             return;
         }
-        for (PostRenderItem item : items) {
+        int end = Math.min(items.size(), start + THREAD_SLOT_INSERT_BATCH);
+        for (int i = start; i < end; i++) {
+            PostRenderItem item = items.get(i);
             VirtualPostSlot slot = new VirtualPostSlot(page, tab, item, estimatePostSlotHeight(item));
             FrameLayout holder = new FrameLayout(this);
             holder.setTag(slot);
@@ -3065,6 +3068,13 @@ public class MainActivity extends Activity {
             list.addView(holder, index, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             tab.postSlots.put(item.post.number, holder);
+        }
+        if (end < items.size()) {
+            int nextInsertIndex = insertIndex;
+            long delay = recentlyScrolled(tab) ? 32L : 0L;
+            mainHandler.postDelayed(() -> renderPostSlots(
+                    list, page, tab, items, end, nextInsertIndex, generation, onComplete), delay);
+            return;
         }
         completeThreadRender(tab, onComplete);
     }
