@@ -2994,7 +2994,7 @@ public class MainActivity extends Activity {
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         shell.addView(card, cardFrameParams);
         if (showTreeConnector) {
-            shell.addView(new TreeConnectorView(this, item, dp(18), dp(10), TEAL),
+            shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
                     new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT));
         }
@@ -13132,16 +13132,14 @@ public class MainActivity extends Activity {
         private final Set<Integer> continuationDepths;
         private final boolean hasReplies;
         private final int indent;
-        private final int numberInset;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        TreeConnectorView(Context context, PostRenderItem item, int indent, int numberInset, int color) {
+        TreeConnectorView(Context context, PostRenderItem item, int indent, int color) {
             super(context);
             this.depth = item.depth;
             this.continuationDepths = item.continuationDepths;
             this.hasReplies = item.hasReplies;
             this.indent = indent;
-            this.numberInset = numberInset;
             int nightMode = context.getResources().getConfiguration().uiMode
                     & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
             paint.setColor(nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -13170,9 +13168,9 @@ public class MainActivity extends Activity {
             }
             if (depth > 0) {
                 float parentX = connectorX(depth);
-                float childNumberX = depth * indent + numberInset;
+                float childEdgeX = depth * indent;
                 float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
-                float radius = Math.min(indent * 0.35f, Math.abs(childNumberX - parentX) * 0.5f);
+                float radius = Math.min(indent * 0.35f, Math.abs(childEdgeX - parentX) * 0.5f);
                 Path branch = new Path();
                 if (continuationDepths.contains(depth)) {
                     canvas.drawLine(parentX, 0, parentX, currentEndY, paint);
@@ -13182,7 +13180,7 @@ public class MainActivity extends Activity {
                     branch.lineTo(parentX, Math.max(0f, branchY - radius));
                 }
                 branch.quadTo(parentX, branchY, parentX + radius, branchY);
-                branch.lineTo(childNumberX, branchY);
+                branch.lineTo(childEdgeX, branchY);
                 canvas.drawPath(branch, paint);
             }
             if (hasReplies) {
