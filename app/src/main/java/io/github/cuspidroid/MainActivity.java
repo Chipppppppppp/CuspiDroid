@@ -2993,7 +2993,7 @@ public class MainActivity extends Activity {
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         if (showTreeConnector) {
-            shell.addView(new TreeConnectorView(this, item, dp(18), dp(8), TEAL),
+            shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
                     new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT));
         }
@@ -13167,17 +13167,15 @@ public class MainActivity extends Activity {
         private final Set<Integer> continuationDepths;
         private final boolean hasReplies;
         private final int indent;
-        private final int cardRadius;
         private final int cardBottomGap;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        TreeConnectorView(Context context, PostRenderItem item, int indent, int cardRadius, int color) {
+        TreeConnectorView(Context context, PostRenderItem item, int indent, int color) {
             super(context);
             this.depth = item.depth;
             this.continuationDepths = item.continuationDepths;
             this.hasReplies = item.hasReplies;
             this.indent = indent;
-            this.cardRadius = cardRadius;
             this.cardBottomGap = Math.round(context.getResources().getDisplayMetrics().density * 8f);
             int nightMode = context.getResources().getConfiguration().uiMode
                     & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
@@ -13223,7 +13221,7 @@ public class MainActivity extends Activity {
                 canvas.drawPath(branch, paint);
             }
             if (hasReplies) {
-                float childTrunkX = childTrunkX();
+                float childTrunkX = connectorX(depth + 1);
                 float cardBottomY = Math.max(branchY, getHeight() - cardBottomGap);
                 float startY = Math.min(getHeight(), cardBottomY + paint.getStrokeWidth() / 2f);
                 canvas.drawLine(childTrunkX, startY, childTrunkX, getHeight(), paint);
@@ -13232,10 +13230,6 @@ public class MainActivity extends Activity {
 
         private float connectorX(int level) {
             return (level - 1) * indent + indent / 2f;
-        }
-
-        private float childTrunkX() {
-            return depth * indent + Math.max(cardRadius, Math.round(paint.getStrokeWidth()));
         }
     }
 
