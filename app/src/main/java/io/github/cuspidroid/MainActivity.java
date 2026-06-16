@@ -196,6 +196,8 @@ public class MainActivity extends Activity {
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 2;
     private static final int THREAD_IDLE_RENDER_BUDGET = 5;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 1;
+    private static final long TAB_UNLOAD_INTERVAL_MS = 60_000L;
+    private static final long TAB_UNLOAD_AFTER_MS = 180_000L;
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
@@ -254,6 +256,7 @@ public class MainActivity extends Activity {
     private int pageSearchIndex = -1;
     private int pageSearchGeneration;
     private Runnable saveTabsTask;
+    private Runnable unloadTabsTask;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private boolean addressKeyboardVisible;
@@ -501,6 +504,7 @@ public class MainActivity extends Activity {
         appliedThemeMode = themeMode();
         buildLayout();
         contentFrame.addView(loadingView(""));
+        scheduleTabUnload();
 
         contentFrame.postDelayed(this::openInitialContent, 32);
     }
@@ -526,6 +530,10 @@ public class MainActivity extends Activity {
             mainHandler.removeCallbacks(saveTabsTask);
             saveTabsTask = null;
         }
+        if (unloadTabsTask != null) {
+            mainHandler.removeCallbacks(unloadTabsTask);
+            unloadTabsTask = null;
+        }
         saveTabs(true);
         super.onPause();
     }
@@ -548,6 +556,7 @@ public class MainActivity extends Activity {
                 switchToTab(currentIndex);
             }
         }
+        scheduleTabUnload();
     }
 
     @Override
@@ -555,6 +564,10 @@ public class MainActivity extends Activity {
         if (saveTabsTask != null) {
             mainHandler.removeCallbacks(saveTabsTask);
             saveTabsTask = null;
+        }
+        if (unloadTabsTask != null) {
+            mainHandler.removeCallbacks(unloadTabsTask);
+            unloadTabsTask = null;
         }
         saveTabs(true);
         closeImageClassifiers();
@@ -843,11 +856,14 @@ public class MainActivity extends Activity {
                 suppressNextAddressClick = false;
                 return;
             }
+            addressBar.requestFocus();
             addressBar.selectAll();
+            showKeyboardSoon();
         });
         addressBar.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 addressBar.selectAll();
+                showKeyboardSoon();
             }
             updateAddressFocusUi(hasFocus);
         });
@@ -880,6 +896,8 @@ public class MainActivity extends Activity {
         addressBar.setOnTouchListener((v, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 addressFocusedOnDown = addressBar.hasFocus();
+                addressBar.requestFocus();
+                showKeyboardSoon();
             }
             if (suppressNextAddressClick
                     && (event.getActionMasked() == MotionEvent.ACTION_UP
@@ -1622,6 +1640,7 @@ public class MainActivity extends Activity {
         tab.returnToIndex = returnToIndex;
         tab.backToNewTab = backToNewTab;
         tab.privateBrowsing = privateBrowsing;
+        tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tabs.add(tab);
         if (select) {
             switchToTab(tabs.size() - 1);
@@ -1895,6 +1914,59 @@ public class MainActivity extends Activity {
         mainHandler.postDelayed(saveTabsTask, 500);
     }
 
+    private void scheduleTabUnload() {
+        if (unloadTabsTask != null) {
+            return;
+        }
+        unloadTabsTask = () -> {
+            unloadTabsTask = null;
+            unloadIdleTabs();
+            scheduleTabUnload();
+        };
+        mainHandler.postDelayed(unloadTabsTask, TAB_UNLOAD_INTERVAL_MS);
+    }
+
+    private void unloadIdleTabs() {
+        if (tabs.isEmpty() || pendingNewTab) {
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        for (int i = 0; i < tabs.size(); i++) {
+            if (i == currentIndex) {
+                continue;
+            }
+            CuspTab tab = tabs.get(i);
+            if (tab.readerView == null || now - tab.lastActivatedAt < TAB_UNLOAD_AFTER_MS) {
+                continue;
+            }
+            unloadTabView(tab);
+        }
+    }
+
+    private void unloadTabView(CuspTab tab) {
+        if (tab == null || tab.readerView == null) {
+            return;
+        }
+        rememberThreadScroll(tab);
+        ViewGroup parent = (ViewGroup) tab.readerView.getParent();
+        if (parent != null) {
+            parent.removeView(tab.readerView);
+        }
+        if (tab.threadScrollChromeTask != null) {
+            mainHandler.removeCallbacks(tab.threadScrollChromeTask);
+            tab.threadScrollChromeTask = null;
+        }
+        tab.readerView = null;
+        tab.threadScroll = null;
+        tab.threadList = null;
+        tab.threadBottomLoader = null;
+        tab.scrollScrubber = null;
+        tab.unreadMarkerLayer = null;
+        tab.postViews = null;
+        tab.postSlots = null;
+        tab.renderedPostSlots = null;
+    }
+
     private JSONObject threadPageToJson(ThreadPage page) throws Exception {
         JSONObject object = new JSONObject();
         object.put("url", page.url);
@@ -2097,6 +2169,8 @@ public class MainActivity extends Activity {
         }
         currentIndex = index;
         CuspTab tab = target;
+        tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        ensureTabViewLoaded(tab);
         contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
         visibleThreadPage = null;
@@ -2126,6 +2200,45 @@ public class MainActivity extends Activity {
         updateBottomThreadBar(tab);
         updateThreadSearchBar(tab);
         renderTabs();
+        scheduleTabUnload();
+    }
+
+    private void ensureTabViewLoaded(CuspTab tab) {
+        if (tab == null || tab.readerView != null) {
+            return;
+        }
+        if (NATIVE_THREAD.equals(tab.nativeKind)) {
+            if (tab.savedThreadPageJson != null) {
+                tab.threadPage = threadPageFromJson(tab.savedThreadPageJson);
+                tab.savedThreadPageJson = null;
+            }
+            if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                tab.readerMode = true;
+                tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
+                tab.postViews = new LinkedHashMap<>();
+                tab.readerView = buildThreadView(tab.threadPage, tab);
+                return;
+            }
+        } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
+            if (tab.savedSearchPageJson != null) {
+                tab.searchPage = searchPageFromJson(tab.savedSearchPageJson);
+                tab.savedSearchPageJson = null;
+            }
+            if (tab.searchPage != null) {
+                tab.readerMode = true;
+                tab.readerView = buildSearchView(tab.searchPage);
+                return;
+            }
+        } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || tab.url == null || tab.url.isEmpty()) {
+            tab.readerMode = true;
+            tab.nativeKind = NATIVE_SEARCH_HOME;
+            tab.readerView = buildSearchHomeView(true);
+            return;
+        }
+        tab.readerView = loadingView("");
+        if (tab.url != null && !tab.url.isEmpty()) {
+            mainHandler.post(() -> openInTab(tab, tab.url, false));
+        }
     }
 
     private void updateBottomThreadBar(CuspTab tab) {
@@ -2199,6 +2312,10 @@ public class MainActivity extends Activity {
             pendingPrivateNewTab = false;
             createTab(url, true, -1, true, privateBrowsing);
             return;
+        }
+        CuspTab current = currentTab();
+        if (current != null && urlLike && isThreadUrl(url)) {
+            current.forceTopOnNextThreadLoad = true;
         }
         openInCurrentTab(url);
     }
@@ -2286,14 +2403,19 @@ public class MainActivity extends Activity {
 
     private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
         final String loadUrl = url;
+        boolean forceTop = tab.forceTopOnNextThreadLoad;
+        tab.forceTopOnNextThreadLoad = false;
         rememberThreadScroll(tab);
         if (showFullLoading) {
             prepareChromeForLoading();
         }
-        boolean keepExistingScroll = tab.hasSavedThreadScroll && loadUrl.equals(tab.threadScrollUrl);
+        boolean keepExistingScroll = !forceTop && tab.hasSavedThreadScroll && loadUrl.equals(tab.threadScrollUrl);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
         tab.url = loadUrl;
+        if (forceTop) {
+            forceThreadScrollTop(tab, loadUrl);
+        }
         tab.title = hostTitle(loadUrl);
         tab.searchPage = null;
         if (showFullLoading || tab.readerView == null) {
@@ -2301,10 +2423,11 @@ public class MainActivity extends Activity {
             switchToTab(tabs.indexOf(tab));
         }
         progressBar.setVisibility(View.VISIBLE);
-        mainHandler.post(() -> loadThreadAfterLoading(tab, loadUrl, keepExistingScroll, showFullLoading));
+        mainHandler.post(() -> loadThreadAfterLoading(tab, loadUrl, keepExistingScroll, forceTop, showFullLoading));
     }
 
-    private void loadThreadAfterLoading(CuspTab tab, String loadUrl, boolean keepExistingScroll, boolean showFullLoading) {
+    private void loadThreadAfterLoading(CuspTab tab, String loadUrl, boolean keepExistingScroll,
+                                        boolean forceTop, boolean showFullLoading) {
         if (tab == null || !loadUrl.equals(tab.url)) {
             return;
         }
@@ -2348,6 +2471,9 @@ public class MainActivity extends Activity {
                         progressBar.setVisibility(View.GONE);
                     }
                     if (tab == currentTab()) {
+                        if (forceTop) {
+                            forceThreadScrollTop(tab, loadUrl);
+                        }
                         restoreThreadScroll(tab);
                     }
                     renderTabs();
@@ -2358,7 +2484,10 @@ public class MainActivity extends Activity {
                 tab.readPostNumber = readPostNumberForTab(tab, result.url);
                 tab.postViews = new LinkedHashMap<>();
                 tab.readerView = buildThreadView(result, tab);
-                tab.hasSavedThreadScroll = keepExistingScroll;
+                tab.hasSavedThreadScroll = forceTop || keepExistingScroll;
+                if (forceTop) {
+                    forceThreadScrollTop(tab, loadUrl);
+                }
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
                     addThreadHistory(tab, result.url, result.title);
@@ -9482,6 +9611,17 @@ public class MainActivity extends Activity {
         tab.hasSavedThreadScroll = true;
     }
 
+    private void forceThreadScrollTop(CuspTab tab, String url) {
+        if (tab == null) {
+            return;
+        }
+        tab.threadScrollRatio = 0f;
+        tab.threadBottomOffset = 0;
+        tab.threadScrollUrl = url == null ? threadUrl(tab) : url;
+        tab.hasSavedThreadScroll = true;
+        tab.restoreFromBottom = false;
+    }
+
     private void restoreThreadScroll(CuspTab tab) {
         restoreThreadScroll(tab, 0);
     }
@@ -9520,6 +9660,7 @@ public class MainActivity extends Activity {
                 scrollToUnreadBoundary(tab);
             }
             revealThreadAfterScrollRestore(tab, attempt);
+            scheduleThreadScrollChromeRefresh(tab, 2);
         });
     }
 
@@ -12374,6 +12515,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void showKeyboardSoon() {
+        if (addressBar == null) {
+            return;
+        }
+        addressBar.post(() -> {
+            if (addressBar != null && addressBar.hasFocus()) {
+                showKeyboard();
+            }
+        });
+        addressBar.postDelayed(() -> {
+            if (addressBar != null && addressBar.hasFocus()) {
+                showKeyboard();
+            }
+        }, 120);
+    }
+
     private void startAddressEntry() {
         addressBar.setText("");
         addressBar.requestFocus();
@@ -12613,10 +12770,12 @@ public class MainActivity extends Activity {
         String threadScrollUrl = "";
         int readPostNumber;
         long bottomScrollLockUntil;
+        long lastActivatedAt = android.os.SystemClock.uptimeMillis();
         long lastScrollAt;
         long lastThreadScrollSaveAt;
         boolean hasSavedThreadScroll;
         boolean restoreFromBottom;
+        boolean forceTopOnNextThreadLoad;
         boolean threadSearchOpen;
         String threadSearchQuery = "";
         List<Integer> threadSearchMatches = new ArrayList<>();
