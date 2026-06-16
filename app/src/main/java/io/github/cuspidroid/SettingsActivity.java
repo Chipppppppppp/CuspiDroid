@@ -301,7 +301,7 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
         blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
         blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
-        autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, true));
+        autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false));
         imgurClientId.setText(preferences.getString(MainActivity.PREF_IMGUR_CLIENT_ID, ""));
         updateMediaDependentSettings();
         if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
@@ -481,7 +481,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, true)
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true)
-                .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, true)
+                .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false)
                 .putString(MainActivity.PREF_IMGUR_CLIENT_ID, "")
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)

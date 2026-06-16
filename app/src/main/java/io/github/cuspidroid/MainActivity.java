@@ -190,10 +190,10 @@ public class MainActivity extends Activity {
     private static final int REQUEST_IMGUR_MEDIA = 42;
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
-    private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
-    private static final int THREAD_VISIBLE_RENDER_BUDGET = 4;
-    private static final int THREAD_IDLE_RENDER_BUDGET = 12;
-    private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
+    private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 32;
+    private static final int THREAD_VISIBLE_RENDER_BUDGET = 2;
+    private static final int THREAD_IDLE_RENDER_BUDGET = 5;
+    private static final int THREAD_SCROLL_RENDER_BUDGET = 1;
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float AA_TEXT_SIZE_SP = 13f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
@@ -4197,16 +4197,21 @@ public class MainActivity extends Activity {
             return;
         }
         boolean scrolling = recentlyScrolled(tab);
-        int top = Math.max(0, scrollY - (scrolling ? height : height * 2));
-        int bottom = scrollY + (scrolling ? height * 2 : height * 5);
+        int top = Math.max(0, scrollY - (scrolling ? height / 3 : height));
+        int bottom = scrollY + height + (scrolling ? height / 2 : height * 2);
+        int unloadTop = Math.max(0, scrollY - (scrolling ? height : height * 2));
+        int unloadBottom = scrollY + height + (scrolling ? height * 2 : height * 3);
         ViewGroup list = tab.threadList;
         int start = firstChildWithBottomAtLeast(list, top);
         int end = lastChildWithTopAtMost(list, bottom);
+        int unloadStart = firstChildWithBottomAtLeast(list, unloadTop);
+        int unloadEnd = lastChildWithTopAtMost(list, unloadBottom);
         int visibleStart = firstChildWithBottomAtLeast(list, scrollY);
         int visibleEnd = lastChildWithTopAtMost(list, scrollY + height);
         int[] rendered = {0};
         boolean[] budgetReached = {false};
-        Set<FrameLayout> keep = scrolling ? null : new LinkedHashSet<>();
+        Set<FrameLayout> keep = new LinkedHashSet<>();
+        collectVirtualPostSlotsInRange(list, unloadStart, unloadEnd, keep);
         renderVirtualPostSlotsInRange(list, visibleStart, visibleEnd, THREAD_VISIBLE_RENDER_BUDGET,
                 rendered, budgetReached, keep);
         int budget = scrolling ? THREAD_SCROLL_RENDER_BUDGET : THREAD_IDLE_RENDER_BUDGET;
@@ -4214,7 +4219,7 @@ public class MainActivity extends Activity {
         if (budgetReached[0]) {
             scheduleThreadPostVisibilityRefresh(tab);
         }
-        if (!scrolling && !budgetReached[0] && tab.renderedPostSlots != null && !tab.renderedPostSlots.isEmpty()) {
+        if (tab.renderedPostSlots != null && !tab.renderedPostSlots.isEmpty()) {
             for (FrameLayout holder : new ArrayList<>(tab.renderedPostSlots)) {
                 if (keep.contains(holder)) {
                     continue;
@@ -5884,6 +5889,19 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void collectVirtualPostSlotsInRange(ViewGroup list, int start, int end, Set<FrameLayout> keep) {
+        if (list == null || keep == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualPostSlot) {
+                keep.add((FrameLayout) child);
+            }
+        }
+    }
+
     private float longestLineWidth(TextView body, String[] lines, float textSizePx) {
         TextPaint paint = new TextPaint(body.getPaint());
         paint.setTextSize(textSizePx);
@@ -6117,7 +6135,24 @@ public class MainActivity extends Activity {
         revealParams.gravity = Gravity.CENTER;
         frame.addView(reveal, revealParams);
 
-        LazyImgurPreview preview = new LazyImgurPreview(originalUrl, imageUrl, frame, image, spinner, error, reveal);
+        Button play = new Button(this);
+        play.setText("▶");
+        play.setAllCaps(false);
+        play.setTextSize(22);
+        play.setTextColor(Color.WHITE);
+        play.setVisibility(View.GONE);
+        play.setBackground(roundedDrawable(Color.argb(130, 0, 0, 0), Color.TRANSPARENT, dp(18)));
+        if (longClickAction != null) {
+            play.setOnLongClickListener(v -> {
+                longClickAction.run();
+                return true;
+            });
+        }
+        FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(dp(52), dp(44));
+        playParams.gravity = Gravity.CENTER;
+        frame.addView(play, playParams);
+
+        LazyImgurPreview preview = new LazyImgurPreview(originalUrl, imageUrl, frame, image, spinner, error, reveal, play);
         frame.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
@@ -6626,11 +6661,15 @@ public class MainActivity extends Activity {
                     startAnimatedDrawable(drawable);
                 } else {
                     preview.image.setImageBitmap(bitmap);
+                    showGifPlayButton(preview, drawable);
                 }
                 preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
                 preview.reveal.setVisibility(View.GONE);
             });
         } else if (drawable != null) {
+            if (gif && !autoplayGifs()) {
+                showGifPlayButton(preview, drawable);
+            }
             preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
         } else if (shouldBlur && sensitive) {
             positionRevealButton(preview.frame, preview.reveal, bitmap);
@@ -6644,6 +6683,16 @@ public class MainActivity extends Activity {
             preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
         }
         scheduleLazyImgurLoads();
+    }
+
+    private void showGifPlayButton(LazyImgurPreview preview, Drawable drawable) {
+        preview.play.setVisibility(View.VISIBLE);
+        preview.play.setOnClickListener(v -> {
+            preview.image.setImageDrawable(drawable);
+            startAnimatedDrawable(drawable, true);
+            preview.play.setVisibility(View.GONE);
+            preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
+        });
     }
 
     private void showImageViewer(String originalUrl, String imageUrl) {
@@ -6662,6 +6711,16 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(44), dp(44));
         spinnerParams.gravity = Gravity.CENTER;
         overlay.addView(spinner, spinnerParams);
+
+        Button play = new Button(this);
+        play.setText("▶");
+        play.setAllCaps(false);
+        play.setTextSize(26);
+        play.setTextColor(Color.WHITE);
+        play.setVisibility(View.GONE);
+        play.setBackground(roundedDrawable(Color.argb(130, 0, 0, 0), Color.TRANSPARENT, dp(22)));
+        FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(dp(64), dp(52), Gravity.CENTER);
+        overlay.addView(play, playParams);
 
         ImageButton close = iconButton(R.drawable.ic_close, text("\u753b\u50cf\u3092\u9589\u3058\u308b", "Close image"), v -> {
             closeImageViewer();
@@ -6706,7 +6765,20 @@ public class MainActivity extends Activity {
                     closeImageViewer();
                     return;
                 }
-                if (drawable != null) {
+                boolean gif = isGifUrl(imageUrl);
+                if (drawable != null && gif && !autoplayGifs()) {
+                    if (bitmap != null) {
+                        image.setImageBitmap(bitmap);
+                    } else {
+                        image.setImageDrawable(drawable);
+                    }
+                    play.setVisibility(View.VISIBLE);
+                    play.setOnClickListener(v -> {
+                        image.setImageDrawable(drawable);
+                        startAnimatedDrawable(drawable, true);
+                        play.setVisibility(View.GONE);
+                    });
+                } else if (drawable != null) {
                     image.setImageDrawable(drawable);
                     startAnimatedDrawable(drawable);
                 } else {
@@ -7110,7 +7182,11 @@ public class MainActivity extends Activity {
     }
 
     private void startAnimatedDrawable(Drawable drawable) {
-        if (autoplayGifs() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && drawable instanceof AnimatedImageDrawable) {
+        startAnimatedDrawable(drawable, false);
+    }
+
+    private void startAnimatedDrawable(Drawable drawable, boolean force) {
+        if ((force || autoplayGifs()) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && drawable instanceof AnimatedImageDrawable) {
             ((AnimatedImageDrawable) drawable).start();
         }
     }
@@ -9905,7 +9981,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean autoplayGifs() {
-        return showMediaPreviews() && preferences.getBoolean(PREF_AUTOPLAY_GIFS, true);
+        return showMediaPreviews() && preferences.getBoolean(PREF_AUTOPLAY_GIFS, false);
     }
 
     private boolean autoAaEnabled() {
@@ -12613,10 +12689,11 @@ public class MainActivity extends Activity {
         final ProgressBar spinner;
         final TextView error;
         final Button reveal;
+        final Button play;
         boolean started;
 
         LazyImgurPreview(String originalUrl, String imageUrl, FrameLayout frame,
-                         ImageView image, ProgressBar spinner, TextView error, Button reveal) {
+                         ImageView image, ProgressBar spinner, TextView error, Button reveal, Button play) {
             this.originalUrl = originalUrl;
             this.imageUrl = imageUrl;
             this.frame = frame;
@@ -12624,6 +12701,7 @@ public class MainActivity extends Activity {
             this.spinner = spinner;
             this.error = error;
             this.reveal = reveal;
+            this.play = play;
         }
     }
 
