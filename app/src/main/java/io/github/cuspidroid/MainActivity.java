@@ -10,6 +10,7 @@ import android.content.ContentValues;
 import android.content.SharedPreferences;
 import android.content.pm.ResolveInfo;
 import android.content.res.AssetFileDescriptor;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -32,6 +33,7 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.graphics.Rect;
 import android.text.Html;
 import android.text.Layout;
@@ -137,6 +139,8 @@ public class MainActivity extends Activity {
     static final String PREF_AUTO_AA = "auto_aa";
     static final String PREF_MY_POSTS = "my_posts";
     static final String PREF_IMGUR_META = "imgur_meta";
+    static final String PREF_IMGUR_CLIENT_ID = "imgur_client_id";
+    static final String PREF_IMGUR_UPLOADS = "imgur_uploads";
     static final String PREF_BOARD_FAVORITES = "board_favorites";
     static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
     static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
@@ -183,6 +187,7 @@ public class MainActivity extends Activity {
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
     private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2015\\u2212\\uff0d~\\uff5e]\\s*(\\d{1,5}))?");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
+    private static final int REQUEST_IMGUR_MEDIA = 42;
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
     private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
@@ -213,6 +218,7 @@ public class MainActivity extends Activity {
     private TextView tabCountButton;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
+    private EditText pendingImgurUploadMessage;
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
     private ScrollView visibleThreadScroll;
@@ -8876,6 +8882,20 @@ public class MainActivity extends Activity {
         aaToggleParams.setMargins(0, 0, 0, dp(8));
         form.addView(aaToggle, aaToggleParams);
 
+        View uploadMedia = dialogAction(R.drawable.ic_add, text("Imgur\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Upload to Imgur"),
+                () -> chooseImgurUploadMedia(message));
+        LinearLayout.LayoutParams uploadParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        uploadParams.setMargins(0, 0, 0, dp(8));
+        form.addView(uploadMedia, uploadParams);
+
+        View uploadList = dialogAction(R.drawable.ic_copy, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e00\u89a7", "Upload list"),
+                this::showImgurUploadList);
+        LinearLayout.LayoutParams uploadListParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        uploadListParams.setMargins(0, 0, 0, dp(8));
+        form.addView(uploadList, uploadListParams);
+
         message.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -8923,6 +8943,327 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
         }, 120);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_IMGUR_MEDIA && resultCode == RESULT_OK && data != null) {
+            List<Uri> uris = selectedMediaUris(data);
+            if (uris.isEmpty()) {
+                Toast.makeText(this, text("\u30e1\u30c7\u30a3\u30a2\u304c\u9078\u629e\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "No media selected."), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            uploadSelectedMediaToImgur(uris, pendingImgurUploadMessage);
+        }
+    }
+
+    private void chooseImgurUploadMedia(EditText message) {
+        pendingImgurUploadMessage = message;
+        if (imgurClientId().isEmpty()) {
+            showImgurClientIdDialog(() -> openImgurMediaPicker(message));
+            return;
+        }
+        openImgurMediaPicker(message);
+    }
+
+    private void openImgurMediaPicker(EditText message) {
+        pendingImgurUploadMessage = message;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        try {
+            startActivityForResult(Intent.createChooser(intent, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3059\u308b\u30e1\u30c7\u30a3\u30a2", "Select media to upload")), REQUEST_IMGUR_MEDIA);
+        } catch (Exception exception) {
+            Toast.makeText(this, text("\u30e1\u30c7\u30a3\u30a2\u9078\u629e\u3092\u958b\u3051\u307e\u305b\u3093", "Cannot open media picker."), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private List<Uri> selectedMediaUris(Intent data) {
+        List<Uri> uris = new ArrayList<>();
+        if (data.getClipData() != null) {
+            ClipData clipData = data.getClipData();
+            for (int i = 0; i < clipData.getItemCount(); i++) {
+                Uri uri = clipData.getItemAt(i).getUri();
+                if (uri != null) {
+                    uris.add(uri);
+                }
+            }
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        return uris;
+    }
+
+    private void showImgurClientIdDialog(Runnable afterSave) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(imgurClientId());
+        input.setHint("Client ID");
+        input.setTextColor(textColor());
+        input.setHintTextColor(mutedColor());
+        input.setBackground(addressBarBackground());
+        input.setPadding(dp(12), 0, dp(12), 0);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(8), dp(18), 0);
+        root.addView(helperLine(text("Imgur API\u306eClient ID\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u533f\u540d\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306b\u5fc5\u8981\u3067\u3059\u3002",
+                "Enter an Imgur API Client ID. It is required for anonymous uploads.")));
+        root.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("Imgur Client ID", "Imgur Client ID"))
+                .setView(root)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u4fdd\u5b58", "Save"), null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String value = input.getText().toString().trim();
+                if (value.isEmpty()) {
+                    Toast.makeText(this, text("Client ID\u3092\u5165\u529b", "Enter a Client ID."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                preferences.edit().putString(PREF_IMGUR_CLIENT_ID, value).apply();
+                dialog.dismiss();
+                if (afterSave != null) {
+                    afterSave.run();
+                }
+            });
+        });
+        dialog.show();
+    }
+
+    private void uploadSelectedMediaToImgur(List<Uri> uris, EditText message) {
+        String clientId = imgurClientId();
+        if (clientId.isEmpty()) {
+            showImgurClientIdDialog(() -> uploadSelectedMediaToImgur(uris, message));
+            return;
+        }
+        Toast.makeText(this, text("Imgur\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e2d", "Uploading to Imgur..."), Toast.LENGTH_SHORT).show();
+        ioExecutor.execute(() -> {
+            for (Uri uri : uris) {
+                ImgurUploadResult result;
+                try {
+                    result = uploadMediaToImgur(uri, clientId);
+                    saveImgurUpload(result);
+                } catch (Exception exception) {
+                    String error = exception.getMessage() == null
+                            ? text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5931\u6557", "Upload failed.")
+                            : exception.getMessage();
+                    runOnUiThread(() -> Toast.makeText(this, error, Toast.LENGTH_LONG).show());
+                    continue;
+                }
+                runOnUiThread(() -> {
+                    appendUploadUrl(message, result.link);
+                    Toast.makeText(this, text("Imgur\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u307e\u3057\u305f", "Uploaded to Imgur.") + "\n" + result.link,
+                            Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
+    }
+
+    private ImgurUploadResult uploadMediaToImgur(Uri uri, String clientId) throws Exception {
+        String mime = getContentResolver().getType(uri);
+        if (mime == null || (!mime.startsWith("image/") && !mime.startsWith("video/"))) {
+            throw new IllegalStateException(text("\u753b\u50cf\u307e\u305f\u306f\u52d5\u753b\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", "Choose an image or video."));
+        }
+        String name = displayNameForUri(uri);
+        HttpURLConnection connection = (HttpURLConnection) new URL("https://api.imgur.com/3/image").openConnection();
+        String boundary = "----CuspiDroidImgur" + System.currentTimeMillis();
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(60000);
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setInstanceFollowRedirects(true);
+        connection.setChunkedStreamingMode(0);
+        connection.setRequestProperty("Authorization", "Client-ID " + clientId);
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        try (OutputStream output = connection.getOutputStream()) {
+            writeMultipartField(output, boundary, "type", "file");
+            writeMultipartFile(output, boundary, "image", name, mime, uri);
+            output.write(("--" + boundary + "--\r\n").getBytes(POST_CHARSET));
+        }
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = stream == null ? "" : readText(stream, Charset.forName("UTF-8"));
+        connection.disconnect();
+        JSONObject root = new JSONObject(response);
+        if (code >= 400 || !root.optBoolean("success", false)) {
+            Object data = root.opt("data");
+            String message = data instanceof JSONObject
+                    ? ((JSONObject) data).optString("error", response)
+                    : root.optString("data", response);
+            throw new IllegalStateException("Imgur: " + message);
+        }
+        JSONObject data = root.getJSONObject("data");
+        String link = data.optString("link", "");
+        if (link.isEmpty()) {
+            throw new IllegalStateException(text("Imgur URL\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093", "Could not read Imgur URL."));
+        }
+        return new ImgurUploadResult(name, mime, link, data.optString("deletehash", ""),
+                System.currentTimeMillis());
+    }
+
+    private void writeMultipartField(OutputStream output, String boundary, String name, String value) throws Exception {
+        output.write(("--" + boundary + "\r\n").getBytes(POST_CHARSET));
+        output.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(POST_CHARSET));
+        output.write(value.getBytes(POST_CHARSET));
+        output.write("\r\n".getBytes(POST_CHARSET));
+    }
+
+    private void writeMultipartFile(OutputStream output, String boundary, String fieldName,
+                                    String fileName, String mime, Uri uri) throws Exception {
+        output.write(("--" + boundary + "\r\n").getBytes(POST_CHARSET));
+        output.write(("Content-Disposition: form-data; name=\"" + fieldName + "\"; filename=\"" + sanitizeMultipartName(fileName) + "\"\r\n").getBytes(POST_CHARSET));
+        output.write(("Content-Type: " + mime + "\r\n\r\n").getBytes(POST_CHARSET));
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            if (input == null) {
+                throw new IllegalStateException(text("\u30e1\u30c7\u30a3\u30a2\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093", "Cannot read media."));
+            }
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+        }
+        output.write("\r\n".getBytes(POST_CHARSET));
+    }
+
+    private String sanitizeMultipartName(String value) {
+        return (value == null || value.trim().isEmpty() ? "media" : value).replace("\"", "'");
+    }
+
+    private String displayNameForUri(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    String name = cursor.getString(index);
+                    if (name != null && !name.trim().isEmpty()) {
+                        return name;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        String path = uri == null ? "" : uri.getLastPathSegment();
+        return path == null || path.trim().isEmpty() ? "media" : path;
+    }
+
+    private void appendUploadUrl(EditText message, String url) {
+        if (message == null || url == null || url.isEmpty()) {
+            return;
+        }
+        String current = message.getText().toString();
+        String insert = (current.isEmpty() || current.endsWith("\n") ? "" : "\n") + url + "\n";
+        int start = Math.max(0, message.getSelectionStart());
+        int end = Math.max(0, message.getSelectionEnd());
+        int from = Math.min(start, end);
+        int to = Math.max(start, end);
+        message.getText().replace(from, to, insert);
+        message.requestFocus();
+    }
+
+    private String imgurClientId() {
+        return preferences.getString(PREF_IMGUR_CLIENT_ID, "").trim();
+    }
+
+    private void saveImgurUpload(ImgurUploadResult result) {
+        try {
+            JSONArray array = new JSONArray(preferences.getString(PREF_IMGUR_UPLOADS, "[]"));
+            JSONArray next = new JSONArray();
+            JSONObject item = new JSONObject();
+            item.put("name", result.name);
+            item.put("mime", result.mime);
+            item.put("url", result.link);
+            item.put("deletehash", result.deleteHash);
+            item.put("time", result.time);
+            next.put(item);
+            for (int i = 0; i < array.length() && i < 199; i++) {
+                next.put(array.getJSONObject(i));
+            }
+            preferences.edit().putString(PREF_IMGUR_UPLOADS, next.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void showImgurUploadList() {
+        JSONArray array;
+        try {
+            array = new JSONArray(preferences.getString(PREF_IMGUR_UPLOADS, "[]"));
+        } catch (Exception ignored) {
+            array = new JSONArray();
+        }
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(8), dp(18), 0);
+        if (array.length() == 0) {
+            root.addView(helperLine(text("\u307e\u3060\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306f\u3042\u308a\u307e\u305b\u3093", "No uploads yet.")));
+        } else {
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item != null) {
+                    root.addView(imgurUploadRow(item));
+                }
+            }
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("Imgur\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e00\u89a7", "Imgur uploads"))
+                .setView(scroll)
+                .setPositiveButton("OK", null)
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private View imgurUploadRow(JSONObject item) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(8), dp(8), dp(8));
+        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowParams);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        String name = item.optString("name", "media");
+        String url = item.optString("url", "");
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextColor(textColor());
+        title.setTextSize(14);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(title);
+        TextView link = new TextView(this);
+        link.setText(url);
+        link.setTextColor(TEAL);
+        link.setTextSize(12);
+        link.setTextIsSelectable(true);
+        texts.addView(link);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        ImageButton copy = iconButton(R.drawable.ic_copy, text("URL\u3092\u30b3\u30d4\u30fc", "Copy URL"), v -> {
+            ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (manager != null) {
+                manager.setPrimaryClip(ClipData.newPlainText("Imgur URL", url));
+                Toast.makeText(this, text("\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Copied."), Toast.LENGTH_SHORT).show();
+            }
+        });
+        copy.setColorFilter(TEAL);
+        copy.setBackgroundColor(Color.TRANSPARENT);
+        row.addView(copy, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        return row;
     }
 
     private void submitPost(CuspTab tab, String name, String mail, String message) {
@@ -12742,6 +13083,22 @@ public class MainActivity extends Activity {
             this.imageUrl = imageUrl;
             this.video = video;
             this.resolvePage = resolvePage;
+        }
+    }
+
+    private static class ImgurUploadResult {
+        final String name;
+        final String mime;
+        final String link;
+        final String deleteHash;
+        final long time;
+
+        ImgurUploadResult(String name, String mime, String link, String deleteHash, long time) {
+            this.name = name;
+            this.mime = mime;
+            this.link = link;
+            this.deleteHash = deleteHash;
+            this.time = time;
         }
     }
 

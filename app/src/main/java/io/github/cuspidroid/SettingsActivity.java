@@ -37,6 +37,7 @@ public class SettingsActivity extends Activity {
     private CheckBox blurVideoThumbnails;
     private CheckBox blurGifThumbnails;
     private CheckBox autoplayGifs;
+    private EditText imgurClientId;
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
     private CheckBox treeView;
@@ -82,6 +83,12 @@ public class SettingsActivity extends Activity {
         buildLayout();
         loadSettings();
         setupAutoSave();
+    }
+
+    @Override
+    protected void onPause() {
+        saveSettings(false);
+        super.onPause();
     }
 
     private void buildLayout() {
@@ -201,10 +208,7 @@ public class SettingsActivity extends Activity {
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         customTemplate.setBackground(roundedField());
         customTemplate.setPadding(dp(12), 0, dp(12), 0);
-        LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
-        fieldParams.setMargins(0, dp(4), 0, dp(8));
-        root.addView(customTemplate, fieldParams);
+        root.addView(customTemplate, fieldParams());
 
         TextView hint = helperText(MainActivity.text("\u691c\u7d22\u8a9e\u3092\u5165\u308c\u308b\u5834\u6240\u306b %s \u3092\u4f7f\u3046", "Use %s where the encoded query should be inserted."));
         root.addView(hint);
@@ -254,6 +258,19 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoplayGifs);
         root.addView(autoplayGifs);
 
+        imgurClientId = new EditText(this);
+        imgurClientId.setSingleLine(true);
+        imgurClientId.setTextSize(14);
+        imgurClientId.setTextColor(textColor());
+        imgurClientId.setHintTextColor(hintColor());
+        imgurClientId.setHint("Imgur Client ID");
+        imgurClientId.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        imgurClientId.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        imgurClientId.setBackground(roundedField());
+        imgurClientId.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(helperText(MainActivity.text("Imgur\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3059\u308b\u5834\u5408\u306b\u5fc5\u8981", "Required for uploading to Imgur.")));
+        root.addView(imgurClientId, fieldParams());
+
         root.addView(managementRow(R.drawable.ic_close,
                 MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
                 MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
@@ -285,6 +302,7 @@ public class SettingsActivity extends Activity {
         blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
         blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
         autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, true));
+        imgurClientId.setText(preferences.getString(MainActivity.PREF_IMGUR_CLIENT_ID, ""));
         updateMediaDependentSettings();
         if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
             addressBarTop.setChecked(true);
@@ -330,6 +348,15 @@ public class SettingsActivity extends Activity {
         blurVideoThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         blurGifThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoplayGifs.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        imgurClientId.setOnEditorActionListener((v, actionId, event) -> {
+            saveSettings(false);
+            return false;
+        });
+        imgurClientId.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                saveSettings(false);
+            }
+        });
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -411,6 +438,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS,
                         blurImgurImages.isChecked() && blurGifThumbnails.isChecked())
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, autoplayGifs.isChecked())
+                .putString(MainActivity.PREF_IMGUR_CLIENT_ID, imgurClientId.getText().toString().trim())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
@@ -454,6 +482,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, true)
+                .putString(MainActivity.PREF_IMGUR_CLIENT_ID, "")
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
@@ -509,6 +538,13 @@ public class SettingsActivity extends Activity {
         view.setTextSize(13);
         view.setPadding(0, dp(4), 0, dp(4));
         return view;
+    }
+
+    private LinearLayout.LayoutParams fieldParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        params.setMargins(0, dp(4), 0, dp(8));
+        return params;
     }
 
     private RadioButton radio(String value) {
