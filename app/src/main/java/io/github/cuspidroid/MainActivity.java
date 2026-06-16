@@ -257,8 +257,10 @@ public class MainActivity extends Activity {
     private int pageSearchGeneration;
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
+    private int tabOverviewScrollY;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
+    private boolean addressTouchInProgress;
     private boolean addressKeyboardVisible;
     private View imageOverlay;
     private View highlightedPostView;
@@ -863,7 +865,9 @@ public class MainActivity extends Activity {
         addressBar.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 addressBar.selectAll();
-                showKeyboardSoon();
+                if (!addressTouchInProgress) {
+                    showKeyboardSoon();
+                }
             }
             updateAddressFocusUi(hasFocus);
         });
@@ -886,9 +890,7 @@ public class MainActivity extends Activity {
         addressBar.setOnLongClickListener(v -> {
             suppressNextAddressClick = true;
             mainHandler.postDelayed(() -> suppressNextAddressClick = false, 900);
-            if (addressFocusedOnDown) {
-                return true;
-            }
+            addressTouchInProgress = false;
             clearAddressFocus();
             showAddressEditMenu();
             return true;
@@ -896,17 +898,21 @@ public class MainActivity extends Activity {
         addressBar.setOnTouchListener((v, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 addressFocusedOnDown = addressBar.hasFocus();
-                addressBar.requestFocus();
-                showKeyboardSoon();
+                addressTouchInProgress = true;
             }
             if (suppressNextAddressClick
                     && (event.getActionMasked() == MotionEvent.ACTION_UP
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL)) {
                 suppressNextAddressClick = false;
+                addressTouchInProgress = false;
                 if (!addressFocusedOnDown) {
                     clearAddressFocus();
                 }
                 return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP
+                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                addressTouchInProgress = false;
             }
             return false;
         });
@@ -4966,6 +4972,7 @@ public class MainActivity extends Activity {
         pendingNewTab = false;
         pendingHistoryAll = false;
         tabOverviewVisible = true;
+        tabOverviewScrollY = 0;
         contentFrame.removeAllViews();
         visibleThreadPage = null;
         visibleThreadScroll = null;
@@ -4982,6 +4989,9 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(bgColor());
         scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            tabOverviewScrollY = scrollY;
+        });
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setLayoutTransition(new LayoutTransition());
@@ -5017,6 +5027,9 @@ public class MainActivity extends Activity {
         root.addView(add, addParams);
         if (recentlyClosedTab != null) {
             root.addView(closedTabUndoBar(), closedTabUndoParams());
+        }
+        if (tabOverviewScrollY > 0) {
+            scroll.post(() -> scroll.scrollTo(0, tabOverviewScrollY));
         }
         return root;
     }
@@ -5306,6 +5319,7 @@ public class MainActivity extends Activity {
             return;
         }
         tabOverviewVisible = false;
+        tabOverviewScrollY = 0;
         pendingNewTab = false;
         pendingHistoryAll = false;
         contentFrame.removeAllViews();
