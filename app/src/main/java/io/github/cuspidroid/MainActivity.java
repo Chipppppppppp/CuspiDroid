@@ -5647,6 +5647,7 @@ public class MainActivity extends Activity {
         if (immediate) {
             decoratePostTextNow(text, value, page, highlight);
         } else {
+            decoratePostUrlsNow(text, value);
             deferPostTextDecoration(text, value, page, highlight);
         }
         return text;
@@ -5665,6 +5666,14 @@ public class MainActivity extends Activity {
 
     private void decoratePostTextNow(TextView text, String value, ThreadPage page, String highlight) {
         text.setText(decoratedPostText(value, page, highlight));
+        text.setMovementMethod(LinkMovementMethod.getInstance());
+        installLinkTouchTracking(text);
+    }
+
+    private void decoratePostUrlsNow(TextView text, String value) {
+        SpannableString linkedText = new SpannableString(value == null ? "" : value);
+        addLooseUrlSpans(linkedText);
+        text.setText(linkedText);
         text.setMovementMethod(LinkMovementMethod.getInstance());
         installLinkTouchTracking(text);
     }
@@ -5862,7 +5871,7 @@ public class MainActivity extends Activity {
         if (body == null) {
             return false;
         }
-        String value = URL_TEXT_PATTERN.matcher(body).replaceAll(" ").trim();
+        String value = removeLooseUrlsFromAaCandidate(body).trim();
         if (value.length() < 8) {
             return false;
         }
@@ -5894,10 +5903,23 @@ public class MainActivity extends Activity {
             return false;
         }
         float ratio = aaChars / (float) nonWhitespace;
-        return (aaChars >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f))
-                || (structural >= (singleLine ? 10 : 8) && ratio >= (singleLine ? 0.28f : 0.23f))
-                || (!singleLine && spaces >= 6 && structural >= 6 && aaChars >= 8)
-                || (!singleLine && aaChars >= 14 && ratio >= 0.22f);
+        return (aaChars >= (singleLine ? 14 : 12) && ratio >= (singleLine ? 0.40f : 0.34f))
+                || (structural >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f))
+                || (!singleLine && spaces >= 8 && structural >= 8 && aaChars >= 10)
+                || (!singleLine && aaChars >= 18 && ratio >= 0.28f);
+    }
+
+    private static String removeLooseUrlsFromAaCandidate(String body) {
+        StringBuilder builder = new StringBuilder(body);
+        Matcher matcher = URL_TEXT_PATTERN.matcher(body);
+        while (matcher.find()) {
+            String raw = stripTrailingUrlPunctuation(matcher.group());
+            int end = Math.min(builder.length(), matcher.start() + raw.length());
+            for (int i = matcher.start(); i < end; i++) {
+                builder.setCharAt(i, ' ');
+            }
+        }
+        return builder.toString();
     }
 
     private static boolean isAaCharacter(char ch) {
@@ -7474,7 +7496,7 @@ public class MainActivity extends Activity {
         return current;
     }
 
-    private String stripTrailingUrlPunctuation(String url) {
+    private static String stripTrailingUrlPunctuation(String url) {
         int end = url.length();
         while (end > 0) {
             char c = url.charAt(end - 1);
