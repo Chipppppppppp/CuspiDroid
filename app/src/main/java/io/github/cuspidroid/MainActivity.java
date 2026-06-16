@@ -5613,7 +5613,6 @@ public class MainActivity extends Activity {
             });
         }
         box.addView(bodyText);
-        box.addView(aaDebugView(value));
 
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClickAction));
@@ -5763,12 +5762,21 @@ public class MainActivity extends Activity {
         });
         body.setMovementMethod(LinkMovementMethod.getInstance());
         installLinkTouchTracking(body);
-        body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitAaTextSize(body));
-        body.post(() -> fitAaTextSize(body));
+        int[] lastAaWidth = new int[]{0};
+        body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            int width = Math.max(0, right - left);
+            if (width != lastAaWidth[0]) {
+                lastAaWidth[0] = width;
+                fitAaTextSize(body, post);
+            }
+        });
+        body.post(() -> {
+            lastAaWidth[0] = body.getWidth();
+            fitAaTextSize(body, post);
+        });
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.addView(body);
-        box.addView(aaDebugView(post.body));
         List<ImgurLink> mediaLinks = imgurLinks(post);
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClick));
@@ -5797,19 +5805,32 @@ public class MainActivity extends Activity {
     }
 
     private void fitAaTextSize(TextView body) {
+        fitAaTextSize(body, null);
+    }
+
+    private void fitAaTextSize(TextView body, Post post) {
         int available = body.getWidth() - body.getPaddingLeft() - body.getPaddingRight();
         if (available <= 0) {
             return;
         }
-        String[] lines = body.getText().toString().split("\\n", -1);
-        body.setTextScaleX(1f);
         float baseSize = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP, AA_TEXT_SIZE_SP, getResources().getDisplayMetrics());
-        body.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseSize);
-        float longest = longestLineWidth(body, lines, baseSize);
+        if (post != null && post.cachedAaFitWidth == available && post.cachedAaFitTextSizePx > 0f) {
+            applyAaTextSizeIfNeeded(body, post.cachedAaFitTextSizePx);
+            return;
+        }
+        String[] lines = body.getText().toString().split("\\n", -1);
+        body.setTextScaleX(1f);
+        float longest = post != null && post.cachedAaLongestLineWidthPx > 0f
+                ? post.cachedAaLongestLineWidthPx
+                : longestLineWidth(body, lines, baseSize);
+        if (post != null) {
+            post.cachedAaLongestLineWidthPx = longest;
+        }
         if (longest <= 0f) {
             return;
         }
+        float targetSize = baseSize;
         if (longest > available) {
             float high = baseSize;
             float low = 1f;
@@ -5821,10 +5842,20 @@ public class MainActivity extends Activity {
                     high = mid;
                 }
             }
-            body.setTextSize(TypedValue.COMPLEX_UNIT_PX, low);
+            targetSize = low;
         }
+        if (post != null) {
+            post.cachedAaFitWidth = available;
+            post.cachedAaFitTextSizePx = targetSize;
+        }
+        applyAaTextSizeIfNeeded(body, targetSize);
         body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
-        body.requestLayout();
+    }
+
+    private void applyAaTextSizeIfNeeded(TextView body, float textSizePx) {
+        if (Math.abs(body.getTextSize() - textSizePx) > 0.5f) {
+            body.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx);
+        }
     }
 
     private float longestLineWidth(TextView body, String[] lines, float textSizePx) {
@@ -5870,26 +5901,12 @@ public class MainActivity extends Activity {
     }
 
     private static boolean likelyAaPost(String body) {
-        return aaDebugMetrics(body).aa;
-    }
-
-    private View aaDebugView(String body) {
-        TextView view = new TextView(this);
-        view.setText(aaDebugMetrics(body).debugText());
-        view.setTextColor(mutedColor());
-        view.setTextSize(11);
-        view.setLineSpacing(0, 1.05f);
-        view.setPadding(0, dp(6), 0, dp(2));
-        return view;
-    }
-
-    private static AaDebugMetrics aaDebugMetrics(String body) {
         if (body == null) {
-            return new AaDebugMetrics(false, "null", 0, 0, 0, 0, 0, true);
+            return false;
         }
         String value = removeLooseUrlsFromAaCandidate(body).trim();
         if (value.length() < 8) {
-            return new AaDebugMetrics(false, "len<8", 0, 0, 0, 0, 0, true);
+            return false;
         }
         String[] lines = value.split("\\n", -1);
         int nonWhitespace = 0;
@@ -5916,18 +5933,13 @@ public class MainActivity extends Activity {
         }
         boolean singleLine = lines.length <= 1;
         if (nonWhitespace < 8) {
-            return new AaDebugMetrics(false, "nonws<8", lines.length, nonWhitespace, aaChars, structural, spaces, singleLine);
+            return false;
         }
         float ratio = aaChars / (float) nonWhitespace;
         boolean aaRatio = aaChars >= (singleLine ? 14 : 12) && ratio >= (singleLine ? 0.40f : 0.34f);
         boolean structuralRatio = structural >= (singleLine ? 12 : 10) && ratio >= (singleLine ? 0.34f : 0.28f);
         boolean denseMulti = !singleLine && aaChars >= 18 && ratio >= 0.28f;
-        String reason = aaRatio ? "aa-ratio"
-                : structuralRatio ? "structural-ratio"
-                : denseMulti ? "dense-multi"
-                : "below";
-        return new AaDebugMetrics(aaRatio || structuralRatio || denseMulti, reason,
-                lines.length, nonWhitespace, aaChars, structural, spaces, singleLine);
+        return aaRatio || structuralRatio || denseMulti;
     }
 
     private static String removeLooseUrlsFromAaCandidate(String body) {
@@ -11334,7 +11346,13 @@ public class MainActivity extends Activity {
         if (manual != null) {
             return manual;
         }
-        return autoAaEnabled() && likelyAaPost(post.body);
+        if (!autoAaEnabled()) {
+            return false;
+        }
+        if (post.cachedLikelyAa == null) {
+            post.cachedLikelyAa = likelyAaPost(post.body);
+        }
+        return post.cachedLikelyAa;
     }
 
     private static Boolean aaPostOverride(SharedPreferences preferences, String url, int number) {
@@ -12170,40 +12188,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static class AaDebugMetrics {
-        final boolean aa;
-        final String reason;
-        final int lines;
-        final int nonWhitespace;
-        final int aaChars;
-        final int structural;
-        final int spaces;
-        final boolean singleLine;
-
-        AaDebugMetrics(boolean aa, String reason, int lines, int nonWhitespace,
-                       int aaChars, int structural, int spaces, boolean singleLine) {
-            this.aa = aa;
-            this.reason = reason;
-            this.lines = lines;
-            this.nonWhitespace = nonWhitespace;
-            this.aaChars = aaChars;
-            this.structural = structural;
-            this.spaces = spaces;
-            this.singleLine = singleLine;
-        }
-
-        String debugText() {
-            float ratio = nonWhitespace <= 0 ? 0f : aaChars / (float) nonWhitespace;
-            String thresholds = singleLine
-                    ? "single: aa>=14 & 40%, structural>=12 & 34%"
-                    : "multi: aa>=12 & 34%, structural>=10 & 28%, aa>=18 & 28%";
-            return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) lines=%d nonws=%d aa=%d %.1f%% structural=%d spaces=%d | %s",
-                    aa ? "YES" : "NO", reason, lines, nonWhitespace, aaChars, ratio * 100f,
-                    structural, spaces, thresholds);
-        }
-    }
-
     private static class ZoomImageView extends ImageView {
         private final Matrix matrix = new Matrix();
         private final ScaleGestureDetector scaleDetector;
@@ -12787,6 +12771,10 @@ public class MainActivity extends Activity {
         String cachedBe;
         String cachedNgRulesKey;
         boolean cachedNgMatch;
+        Boolean cachedLikelyAa;
+        float cachedAaLongestLineWidthPx;
+        int cachedAaFitWidth;
+        float cachedAaFitTextSizePx;
         boolean aaMode;
         boolean swiping;
         long lastSwipeAt;
