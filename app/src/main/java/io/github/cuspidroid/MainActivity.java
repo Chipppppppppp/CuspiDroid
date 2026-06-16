@@ -2967,11 +2967,7 @@ public class MainActivity extends Activity {
         ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
         shell.addView(replyAction);
-        if (treeViewEnabled() && (depth > 0 || item.hasReplies)) {
-            shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
-                    new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT));
-        }
+        boolean showTreeConnector = treeViewEnabled() && (depth > 0 || item.hasReplies);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -3002,6 +2998,11 @@ public class MainActivity extends Activity {
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         shell.addView(card, cardFrameParams);
+        if (showTreeConnector) {
+            shell.addView(new TreeConnectorView(this, item, dp(18), dp(10), TEAL),
+                    new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT));
+        }
         return new PostCardShell(shell, card);
     }
 
@@ -3432,6 +3433,8 @@ public class MainActivity extends Activity {
         TextView meta = new TextView(this);
         String value = post.number + "  " + post.name + "  " + post.date;
         SpannableString text = new SpannableString(value);
+        int numberEnd = String.valueOf(post.number).length();
+        text.setSpan(new StyleSpan(Typeface.BOLD), 0, numberEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         Matcher matcher = POST_ID_PATTERN.matcher(value);
         while (matcher.find()) {
             String id = matcher.group(1);
@@ -13078,14 +13081,16 @@ public class MainActivity extends Activity {
         private final Set<Integer> continuationDepths;
         private final boolean hasReplies;
         private final int indent;
+        private final int numberInset;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        TreeConnectorView(Context context, PostRenderItem item, int indent, int color) {
+        TreeConnectorView(Context context, PostRenderItem item, int indent, int numberInset, int color) {
             super(context);
             this.depth = item.depth;
             this.continuationDepths = item.continuationDepths;
             this.hasReplies = item.hasReplies;
             this.indent = indent;
+            this.numberInset = numberInset;
             int nightMode = context.getResources().getConfiguration().uiMode
                     & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
             paint.setColor(nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -13104,7 +13109,7 @@ public class MainActivity extends Activity {
             if (depth <= 0 && !hasReplies) {
                 return;
             }
-            float branchY = Math.min(getHeight() - 1f, Math.max(indent * 0.75f, getHeight() * 0.16f));
+            float branchY = Math.min(getHeight() - 1f, Math.max(indent * 0.75f, indent * 0.9f));
             for (Integer level : continuationDepths) {
                 if (level == null || level <= 0 || level >= depth) {
                     continue;
@@ -13114,9 +13119,9 @@ public class MainActivity extends Activity {
             }
             if (depth > 0) {
                 float parentX = connectorX(depth);
-                float childLeftX = depth * indent;
+                float childNumberX = depth * indent + numberInset;
                 float currentEndY = continuationDepths.contains(depth) ? getHeight() : branchY;
-                float radius = Math.min(indent * 0.35f, Math.abs(childLeftX - parentX) * 0.5f);
+                float radius = Math.min(indent * 0.35f, Math.abs(childNumberX - parentX) * 0.5f);
                 Path branch = new Path();
                 if (continuationDepths.contains(depth)) {
                     canvas.drawLine(parentX, 0, parentX, currentEndY, paint);
@@ -13126,7 +13131,7 @@ public class MainActivity extends Activity {
                     branch.lineTo(parentX, Math.max(0f, branchY - radius));
                 }
                 branch.quadTo(parentX, branchY, parentX + radius, branchY);
-                branch.lineTo(childLeftX, branchY);
+                branch.lineTo(childNumberX, branchY);
                 canvas.drawPath(branch, paint);
             }
             if (hasReplies) {
