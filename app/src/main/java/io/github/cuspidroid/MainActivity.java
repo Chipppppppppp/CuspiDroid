@@ -193,9 +193,10 @@ public class MainActivity extends Activity {
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
     private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 32;
-    private static final int THREAD_VISIBLE_RENDER_BUDGET = 2;
+    private static final int THREAD_VISIBLE_RENDER_BUDGET = 4;
     private static final int THREAD_IDLE_RENDER_BUDGET = 5;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 1;
+    private static final int THREAD_WARMUP_RENDER_BUDGET = 4;
     private static final long TAB_UNLOAD_INTERVAL_MS = 60_000L;
     private static final long TAB_UNLOAD_AFTER_MS = 180_000L;
     private static final String AA_FONT_FAMILY = "Textar";
@@ -1238,6 +1239,10 @@ public class MainActivity extends Activity {
             if (tab.threadPostVisibilityTask != null) {
                 mainHandler.removeCallbacks(tab.threadPostVisibilityTask);
                 tab.threadPostVisibilityTask = null;
+            }
+            if (tab.threadWarmupTask != null) {
+                mainHandler.removeCallbacks(tab.threadWarmupTask);
+                tab.threadWarmupTask = null;
             }
             if (tab.threadScrollChromeTask != null) {
                 mainHandler.removeCallbacks(tab.threadScrollChromeTask);
@@ -3047,22 +3052,12 @@ public class MainActivity extends Activity {
             VirtualPostSlot slot = new VirtualPostSlot(page, tab, item, estimatePostSlotHeight(item));
             FrameLayout holder = new FrameLayout(this);
             holder.setTag(slot);
-            PostCardShell postCard = createPostCardShell(page, tab, item);
-            if (postCard == null) {
-                continue;
-            }
-            holder.addView(postCard.shell, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            slot.rendered = true;
-            slot.card = postCard.card;
-            slot.shell = postCard.shell;
+            holder.addView(postSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
             int index = Math.max(0, Math.min(insertIndex++, list.getChildCount()));
             list.addView(holder, index, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             tab.postSlots.put(item.post.number, holder);
-            tab.postViews.put(item.post.number, postCard.card);
-            tab.renderedPostSlots.add(holder);
-            holder.post(() -> updateVirtualSlotHeight(holder, slot, slot.height));
         }
         completeThreadRender(tab, onComplete);
     }
@@ -3071,6 +3066,7 @@ public class MainActivity extends Activity {
         tab.threadRendering = false;
         finishThreadRender(tab);
         scheduleThreadPostVisibilityRefresh(tab);
+        scheduleThreadPostWarmup(tab);
         scheduleLazyImgurLoads();
         if (tab == currentTab()) {
             visiblePostViews.clear();
@@ -4381,6 +4377,91 @@ public class MainActivity extends Activity {
         if (isBottomJumpActive(tab)) {
             pinThreadScrollToBottom(tab);
         }
+        scheduleThreadPostWarmup(tab);
+    }
+
+    private void scheduleThreadPostWarmup(CuspTab tab) {
+        if (tab == null || tab.threadList == null || tab.threadScroll == null) {
+            return;
+        }
+        if (tab.threadWarmupTask != null) {
+            return;
+        }
+        tab.threadWarmupTask = () -> {
+            tab.threadWarmupTask = null;
+            warmupThreadPostSlots(tab);
+        };
+        mainHandler.postDelayed(tab.threadWarmupTask, recentlyScrolled(tab) ? 120L : 24L);
+    }
+
+    private void warmupThreadPostSlots(CuspTab tab) {
+        if (tab == null || tab.threadList == null || tab.threadScroll == null) {
+            return;
+        }
+        if (recentlyScrolled(tab) && !isBottomJumpActive(tab)) {
+            scheduleThreadPostWarmup(tab);
+            return;
+        }
+        int childCount = tab.threadList.getChildCount();
+        if (childCount <= 0) {
+            return;
+        }
+        int start = 0;
+        if (tab.threadScroll.getChildCount() > 0) {
+            int scrollY = tab.threadScroll.getScrollY();
+            int height = Math.max(0, tab.threadScroll.getHeight());
+            start = Math.max(0, lastChildWithTopAtMost(tab.threadList, scrollY + height));
+        }
+        boolean more = renderUnrenderedPostSlots(tab, start, THREAD_WARMUP_RENDER_BUDGET);
+        if (more) {
+            scheduleThreadPostWarmup(tab);
+        }
+    }
+
+    private boolean renderUnrenderedPostSlots(CuspTab tab, int start, int budget) {
+        if (tab == null || tab.threadList == null || budget <= 0) {
+            return false;
+        }
+        int childCount = tab.threadList.getChildCount();
+        if (childCount <= 0) {
+            return false;
+        }
+        int rendered = 0;
+        int normalizedStart = Math.max(0, Math.min(start, childCount - 1));
+        boolean more = false;
+        for (int offset = 0; offset < childCount; offset++) {
+            int index = (normalizedStart + offset) % childCount;
+            View child = tab.threadList.getChildAt(index);
+            Object tag = child == null ? null : child.getTag();
+            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualPostSlot)) {
+                continue;
+            }
+            VirtualPostSlot slot = (VirtualPostSlot) tag;
+            if (slot.rendered) {
+                continue;
+            }
+            if (rendered >= budget) {
+                more = true;
+                break;
+            }
+            renderVirtualPostSlot((FrameLayout) child, slot);
+            rendered++;
+        }
+        return more || hasUnrenderedPostSlots(tab);
+    }
+
+    private boolean hasUnrenderedPostSlots(CuspTab tab) {
+        if (tab == null || tab.threadList == null) {
+            return false;
+        }
+        for (int i = 0; i < tab.threadList.getChildCount(); i++) {
+            View child = tab.threadList.getChildAt(i);
+            Object tag = child == null ? null : child.getTag();
+            if (tag instanceof VirtualPostSlot && !((VirtualPostSlot) tag).rendered) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void renderVirtualPostSlotsInRange(ViewGroup list, int start, int end, int budget,
@@ -12874,6 +12955,7 @@ public class MainActivity extends Activity {
         boolean threadRendering;
         Runnable threadScrollChromeTask;
         Runnable threadPostVisibilityTask;
+        Runnable threadWarmupTask;
     }
 
     private static class PostCardShell {
