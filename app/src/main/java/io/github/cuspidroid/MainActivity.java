@@ -6766,7 +6766,7 @@ public class MainActivity extends Activity {
         VideoView video = new VideoView(this);
         video.setVideoURI(Uri.parse(videoUrl));
         overlay.addView(video, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
         MediaController controller = new MediaController(this);
         controller.setAnchorView(video);
@@ -6806,6 +6806,7 @@ public class MainActivity extends Activity {
 
         video.setOnPreparedListener(player -> {
             spinner.setVisibility(View.GONE);
+            centerVideoView(video, player.getVideoWidth(), player.getVideoHeight());
             video.start();
             controller.show();
         });
@@ -6817,6 +6818,24 @@ public class MainActivity extends Activity {
 
         addContentView(overlay, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private void centerVideoView(VideoView video, int videoWidth, int videoHeight) {
+        if (video == null || videoWidth <= 0 || videoHeight <= 0) {
+            return;
+        }
+        View parent = (View) video.getParent();
+        int availableWidth = parent == null || parent.getWidth() <= 0
+                ? getResources().getDisplayMetrics().widthPixels
+                : parent.getWidth();
+        int availableHeight = parent == null || parent.getHeight() <= 0
+                ? getResources().getDisplayMetrics().heightPixels
+                : parent.getHeight();
+        float scale = Math.min(availableWidth / (float) videoWidth, availableHeight / (float) videoHeight);
+        int width = Math.max(1, Math.round(videoWidth * scale));
+        int height = Math.max(1, Math.round(videoHeight * scale));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height, Gravity.CENTER);
+        video.setLayoutParams(params);
     }
 
     private void closeImageViewer() {
@@ -9358,7 +9377,7 @@ public class MainActivity extends Activity {
         }
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(text("\u30af\u30c3\u30ad\u30fc\u3092\u524a\u9664", "Delete cookies"))
-                .setMessage(text("\u3053\u306e\u30b5\u30a4\u30c8\u306e\u30af\u30c3\u30ad\u30fc\u3060\u3051\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f\n", "Delete only this site's cookies?\n") + siteUrl)
+                .setMessage(text("\u3053\u306e\u63b2\u793a\u677f\u306e\u30af\u30c3\u30ad\u30fc\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f\n", "Delete this board's cookies?\n") + siteUrl)
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> deleteCookiesForSite(siteUrl))
                 .create();
