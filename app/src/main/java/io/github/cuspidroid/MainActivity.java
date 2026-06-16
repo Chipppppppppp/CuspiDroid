@@ -13167,6 +13167,7 @@ public class MainActivity extends Activity {
         private final Set<Integer> continuationDepths;
         private final boolean hasReplies;
         private final int indent;
+        private final int cardBottomGap;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         TreeConnectorView(Context context, PostRenderItem item, int indent, int color) {
@@ -13175,6 +13176,7 @@ public class MainActivity extends Activity {
             this.continuationDepths = item.continuationDepths;
             this.hasReplies = item.hasReplies;
             this.indent = indent;
+            this.cardBottomGap = Math.round(context.getResources().getDisplayMetrics().density * 8f);
             int nightMode = context.getResources().getConfiguration().uiMode
                     & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
             paint.setColor(nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -13220,9 +13222,8 @@ public class MainActivity extends Activity {
             }
             if (hasReplies) {
                 float childTrunkX = connectorX(depth + 1);
-                float startY = depth == 0
-                        ? Math.max(branchY, getHeight() - indent)
-                        : branchY;
+                float cardBottomY = Math.max(branchY, getHeight() - cardBottomGap);
+                float startY = Math.min(getHeight(), cardBottomY + paint.getStrokeWidth() / 2f);
                 canvas.drawLine(childTrunkX, startY, childTrunkX, getHeight(), paint);
             }
         }
