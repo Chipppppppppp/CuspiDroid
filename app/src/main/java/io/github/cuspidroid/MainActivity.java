@@ -1353,6 +1353,24 @@ public class MainActivity extends Activity {
         animatePopupIn(popup, !addressBarTop);
     }
 
+    private void showPopupNearAnchor(PopupWindow popup, View menu, View anchor) {
+        int width = dp(220);
+        menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = menu.getMeasuredHeight();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int[] location = new int[2];
+        anchor.getLocationOnScreen(location);
+        int x = Math.max(frame.left, Math.min(location[0] + anchor.getWidth() - width, frame.right - width));
+        boolean showAbove = location[1] + anchor.getHeight() + height > frame.bottom;
+        int y = showAbove ? location[1] - height : location[1] + anchor.getHeight();
+        y = Math.max(frame.top, Math.min(y, frame.bottom - height));
+        popup.setClippingEnabled(true);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, showAbove);
+    }
+
     private void showCenterSpinner() {
         if (overlayFrame == null) {
             return;
@@ -8813,6 +8831,44 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void showWriteActionMenu(View anchor, CuspTab tab, EditText message,
+                                     boolean[] writeAaMode, TextView[] aaToggleLabel) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+
+        menu.addView(menuIconItem(R.drawable.ic_text_fields,
+                writeAaMode[0] ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), v -> {
+                    dismissPopupAnimated(popup);
+                    writeAaMode[0] = !writeAaMode[0];
+                    applyWriteMessageAaMode(message, writeAaMode[0]);
+                    updateWriteAaToggleLabel(aaToggleLabel[0], writeAaMode[0]);
+                    message.requestFocus();
+                    message.setSelection(message.getText().length());
+                }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_add, text("Imgur\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Upload to Imgur"), v -> {
+            dismissPopupAnimated(popup);
+            chooseImgurUploadMedia(message);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e00\u89a7", "Upload list"), v -> {
+            dismissPopupAnimated(popup);
+            showImgurUploadList();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_delete, text("\u30af\u30c3\u30ad\u30fc\u3092\u524a\u9664", "Delete cookies"), v -> {
+            dismissPopupAnimated(popup);
+            confirmDeleteWriteSiteCookies(tab);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        showPopupNearAnchor(popup, menu, anchor);
+    }
+
     private void showWriteDialog(String initialMessage) {
         CuspTab tab = currentTab();
         if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
@@ -8864,37 +8920,17 @@ public class MainActivity extends Activity {
 
         boolean[] writeAaMode = new boolean[]{false};
         TextView[] aaToggleLabel = new TextView[1];
-        View aaToggle = dialogAction(R.drawable.ic_text_fields, text("AA\u8868\u793a", "AA view"), () -> {
-            writeAaMode[0] = !writeAaMode[0];
-            applyWriteMessageAaMode(message, writeAaMode[0]);
-            updateWriteAaToggleLabel(aaToggleLabel[0], writeAaMode[0]);
-            message.requestFocus();
-            message.setSelection(message.getText().length());
-        });
-        if (aaToggle instanceof LinearLayout) {
-            LinearLayout row = (LinearLayout) aaToggle;
-            if (row.getChildCount() > 1 && row.getChildAt(1) instanceof TextView) {
-                aaToggleLabel[0] = (TextView) row.getChildAt(1);
-            }
-        }
-        LinearLayout.LayoutParams aaToggleParams = new LinearLayout.LayoutParams(
+        ImageButton writeMenu = iconButton(R.drawable.ic_more_vert, text("\u66f8\u304d\u8fbc\u307f\u30e1\u30cb\u30e5\u30fc", "Write menu"),
+                v -> showWriteActionMenu(v, tab, message, writeAaMode, aaToggleLabel));
+        writeMenu.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        writeMenu.setColorFilter(TEAL);
+        LinearLayout writeMenuRow = new LinearLayout(this);
+        writeMenuRow.setGravity(Gravity.RIGHT);
+        writeMenuRow.addView(writeMenu, new LinearLayout.LayoutParams(dp(48), dp(44)));
+        LinearLayout.LayoutParams writeMenuParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        aaToggleParams.setMargins(0, 0, 0, dp(8));
-        form.addView(aaToggle, aaToggleParams);
-
-        View uploadMedia = dialogAction(R.drawable.ic_add, text("Imgur\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Upload to Imgur"),
-                () -> chooseImgurUploadMedia(message));
-        LinearLayout.LayoutParams uploadParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        uploadParams.setMargins(0, 0, 0, dp(8));
-        form.addView(uploadMedia, uploadParams);
-
-        View uploadList = dialogAction(R.drawable.ic_copy, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e00\u89a7", "Upload list"),
-                this::showImgurUploadList);
-        LinearLayout.LayoutParams uploadListParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        uploadListParams.setMargins(0, 0, 0, dp(8));
-        form.addView(uploadList, uploadListParams);
+        writeMenuParams.setMargins(0, 0, 0, dp(8));
+        form.addView(writeMenuRow, writeMenuParams);
 
         message.addTextChangedListener(new TextWatcher() {
             @Override
@@ -9542,6 +9578,71 @@ public class MainActivity extends Activity {
             }
             manager.flush();
         } catch (Exception ignored) {
+        }
+    }
+
+    private void confirmDeleteWriteSiteCookies(CuspTab tab) {
+        String siteUrl = cookieSiteUrl(tab);
+        if (siteUrl == null) {
+            Toast.makeText(this, text("\u30b5\u30a4\u30c8URL\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No site URL found."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u30af\u30c3\u30ad\u30fc\u3092\u524a\u9664", "Delete cookies"))
+                .setMessage(text("\u3053\u306e\u30b5\u30a4\u30c8\u306e\u30af\u30c3\u30ad\u30fc\u3060\u3051\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f\n", "Delete only this site's cookies?\n") + siteUrl)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> deleteCookiesForSite(siteUrl))
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private String cookieSiteUrl(CuspTab tab) {
+        if (tab == null || tab.url == null) {
+            return null;
+        }
+        try {
+            Uri uri = Uri.parse(normalizeUrl(tab.url));
+            String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+            String host = uri.getHost();
+            if (host == null || host.trim().isEmpty()) {
+                return null;
+            }
+            return scheme + "://" + host + "/";
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void deleteCookiesForSite(String siteUrl) {
+        try {
+            CookieManager manager = CookieManager.getInstance();
+            String cookies = manager.getCookie(siteUrl);
+            if (cookies == null || cookies.trim().isEmpty()) {
+                Toast.makeText(this, text("\u524a\u9664\u3059\u308b\u30af\u30c3\u30ad\u30fc\u306f\u3042\u308a\u307e\u305b\u3093", "No cookies to delete."), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Uri uri = Uri.parse(siteUrl);
+            String host = uri.getHost();
+            String[] parts = cookies.split(";");
+            for (String part : parts) {
+                String name = part.split("=", 2)[0].trim();
+                if (name.isEmpty()) {
+                    continue;
+                }
+                String expired = name + "=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Path=/";
+                manager.setCookie(siteUrl, expired);
+                if (host != null && !host.isEmpty()) {
+                    manager.setCookie(siteUrl, expired + "; Domain=" + host);
+                    manager.setCookie(siteUrl, expired + "; Domain=." + host);
+                }
+            }
+            manager.flush();
+            Toast.makeText(this, text("\u30af\u30c3\u30ad\u30fc\u3092\u524a\u9664\u3057\u307e\u3057\u305f", "Cookies deleted."), Toast.LENGTH_SHORT).show();
+        } catch (Exception exception) {
+            Toast.makeText(this, exception.getMessage() == null
+                    ? text("\u30af\u30c3\u30ad\u30fc\u3092\u524a\u9664\u3067\u304d\u307e\u305b\u3093", "Could not delete cookies.")
+                    : exception.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
