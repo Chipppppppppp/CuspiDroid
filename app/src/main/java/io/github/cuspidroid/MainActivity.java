@@ -3047,12 +3047,22 @@ public class MainActivity extends Activity {
             VirtualPostSlot slot = new VirtualPostSlot(page, tab, item, estimatePostSlotHeight(item));
             FrameLayout holder = new FrameLayout(this);
             holder.setTag(slot);
-            holder.addView(postSlotSpacer(slot.height), new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+            PostCardShell postCard = createPostCardShell(page, tab, item);
+            if (postCard == null) {
+                continue;
+            }
+            holder.addView(postCard.shell, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            slot.rendered = true;
+            slot.card = postCard.card;
+            slot.shell = postCard.shell;
             int index = Math.max(0, Math.min(insertIndex++, list.getChildCount()));
             list.addView(holder, index, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             tab.postSlots.put(item.post.number, holder);
+            tab.postViews.put(item.post.number, postCard.card);
+            tab.renderedPostSlots.add(holder);
+            holder.post(() -> updateVirtualSlotHeight(holder, slot, slot.height));
         }
         completeThreadRender(tab, onComplete);
     }
@@ -4358,43 +4368,15 @@ public class MainActivity extends Activity {
         if (height <= 0) {
             return;
         }
-        boolean scrolling = recentlyScrolled(tab);
-        if (scrolling && !isBottomJumpActive(tab)) {
-            scheduleThreadPostVisibilityRefresh(tab);
-            return;
-        }
-        int top = Math.max(0, scrollY - (scrolling ? height / 3 : height));
-        int bottom = scrollY + height + (scrolling ? height / 2 : height * 2);
-        int unloadTop = Math.max(0, scrollY - (scrolling ? height : height * 2));
-        int unloadBottom = scrollY + height + (scrolling ? height * 2 : height * 3);
         ViewGroup list = tab.threadList;
-        int start = firstChildWithBottomAtLeast(list, top);
-        int end = lastChildWithTopAtMost(list, bottom);
-        int unloadStart = firstChildWithBottomAtLeast(list, unloadTop);
-        int unloadEnd = lastChildWithTopAtMost(list, unloadBottom);
         int visibleStart = firstChildWithBottomAtLeast(list, scrollY);
         int visibleEnd = lastChildWithTopAtMost(list, scrollY + height);
         int[] rendered = {0};
         boolean[] budgetReached = {false};
-        Set<FrameLayout> keep = new LinkedHashSet<>();
-        collectVirtualPostSlotsInRange(list, unloadStart, unloadEnd, keep);
         renderVirtualPostSlotsInRange(list, visibleStart, visibleEnd, THREAD_VISIBLE_RENDER_BUDGET,
-                rendered, budgetReached, keep);
-        int budget = scrolling ? THREAD_SCROLL_RENDER_BUDGET : THREAD_IDLE_RENDER_BUDGET;
-        renderVirtualPostSlotsInRange(list, start, end, budget, rendered, budgetReached, keep);
+                rendered, budgetReached, null);
         if (budgetReached[0]) {
             scheduleThreadPostVisibilityRefresh(tab);
-        }
-        if (tab.renderedPostSlots != null && !tab.renderedPostSlots.isEmpty()) {
-            for (FrameLayout holder : new ArrayList<>(tab.renderedPostSlots)) {
-                if (keep.contains(holder)) {
-                    continue;
-                }
-                Object tag = holder.getTag();
-                if (tag instanceof VirtualPostSlot) {
-                    recycleVirtualPostSlot(holder, (VirtualPostSlot) tag);
-                }
-            }
         }
         if (isBottomJumpActive(tab)) {
             pinThreadScrollToBottom(tab);
