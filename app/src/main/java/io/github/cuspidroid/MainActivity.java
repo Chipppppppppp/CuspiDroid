@@ -5995,11 +5995,13 @@ public class MainActivity extends Activity {
             if (width != lastAaWidth[0]) {
                 lastAaWidth[0] = width;
                 fitAaTextSize(body, post);
+                shrinkAaSlotToContent(body);
             }
         });
         body.post(() -> {
             lastAaWidth[0] = body.getWidth();
             fitAaTextSize(body, post);
+            shrinkAaSlotToContent(body);
         });
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -6093,6 +6095,10 @@ public class MainActivity extends Activity {
                 TypedValue.COMPLEX_UNIT_SP, POST_TEXT_SIZE_SP, getResources().getDisplayMetrics());
         if (post != null && post.cachedAaFitWidth == available && post.cachedAaFitTextSizePx > 0f) {
             applyAaTextSizeIfNeeded(body, post.cachedAaFitTextSizePx);
+            body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
+            body.setMinHeight(0);
+            body.setMinimumHeight(0);
+            body.requestLayout();
             return;
         }
         String[] lines = body.getText().toString().split("\\n", -1);
@@ -6129,6 +6135,41 @@ public class MainActivity extends Activity {
         body.setMinHeight(0);
         body.setMinimumHeight(0);
         body.requestLayout();
+    }
+
+    private void shrinkAaSlotToContent(View view) {
+        if (view == null) {
+            return;
+        }
+        view.post(() -> updateRenderedSlotHeight(view));
+        view.postDelayed(() -> updateRenderedSlotHeight(view), 80);
+    }
+
+    private void updateRenderedSlotHeight(View view) {
+        View current = view;
+        while (current != null) {
+            Object tag = current.getTag();
+            if (tag instanceof VirtualPostSlot) {
+                FrameLayout holder = current instanceof FrameLayout ? (FrameLayout) current : null;
+                VirtualPostSlot slot = (VirtualPostSlot) tag;
+                if (holder != null && slot.rendered) {
+                    holder.setMinimumHeight(0);
+                    int childHeight = holder.getChildCount() == 0 ? 0 : holder.getChildAt(0).getHeight();
+                    int measured = childHeight > 0 ? childHeight : holder.getHeight();
+                    if (measured > 0) {
+                        slot.height = measured;
+                    }
+                    holder.requestLayout();
+                    if (holder.getParent() instanceof View) {
+                        ((View) holder.getParent()).requestLayout();
+                    }
+                    scheduleThreadScrollChromeRefresh(slot.tab, 3);
+                }
+                return;
+            }
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
     }
 
     private void applyAaTextSizeIfNeeded(TextView body, float textSizePx) {
