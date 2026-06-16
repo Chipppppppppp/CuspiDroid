@@ -26,6 +26,7 @@ import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -1395,21 +1396,20 @@ public class MainActivity extends Activity {
         animatePopupIn(popup, !addressBarTop);
     }
 
-    private void showPopupNearAnchor(PopupWindow popup, View menu, View anchor) {
+    private void showPopupAttachedToAnchor(PopupWindow popup, View menu, View anchor) {
         int width = dp(220);
         menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int height = menu.getMeasuredHeight();
         Rect frame = new Rect();
-        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        anchor.getWindowVisibleDisplayFrame(frame);
         int[] location = new int[2];
         anchor.getLocationOnScreen(location);
-        int x = Math.max(frame.left, Math.min(location[0] + anchor.getWidth() - width, frame.right - width));
+        int xoff = anchor.getWidth() - width;
         boolean showAbove = location[1] + anchor.getHeight() + height > frame.bottom;
-        int y = showAbove ? location[1] - height : location[1] + anchor.getHeight();
-        y = Math.max(frame.top, Math.min(y, frame.bottom - height));
+        int yoff = showAbove ? -height - anchor.getHeight() : 0;
         popup.setClippingEnabled(true);
-        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        popup.showAsDropDown(anchor, xoff, yoff);
         animatePopupIn(popup, showAbove);
     }
 
@@ -6273,27 +6273,17 @@ public class MainActivity extends Activity {
 
     private void loadVideoThumbnail(String videoUrl, ImageView thumbnail, ProgressBar spinner,
                                     TextView error, TextView play, Button reveal) {
-        String thumbnailUrl = videoThumbnailUrl(videoUrl);
-        if (thumbnailUrl == null) {
-            spinner.setVisibility(View.GONE);
-            play.setVisibility(View.VISIBLE);
-            error.setVisibility(View.GONE);
-            return;
-        }
         ioExecutor.execute(() -> {
-            ImageLoadResult loaded = downloadBitmap(thumbnailUrl, dp(MEDIA_GRID_CELL_DP), dp(MEDIA_GRID_CELL_DP));
-            boolean missing = loaded == null || loaded.missing;
-            Bitmap bitmap = missing ? null : loaded.bitmap;
-            Drawable drawable = missing ? null : loaded.drawable;
+            Bitmap bitmap = videoFrameBitmap(videoUrl, dp(MEDIA_GRID_CELL_DP), dp(MEDIA_GRID_CELL_DP));
             Bitmap displayBitmap = bitmap;
             boolean sensitive = false;
             if (bitmap != null && blurVideoThumbnails()) {
-                Boolean cachedSensitive = readCachedImageSensitive(thumbnailUrl);
+                Boolean cachedSensitive = readCachedImageSensitive(videoUrl);
                 if (cachedSensitive != null) {
                     sensitive = cachedSensitive;
                 } else {
                     sensitive = isGraphicViolenceImage(bitmap);
-                    saveImageSensitive(thumbnailUrl, sensitive);
+                    saveImageSensitive(videoUrl, sensitive);
                 }
                 if (sensitive) {
                     displayBitmap = blurredBitmap(bitmap);
@@ -6306,18 +6296,15 @@ public class MainActivity extends Activity {
                     return;
                 }
                 spinner.setVisibility(View.GONE);
-                if (bitmap == null && drawable == null) {
-                    play.setVisibility(View.GONE);
-                    error.setVisibility(View.VISIBLE);
+                if (bitmap == null) {
+                    thumbnail.setVisibility(View.GONE);
+                    play.setVisibility(View.VISIBLE);
+                    error.setVisibility(View.GONE);
                     return;
                 }
-                if (drawable != null) {
-                    thumbnail.setImageDrawable(drawable);
-                    startAnimatedDrawable(drawable);
-                } else {
-                    thumbnail.setImageBitmap(finalDisplayBitmap);
-                }
+                thumbnail.setImageBitmap(finalDisplayBitmap);
                 thumbnail.setVisibility(View.VISIBLE);
+                play.setVisibility(View.VISIBLE);
                 if (finalSensitive && bitmap != null && blurVideoThumbnails()) {
                     reveal.setVisibility(View.VISIBLE);
                     reveal.setOnClickListener(v -> {
@@ -6329,22 +6316,35 @@ public class MainActivity extends Activity {
         });
     }
 
-    private String videoThumbnailUrl(String videoUrl) {
-        if (videoUrl == null || videoUrl.isEmpty()) {
+    private Bitmap videoFrameBitmap(String videoUrl, int maxWidth, int maxHeight) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(normalizeUrl(videoUrl), Collections.singletonMap("User-Agent", "CuspiDroid/0.1"));
+            Bitmap frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (frame == null) {
+                return null;
+            }
+            int width = frame.getWidth();
+            int height = frame.getHeight();
+            if (width <= 0 || height <= 0 || (width <= maxWidth && height <= maxHeight)) {
+                return frame;
+            }
+            float scale = Math.min(maxWidth / (float) width, maxHeight / (float) height);
+            int scaledWidth = Math.max(1, Math.round(width * scale));
+            int scaledHeight = Math.max(1, Math.round(height * scale));
+            Bitmap scaled = Bitmap.createScaledBitmap(frame, scaledWidth, scaledHeight, true);
+            if (scaled != frame) {
+                frame.recycle();
+            }
+            return scaled;
+        } catch (Exception ignored) {
             return null;
-        }
-        String clean = stripTrailingUrlPunctuation(videoUrl);
-        String lower = clean.toLowerCase(Locale.ROOT);
-        if (clean.startsWith("https://i.imgur.com/")) {
-            if (lower.endsWith(".gifv")) {
-                return clean.substring(0, clean.length() - 5) + ".jpg";
-            }
-            if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov") || lower.endsWith(".m4v")) {
-                int dot = clean.lastIndexOf('.');
-                return dot > 0 ? clean.substring(0, dot) + ".jpg" : null;
+        } finally {
+            try {
+                retriever.release();
+            } catch (Exception ignored) {
             }
         }
-        return null;
     }
 
     private View deferredMediaPreview(ImgurLink link, Runnable longClickAction, int cellSize) {
@@ -6470,14 +6470,6 @@ public class MainActivity extends Activity {
             ViewGroup group = (ViewGroup) parent;
             int index = group.indexOfChild(preview.placeholder);
             ViewGroup.LayoutParams params = preview.placeholder.getLayoutParams();
-            if (preview.link.resolvePage) {
-                resolveDeferredMediaPreview(preview);
-                created++;
-                if (created >= 1) {
-                    break;
-                }
-                continue;
-            }
             View media = preview.link.video
                     ? videoPreview(preview.link.originalUrl, preview.link.imageUrl, preview.longClickAction, preview.cellSize)
                     : imgurPreview(preview.link.originalUrl, preview.link.imageUrl, preview.longClickAction, preview.cellSize);
@@ -6496,53 +6488,6 @@ public class MainActivity extends Activity {
 
     private boolean recentlyScrolled(CuspTab tab) {
         return tab != null && android.os.SystemClock.uptimeMillis() - tab.lastScrollAt < 220;
-    }
-
-    private void resolveDeferredMediaPreview(DeferredMediaPreview preview) {
-        deferredMediaPreviews.remove(preview);
-        ioExecutor.execute(() -> {
-            String resolved = resolvePreviewPageMediaUrl(preview.link.imageUrl);
-            ImgurLink resolvedLink = resolved == null
-                    ? null
-                    : new ImgurLink(preview.link.originalUrl, resolved, isVideoUrl(resolved), false);
-            runOnUiThread(() -> {
-                if (!preview.placeholder.isAttachedToWindow()) {
-                    return;
-                }
-                ViewParent parent = preview.placeholder.getParent();
-                if (!(parent instanceof ViewGroup)) {
-                    return;
-                }
-                ViewGroup group = (ViewGroup) parent;
-                int index = group.indexOfChild(preview.placeholder);
-                ViewGroup.LayoutParams params = preview.placeholder.getLayoutParams();
-                View media = resolvedLink == null
-                        ? unavailableMediaPreview(preview.longClickAction, preview.cellSize,
-                                text("\u30e1\u30c7\u30a3\u30a2\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Media unavailable"))
-                        : (resolvedLink.video
-                                ? videoPreview(resolvedLink.originalUrl, resolvedLink.imageUrl, preview.longClickAction, preview.cellSize)
-                                : imgurPreview(resolvedLink.originalUrl, resolvedLink.imageUrl, preview.longClickAction, preview.cellSize));
-                group.removeView(preview.placeholder);
-                group.addView(media, Math.max(0, index), params);
-            });
-        });
-    }
-
-    private View unavailableMediaPreview(Runnable longClickAction, int cellSize, String message) {
-        FrameLayout frame = new FrameLayout(this);
-        frame.setMinimumWidth(cellSize);
-        frame.setMinimumHeight(cellSize);
-        frame.setBackgroundColor(unavailableMediaColor());
-        if (longClickAction != null) {
-            frame.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-        TextView label = unavailableMediaLabel(message);
-        frame.addView(label, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        return frame;
     }
 
     private TextView unavailableMediaLabel(String message) {
@@ -6919,14 +6864,6 @@ public class MainActivity extends Activity {
     private DownloadedImageBytes downloadOriginalImageBytes(String imageUrl) {
         List<String> candidates = new ArrayList<>();
         candidates.add(imageUrl);
-        if (imageUrl.startsWith("https://i.imgur.com/") && imageUrl.endsWith(".gifv")) {
-            candidates.add(imageUrl.substring(0, imageUrl.length() - 5) + ".mp4");
-        }
-        if (imageUrl.startsWith("https://i.imgur.com/") && imageUrl.endsWith(".jpg")) {
-            String base = imageUrl.substring(0, imageUrl.length() - 4);
-            candidates.add(base + ".png");
-            candidates.add(base + ".webp");
-        }
         for (String candidate : candidates) {
             try {
                 File cached = imageCacheFile(candidate);
@@ -6949,16 +6886,6 @@ public class MainActivity extends Activity {
                 }
                 try (InputStream stream = connection.getInputStream()) {
                     byte[] bytes = readBytes(stream);
-                    if (isHtmlContent(contentType) && isPreviewPageUrl(candidate)) {
-                        String resolved = extractPreviewPageImageUrl(bytes, candidate);
-                        if (resolved != null && !resolved.equals(candidate)) {
-                            DownloadedImageBytes image = downloadOriginalImageBytes(resolved);
-                            if (image != null) {
-                                return image;
-                            }
-                        }
-                        continue;
-                    }
                     if (looksLikeImgurMissing(bytes, contentType)) {
                         continue;
                     }
@@ -7130,13 +7057,6 @@ public class MainActivity extends Activity {
             }
             try (InputStream stream = connection.getInputStream()) {
                 byte[] bytes = readBytes(stream);
-                if (isHtmlContent(contentType) && isTadaupUrl(url)) {
-                    String resolved = extractTadaupImageUrl(bytes, url);
-                    if (resolved != null && !resolved.equals(url)) {
-                        return downloadBitmap(resolved, maxWidth, maxHeight);
-                    }
-                    return null;
-                }
                 if (looksLikeImgurMissing(bytes, contentType)) {
                     saveImageMissing(url);
                     Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
@@ -7238,180 +7158,6 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             return false;
         }
-    }
-
-    private boolean isHtmlContent(String contentType) {
-        String type = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
-        return type.contains("text/html") || type.contains("application/xhtml");
-    }
-
-    private boolean isTadaupUrl(String url) {
-        try {
-            Uri uri = Uri.parse(normalizeUrl(url));
-            String host = uri.getHost();
-            return host != null && host.equalsIgnoreCase("tadaup.jp");
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private boolean isPreviewPageUrl(String url) {
-        return isTadaupUrl(url) || isXxupUrl(url);
-    }
-
-    private boolean isXxupUrl(String url) {
-        try {
-            Uri uri = Uri.parse(normalizeUrl(url));
-            String host = uri.getHost();
-            return isXxupHost(host);
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private String resolvePreviewPageMediaUrl(String pageUrl) {
-        HttpURLConnection connection = null;
-        try {
-            connection = (HttpURLConnection) new URL(pageUrl).openConnection();
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(15000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
-            if (connection.getResponseCode() >= 400) {
-                return null;
-            }
-            try (InputStream stream = connection.getInputStream()) {
-                return extractPreviewPageImageUrl(readBytes(stream), pageUrl);
-            }
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-    }
-
-    private String resolveTadaupPageMediaUrl(String pageUrl) {
-        HttpURLConnection connection = null;
-        try {
-            connection = (HttpURLConnection) new URL(pageUrl).openConnection();
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(15000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
-            if (connection.getResponseCode() >= 400) {
-                return null;
-            }
-            try (InputStream stream = connection.getInputStream()) {
-                return extractTadaupImageUrl(readBytes(stream), pageUrl);
-            }
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-    }
-
-    private String extractTadaupImageUrl(byte[] bytes, String pageUrl) {
-        return extractPreviewPageImageUrl(bytes, pageUrl);
-    }
-
-    private String extractPreviewPageImageUrl(byte[] bytes, String pageUrl) {
-        try {
-            String html = new String(bytes, Charset.forName("UTF-8"));
-            String resolved = previewImageUrl(absoluteUrl(pageUrl, firstHtmlAttribute(html,
-                    "<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]*>",
-                    "content")));
-            if (isUsablePreviewImage(resolved)) {
-                return resolved;
-            }
-            Matcher srcset = Pattern.compile("<img\\b[^>]+srcset=[\"']([^\"']+)[\"'][^>]*>",
-                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
-            while (srcset.find()) {
-                resolved = bestImageFromSrcset(pageUrl, srcset.group(1));
-                if (isUsablePreviewImage(resolved)) {
-                    return resolved;
-                }
-            }
-            Matcher source = Pattern.compile("<(?:video|source)\\b[^>]+src=[\"']([^\"']+\\.(?:mp4|webm|mov|m4v))(?:\\?[^\"']*)?[\"'][^>]*>",
-                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
-            while (source.find()) {
-                resolved = previewImageUrl(absoluteUrl(pageUrl, cleanText(source.group(1))));
-                if (isUsablePreviewImage(resolved)) {
-                    return resolved;
-                }
-            }
-            Matcher src = Pattern.compile("<img\\b[^>]+src=[\"']([^\"']+\\.(?:jpe?g|png|webp|gif))(?:\\?[^\"']*)?[\"'][^>]*>",
-                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
-            while (src.find()) {
-                resolved = previewImageUrl(absoluteUrl(pageUrl, cleanText(src.group(1))));
-                if (isUsablePreviewImage(resolved)) {
-                    return resolved;
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private String previewImageUrl(String rawUrl) {
-        String tadaup = tadaupImageUrl(rawUrl);
-        if (tadaup != null && !isTadaupPageUrl(tadaup)) {
-            return tadaup;
-        }
-        String xxup = xxupImageUrl(rawUrl);
-        if (xxup != null && !isXxupPageUrl(xxup)) {
-            return xxup;
-        }
-        return null;
-    }
-
-    private boolean isUsableTadaupImage(String url) {
-        return isUsablePreviewImage(url);
-    }
-
-    private boolean isUsablePreviewImage(String url) {
-        return url != null
-                && !url.contains("/pass")
-                && !url.contains("/logo")
-                && !url.contains("/default_avatar")
-                && !url.contains("/wp-content/");
-    }
-
-    private String bestImageFromSrcset(String pageUrl, String srcset) {
-        if (srcset == null) {
-            return null;
-        }
-        String best = null;
-        int bestWidth = -1;
-        for (String part : srcset.split(",")) {
-            String[] pieces = part.trim().split("\\s+");
-            if (pieces.length == 0 || pieces[0].isEmpty()) {
-                continue;
-            }
-            int width = pieces.length > 1 && pieces[1].endsWith("w")
-                    ? parsePositiveInt(pieces[1].substring(0, pieces[1].length() - 1), 0)
-                    : 0;
-            if (best == null || width > bestWidth) {
-                best = pieces[0];
-                bestWidth = width;
-            }
-        }
-        return best == null ? null : previewImageUrl(absoluteUrl(pageUrl, cleanText(best)));
-    }
-
-    private String firstHtmlAttribute(String html, String tagPattern, String attribute) {
-        if (html == null) {
-            return null;
-        }
-        Matcher tagMatcher = Pattern.compile(tagPattern, Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
-        if (!tagMatcher.find()) {
-            return null;
-        }
-        return htmlAttribute(tagMatcher.group(), attribute);
     }
 
     private Bitmap missingImgurBitmap(int maxWidth, int maxHeight) {
@@ -7686,19 +7432,7 @@ public class MainActivity extends Activity {
 
     private ImgurLink previewMediaLink(String rawUrl) {
         String direct = directMediaUrl(rawUrl);
-        if (direct != null) {
-            return new ImgurLink(rawUrl, direct, isVideoUrl(direct), false);
-        }
-        String imgur = imgurImageUrl(rawUrl);
-        if (imgur != null) {
-            return new ImgurLink(rawUrl, imgur, isVideoUrl(imgur), false);
-        }
-        String tadaup = tadaupImageUrl(rawUrl);
-        if (tadaup != null) {
-            return new ImgurLink(rawUrl, tadaup, isVideoUrl(tadaup), isTadaupPageUrl(tadaup));
-        }
-        String xxup = xxupImageUrl(rawUrl);
-        return xxup == null ? null : new ImgurLink(rawUrl, xxup, isVideoUrl(xxup), isXxupPageUrl(xxup));
+        return direct == null ? null : new ImgurLink(rawUrl, direct, isVideoUrl(direct));
     }
 
     private String directMediaUrl(String rawUrl) {
@@ -7713,47 +7447,6 @@ public class MainActivity extends Activity {
             return lower.matches(".+\\.(jpe?g|png|webp|gif|bmp|avif|mp4|webm|mov|m4v)$")
                     ? normalized
                     : null;
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private String imgurImageUrl(String rawUrl) {
-        try {
-            Uri uri = Uri.parse(normalizeUrl(rawUrl));
-            String host = uri.getHost();
-            String path = uri.getPath();
-            if (host == null || path == null) {
-                return null;
-            }
-            host = host.toLowerCase(Locale.ROOT);
-            if (!host.equals("i.imgur.com") && !host.equals("imgur.com")
-                    && !host.equals("www.imgur.com") && !host.equals("m.imgur.com")) {
-                return null;
-            }
-            if (path.contains("/a/") || path.contains("/gallery/")) {
-                return null;
-            }
-            String file = path.substring(path.lastIndexOf('/') + 1);
-            if (file.isEmpty()) {
-                return null;
-            }
-            int dot = file.lastIndexOf('.');
-            String id = dot > 0 ? file.substring(0, dot) : file;
-            if (!id.matches("[A-Za-z0-9]+")) {
-                return null;
-            }
-            if (dot > 0) {
-                String ext = file.substring(dot + 1).toLowerCase(Locale.ROOT);
-                if ("gifv".equals(ext)) {
-                    return "https://i.imgur.com/" + id + ".mp4";
-                }
-                if (!ext.matches("jpe?g|png|webp|gif|mp4|webm")) {
-                    return null;
-                }
-                return "https://i.imgur.com/" + file;
-            }
-            return "https://i.imgur.com/" + id + ".jpg";
         } catch (Exception ignored) {
             return null;
         }
@@ -7777,78 +7470,6 @@ public class MainActivity extends Activity {
                 }
             }, start, end, flags);
         }
-    }
-
-    private String tadaupImageUrl(String rawUrl) {
-        try {
-            String normalized = normalizeUrl(rawUrl);
-            Uri uri = Uri.parse(normalized);
-            String host = uri.getHost();
-            String path = uri.getPath();
-            if (host == null || path == null || !host.equalsIgnoreCase("tadaup.jp")) {
-                return null;
-            }
-            String lower = path.toLowerCase(Locale.ROOT);
-            if (lower.matches(".+\\.(jpe?g|png|webp|gif|mp4|webm|mov)$")) {
-                return normalized.replaceFirst("-(\\d{2,5})x(\\d{2,5})(\\.(?i:jpe?g|png|webp|gif|mp4|webm|mov))$", "$3");
-            }
-            if (path.matches("/\\d{10,}/?")) {
-                return normalized;
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private String xxupImageUrl(String rawUrl) {
-        try {
-            String normalized = normalizeUrl(rawUrl);
-            Uri uri = Uri.parse(normalized);
-            String host = uri.getHost();
-            String path = uri.getPath();
-            if (host == null || path == null || !isXxupHost(host)) {
-                return null;
-            }
-            String lower = path.toLowerCase(Locale.ROOT);
-            if (lower.matches(".+\\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$")) {
-                return normalized;
-            }
-            if (path.length() > 1) {
-                return normalized;
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private boolean isTadaupPageUrl(String url) {
-        try {
-            Uri uri = Uri.parse(normalizeUrl(url));
-            String host = uri.getHost();
-            String path = uri.getPath();
-            return host != null && host.equalsIgnoreCase("tadaup.jp")
-                    && path != null && path.matches("/\\d{10,}/?");
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private boolean isXxupPageUrl(String url) {
-        try {
-            Uri uri = Uri.parse(normalizeUrl(url));
-            String host = uri.getHost();
-            String path = uri.getPath();
-            if (host == null || path == null || !isXxupHost(host)) {
-                return false;
-            }
-            return !path.toLowerCase(Locale.ROOT).matches(".+\\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$");
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private boolean isXxupHost(String host) {
-        return host != null && (host.equalsIgnoreCase("xxup.org") || host.toLowerCase(Locale.ROOT).endsWith(".xxup.org"));
     }
 
     private boolean isVideoUrl(String url) {
@@ -8995,7 +8616,7 @@ public class MainActivity extends Activity {
             dismissPopupAnimated(popup);
             confirmDeleteWriteSiteCookies(tab);
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        showPopupNearAnchor(popup, menu, anchor);
+        showPopupAttachedToAnchor(popup, menu, anchor);
     }
 
     private LinearLayout writeDialogTitleRow(String title, ImageButton menuButton) {
@@ -13366,13 +12987,11 @@ public class MainActivity extends Activity {
         final String originalUrl;
         final String imageUrl;
         final boolean video;
-        final boolean resolvePage;
 
-        ImgurLink(String originalUrl, String imageUrl, boolean video, boolean resolvePage) {
+        ImgurLink(String originalUrl, String imageUrl, boolean video) {
             this.originalUrl = originalUrl;
             this.imageUrl = imageUrl;
             this.video = video;
-            this.resolvePage = resolvePage;
         }
     }
 
