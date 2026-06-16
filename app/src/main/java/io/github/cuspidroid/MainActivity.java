@@ -122,6 +122,8 @@ public class MainActivity extends Activity {
     static final String PREF_SHOW_MEDIA = "show_media";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_BLUR_VIDEO_THUMBNAILS = "blur_video_thumbnails";
+    static final String PREF_BLUR_GIF_THUMBNAILS = "blur_gif_thumbnails";
+    static final String PREF_AUTOPLAY_GIFS = "autoplay_gifs";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
@@ -6537,6 +6539,7 @@ public class MainActivity extends Activity {
             Drawable drawable = loaded == null ? null : loaded.drawable;
             boolean sensitive = false;
             Bitmap displayBitmap = bitmap;
+            boolean gif = isGifUrl(preview.imageUrl);
             if (bitmap != null) {
                 Boolean cachedSensitive = readCachedImageSensitive(preview.imageUrl);
                 if (loaded.missing) {
@@ -6547,7 +6550,7 @@ public class MainActivity extends Activity {
                     sensitive = isGraphicViolenceImage(bitmap);
                     saveImageSensitive(preview.imageUrl, sensitive);
                 }
-                if (blurImgurImages() && sensitive) {
+                if ((gif ? blurGifThumbnails() : blurImgurImages()) && sensitive) {
                     displayBitmap = blurredBitmap(bitmap);
                 }
             }
@@ -6555,16 +6558,17 @@ public class MainActivity extends Activity {
             Drawable finalDrawable = drawable;
             Bitmap finalDisplayBitmap = displayBitmap;
             boolean finalSensitive = sensitive;
+            boolean finalGif = gif;
             runOnUiThread(() -> {
-                applyLazyImgurLoadResultWhenIdle(preview, finalBitmap, finalDrawable, finalDisplayBitmap, finalSensitive);
+                applyLazyImgurLoadResultWhenIdle(preview, finalBitmap, finalDrawable, finalDisplayBitmap, finalSensitive, finalGif);
             });
         });
     }
 
     private void applyLazyImgurLoadResultWhenIdle(LazyImgurPreview preview, Bitmap bitmap, Drawable drawable,
-                                                  Bitmap displayBitmap, boolean sensitive) {
+                                                  Bitmap displayBitmap, boolean sensitive, boolean gif) {
         if (recentlyScrolled(currentTab())) {
-            mainHandler.postDelayed(() -> applyLazyImgurLoadResultWhenIdle(preview, bitmap, drawable, displayBitmap, sensitive), 180);
+            mainHandler.postDelayed(() -> applyLazyImgurLoadResultWhenIdle(preview, bitmap, drawable, displayBitmap, sensitive, gif), 180);
             return;
         }
         imgurLoadInFlight = false;
@@ -6579,15 +6583,30 @@ public class MainActivity extends Activity {
             scheduleLazyImgurLoads();
             return;
         }
-        boolean shouldBlur = blurImgurImages() && sensitive;
-        if (drawable != null) {
+        boolean shouldBlur = (gif ? blurGifThumbnails() : blurImgurImages()) && sensitive;
+        if (drawable != null && gif && shouldBlur && bitmap != null) {
+            preview.image.setImageBitmap(displayBitmap);
+        } else if (drawable != null && (!gif || autoplayGifs())) {
             preview.image.setImageDrawable(drawable);
             startAnimatedDrawable(drawable);
         } else {
             preview.image.setImageBitmap(displayBitmap);
         }
         preview.image.setVisibility(View.VISIBLE);
-        if (drawable != null) {
+        if (drawable != null && gif && shouldBlur && bitmap != null) {
+            positionRevealButton(preview.frame, preview.reveal, bitmap);
+            preview.reveal.setVisibility(View.VISIBLE);
+            preview.reveal.setOnClickListener(v -> {
+                if (autoplayGifs()) {
+                    preview.image.setImageDrawable(drawable);
+                    startAnimatedDrawable(drawable);
+                } else {
+                    preview.image.setImageBitmap(bitmap);
+                }
+                preview.image.setOnClickListener(click -> showImageViewer(preview.originalUrl, preview.imageUrl));
+                preview.reveal.setVisibility(View.GONE);
+            });
+        } else if (drawable != null) {
             preview.image.setOnClickListener(v -> showImageViewer(preview.originalUrl, preview.imageUrl));
         } else if (shouldBlur && sensitive) {
             positionRevealButton(preview.frame, preview.reveal, bitmap);
@@ -7067,7 +7086,7 @@ public class MainActivity extends Activity {
     }
 
     private void startAnimatedDrawable(Drawable drawable) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && drawable instanceof AnimatedImageDrawable) {
+        if (autoplayGifs() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && drawable instanceof AnimatedImageDrawable) {
             ((AnimatedImageDrawable) drawable).start();
         }
     }
@@ -9437,6 +9456,14 @@ public class MainActivity extends Activity {
 
     private boolean blurVideoThumbnails() {
         return blurImgurImages() && preferences.getBoolean(PREF_BLUR_VIDEO_THUMBNAILS, true);
+    }
+
+    private boolean blurGifThumbnails() {
+        return blurImgurImages() && preferences.getBoolean(PREF_BLUR_GIF_THUMBNAILS, true);
+    }
+
+    private boolean autoplayGifs() {
+        return showMediaPreviews() && preferences.getBoolean(PREF_AUTOPLAY_GIFS, true);
     }
 
     private boolean autoAaEnabled() {

@@ -35,6 +35,8 @@ public class SettingsActivity extends Activity {
     private CheckBox showMediaPreviews;
     private CheckBox blurImgurImages;
     private CheckBox blurVideoThumbnails;
+    private CheckBox blurGifThumbnails;
+    private CheckBox autoplayGifs;
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
     private CheckBox treeView;
@@ -238,6 +240,20 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, blurVideoThumbnails);
         root.addView(blurVideoThumbnails);
 
+        blurGifThumbnails = new CheckBox(this);
+        blurGifThumbnails.setText(MainActivity.text("GIF\u30b5\u30e0\u30cd\u30a4\u30eb\u3082\u5224\u5b9a\u3057\u3066\u307c\u304b\u3059", "Also check and blur GIF thumbnails"));
+        blurGifThumbnails.setTextColor(textColor());
+        blurGifThumbnails.setTextSize(16);
+        Theme.tintCompoundButton(this, blurGifThumbnails);
+        root.addView(blurGifThumbnails);
+
+        autoplayGifs = new CheckBox(this);
+        autoplayGifs.setText(MainActivity.text("GIF\u3092\u81ea\u52d5\u518d\u751f", "Autoplay GIFs"));
+        autoplayGifs.setTextColor(textColor());
+        autoplayGifs.setTextSize(16);
+        Theme.tintCompoundButton(this, autoplayGifs);
+        root.addView(autoplayGifs);
+
         root.addView(managementRow(R.drawable.ic_close,
                 MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
                 MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
@@ -267,6 +283,8 @@ public class SettingsActivity extends Activity {
         showMediaPreviews.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_MEDIA, true));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
         blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
+        blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
+        autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, true));
         updateMediaDependentSettings();
         if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
             addressBarTop.setChecked(true);
@@ -310,6 +328,8 @@ public class SettingsActivity extends Activity {
             saveSettings(false);
         });
         blurVideoThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        blurGifThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        autoplayGifs.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -388,6 +408,9 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS,
                         blurImgurImages.isChecked() && blurVideoThumbnails.isChecked())
+                .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS,
+                        blurImgurImages.isChecked() && blurGifThumbnails.isChecked())
+                .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, autoplayGifs.isChecked())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
@@ -429,6 +452,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_SHOW_MEDIA, true)
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, true)
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)
+                .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true)
+                .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, true)
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
@@ -462,6 +487,10 @@ public class SettingsActivity extends Activity {
         boolean videoBlurEnabled = mediaEnabled && blurImgurImages.isChecked();
         blurVideoThumbnails.setEnabled(videoBlurEnabled);
         blurVideoThumbnails.setAlpha(videoBlurEnabled ? 1f : 0.45f);
+        blurGifThumbnails.setEnabled(videoBlurEnabled);
+        blurGifThumbnails.setAlpha(videoBlurEnabled ? 1f : 0.45f);
+        autoplayGifs.setEnabled(mediaEnabled);
+        autoplayGifs.setAlpha(mediaEnabled ? 1f : 0.45f);
     }
 
     private TextView sectionTitle(String value) {
