@@ -186,7 +186,7 @@ public class MainActivity extends Activity {
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 4;
     private static final int THREAD_IDLE_RENDER_BUDGET = 12;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
-    private static final String AA_FONT_FAMILY = "MS PGothic";
+    private static final String AA_FONT_FAMILY = "Textar";
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
 
     private final List<CuspTab> tabs = new ArrayList<>();
@@ -5766,7 +5766,7 @@ public class MainActivity extends Activity {
             return aaTypeface;
         }
         try {
-            aaTypeface = Typeface.createFromAsset(getAssets(), "fonts/mona.ttf");
+            aaTypeface = Typeface.createFromAsset(getAssets(), "fonts/textar.ttf");
         } catch (Exception ignored) {
             aaTypeface = Typeface.create(AA_FONT_FAMILY, Typeface.NORMAL);
         }
@@ -5848,20 +5848,17 @@ public class MainActivity extends Activity {
             return false;
         }
         String value = body.trim();
-        if (value.length() < 12) {
+        if (value.length() < 8) {
             return false;
         }
         String[] lines = value.split("\\n", -1);
-        int maxWidth = 0;
         int nonWhitespace = 0;
         int aaChars = 0;
         int structural = 0;
         int spaces = 0;
         for (String line : lines) {
-            int width = 0;
             for (int i = 0; i < line.length(); i++) {
                 char ch = line.charAt(i);
-                width += visualWidth(ch);
                 if (Character.isWhitespace(ch)) {
                     if (ch == ' ' || ch == '\u3000') {
                         spaces++;
@@ -5876,40 +5873,28 @@ public class MainActivity extends Activity {
                     structural++;
                 }
             }
-            maxWidth = Math.max(maxWidth, width);
         }
         boolean singleLine = lines.length <= 1;
-        if (nonWhitespace < 16 || maxWidth < 42) {
+        if (nonWhitespace < 8) {
             return false;
         }
         float ratio = aaChars / (float) nonWhitespace;
-        if (singleLine && maxWidth < 58) {
-            return false;
-        }
-        return (aaChars >= (singleLine ? 15 : 12) && ratio >= (singleLine ? 0.31f : 0.26f))
-                || (structural >= (singleLine ? 21 : 16) && ratio >= (singleLine ? 0.24f : 0.21f))
-                || (!singleLine && spaces >= 8 && structural >= 12 && ratio >= 0.18f);
-    }
-
-    private static int visualWidth(char ch) {
-        return ch <= 0x007f || (ch >= 0xff61 && ch <= 0xff9f) ? 1 : 2;
+        return (aaChars >= (singleLine ? 10 : 8) && ratio >= (singleLine ? 0.28f : 0.22f))
+                || (structural >= (singleLine ? 8 : 6) && ratio >= (singleLine ? 0.22f : 0.18f))
+                || (!singleLine && spaces >= 4 && structural >= 4 && aaChars >= 6)
+                || (!singleLine && aaChars >= 10 && ratio >= 0.16f);
     }
 
     private static boolean isAaCharacter(char ch) {
         return isAaStructuralCharacter(ch)
-                || ch == '\u2200' || ch == '\u0414' || ch == '\u0434' || ch == '\u03c9'
-                || ch == '\u30fc' || ch == '\uff3f' || ch == '\uffe3' || ch == '\uff40'
-                || ch == '\u00b4' || ch == '\u02c6' || ch == '^' || ch == '\u309b'
-                || ch == '\u309c' || ch == '\u3002' || ch == '\u30fb' || ch == '\uff65'
-                || ch == '\u5f61' || ch == '\u203b' || ch == '\u2261' || ch == '\u2266'
-                || ch == '\u2267' || ch == '\u2260' || ch == '\u2252' || ch == '\u2282'
-                || ch == '\u2283' || ch == '\u2286' || ch == '\u2287' || ch == '\u22a5'
-                || ch == '\u22bf' || ch == '\u2227' || ch == '\u2228' || ch == '\u2229'
-                || ch == '\u222a';
+                || isAaFaceCharacter(ch)
+                || isAaShapeCharacter(ch)
+                || isAaMathCharacter(ch)
+                || isAaDecorativeCharacter(ch);
     }
 
     private static boolean isAaStructuralCharacter(char ch) {
-        if ("()[]{}<>/\\|!?=_-".indexOf(ch) >= 0) {
+        if ("()[]{}<>/\\|!-_=+*:,.;'\"`~".indexOf(ch) >= 0) {
             return true;
         }
         if (ch >= '\u2500' && ch <= '\u257f') {
@@ -5918,7 +5903,51 @@ public class MainActivity extends Activity {
         return ch == '\uff08' || ch == '\uff09' || ch == '\uff3b' || ch == '\uff3d'
                 || ch == '\uff5b' || ch == '\uff5d' || ch == '\uff1c' || ch == '\uff1e'
                 || ch == '\uff0f' || ch == '\uff3c' || ch == '\uff5c' || ch == '\uff01'
-                || ch == '\uff1f' || ch == '\uff1d';
+                || ch == '\uff1f' || ch == '\uff1d' || ch == '\u3010' || ch == '\u3011'
+                || ch == '\u300c' || ch == '\u300d' || ch == '\u300e' || ch == '\u300f'
+                || ch == '\u3014' || ch == '\u3015' || ch == '\u3016' || ch == '\u3017'
+                || ch == '\u3018' || ch == '\u3019' || ch == '\u301a' || ch == '\u301b';
+    }
+
+    private static boolean isAaFaceCharacter(char ch) {
+        return ch == '\u2200' || ch == '\u0414' || ch == '\u0434' || ch == '\u03c9'
+                || ch == '\u03b5' || ch == '\u03b4' || ch == '\u03c3' || ch == '\u30ee'
+                || ch == '\u30ed' || ch == '\u30ce' || ch == '\u30fd' || ch == '\u30f2'
+                || ch == '\u30e2' || ch == '\u30ca' || ch == '\u03a3' || ch == '\u03bc'
+                || ch == '\u00b4' || ch == '\uff40' || ch == '\u02d8' || ch == '\u02c6'
+                || ch == '\u02c7' || ch == '\u2032' || ch == '\u2035';
+    }
+
+    private static boolean isAaShapeCharacter(char ch) {
+        if (ch >= '\u25a0' && ch <= '\u25ff') {
+            return true;
+        }
+        if (ch >= '\u2580' && ch <= '\u259f') {
+            return true;
+        }
+        return ch == '\u25cb' || ch == '\u25cf' || ch == '\u25ce' || ch == '\u25c7'
+                || ch == '\u25c6' || ch == '\u25a1' || ch == '\u25a0' || ch == '\u25b3'
+                || ch == '\u25b2' || ch == '\u25bd' || ch == '\u25bc' || ch == '\u2605'
+                || ch == '\u2606' || ch == '\u2665' || ch == '\u2661' || ch == '\u266a'
+                || ch == '\u266b' || ch == '\u203b';
+    }
+
+    private static boolean isAaMathCharacter(char ch) {
+        return ch == '\u2227' || ch == '\u2228' || ch == '\u2229' || ch == '\u222a'
+                || ch == '\u2282' || ch == '\u2283' || ch == '\u2286' || ch == '\u2287'
+                || ch == '\u22a5' || ch == '\u22bf' || ch == '\u2235' || ch == '\u2234'
+                || ch == '\u2260' || ch == '\u2252' || ch == '\u2266' || ch == '\u2267'
+                || ch == '\u221e' || ch == '\u2211' || ch == '\u221a' || ch == '\u2220'
+                || ch == '\u222e';
+    }
+
+    private static boolean isAaDecorativeCharacter(char ch) {
+        return ch == '\uff3f' || ch == '\uffe3' || ch == '\u203e' || ch == '\u02c9'
+                || ch == '\u30fc' || ch == '\u2015' || ch == '\u2014' || ch == '\u2010'
+                || ch == '\u3001' || ch == '\u3002' || ch == '\u30fb' || ch == '\uff65'
+                || ch == '\u309b' || ch == '\u309c' || ch == '\uff9e' || ch == '\uff9f'
+                || ch == '\u5f61' || ch == '\u5f50' || ch == '\u4e36' || ch == '\u4e3f'
+                || ch == '\u4e5a' || ch == '\u4e85' || ch == '\u4e28';
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
@@ -6051,7 +6080,7 @@ public class MainActivity extends Activity {
         }
 
         TextView play = new TextView(this);
-        play.setText("髫ｨ繝ｻ・ｽ・ｶ");
+        play.setText("鬮ｫ・ｨ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｶ");
         play.setTextColor(Color.WHITE);
         play.setTextSize(34);
         play.setGravity(Gravity.CENTER);
