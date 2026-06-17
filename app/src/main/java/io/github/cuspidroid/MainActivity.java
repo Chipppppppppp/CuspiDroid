@@ -2465,18 +2465,6 @@ public class MainActivity extends Activity {
         return text("\u65b0\u898f\u30bf\u30d6", "New tab");
     }
 
-    private View buildInternalNewTabPage(String page) {
-        if ("5ch".equals(page)) {
-            return buildBbsCategoryIndexView(SearchPage.error(FIVE_CH_BBSMENU_URL,
-                    text("\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044", "Reload to load this page.")));
-        }
-        if (page != null && page.startsWith("bbs-category:")) {
-            return buildSearchView(SearchPage.error(FIVE_CH_BBSMENU_URL,
-                    text("\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044", "Reload to load this page.")));
-        }
-        return buildSearchHomeView(true);
-    }
-
     private void setThreadTitleText(TextView view, ThreadPage page, String fallback) {
         String title = page != null && page.title != null && !page.title.trim().isEmpty()
                 ? page.title : (fallback == null || fallback.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : fallback);
@@ -2627,9 +2615,6 @@ public class MainActivity extends Activity {
         if (url.equals(historyPageUrl())) {
             return text("\u5c65\u6b74", "History");
         }
-        if (url.startsWith(INTERNAL_URL_PREFIX + "newtab/")) {
-            return pendingNewTabPageTitle(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length())));
-        }
         if (url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/")) {
             List<String> pages = decodeNewTabHistoryPages(url);
             int index = decodeNewTabHistoryIndex(url, pages);
@@ -2655,9 +2640,6 @@ public class MainActivity extends Activity {
         } else if (url.equals(historyPageUrl())) {
             tab.nativeKind = NATIVE_HISTORY;
             tab.readerView = buildHistoryView();
-        } else if (url.startsWith(INTERNAL_URL_PREFIX + "newtab/")) {
-            tab.nativeKind = NATIVE_SEARCH_HOME;
-            tab.readerView = buildInternalNewTabPage(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length())));
         } else {
             tab.nativeKind = NATIVE_SEARCH_HOME;
             tab.readerView = buildSearchHomeView(true);
@@ -3287,7 +3269,8 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setTag(R.id.tag_post_card, true);
-        card.setPadding(dp(10), dp(8), dp(10), dp(10));
+        boolean copyPasteOmitted = copyPasteSourcePost(page, post) != null;
+        card.setPadding(dp(10), copyPasteOmitted ? dp(4) : dp(8), dp(10), copyPasteOmitted ? dp(4) : dp(10));
         card.setBackground(postBackground(post.number > tab.readPostNumber, isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
@@ -3307,10 +3290,10 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardFrameParams.setMargins(indentLeft, 0, 0, dp(POST_OUTER_GAP_DP));
 
-        if (copyPasteSourcePost(page, post) != null) {
+        if (copyPasteOmitted) {
             TextView omitted = copyPasteOmittedView(page, post, card, tab, readAction, replyAction);
             card.addView(omitted, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(24)));
             attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
             if (showTreeConnector) {
                 shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
@@ -4979,7 +4962,7 @@ public class MainActivity extends Activity {
     private int estimatePostSlotHeight(PostRenderItem item) {
         Post post = item == null ? null : item.post;
         if (post != null && copyPasteOmitEnabled() && post.copyPasteSourceNumber > 0) {
-            return dp(52 + Math.min(item.depth, 8) * 2);
+            return dp(36 + Math.min(item.depth, 8) * 2);
         }
         String body = post == null || post.body == null ? "" : post.body;
         int lines = post == null ? bodyLineCount(body) : bodyLineCount(post);
@@ -11315,14 +11298,11 @@ public class MainActivity extends Activity {
     }
 
     private boolean restorePendingNewTabFromInternalUrl(CuspTab tab, String url) {
-        if (url == null || (!url.startsWith(INTERNAL_URL_PREFIX + "newtab/")
-                && !url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/"))) {
+        if (url == null || !url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/")) {
             return false;
         }
-        boolean historyUrl = url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/");
-        String page = historyUrl ? null : decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length()));
-        List<String> pages = historyUrl ? decodeNewTabHistoryPages(url) : new ArrayList<>();
-        int restoredIndex = historyUrl ? decodeNewTabHistoryIndex(url, pages) : -1;
+        List<String> pages = decodeNewTabHistoryPages(url);
+        int restoredIndex = decodeNewTabHistoryIndex(url, pages);
         int removeIndex = tabs.indexOf(tab);
         if (removeIndex >= 0) {
             tabs.remove(removeIndex);
@@ -11336,18 +11316,8 @@ public class MainActivity extends Activity {
         pendingPrivateNewTab = isPrivateTab(tab);
         tabOverviewVisible = false;
         newTabNavigationHistory.clear();
-        if (!pages.isEmpty()) {
-            newTabNavigationHistory.addAll(pages);
-            newTabNavigationIndex = Math.max(0, Math.min(restoredIndex, newTabNavigationHistory.size() - 1));
-        } else {
-            newTabNavigationHistory.add("home");
-            if (page != null && !page.isEmpty() && !"home".equals(page)) {
-                newTabNavigationHistory.add(page);
-                newTabNavigationIndex = 1;
-            } else {
-                newTabNavigationIndex = 0;
-            }
-        }
+        newTabNavigationHistory.addAll(pages);
+        newTabNavigationIndex = Math.max(0, Math.min(restoredIndex, newTabNavigationHistory.size() - 1));
         String currentPage = newTabNavigationHistory.get(newTabNavigationIndex);
         pendingHistoryAll = "history".equals(currentPage);
         contentFrame.removeAllViews();
