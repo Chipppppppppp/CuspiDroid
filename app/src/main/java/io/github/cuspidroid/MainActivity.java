@@ -2978,6 +2978,11 @@ public class MainActivity extends Activity {
         });
         attachPostSwipe(card, card, readAction, replyAction, tab, post);
         int indentLeft = dp(Math.min(depth, 8) * 18);
+        if (indentLeft > 0 && readAction.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams readActionParams = (FrameLayout.LayoutParams) readAction.getLayoutParams();
+            readActionParams.leftMargin = indentLeft;
+            readAction.setLayoutParams(readActionParams);
+        }
         FrameLayout.LayoutParams cardFrameParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardFrameParams.setMargins(indentLeft, 0, 0, dp(POST_OUTER_GAP_DP));
