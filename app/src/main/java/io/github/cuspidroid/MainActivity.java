@@ -3270,7 +3270,7 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setTag(R.id.tag_post_card, true);
         boolean copyPasteOmitted = copyPasteSourcePost(page, post) != null;
-        card.setPadding(dp(10), copyPasteOmitted ? dp(4) : dp(8), dp(10), copyPasteOmitted ? dp(4) : dp(10));
+        card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(post.number > tab.readPostNumber, isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
@@ -3293,7 +3293,7 @@ public class MainActivity extends Activity {
         if (copyPasteOmitted) {
             TextView omitted = copyPasteOmittedView(page, post, card, tab, readAction, replyAction);
             card.addView(omitted, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(24)));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
             attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
             if (showTreeConnector) {
                 shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
@@ -4962,7 +4962,7 @@ public class MainActivity extends Activity {
     private int estimatePostSlotHeight(PostRenderItem item) {
         Post post = item == null ? null : item.post;
         if (post != null && copyPasteOmitEnabled() && post.copyPasteSourceNumber > 0) {
-            return dp(36 + Math.min(item.depth, 8) * 2);
+            return dp(52 + Math.min(item.depth, 8) * 2);
         }
         String body = post == null || post.body == null ? "" : post.body;
         int lines = post == null ? bodyLineCount(body) : bodyLineCount(post);
