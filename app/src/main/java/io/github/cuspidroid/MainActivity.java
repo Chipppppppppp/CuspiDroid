@@ -3288,7 +3288,7 @@ public class MainActivity extends Activity {
         }
         FrameLayout.LayoutParams cardFrameParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardFrameParams.setMargins(indentLeft, 0, 0, copyPasteOmitted ? dp(1) : dp(POST_OUTER_GAP_DP));
+        cardFrameParams.setMargins(indentLeft, 0, 0, dp(POST_OUTER_GAP_DP));
 
         if (copyPasteOmitted) {
             TextView omitted = copyPasteOmittedView(page, post, card, tab, readAction, replyAction);
@@ -4948,7 +4948,7 @@ public class MainActivity extends Activity {
 
     private View postSlotSpacer(int height) {
         View spacer = new View(this);
-        spacer.setMinimumHeight(Math.max(dp(24), height));
+        spacer.setMinimumHeight(Math.max(dp(56), height));
         return spacer;
     }
 
