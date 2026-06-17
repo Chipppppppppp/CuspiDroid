@@ -3,6 +3,7 @@ package io.github.cuspidroid;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.animation.LayoutTransition;
+import android.animation.ValueAnimator;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -181,6 +182,9 @@ public class MainActivity extends Activity {
     private static final String NATIVE_SEARCH = "search";
     private static final String NATIVE_SEARCH_HOME = "search_home";
     private static final String NATIVE_BOARD = "board";
+    private static final String NATIVE_SAVED = "saved";
+    private static final String NATIVE_HISTORY = "history";
+    private static final String INTERNAL_URL_PREFIX = "cuspidroid://";
     private static final Charset POST_CHARSET = Charset.forName("UTF-8");
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
@@ -1762,6 +1766,10 @@ public class MainActivity extends Activity {
                     tab.savedThreadPageJson = item.optJSONObject("threadPage");
                 } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
                     tab.savedSearchPageJson = item.optJSONObject("searchPage");
+                } else if (NATIVE_SAVED.equals(tab.nativeKind) && url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
+                    tab.readerView = buildSavedItemsView(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+                } else if (NATIVE_HISTORY.equals(tab.nativeKind)) {
+                    tab.readerView = buildHistoryView();
                 } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
                     tab.readerView = buildSearchHomeView(true);
                 }
@@ -2426,6 +2434,10 @@ public class MainActivity extends Activity {
     private String pendingNewTabTitle() {
         String page = newTabNavigationIndex >= 0 && newTabNavigationIndex < newTabNavigationHistory.size()
                 ? newTabNavigationHistory.get(newTabNavigationIndex) : "";
+        return pendingNewTabPageTitle(page);
+    }
+
+    private String pendingNewTabPageTitle(String page) {
         if ("5ch".equals(page)) {
             return text("5ch\u677f\u4e00\u89a7", "5ch boards");
         }
@@ -2449,6 +2461,18 @@ public class MainActivity extends Activity {
             }
         }
         return text("\u65b0\u898f\u30bf\u30d6", "New tab");
+    }
+
+    private View buildInternalNewTabPage(String page) {
+        if ("5ch".equals(page)) {
+            return buildBbsCategoryIndexView(SearchPage.error(FIVE_CH_BBSMENU_URL,
+                    text("\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044", "Reload to load this page.")));
+        }
+        if (page != null && page.startsWith("bbs-category:")) {
+            return buildSearchView(SearchPage.error(FIVE_CH_BBSMENU_URL,
+                    text("\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044", "Reload to load this page.")));
+        }
+        return buildSearchHomeView(true);
     }
 
     private void setThreadTitleText(TextView view, ThreadPage page, String fallback) {
@@ -2511,6 +2535,13 @@ public class MainActivity extends Activity {
             createTab(url, true);
             return;
         }
+        if (isInternalPageUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
+            loadInternalPage(tab, url);
+            return;
+        }
         url = normalizeUrl(url);
         if (isThreadUrl(url)) {
             if (addHistory) {
@@ -2550,6 +2581,83 @@ public class MainActivity extends Activity {
         openExternal(url);
     }
 
+    private boolean isInternalPageUrl(String url) {
+        return url != null && url.startsWith(INTERNAL_URL_PREFIX);
+    }
+
+    private String savedPageUrl(String key) {
+        return INTERNAL_URL_PREFIX + "saved/" + encodeNewTabToken(key);
+    }
+
+    private String historyPageUrl() {
+        return INTERNAL_URL_PREFIX + "history";
+    }
+
+    private String newTabReturnPageUrl() {
+        if (!pendingNewTab || newTabNavigationIndex < 0 || newTabNavigationIndex >= newTabNavigationHistory.size()) {
+            return null;
+        }
+        String page = newTabNavigationHistory.get(newTabNavigationIndex);
+        if ("history".equals(page)) {
+            return historyPageUrl();
+        }
+        if (page != null && page.startsWith("saved:")) {
+            return savedPageUrl(page.substring("saved:".length()));
+        }
+        if ("5ch".equals(page) || (page != null && page.startsWith("bbs-category:"))
+                || (page != null && page.startsWith("5ch-category:"))) {
+            return INTERNAL_URL_PREFIX + "newtab/" + encodeNewTabToken(page);
+        }
+        return null;
+    }
+
+    private String internalPageTitle(String url) {
+        if (url == null) {
+            return text("\u30bf\u30d6", "Tab");
+        }
+        if (url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
+            return savedListTitle(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+        }
+        if (url.equals(historyPageUrl())) {
+            return text("\u5c65\u6b74", "History");
+        }
+        if (url.startsWith(INTERNAL_URL_PREFIX + "newtab/")) {
+            return pendingNewTabPageTitle(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length())));
+        }
+        return text("\u30bf\u30d6", "Tab");
+    }
+
+    private void loadInternalPage(CuspTab tab, String url) {
+        if (tab == null || url == null) {
+            return;
+        }
+        tab.readerMode = true;
+        tab.url = url;
+        tab.title = internalPageTitle(url);
+        tab.threadPage = null;
+        tab.searchPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        if (url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
+            tab.nativeKind = NATIVE_SAVED;
+            tab.readerView = buildSavedItemsView(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+        } else if (url.equals(historyPageUrl())) {
+            tab.nativeKind = NATIVE_HISTORY;
+            tab.readerView = buildHistoryView();
+        } else if (url.startsWith(INTERNAL_URL_PREFIX + "newtab/")) {
+            tab.nativeKind = NATIVE_SEARCH_HOME;
+            tab.readerView = buildInternalNewTabPage(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length())));
+        } else {
+            tab.nativeKind = NATIVE_SEARCH_HOME;
+            tab.readerView = buildSearchHomeView(true);
+        }
+        if (tab == currentTab() && !tabOverviewVisible) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(tab.readerView);
+        }
+        renderTabs();
+    }
+
     private void recordNavigation(CuspTab tab, String url) {
         if (url == null || url.isEmpty()) {
             return;
@@ -2569,9 +2677,25 @@ public class MainActivity extends Activity {
 
     private void openPendingNewTabUrl(String url) {
         boolean privateBrowsing = pendingPrivateNewTab;
+        String returnUrl = newTabReturnPageUrl();
         pendingNewTab = false;
         pendingPrivateNewTab = false;
-        createTab(url, true, -1, true, privateBrowsing);
+        if (returnUrl == null) {
+            createTab(url, true, -1, true, privateBrowsing);
+            return;
+        }
+        CuspTab tab = new CuspTab();
+        tab.title = text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        tab.url = "";
+        tab.privateBrowsing = privateBrowsing;
+        tab.backToNewTab = false;
+        tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        tab.navigationHistory.add(returnUrl);
+        tab.navigationIndex = 0;
+        tabs.add(tab);
+        switchToTab(tabs.size() - 1);
+        openInCurrentTab(normalizeUrl(url));
+        renderTabs();
     }
 
     private void loadThread(CuspTab tab, String url) {
@@ -5643,7 +5767,8 @@ public class MainActivity extends Activity {
             row.addView(privateIcon, privateIconParams);
         }
 
-        ImageButton close = iconButton(R.drawable.ic_close, text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab"), v -> closeTabFromOverview(index));
+        ImageButton close = iconButton(R.drawable.ic_close, text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab"),
+                v -> closeTabFromOverview(tabs.indexOf(tab), shell));
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
         closeParams.setMargins(dp(8), 0, 0, 0);
         row.addView(close, closeParams);
@@ -5654,11 +5779,11 @@ public class MainActivity extends Activity {
         shell.setLayoutParams(rowParams);
         shell.addView(row, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
-        attachTabOverviewSwipe(row, deleteLeft, deleteRight, tab, index);
+        attachTabOverviewSwipe(row, deleteLeft, deleteRight, tab, index, shell);
         return shell;
     }
 
-    private void attachTabOverviewSwipe(View row, View deleteLeft, View deleteRight, CuspTab tab, int index) {
+    private void attachTabOverviewSwipe(View row, View deleteLeft, View deleteRight, CuspTab tab, int index, View shell) {
         final float[] downX = new float[1];
         final float[] downY = new float[1];
         final boolean[] dragging = new boolean[1];
@@ -5693,7 +5818,7 @@ public class MainActivity extends Activity {
                     deleteRight.animate().alpha(0f).setDuration(130).start();
                     if (event.getAction() == MotionEvent.ACTION_UP && Math.abs(tx) >= dp(54)) {
                         int closeIndex = tabs.indexOf(tab);
-                        closeTabFromOverview(closeIndex);
+                        closeTabFromOverview(closeIndex, shell);
                     }
                     return true;
                 }
@@ -5736,6 +5861,10 @@ public class MainActivity extends Activity {
     }
 
     private void closeTabFromOverview(int index) {
+        closeTabFromOverview(index, null);
+    }
+
+    private void closeTabFromOverview(int index, View rowView) {
         ClosedTab closed = removeTabForOverview(index);
         if (closed == null) {
             return;
@@ -5743,10 +5872,42 @@ public class MainActivity extends Activity {
         showClosedTabUndo(closed);
         tabOverviewVisible = true;
         pendingNewTab = tabs.isEmpty();
-        contentFrame.removeAllViews();
-        contentFrame.addView(buildTabOverviewView());
         updateBottomThreadBar(currentTab());
         renderTabs();
+        if (rowView == null || rowView.getParent() == null) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
+            return;
+        }
+        animateTabOverviewRowRemoval(rowView);
+    }
+
+    private void animateTabOverviewRowRemoval(View rowView) {
+        int startHeight = rowView.getHeight() > 0 ? rowView.getHeight() : dp(86);
+        rowView.animate()
+                .translationX(rowView.getTranslationX() < 0 ? -rowView.getWidth() : rowView.getWidth())
+                .alpha(0f)
+                .setDuration(120)
+                .start();
+        ValueAnimator heightAnimator = ValueAnimator.ofInt(startHeight, 0);
+        heightAnimator.setDuration(180);
+        heightAnimator.addUpdateListener(animation -> {
+            ViewGroup.LayoutParams params = rowView.getLayoutParams();
+            if (params != null) {
+                params.height = (Integer) animation.getAnimatedValue();
+                rowView.setLayoutParams(params);
+            }
+        });
+        heightAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (contentFrame != null && tabOverviewVisible) {
+                    contentFrame.removeAllViews();
+                    contentFrame.addView(buildTabOverviewView());
+                }
+            }
+        });
+        heightAnimator.start();
     }
 
     private void resetNewTabHistory() {
@@ -5936,12 +6097,26 @@ public class MainActivity extends Activity {
         if (pendingNewTab) {
             contentFrame.removeAllViews();
             contentFrame.addView(view);
+            renderTabs();
         } else {
             CuspTab tab = currentTab();
             if (tab != null) {
+                String url = savedPageUrl(key);
+                if (recordHistory) {
+                    recordNavigation(tab, url);
+                }
+                tab.readerMode = true;
+                tab.nativeKind = NATIVE_SAVED;
+                tab.url = url;
+                tab.title = savedListTitle(key);
+                tab.threadPage = null;
+                tab.searchPage = null;
+                tab.threadScroll = null;
+                tab.postViews = null;
                 tab.readerView = view;
                 contentFrame.removeAllViews();
                 contentFrame.addView(view);
+                renderTabs();
             }
         }
     }
@@ -10304,6 +10479,10 @@ public class MainActivity extends Activity {
 
     private boolean routeLink(String rawUrl, CuspTab sourceTab) {
         String url = normalizeUrl(rawUrl);
+        if (pendingNewTab) {
+            openPendingNewTabUrl(url);
+            return true;
+        }
         if (isThreadUrl(url)) {
             if (open5chLinksInNewTab()) {
                 CuspTab source = sourceTab == null ? currentTab() : sourceTab;
@@ -13756,7 +13935,7 @@ public class MainActivity extends Activity {
             this.hasReplies = item.hasReplies;
             this.indent = indent;
             float density = context.getResources().getDisplayMetrics().density;
-            this.cardBottomGap = Math.round(density * 8f);
+            this.cardBottomGap = Math.round(density * POST_OUTER_GAP_DP);
             this.connectorOffset = density * 3f;
             int nightMode = context.getResources().getConfiguration().uiMode
                     & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
@@ -13804,7 +13983,7 @@ public class MainActivity extends Activity {
             if (hasReplies) {
                 float childTrunkX = connectorX(depth + 1);
                 float cardBottomY = Math.max(branchY, getHeight() - cardBottomGap);
-                float startY = Math.max(branchY, cardBottomY - paint.getStrokeWidth() * 0.55f);
+                float startY = Math.max(branchY, Math.min(getHeight(), cardBottomY + paint.getStrokeWidth() * 0.5f));
                 canvas.drawLine(childTrunkX, startY, childTrunkX, getHeight(), paint);
             }
         }
