@@ -38,7 +38,7 @@ public class SettingsActivity extends Activity {
     private CheckBox blurVideoThumbnails;
     private CheckBox blurGifThumbnails;
     private CheckBox autoplayGifs;
-    private EditText imgurClientId;
+    private EditText imgbbApiKey;
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
     private CheckBox treeView;
@@ -275,22 +275,22 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoplayGifs);
         root.addView(autoplayGifs);
 
-        imgurClientId = new EditText(this);
-        imgurClientId.setSingleLine(true);
-        imgurClientId.setTextSize(14);
-        imgurClientId.setTextColor(textColor());
-        imgurClientId.setHintTextColor(hintColor());
-        imgurClientId.setHint("Imgur Client ID");
-        imgurClientId.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        imgurClientId.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-        imgurClientId.setBackground(roundedField());
-        imgurClientId.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(helperText(MainActivity.text("Imgur\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3059\u308b\u5834\u5408\u306b\u5fc5\u8981", "Required for uploading to Imgur.")));
-        root.addView(imgurClientId, fieldParams());
+        imgbbApiKey = new EditText(this);
+        imgbbApiKey.setSingleLine(true);
+        imgbbApiKey.setTextSize(14);
+        imgbbApiKey.setTextColor(textColor());
+        imgbbApiKey.setHintTextColor(hintColor());
+        imgbbApiKey.setHint("ImgBB API key");
+        imgbbApiKey.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        imgbbApiKey.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        imgbbApiKey.setBackground(roundedField());
+        imgbbApiKey.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(helperText(MainActivity.text("ImgBB\u306b\u753b\u50cf\u3092\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3059\u308b\u5834\u5408\u306b\u5fc5\u8981", "Required for uploading images to ImgBB.")));
+        root.addView(imgbbApiKey, fieldParams());
         root.addView(managementRow(R.drawable.ic_search,
-                MainActivity.text("Imgur Client ID\u306e\u53d6\u5f97\u65b9\u6cd5", "How to get an Imgur Client ID"),
-                MainActivity.text("\u533f\u540d\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u7528\u306eClient ID\u3092\u53d6\u5f97\u3059\u308b\u624b\u9806", "Steps for getting a Client ID for anonymous uploads"),
-                v -> showImgurClientIdHelp()));
+                MainActivity.text("ImgBB API key\u306e\u53d6\u5f97\u65b9\u6cd5", "How to get an ImgBB API key"),
+                MainActivity.text("\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u7528\u306eAPI key\u3092\u53d6\u5f97\u3059\u308b\u624b\u9806", "Steps for getting an API key for image uploads"),
+                v -> showImgbbApiKeyHelp()));
 
         root.addView(managementRow(R.drawable.ic_close,
                 MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
@@ -328,7 +328,7 @@ public class SettingsActivity extends Activity {
         blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
         blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
         autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false));
-        imgurClientId.setText(preferences.getString(MainActivity.PREF_IMGUR_CLIENT_ID, ""));
+        imgbbApiKey.setText(preferences.getString(MainActivity.PREF_IMGBB_API_KEY, ""));
         updateMediaDependentSettings();
         if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
             addressBarTop.setChecked(true);
@@ -376,11 +376,11 @@ public class SettingsActivity extends Activity {
         blurVideoThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         blurGifThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoplayGifs.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
-        imgurClientId.setOnEditorActionListener((v, actionId, event) -> {
+        imgbbApiKey.setOnEditorActionListener((v, actionId, event) -> {
             saveSettings(false);
             return false;
         });
-        imgurClientId.setOnFocusChangeListener((v, hasFocus) -> {
+        imgbbApiKey.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) {
                 saveSettings(false);
             }
@@ -468,7 +468,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS,
                         blurImgurImages.isChecked() && blurGifThumbnails.isChecked())
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, autoplayGifs.isChecked())
-                .putString(MainActivity.PREF_IMGUR_CLIENT_ID, imgurClientId.getText().toString().trim())
+                .putString(MainActivity.PREF_IMGBB_API_KEY, imgbbApiKey.getText().toString().trim())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
@@ -505,28 +505,22 @@ public class SettingsActivity extends Activity {
         dialog.show();
     }
 
-    private void showImgurClientIdHelp() {
+    private void showImgbbApiKeyHelp() {
         String message = MainActivity.text(
-                "1. Imgur\u306b\u30ed\u30b0\u30a4\u30f3\u3057\u307e\u3059\u3002\n"
-                        + "2. Imgur API\u306e\u30a2\u30d7\u30ea\u767b\u9332\u30da\u30fc\u30b8\u3092\u958b\u304d\u307e\u3059\u3002\n"
-                        + "3. \u30a2\u30d7\u30ea\u540d\u306f CuspiDroid \u306a\u3069\u4efb\u610f\u306e\u540d\u524d\u306b\u3057\u307e\u3059\u3002\n"
-                        + "4. Authorization type \u306f Anonymous usage without user authorization \u3092\u9078\u3073\u307e\u3059\u3002\n"
-                        + "5. \u5fc5\u8981\u9805\u76ee\u3092\u5165\u529b\u3057\u3066\u767b\u9332\u3057\u3001\u8868\u793a\u3055\u308c\u305f Client ID \u3092\u3053\u3053\u306b\u5165\u529b\u3057\u307e\u3059\u3002\n\n"
-                        + "\u767b\u9332\u30da\u30fc\u30b8\u304c\u958b\u3051\u306a\u3044\u5834\u5408\u306f\u3001Imgur\u5074\u3067API\u767b\u9332\u304c\u4e00\u6642\u7684\u306b\u5229\u7528\u3067\u304d\u306a\u3044\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002",
-                "1. Sign in to Imgur.\n"
-                        + "2. Open the Imgur API application registration page.\n"
-                        + "3. Use any application name, such as CuspiDroid.\n"
-                        + "4. Choose Anonymous usage without user authorization as the authorization type.\n"
-                        + "5. Fill in the required fields, register the app, and enter the displayed Client ID here.\n\n"
-                        + "If the registration page does not open, Imgur API registration may be temporarily unavailable on Imgur's side.");
+                "1. ImgBB\u306b\u30ed\u30b0\u30a4\u30f3\u3057\u307e\u3059\u3002\n"
+                        + "2. https://api.imgbb.com/ \u3092\u958b\u304d\u307e\u3059\u3002\n"
+                        + "3. \u8868\u793a\u3055\u308c\u305f API key \u3092\u30b3\u30d4\u30fc\u3057\u3001\u3053\u3053\u306b\u5165\u529b\u3057\u307e\u3059\u3002",
+                "1. Sign in to ImgBB.\n"
+                        + "2. Open https://api.imgbb.com/.\n"
+                        + "3. Copy the displayed API key and enter it here.");
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("Imgur Client ID\u306e\u53d6\u5f97\u65b9\u6cd5", "How to get an Imgur Client ID"))
+                .setTitle(MainActivity.text("ImgBB API key\u306e\u53d6\u5f97\u65b9\u6cd5", "How to get an ImgBB API key"))
                 .setMessage(message)
                 .setNegativeButton(MainActivity.text("\u9589\u3058\u308b", "Close"), null)
-                .setPositiveButton(MainActivity.text("\u767b\u9332\u30da\u30fc\u30b8\u3092\u958b\u304f", "Open registration page"),
-                        (d, which) -> openUrl("https://api.imgur.com/oauth2/addclient"))
+                .setPositiveButton(MainActivity.text("ImgBB API\u3092\u958b\u304f", "Open ImgBB API"),
+                        (d, which) -> openUrl("https://api.imgbb.com/"))
                 .setNeutralButton(MainActivity.text("API\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8", "API docs"),
-                        (d, which) -> openUrl("https://apidocs.imgur.com/"))
+                        (d, which) -> openUrl("https://api.imgbb.com/"))
                 .create();
         dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
         dialog.show();
@@ -545,7 +539,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false)
-                .putString(MainActivity.PREF_IMGUR_CLIENT_ID, "")
+                .putString(MainActivity.PREF_IMGBB_API_KEY, "")
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)

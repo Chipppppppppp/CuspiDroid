@@ -37,6 +37,9 @@
             android:name=".HistoryActivity"
             android:exported="false" />
         <activity
+            android:name=".UploadHistoryActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:exported="true"
