@@ -242,6 +242,7 @@ public class MainActivity extends Activity {
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
     private EditText pendingImgbbUploadMessage;
+    private int pendingImgbbExpirationSeconds;
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
     private ScrollView visibleThreadScroll;
@@ -3334,7 +3335,7 @@ public class MainActivity extends Activity {
         view.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         view.setIncludeFontPadding(false);
         view.setPadding(0, 0, 0, 0);
-        view.setOnClickListener(v -> showPostsPopup(view, page, Collections.singletonList(post), false));
+        view.setOnClickListener(v -> showPostsPopup(view, page, Collections.singletonList(post), false, true));
         view.setOnLongClickListener(v -> {
             if (!isPostSwipeBlocked(post)) {
                 showPostActionMenu(card, tab, post);
@@ -8626,9 +8627,15 @@ public class MainActivity extends Activity {
     }
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
+        showPostsPopup(anchor, page, targets, jumpEachPost, false);
+    }
+
+    private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
+                                boolean placeNearAnchor) {
         FrameLayout popupRoot = new FrameLayout(this);
         int popupRootGap = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
         int popupFrameInset = jumpEachPost ? dp(POST_OUTER_GAP_DP) : 0;
+        int popupCardInset = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
         popupRoot.setPadding(popupRootGap, popupRootGap, popupRootGap, popupRootGap);
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setFocusable(true);
@@ -8640,6 +8647,9 @@ public class MainActivity extends Activity {
         if (jumpEachPost) {
             popupScroll.setPadding(0, 0, 0, 0);
             popupScroll.setBackground(roundedFill(menuColor(), dp(12)));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                popupScroll.setClipToOutline(true);
+            }
             popupRoot.addView(popupPostShadowLayer(Color.argb(28, 15, 23, 42)), popupPostShadowParams(0));
             popupRoot.addView(popupPostShadowLayer(Color.argb(22, 15, 23, 42)), popupPostShadowParams(dp(2)));
             popupRoot.addView(popupPostShadowLayer(Color.argb(18, 15, 23, 42)), popupPostShadowParams(dp(4)));
@@ -8656,8 +8666,10 @@ public class MainActivity extends Activity {
         }
         popupRoot.addView(popupScroll, scrollParams);
 
-        for (Post post : targets) {
-            popupPosts.addView(popupPostCard(page, post, !jumpEachPost), popupPostParams(jumpEachPost));
+        for (int i = 0; i < targets.size(); i++) {
+            Post post = targets.get(i);
+            popupPosts.addView(popupPostCard(page, post, !jumpEachPost),
+                    popupPostParams(jumpEachPost, i == targets.size() - 1));
         }
 
         int[] anchorLocation = new int[2];
@@ -8672,9 +8684,9 @@ public class MainActivity extends Activity {
         int postCardWidth = sourcePostCard != null && sourcePostCard.getWidth() > edgeGap * 2
                 ? sourcePostCard.getWidth()
                 : Math.min(screenWidth - edgeGap * 2, dp(420));
-        int width = postCardWidth + popupFrameInset * 2;
+        int width = postCardWidth + popupFrameInset * 2 + popupRootGap * 2 + popupCardInset * 2;
         int x = sourcePostCard != null
-                ? sourceLocation[0] - popupFrameInset
+                ? sourceLocation[0] - popupFrameInset - popupRootGap - popupCardInset
                 : Math.max(edgeGap, Math.min(anchorLocation[0] - edgeGap, screenWidth - width - edgeGap));
         x = Math.max(0, Math.min(x, screenWidth - width));
         int popupOverlap = jumpEachPost ? dp(36) : dp(12);
@@ -8683,7 +8695,7 @@ public class MainActivity extends Activity {
         int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - minPopupY, availableAbove);
         int measuredContentWidth = jumpEachPost
                 ? postCardWidth
-                : width - dp(POST_OUTER_GAP_DP * 2);
+                : postCardWidth + popupCardInset * 2;
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(Math.max(dp(120), measuredContentWidth), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -8695,7 +8707,9 @@ public class MainActivity extends Activity {
         popupScroll.setOverScrollMode(popupScrollable ? View.OVER_SCROLL_IF_CONTENT_SCROLLS : View.OVER_SCROLL_NEVER);
         popupScroll.setOnTouchListener((v, event) -> !popupScrollable
                 && event.getActionMasked() == MotionEvent.ACTION_MOVE);
-        int y = Math.max(minPopupY, anchorLocation[1] - popupHeight + popupOverlap);
+        int y = placeNearAnchor
+                ? Math.max(minPopupY, anchorLocation[1] - popupHeight + dp(2))
+                : Math.max(minPopupY, anchorLocation[1] - popupHeight + popupOverlap);
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(false);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
@@ -8807,10 +8821,10 @@ public class MainActivity extends Activity {
         return params;
     }
 
-    private LinearLayout.LayoutParams popupPostParams(boolean compact) {
+    private LinearLayout.LayoutParams popupPostParams(boolean compact, boolean last) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 0, 0, dp(POST_OUTER_GAP_DP));
+        params.setMargins(0, 0, 0, last ? 0 : dp(POST_OUTER_GAP_DP));
         return params;
     }
 
@@ -9718,10 +9732,34 @@ public class MainActivity extends Activity {
     private void chooseImgbbUploadImage(EditText message) {
         pendingImgbbUploadMessage = message;
         if (imgbbApiKey().isEmpty()) {
-            showImgbbApiKeyDialog(() -> openImgbbImagePicker(message));
+            showImgbbApiKeyDialog(() -> showImgbbExpirationDialog(() -> openImgbbImagePicker(message)));
             return;
         }
-        openImgbbImagePicker(message);
+        showImgbbExpirationDialog(() -> openImgbbImagePicker(message));
+    }
+
+    private void showImgbbExpirationDialog(Runnable afterSelect) {
+        String[] labels = {
+                text("\u671f\u9650\u306a\u3057", "No expiration"),
+                text("5\u5206", "5 minutes"),
+                text("1\u6642\u9593", "1 hour"),
+                text("1\u65e5", "1 day"),
+                text("1\u9031\u9593", "1 week"),
+                text("1\u304b\u6708", "1 month")
+        };
+        int[] seconds = {0, 300, 3600, 86400, 604800, 2592000};
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306e\u4fdd\u6301\u671f\u9650", "Upload expiration"))
+                .setItems(labels, (choiceDialog, which) -> {
+                    pendingImgbbExpirationSeconds = seconds[Math.max(0, Math.min(which, seconds.length - 1))];
+                    if (afterSelect != null) {
+                        afterSelect.run();
+                    }
+                })
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
     }
 
     private void openImgbbImagePicker(EditText message) {
@@ -9827,7 +9865,7 @@ public class MainActivity extends Activity {
             for (Uri uri : uris) {
                 ImgbbUploadResult result;
                 try {
-                    result = uploadImageToImgbb(uri, apiKey);
+                    result = uploadImageToImgbb(uri, apiKey, pendingImgbbExpirationSeconds);
                     saveImgbbUpload(result);
                 } catch (Exception exception) {
                     String error = exception.getMessage() == null
@@ -9845,14 +9883,18 @@ public class MainActivity extends Activity {
         });
     }
 
-    private ImgbbUploadResult uploadImageToImgbb(Uri uri, String apiKey) throws Exception {
+    private ImgbbUploadResult uploadImageToImgbb(Uri uri, String apiKey, int expirationSeconds) throws Exception {
         String mime = getContentResolver().getType(uri);
         if (mime == null || !mime.startsWith("image/")) {
             throw new IllegalStateException(text("\u753b\u50cf\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", "Choose an image."));
         }
         String name = displayNameForUri(uri);
-        HttpURLConnection connection = (HttpURLConnection) new URL("https://api.imgbb.com/1/upload?key="
-                + URLEncoder.encode(apiKey, POST_CHARSET.name())).openConnection();
+        String endpoint = "https://api.imgbb.com/1/upload?key="
+                + URLEncoder.encode(apiKey, POST_CHARSET.name());
+        if (expirationSeconds >= 60 && expirationSeconds <= 15552000) {
+            endpoint += "&expiration=" + expirationSeconds;
+        }
+        HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
         String boundary = "----CuspiDroidImgBB" + System.currentTimeMillis();
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(60000);
@@ -9881,6 +9923,7 @@ public class MainActivity extends Activity {
             throw new IllegalStateException(text("ImgBB URL\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093", "Could not read ImgBB URL."));
         }
         return new ImgbbUploadResult(name, mime, link, data.optString("delete_url", ""),
+                expirationSeconds >= 60 && expirationSeconds <= 15552000 ? expirationSeconds : 0,
                 System.currentTimeMillis());
     }
 
@@ -9957,6 +10000,7 @@ public class MainActivity extends Activity {
             item.put("mime", result.mime);
             item.put("url", result.link);
             item.put("delete_url", result.deleteUrl);
+            item.put("expiration", result.expirationSeconds);
             item.put("time", result.time);
             next.put(item);
             for (int i = 0; i < array.length() && i < 199; i++) {
@@ -14126,13 +14170,15 @@ public class MainActivity extends Activity {
         final String mime;
         final String link;
         final String deleteUrl;
+        final int expirationSeconds;
         final long time;
 
-        ImgbbUploadResult(String name, String mime, String link, String deleteUrl, long time) {
+        ImgbbUploadResult(String name, String mime, String link, String deleteUrl, int expirationSeconds, long time) {
             this.name = name;
             this.mime = mime;
             this.link = link;
             this.deleteUrl = deleteUrl;
+            this.expirationSeconds = expirationSeconds;
             this.time = time;
         }
     }

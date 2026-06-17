@@ -9,8 +9,9 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -27,13 +28,11 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.text.DateFormat;
 import java.util.Date;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -171,7 +170,8 @@ public class UploadHistoryActivity extends Activity {
         name.setSingleLine(false);
         content.addView(name);
 
-        TextView meta = helperText(formatUploadTime(item.optLong("time", 0)));
+        TextView meta = helperText(formatUploadTime(item.optLong("time", 0))
+                + expirationLabel(item.optInt("expiration", 0)));
         content.addView(meta);
 
         TextView url = helperText(item.optString("url", ""));
@@ -186,15 +186,15 @@ public class UploadHistoryActivity extends Activity {
         actionParams.setMargins(0, dp(6), 0, 0);
         content.addView(actions, actionParams);
 
-        TextView copy = actionButton(MainActivity.text("URLコピー", "Copy URL"), Theme.accent(this));
+        TextView copy = actionButton(MainActivity.text("URLコピー", "Copy URL"), R.drawable.ic_copy, Theme.accent(this));
         copy.setOnClickListener(v -> copyUrl(item.optString("url", "")));
         actions.addView(copy, buttonParams());
 
-        TextView remoteDelete = actionButton(MainActivity.text("ImgBBから削除", "Delete from ImgBB"), Color.rgb(190, 50, 50));
+        TextView remoteDelete = actionButton(MainActivity.text("ImgBBから削除", "Delete from ImgBB"), R.drawable.ic_delete, Color.rgb(190, 50, 50));
         remoteDelete.setOnClickListener(v -> confirmRemoteDelete(item));
         actions.addView(remoteDelete, buttonParams());
 
-        TextView historyDelete = actionButton(MainActivity.text("履歴から削除", "Delete history"), mutedColor());
+        TextView historyDelete = actionButton(MainActivity.text("履歴から削除", "Delete history"), R.drawable.ic_close, mutedColor());
         historyDelete.setOnClickListener(v -> confirmHistoryDelete(index));
         actions.addView(historyDelete, buttonParams());
 
@@ -298,48 +298,25 @@ public class UploadHistoryActivity extends Activity {
     }
 
     private void deleteFromImgbb(String deleteUrl) throws Exception {
-        Uri uri = Uri.parse(deleteUrl);
-        List<String> segments = uri.getPathSegments();
-        if (segments.size() < 2) {
-            throw new IllegalArgumentException(MainActivity.text("削除URLを解析できません。", "Could not parse delete URL."));
-        }
-        String imageId = segments.get(0);
-        String imageHash = segments.get(1);
-        String pathname = "/" + imageId + "/" + imageHash;
-        String boundary = "----CuspiDroidImgBBDelete" + System.currentTimeMillis();
-
-        HttpURLConnection connection = (HttpURLConnection) new URL("https://ibb.co/json").openConnection();
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
+        HttpURLConnection connection = (HttpURLConnection) new URL(deleteUrl).openConnection();
+        connection.setRequestMethod("GET");
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(30000);
-        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-        connection.setRequestProperty("Accept", "application/json, text/plain, */*");
-
-        try (OutputStream output = connection.getOutputStream()) {
-            writeMultipartField(output, boundary, "pathname", pathname);
-            writeMultipartField(output, boundary, "action", "delete");
-            writeMultipartField(output, boundary, "delete", "image");
-            writeMultipartField(output, boundary, "from", "resource");
-            writeMultipartField(output, boundary, "deleting[id]", imageId);
-            writeMultipartField(output, boundary, "deleting[hash]", imageHash);
-            output.write(("--" + boundary + "--\r\n").getBytes(UTF8));
-        }
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
+        connection.setRequestProperty("Referer", "https://ibb.co/");
+        connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 
         int code = connection.getResponseCode();
         InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        String response = stream == null ? "" : new String(readLimited(stream, 512 * 1024), UTF8);
+        if (stream != null) {
+            readLimited(stream, 512 * 1024);
+            stream.close();
+        }
         connection.disconnect();
-        if (code >= 400 || response.contains("\"error\"")) {
+        if (code >= 400) {
             throw new IllegalStateException("HTTP " + code);
         }
-    }
-
-    private void writeMultipartField(OutputStream output, String boundary, String name, String value) throws Exception {
-        output.write(("--" + boundary + "\r\n").getBytes(UTF8));
-        output.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(UTF8));
-        output.write((value == null ? "" : value).getBytes(UTF8));
-        output.write("\r\n".getBytes(UTF8));
     }
 
     private JSONArray readUploads() {
@@ -375,6 +352,19 @@ public class UploadHistoryActivity extends Activity {
         return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(time));
     }
 
+    private String expirationLabel(int seconds) {
+        if (seconds <= 0) {
+            return MainActivity.text(" / 期限なし", " / no expiration");
+        }
+        if (seconds < 3600) {
+            return MainActivity.text(" / 期限: " + (seconds / 60) + "分", " / expires: " + (seconds / 60) + " min");
+        }
+        if (seconds < 86400) {
+            return MainActivity.text(" / 期限: " + (seconds / 3600) + "時間", " / expires: " + (seconds / 3600) + " h");
+        }
+        return MainActivity.text(" / 期限: " + (seconds / 86400) + "日", " / expires: " + (seconds / 86400) + " d");
+    }
+
     private TextView helperText(String value) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -384,13 +374,20 @@ public class UploadHistoryActivity extends Activity {
         return view;
     }
 
-    private TextView actionButton(String label, int color) {
+    private TextView actionButton(String label, int iconRes, int color) {
         TextView view = new TextView(this);
         view.setText(label);
         view.setTextColor(color);
         view.setTextSize(12);
         view.setGravity(Gravity.CENTER);
         view.setPadding(dp(7), dp(6), dp(7), dp(6));
+        view.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
+        view.setCompoundDrawablePadding(dp(4));
+        for (Drawable drawable : view.getCompoundDrawables()) {
+            if (drawable != null) {
+                drawable.setColorFilter(color, PorterDuff.Mode.SRC_IN);
+            }
+        }
         view.setBackground(actionButtonBackground(color));
         return view;
     }
