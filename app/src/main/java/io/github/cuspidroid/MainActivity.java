@@ -201,7 +201,7 @@ public class MainActivity extends Activity {
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
-    private static final float AA_SYMBOL_CHAR_RATIO_THRESHOLD = 0.35f;
+    private static final float AA_SPECIAL_CHAR_RATIO_THRESHOLD = 0.35f;
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -6289,37 +6289,43 @@ public class MainActivity extends Activity {
         String[] lines = value.split("\\n", -1);
         int leadingMarkerLines = 0;
         int targetChars = 0;
-        int symbolChars = 0;
+        int specialChars = 0;
         for (String line : lines) {
             if (line.isEmpty()) {
                 continue;
             }
             int first = line.codePointAt(0);
-            if (!isAaLeadingMarker(first)) {
+            if (!isAaSpecialChar(first)) {
                 continue;
             }
             leadingMarkerLines++;
             for (int i = 0; i < line.length(); ) {
                 int codePoint = line.codePointAt(i);
                 targetChars++;
-                if (isAaLeadingMarker(codePoint)) {
-                    symbolChars++;
+                if (isAaSpecialChar(codePoint)) {
+                    specialChars++;
                 }
                 i += Character.charCount(codePoint);
             }
         }
         if (targetChars <= 0) {
-            return new AaDebugMetrics(false, "no-symbol-leading-lines", leadingMarkerLines,
-                    targetChars, symbolChars, 0f);
+            return new AaDebugMetrics(false, "no-special-leading-lines", leadingMarkerLines,
+                    targetChars, specialChars, 0f);
         }
-        float ratio = symbolChars / (float) targetChars;
-        boolean aa = ratio > AA_SYMBOL_CHAR_RATIO_THRESHOLD;
-        return new AaDebugMetrics(aa, aa ? "symbol-char-ratio" : "below",
-                leadingMarkerLines, targetChars, symbolChars, ratio);
+        float ratio = specialChars / (float) targetChars;
+        boolean aa = ratio > AA_SPECIAL_CHAR_RATIO_THRESHOLD;
+        return new AaDebugMetrics(aa, aa ? "special-char-ratio" : "below",
+                leadingMarkerLines, targetChars, specialChars, ratio);
     }
 
-    private static boolean isAaLeadingMarker(int codePoint) {
+    private static boolean isAaSpecialChar(int codePoint) {
+        if (Character.isWhitespace(codePoint)) {
+            return true;
+        }
         switch (Character.getType(codePoint)) {
+            case Character.SPACE_SEPARATOR:
+            case Character.LINE_SEPARATOR:
+            case Character.PARAGRAPH_SEPARATOR:
             case Character.CONNECTOR_PUNCTUATION:
             case Character.DASH_PUNCTUATION:
             case Character.START_PUNCTUATION:
@@ -12717,25 +12723,25 @@ public class MainActivity extends Activity {
         final String reason;
         final int leadingMarkerLines;
         final int targetChars;
-        final int symbolChars;
+        final int specialChars;
         final float ratio;
 
         AaDebugMetrics(boolean aa, String reason, int leadingMarkerLines,
-                       int targetChars, int symbolChars, float ratio) {
+                       int targetChars, int specialChars, float ratio) {
             this.aa = aa;
             this.reason = reason;
             this.leadingMarkerLines = leadingMarkerLines;
             this.targetChars = targetChars;
-            this.symbolChars = symbolChars;
+            this.specialChars = specialChars;
             this.ratio = ratio;
         }
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) symbol-leading-lines=%d symbol-chars=%d target-chars=%d %.1f%% | threshold: symbol-chars>%.0f%%",
+                    "AA debug: %s (%s) special-leading-lines=%d special-chars=%d target-chars=%d %.1f%% | threshold: special-chars>%.0f%%",
                     aa ? "YES" : "NO", reason, leadingMarkerLines,
-                    symbolChars, targetChars, ratio * 100f,
-                    AA_SYMBOL_CHAR_RATIO_THRESHOLD * 100f);
+                    specialChars, targetChars, ratio * 100f,
+                    AA_SPECIAL_CHAR_RATIO_THRESHOLD * 100f);
         }
     }
 
