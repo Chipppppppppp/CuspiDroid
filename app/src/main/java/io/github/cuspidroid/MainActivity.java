@@ -2513,10 +2513,7 @@ public class MainActivity extends Activity {
         boolean urlLike = looksLikeUrl(input);
         String url = urlLike ? normalizeUrl(input) : searchUrl(input);
         if (pendingNewTab) {
-            boolean privateBrowsing = pendingPrivateNewTab;
-            pendingNewTab = false;
-            pendingPrivateNewTab = false;
-            createTab(url, true, -1, true, privateBrowsing);
+            openPendingNewTabUrl(url);
             return;
         }
         openInCurrentTab(url);
@@ -2599,14 +2596,7 @@ public class MainActivity extends Activity {
             return null;
         }
         String page = newTabNavigationHistory.get(newTabNavigationIndex);
-        if ("history".equals(page)) {
-            return historyPageUrl();
-        }
-        if (page != null && page.startsWith("saved:")) {
-            return savedPageUrl(page.substring("saved:".length()));
-        }
-        if ("5ch".equals(page) || (page != null && page.startsWith("bbs-category:"))
-                || (page != null && page.startsWith("5ch-category:"))) {
+        if (page != null && !"home".equals(page)) {
             return INTERNAL_URL_PREFIX + "newtab/" + encodeNewTabToken(page);
         }
         return null;
@@ -11223,7 +11213,42 @@ public class MainActivity extends Activity {
             switchToTab(tabIndex);
         }
         String url = tab.navigationHistory.get(tab.navigationIndex);
+        if (restorePendingNewTabFromInternalUrl(tab, url)) {
+            return;
+        }
         openInCurrentTab(url, false);
+    }
+
+    private boolean restorePendingNewTabFromInternalUrl(CuspTab tab, String url) {
+        if (url == null || !url.startsWith(INTERNAL_URL_PREFIX + "newtab/")) {
+            return false;
+        }
+        String page = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length()));
+        int removeIndex = tabs.indexOf(tab);
+        if (removeIndex >= 0) {
+            tabs.remove(removeIndex);
+            if (currentIndex > removeIndex) {
+                currentIndex--;
+            } else if (currentIndex >= tabs.size()) {
+                currentIndex = tabs.size() - 1;
+            }
+        }
+        pendingNewTab = true;
+        pendingPrivateNewTab = isPrivateTab(tab);
+        pendingHistoryAll = "history".equals(page);
+        tabOverviewVisible = false;
+        newTabNavigationHistory.clear();
+        newTabNavigationHistory.add("home");
+        if (page != null && !page.isEmpty() && !"home".equals(page)) {
+            newTabNavigationHistory.add(page);
+            newTabNavigationIndex = 1;
+        } else {
+            newTabNavigationIndex = 0;
+        }
+        contentFrame.removeAllViews();
+        renderNewTabPage(newTabNavigationHistory.get(newTabNavigationIndex), false);
+        requestSaveTabsSoon();
+        return true;
     }
 
     private boolean canGoBackInCurrentTab(CuspTab tab) {
@@ -14018,7 +14043,7 @@ public class MainActivity extends Activity {
             if (hasReplies) {
                 float childTrunkX = connectorX(depth + 1);
                 float cardBottomY = Math.max(branchY, getHeight() - cardBottomGap);
-                float startY = Math.max(branchY, Math.min(getHeight(), cardBottomY + paint.getStrokeWidth() * 0.5f));
+                float startY = Math.max(branchY, Math.min(getHeight(), cardBottomY + paint.getStrokeWidth() * 0.75f));
                 canvas.drawLine(childTrunkX, startY, childTrunkX, getHeight(), paint);
             }
         }
