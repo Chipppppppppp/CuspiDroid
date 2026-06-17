@@ -2966,6 +2966,7 @@ public class MainActivity extends Activity {
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
+        card.setTag(R.id.tag_post_card, true);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(post.number > tab.readPostNumber, isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
@@ -8046,12 +8047,22 @@ public class MainActivity extends Activity {
             popupPosts.addView(popupPostCard(page, post, !jumpEachPost), popupPostParams(jumpEachPost));
         }
 
-        int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(POST_OUTER_GAP_DP * 2), dp(420));
         int[] anchorLocation = new int[2];
         anchor.getLocationOnScreen(anchorLocation);
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        View sourcePostCard = findSourcePostCard(anchor);
+        int[] sourceLocation = new int[2];
+        if (sourcePostCard != null) {
+            sourcePostCard.getLocationOnScreen(sourceLocation);
+        }
         int edgeGap = dp(POST_OUTER_GAP_DP);
-        int x = Math.max(edgeGap, Math.min(anchorLocation[0] - edgeGap, screenWidth - width - edgeGap));
+        int width = sourcePostCard != null && sourcePostCard.getWidth() > edgeGap * 2
+                ? sourcePostCard.getWidth()
+                : Math.min(screenWidth - edgeGap * 2, dp(420));
+        int x = sourcePostCard != null
+                ? sourceLocation[0]
+                : Math.max(edgeGap, Math.min(anchorLocation[0] - edgeGap, screenWidth - width - edgeGap));
+        x = Math.max(edgeGap, Math.min(x, screenWidth - width - edgeGap));
         int popupOverlap = jumpEachPost ? dp(36) : dp(12);
         int minPopupY = jumpEachPost ? 0 : dp(8);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap - minPopupY);
@@ -8107,6 +8118,7 @@ public class MainActivity extends Activity {
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
+        card.setTag(R.id.tag_post_card, true);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber, isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
@@ -8153,6 +8165,18 @@ public class MainActivity extends Activity {
         cardParams.setMargins(cardInset, cardInset, cardInset, cardInset);
         shell.addView(card, cardParams);
         return shell;
+    }
+
+    private View findSourcePostCard(View anchor) {
+        View current = anchor;
+        while (current != null) {
+            if (Boolean.TRUE.equals(current.getTag(R.id.tag_post_card))) {
+                return current;
+            }
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+        return null;
     }
 
     private View popupPostShadowLayer(int color) {
