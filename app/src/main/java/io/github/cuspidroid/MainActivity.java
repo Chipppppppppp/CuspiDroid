@@ -266,12 +266,10 @@ public class MainActivity extends Activity {
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private final List<DeferredMediaPreview> deferredMediaPreviews = new ArrayList<>();
     private final List<DeferredTextDecoration> deferredTextDecorations = new ArrayList<>();
-    private final List<DecorationWarmItem> decorationWarmItems = new ArrayList<>();
     private boolean imgurLoadInFlight;
     private Runnable lazyImgurTask;
     private Runnable deferredMediaTask;
     private Runnable deferredTextTask;
-    private Runnable decorationWarmTask;
     private CuspTab pendingScrollToBottomTab;
     private String appliedThemeMode;
     private String cachedNgRulesKey;
@@ -533,10 +531,6 @@ public class MainActivity extends Activity {
             mainHandler.removeCallbacks(unloadTabsTask);
             unloadTabsTask = null;
         }
-        if (decorationWarmTask != null) {
-            mainHandler.removeCallbacks(decorationWarmTask);
-            decorationWarmTask = null;
-        }
         saveTabs(true);
         super.onPause();
     }
@@ -571,10 +565,6 @@ public class MainActivity extends Activity {
         if (unloadTabsTask != null) {
             mainHandler.removeCallbacks(unloadTabsTask);
             unloadTabsTask = null;
-        }
-        if (decorationWarmTask != null) {
-            mainHandler.removeCallbacks(decorationWarmTask);
-            decorationWarmTask = null;
         }
         saveTabs(true);
         closeImageClassifiers();
@@ -2441,7 +2431,6 @@ public class MainActivity extends Activity {
             tab.threadPage = cached;
             tab.readPostNumber = readPostNumberForTab(tab, cached.url);
             tab.postViews = new LinkedHashMap<>();
-            warmPostDecorationCaches(cached);
             tab.readerView = buildThreadView(cached, tab);
             if (!tabOverviewVisible && (showFullLoading || tab == currentTab())) {
                 switchToTab(tabs.indexOf(tab));
@@ -2488,7 +2477,6 @@ public class MainActivity extends Activity {
                 tab.readerView = buildThreadView(result, tab);
                 tab.hasSavedThreadScroll = keepExistingScroll;
                 if (result.error == null && !result.posts.isEmpty()) {
-                    warmPostDecorationCaches(result);
                     cacheThreadPage(result);
                     addThreadHistory(tab, result.url, result.title);
                 }
@@ -5818,33 +5806,11 @@ public class MainActivity extends Activity {
     }
 
     private SpannableString decoratedPostText(String value, ThreadPage page, String highlight) {
-        SpannableString linkedText = baseDecoratedPostText(value, page);
-        applySearchHighlights(linkedText, highlight);
-        return linkedText;
-    }
-
-    private SpannableString baseDecoratedPostText(String value, ThreadPage page) {
         SpannableString linkedText = new SpannableString(value == null ? "" : value);
+        applySearchHighlights(linkedText, highlight);
         addLooseUrlSpans(linkedText);
         replaceReplySpans(linkedText, page);
         return linkedText;
-    }
-
-    private SpannableString cachedDecoratedPostText(Post post, ThreadPage page, String value, String highlight,
-                                                   boolean aa) {
-        if (post == null || highlight != null && !highlight.trim().isEmpty()) {
-            return decoratedPostText(value, page, highlight);
-        }
-        SpannableString cached = aa ? post.cachedAaDecoratedBody : post.cachedDecoratedBody;
-        if (cached == null) {
-            cached = baseDecoratedPostText(value, page);
-            if (aa) {
-                post.cachedAaDecoratedBody = cached;
-            } else {
-                post.cachedDecoratedBody = cached;
-            }
-        }
-        return cached;
     }
 
     private View postContent(String value, ThreadPage page) {
@@ -5861,19 +5827,9 @@ public class MainActivity extends Activity {
 
     private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction,
                              List<ImgurLink> mediaLinks) {
-        return postContent(null, value, page, highlight, longClickAction, mediaLinks);
-    }
-
-    private View postContent(Post post, ThreadPage page, String highlight, Runnable longClickAction,
-                             List<ImgurLink> mediaLinks) {
-        return postContent(post, post == null ? null : post.body, page, highlight, longClickAction, mediaLinks);
-    }
-
-    private View postContent(Post post, String value, ThreadPage page, String highlight, Runnable longClickAction,
-                             List<ImgurLink> mediaLinks) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        TextView bodyText = postBodyText(post, value, page, highlight);
+        TextView bodyText = postBodyText(value, page, highlight);
         bodyText.setTag(R.id.tag_post_swipe_text, true);
         if (longClickAction != null) {
             bodyText.setOnLongClickListener(v -> {
@@ -5923,19 +5879,13 @@ public class MainActivity extends Activity {
     }
 
     private TextView postBodyText(String value, ThreadPage page, String highlight) {
-        return postBodyText(null, value, page, highlight);
-    }
-
-    private TextView postBodyText(Post post, String value, ThreadPage page, String highlight) {
         TextView text = plainPostText(value);
         boolean immediate = highlight != null && !highlight.trim().isEmpty();
         if (immediate) {
             decoratePostTextNow(text, value, page, highlight);
-        } else if (post != null && post.cachedDecoratedBody != null) {
-            setDecoratedText(text, post.cachedDecoratedBody);
         } else {
             decoratePostUrlsNow(text, value);
-            deferPostTextDecoration(text, post, value, page, highlight);
+            deferPostTextDecoration(text, value, page, highlight);
         }
         return text;
     }
@@ -5957,12 +5907,6 @@ public class MainActivity extends Activity {
         installLinkTouchTracking(text);
     }
 
-    private void setDecoratedText(TextView text, CharSequence value) {
-        text.setText(value);
-        text.setMovementMethod(LinkMovementMethod.getInstance());
-        installLinkTouchTracking(text);
-    }
-
     private void decoratePostUrlsNow(TextView text, String value) {
         SpannableString linkedText = new SpannableString(value == null ? "" : value);
         addLooseUrlSpans(linkedText);
@@ -5972,11 +5916,7 @@ public class MainActivity extends Activity {
     }
 
     private void deferPostTextDecoration(TextView text, String value, ThreadPage page, String highlight) {
-        deferPostTextDecoration(text, null, value, page, highlight);
-    }
-
-    private void deferPostTextDecoration(TextView text, Post post, String value, ThreadPage page, String highlight) {
-        DeferredTextDecoration decoration = new DeferredTextDecoration(text, post, value, page, highlight);
+        DeferredTextDecoration decoration = new DeferredTextDecoration(text, value, page, highlight);
         text.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
@@ -6027,71 +5967,6 @@ public class MainActivity extends Activity {
         return post.cachedImgurLinks;
     }
 
-    private void warmPostDecorationCaches(ThreadPage page) {
-        if (page == null || page.posts == null || page.posts.isEmpty()) {
-            return;
-        }
-        for (Post post : page.posts) {
-            if (post != null && post.cachedDecoratedBody == null) {
-                decorationWarmItems.add(new DecorationWarmItem(page, post));
-            }
-        }
-        scheduleDecorationWarm();
-    }
-
-    private void scheduleDecorationWarm() {
-        if (decorationWarmTask != null || decorationWarmItems.isEmpty()) {
-            return;
-        }
-        decorationWarmTask = () -> {
-            decorationWarmTask = null;
-            runDecorationWarm();
-        };
-        mainHandler.postDelayed(decorationWarmTask, 180);
-    }
-
-    private void runDecorationWarm() {
-        if (decorationWarmItems.isEmpty()) {
-            return;
-        }
-        CuspTab current = currentTab();
-        if (recentlyScrolled(current)) {
-            scheduleDecorationWarm();
-            return;
-        }
-        int warmed = 0;
-        List<DecorationWarmItem> batch = new ArrayList<>();
-        while (!decorationWarmItems.isEmpty() && warmed < 3) {
-            DecorationWarmItem item = decorationWarmItems.remove(0);
-            if (item.post != null && item.post.cachedDecoratedBody == null) {
-                batch.add(item);
-                warmed++;
-            }
-        }
-        if (batch.isEmpty()) {
-            if (!decorationWarmItems.isEmpty()) {
-                scheduleDecorationWarm();
-            }
-            return;
-        }
-        ioExecutor.execute(() -> {
-            List<DecorationWarmResult> results = new ArrayList<>();
-            for (DecorationWarmItem item : batch) {
-                results.add(new DecorationWarmResult(item.post, baseDecoratedPostText(item.post.body, item.page)));
-            }
-            runOnUiThread(() -> {
-                for (DecorationWarmResult result : results) {
-                    if (result.post.cachedDecoratedBody == null) {
-                        result.post.cachedDecoratedBody = result.text;
-                    }
-                }
-                if (!decorationWarmItems.isEmpty()) {
-                    scheduleDecorationWarm();
-                }
-            });
-        });
-    }
-
     private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post) {
         Runnable longClick = () -> {
             if (!isPostSwipeBlocked(post)) {
@@ -6099,11 +5974,11 @@ public class MainActivity extends Activity {
             }
         };
         if (!post.aaMode) {
-            return postContent(post, page, tab.threadSearchQuery, longClick, imgurLinks(post));
+            return postContent(post.body, page, tab.threadSearchQuery, longClick, imgurLinks(post));
         }
         TextView body = new TextView(this);
         String aaBody = trimTrailingBlankLines(post.body);
-        SpannableString aaText = cachedDecoratedPostText(post, page, aaBody, tab.threadSearchQuery, true);
+        SpannableString aaText = decoratedPostText(aaBody, page, tab.threadSearchQuery);
         body.setText(aaText);
         body.setTextColor(textColor());
         body.setTextSize(POST_TEXT_SIZE_SP);
@@ -6786,9 +6661,7 @@ public class MainActivity extends Activity {
                 continue;
             }
             decoration.decorated = true;
-            SpannableString decoratedText = cachedDecoratedPostText(
-                    decoration.post, decoration.page, decoration.value, decoration.highlight, false);
-            setDecoratedText(decoration.text, decoratedText);
+            decoratePostTextNow(decoration.text, decoration.value, decoration.page, decoration.highlight);
             deferredTextDecorations.remove(decoration);
             decorated++;
             if (decorated >= 4) {
@@ -12822,38 +12695,16 @@ public class MainActivity extends Activity {
 
     private static class DeferredTextDecoration {
         final TextView text;
-        final Post post;
         final String value;
         final ThreadPage page;
         final String highlight;
         boolean decorated;
 
-        DeferredTextDecoration(TextView text, Post post, String value, ThreadPage page, String highlight) {
+        DeferredTextDecoration(TextView text, String value, ThreadPage page, String highlight) {
             this.text = text;
-            this.post = post;
             this.value = value;
             this.page = page;
             this.highlight = highlight;
-        }
-    }
-
-    private static class DecorationWarmItem {
-        final ThreadPage page;
-        final Post post;
-
-        DecorationWarmItem(ThreadPage page, Post post) {
-            this.page = page;
-            this.post = post;
-        }
-    }
-
-    private static class DecorationWarmResult {
-        final Post post;
-        final SpannableString text;
-
-        DecorationWarmResult(Post post, SpannableString text) {
-            this.post = post;
-            this.text = text;
         }
     }
 
@@ -13490,8 +13341,6 @@ public class MainActivity extends Activity {
         String date;
         String body;
         String cachedSearchBody;
-        SpannableString cachedDecoratedBody;
-        SpannableString cachedAaDecoratedBody;
         List<ImgurLink> cachedImgurLinks;
         String cachedId;
         String cachedBe;
