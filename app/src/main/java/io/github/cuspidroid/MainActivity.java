@@ -201,8 +201,7 @@ public class MainActivity extends Activity {
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
-    private static final int AA_LEADING_SPACE_MIN_LINES = 3;
-    private static final float AA_LEADING_SPACE_RATIO_THRESHOLD = 0.45f;
+    private static final float AA_SYMBOL_CHAR_RATIO_THRESHOLD = 0.35f;
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -6284,34 +6283,39 @@ public class MainActivity extends Activity {
 
     private static AaDebugMetrics aaDebugMetrics(String body) {
         if (body == null) {
-            return new AaDebugMetrics(false, "null", 0, 0, 0, 0, 0f);
+            return new AaDebugMetrics(false, "null", 0, 0, 0, 0f);
         }
         String value = body.replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = value.split("\\n", -1);
-        int countedLines = 0;
-        int leadingSpaceLines = 0;
         int leadingMarkerLines = 0;
+        int targetChars = 0;
+        int symbolChars = 0;
         for (String line : lines) {
             if (line.isEmpty()) {
                 continue;
             }
-            countedLines++;
             int first = line.codePointAt(0);
-            if (first == ' ' || first == '\u3000') {
-                leadingSpaceLines++;
-            } else if (isAaLeadingMarker(first)) {
-                leadingMarkerLines++;
+            if (!isAaLeadingMarker(first)) {
+                continue;
+            }
+            leadingMarkerLines++;
+            for (int i = 0; i < line.length(); ) {
+                int codePoint = line.codePointAt(i);
+                targetChars++;
+                if (isAaLeadingMarker(codePoint)) {
+                    symbolChars++;
+                }
+                i += Character.charCount(codePoint);
             }
         }
-        int aaLeadingLines = leadingSpaceLines + leadingMarkerLines;
-        if (countedLines < AA_LEADING_SPACE_MIN_LINES) {
-            return new AaDebugMetrics(false, "lines<3", countedLines, leadingSpaceLines,
-                    leadingMarkerLines, aaLeadingLines, 0f);
+        if (targetChars <= 0) {
+            return new AaDebugMetrics(false, "no-symbol-leading-lines", leadingMarkerLines,
+                    targetChars, symbolChars, 0f);
         }
-        float ratio = aaLeadingLines / (float) countedLines;
-        boolean aa = ratio > AA_LEADING_SPACE_RATIO_THRESHOLD;
-        return new AaDebugMetrics(aa, aa ? "leading-aa-line-ratio" : "below",
-                countedLines, leadingSpaceLines, leadingMarkerLines, aaLeadingLines, ratio);
+        float ratio = symbolChars / (float) targetChars;
+        boolean aa = ratio > AA_SYMBOL_CHAR_RATIO_THRESHOLD;
+        return new AaDebugMetrics(aa, aa ? "symbol-char-ratio" : "below",
+                leadingMarkerLines, targetChars, symbolChars, ratio);
     }
 
     private static boolean isAaLeadingMarker(int codePoint) {
@@ -12711,29 +12715,27 @@ public class MainActivity extends Activity {
     private static class AaDebugMetrics {
         final boolean aa;
         final String reason;
-        final int lines;
-        final int leadingSpaceLines;
         final int leadingMarkerLines;
-        final int aaLeadingLines;
+        final int targetChars;
+        final int symbolChars;
         final float ratio;
 
-        AaDebugMetrics(boolean aa, String reason, int lines, int leadingSpaceLines,
-                       int leadingMarkerLines, int aaLeadingLines, float ratio) {
+        AaDebugMetrics(boolean aa, String reason, int leadingMarkerLines,
+                       int targetChars, int symbolChars, float ratio) {
             this.aa = aa;
             this.reason = reason;
-            this.lines = lines;
-            this.leadingSpaceLines = leadingSpaceLines;
             this.leadingMarkerLines = leadingMarkerLines;
-            this.aaLeadingLines = aaLeadingLines;
+            this.targetChars = targetChars;
+            this.symbolChars = symbolChars;
             this.ratio = ratio;
         }
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) lines=%d aa-leading=%d %.1f%% space=%d marker=%d | threshold: lines>=%d & aa-leading>%.0f%%",
-                    aa ? "YES" : "NO", reason, lines, aaLeadingLines, ratio * 100f,
-                    leadingSpaceLines, leadingMarkerLines,
-                    AA_LEADING_SPACE_MIN_LINES, AA_LEADING_SPACE_RATIO_THRESHOLD * 100f);
+                    "AA debug: %s (%s) symbol-leading-lines=%d symbol-chars=%d target-chars=%d %.1f%% | threshold: symbol-chars>%.0f%%",
+                    aa ? "YES" : "NO", reason, leadingMarkerLines,
+                    symbolChars, targetChars, ratio * 100f,
+                    AA_SYMBOL_CHAR_RATIO_THRESHOLD * 100f);
         }
     }
 
