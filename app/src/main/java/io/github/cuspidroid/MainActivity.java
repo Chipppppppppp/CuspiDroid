@@ -133,6 +133,7 @@ public class MainActivity extends Activity {
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
     static final String PREF_AUTO_SCROLL_UNREAD = "auto_scroll_unread_boundary";
+    static final String PREF_OMIT_COPYPASTE = "omit_copypaste_posts";
     static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
     static final String PREF_THEME_MODE = "theme_mode";
     static final String PREF_BBS_LINKS = "bbs_links";
@@ -3287,6 +3288,20 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardFrameParams.setMargins(indentLeft, 0, 0, dp(POST_OUTER_GAP_DP));
 
+        if (copyPasteSourcePost(page, post) != null) {
+            TextView omitted = copyPasteOmittedView(page, post, card, tab, readAction, replyAction);
+            card.addView(omitted, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+            attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
+            if (showTreeConnector) {
+                shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
+                        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            shell.addView(card, cardFrameParams);
+            return new PostCardShell(shell, card);
+        }
+
         View metaView = postMetaText(post, page, () -> {
             if (!isPostSwipeBlocked(post)) {
                 showPostActionMenu(card, tab, post);
@@ -3305,6 +3320,26 @@ public class MainActivity extends Activity {
         }
         shell.addView(card, cardFrameParams);
         return new PostCardShell(shell, card);
+    }
+
+    private TextView copyPasteOmittedView(ThreadPage page, Post post, View card, CuspTab tab,
+                                         View readAction, View replyAction) {
+        TextView view = new TextView(this);
+        view.setText(text("\u30b3\u30d4\u30da", "Copy-paste"));
+        view.setTextColor(TEAL);
+        view.setTextSize(15);
+        view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        view.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        view.setIncludeFontPadding(false);
+        view.setPadding(0, 0, 0, 0);
+        view.setOnClickListener(v -> showPostsPopup(view, page, Collections.singletonList(post), false));
+        view.setOnLongClickListener(v -> {
+            if (!isPostSwipeBlocked(post)) {
+                showPostActionMenu(card, tab, post);
+            }
+            return true;
+        });
+        return view;
     }
 
     private void renderPostCardsIncrementally(LinearLayout list, ThreadPage page, CuspTab tab) {
@@ -3348,6 +3383,9 @@ public class MainActivity extends Activity {
                                  int insertIndex, int generation, Runnable onComplete) {
         if (tab.threadRenderGeneration != generation || tab.threadList != list) {
             return;
+        }
+        if (copyPasteOmitEnabled()) {
+            ensureCopyPasteIndex(page);
         }
         for (PostRenderItem item : items) {
             VirtualPostSlot slot = new VirtualPostSlot(page, tab, item, estimatePostSlotHeight(item));
@@ -4921,6 +4959,9 @@ public class MainActivity extends Activity {
 
     private int estimatePostSlotHeight(PostRenderItem item) {
         Post post = item == null ? null : item.post;
+        if (post != null && copyPasteOmitEnabled() && post.copyPasteSourceNumber > 0) {
+            return dp(52 + Math.min(item.depth, 8) * 2);
+        }
         String body = post == null || post.body == null ? "" : post.body;
         int lines = post == null ? bodyLineCount(body) : bodyLineCount(post);
         boolean aaLike = post != null && (Boolean.TRUE.equals(post.cachedLikelyAa)
@@ -4957,6 +4998,37 @@ public class MainActivity extends Activity {
         int safeDepth = Math.min(Math.max(0, depth), 8);
         int reservedDp = 24 + POST_OUTER_GAP_DP * 2 + 20 + safeDepth * 18;
         return Math.max(dp(80), getResources().getDisplayMetrics().widthPixels - dp(reservedDp));
+    }
+
+    private Post copyPasteSourcePost(ThreadPage page, Post post) {
+        if (!copyPasteOmitEnabled() || page == null || post == null || post.body == null || post.body.isEmpty()) {
+            return null;
+        }
+        ensureCopyPasteIndex(page);
+        Post source = post.copyPasteSourceNumber > 0
+                ? page.postsByNumber.get(post.copyPasteSourceNumber)
+                : page.firstPostByBody.get(post.body);
+        return source != null && source.number < post.number ? source : null;
+    }
+
+    private void ensureCopyPasteIndex(ThreadPage page) {
+        if (page == null || page.copyPasteIndexBuilt) {
+            return;
+        }
+        page.firstPostByBody.clear();
+        for (Post post : page.posts) {
+            if (post == null || post.body == null || post.body.isEmpty()) {
+                continue;
+            }
+            Post source = page.firstPostByBody.get(post.body);
+            if (source == null) {
+                page.firstPostByBody.put(post.body, post);
+                post.copyPasteSourceNumber = 0;
+            } else {
+                post.copyPasteSourceNumber = source.number;
+            }
+        }
+        page.copyPasteIndexBuilt = true;
     }
 
     private int bodyLineCount(Post post) {
@@ -10636,6 +10708,10 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_AUTO_SCROLL_UNREAD, true);
     }
 
+    private boolean copyPasteOmitEnabled() {
+        return preferences.getBoolean(PREF_OMIT_COPYPASTE, false);
+    }
+
     private boolean externalLinksInApp() {
         return preferences.getBoolean(PREF_EXTERNAL_LINK_IN_APP, false);
     }
@@ -13873,6 +13949,8 @@ public class MainActivity extends Activity {
         boolean archived;
         List<Post> posts = new ArrayList<>();
         Map<Integer, Post> postsByNumber = new LinkedHashMap<>();
+        Map<String, Post> firstPostByBody = new LinkedHashMap<>();
+        boolean copyPasteIndexBuilt;
 
         static ThreadPage error(String url, String message) {
             ThreadPage page = new ThreadPage();
@@ -14172,6 +14250,7 @@ public class MainActivity extends Activity {
         boolean aaMode;
         boolean swiping;
         long lastSwipeAt;
+        int copyPasteSourceNumber;
 
         String searchBody() {
             if (cachedSearchBody == null) {

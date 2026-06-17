@@ -44,6 +44,7 @@ public class SettingsActivity extends Activity {
     private CheckBox treeView;
     private CheckBox treeSkipFirstReply;
     private CheckBox autoScrollUnread;
+    private CheckBox omitCopyPaste;
     private CheckBox autoAa;
     private CheckBox boardSortBySpeed;
     private RadioButton themeSystem;
@@ -162,6 +163,13 @@ public class SettingsActivity extends Activity {
         autoScrollUnread.setTextSize(16);
         Theme.tintCompoundButton(this, autoScrollUnread);
         root.addView(autoScrollUnread);
+
+        omitCopyPaste = new CheckBox(this);
+        omitCopyPaste.setText(MainActivity.text("\u30b3\u30d4\u30da\u3092\u7701\u7565\u8868\u793a", "Omit repeated copy-paste posts"));
+        omitCopyPaste.setTextColor(textColor());
+        omitCopyPaste.setTextSize(16);
+        Theme.tintCompoundButton(this, omitCopyPaste);
+        root.addView(omitCopyPaste);
 
         autoAa = new CheckBox(this);
         autoAa.setText(MainActivity.text("AA\u3092\u81ea\u52d5\u5224\u5b9a\u3057\u3066\u8868\u793a", "Automatically detect and show AA"));
@@ -330,6 +338,7 @@ public class SettingsActivity extends Activity {
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
         autoScrollUnread.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true));
+        omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
         boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
@@ -384,6 +393,7 @@ public class SettingsActivity extends Activity {
         });
         treeSkipFirstReply.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoScrollUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
@@ -464,6 +474,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
                         treeView.isChecked() && treeSkipFirstReply.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, autoScrollUnread.isChecked())
+                .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
@@ -539,6 +550,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true)
+                .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, false)
                 .putBoolean(MainActivity.PREF_AUTO_AA, true)
                 .putBoolean(MainActivity.PREF_AA_DEBUG, false)
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
