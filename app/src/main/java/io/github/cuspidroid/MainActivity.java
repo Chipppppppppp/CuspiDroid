@@ -8628,6 +8628,7 @@ public class MainActivity extends Activity {
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
         FrameLayout popupRoot = new FrameLayout(this);
         int popupRootGap = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
+        int popupFrameInset = jumpEachPost ? dp(POST_OUTER_GAP_DP) : 0;
         popupRoot.setPadding(popupRootGap, popupRootGap, popupRootGap, popupRootGap);
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setFocusable(true);
@@ -8637,8 +8638,7 @@ public class MainActivity extends Activity {
         popupScroll.setVerticalScrollBarEnabled(false);
         popupScroll.setScrollbarFadingEnabled(true);
         if (jumpEachPost) {
-            popupScroll.setPadding(dp(POST_OUTER_GAP_DP), dp(POST_OUTER_GAP_DP),
-                    dp(POST_OUTER_GAP_DP), dp(POST_OUTER_GAP_DP));
+            popupScroll.setPadding(0, 0, 0, 0);
             popupScroll.setBackground(roundedFill(menuColor(), dp(12)));
             popupRoot.addView(popupPostShadowLayer(Color.argb(28, 15, 23, 42)), popupPostShadowParams(0));
             popupRoot.addView(popupPostShadowLayer(Color.argb(22, 15, 23, 42)), popupPostShadowParams(dp(2)));
@@ -8652,7 +8652,7 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams scrollParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         if (jumpEachPost) {
-            scrollParams.setMargins(0, 0, 0, 0);
+            scrollParams.setMargins(popupFrameInset, popupFrameInset, popupFrameInset, popupFrameInset);
         }
         popupRoot.addView(popupScroll, scrollParams);
 
@@ -8669,24 +8669,26 @@ public class MainActivity extends Activity {
             sourcePostCard.getLocationOnScreen(sourceLocation);
         }
         int edgeGap = dp(POST_OUTER_GAP_DP);
-        int width = sourcePostCard != null && sourcePostCard.getWidth() > edgeGap * 2
+        int postCardWidth = sourcePostCard != null && sourcePostCard.getWidth() > edgeGap * 2
                 ? sourcePostCard.getWidth()
                 : Math.min(screenWidth - edgeGap * 2, dp(420));
+        int width = postCardWidth + popupFrameInset * 2;
         int x = sourcePostCard != null
-                ? sourceLocation[0]
+                ? sourceLocation[0] - popupFrameInset
                 : Math.max(edgeGap, Math.min(anchorLocation[0] - edgeGap, screenWidth - width - edgeGap));
-        x = Math.max(edgeGap, Math.min(x, screenWidth - width - edgeGap));
+        x = Math.max(0, Math.min(x, screenWidth - width));
         int popupOverlap = jumpEachPost ? dp(36) : dp(12);
         int minPopupY = jumpEachPost ? 0 : dp(8);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap - minPopupY);
         int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - minPopupY, availableAbove);
-        int measuredContentWidth = width - dp(POST_OUTER_GAP_DP * 2)
-                - (jumpEachPost ? dp(POST_OUTER_GAP_DP * 2) : 0);
+        int measuredContentWidth = jumpEachPost
+                ? postCardWidth
+                : width - dp(POST_OUTER_GAP_DP * 2);
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(Math.max(dp(120), measuredContentWidth), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int desiredHeight = popupPosts.getMeasuredHeight()
-                + (jumpEachPost ? dp(POST_OUTER_GAP_DP * 2) : dp(POST_OUTER_GAP_DP * 4));
+                + (jumpEachPost ? popupFrameInset * 2 : dp(POST_OUTER_GAP_DP * 4));
         boolean popupScrollable = desiredHeight > maxHeight;
         int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(popupScrollable);
@@ -9808,8 +9810,6 @@ public class MainActivity extends Activity {
                 .setMessage(message)
                 .setNegativeButton(text("\u9589\u3058\u308b", "Close"), null)
                 .setPositiveButton(text("ImgBB API\u3092\u958b\u304f", "Open ImgBB API"),
-                        (d, which) -> openExternal("https://api.imgbb.com/"))
-                .setNeutralButton(text("API\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8", "API docs"),
                         (d, which) -> openExternal("https://api.imgbb.com/"))
                 .create();
         dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));

@@ -303,6 +303,11 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
                 v -> startActivity(new Intent(this, HistoryActivity.class))));
 
+        root.addView(managementRow(R.drawable.ic_copy,
+                MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092\u7ba1\u7406", "Manage upload history"),
+                MainActivity.text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u305f\u753b\u50cf\u3068URL\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete images and URLs uploaded to ImgBB"),
+                v -> startActivity(new Intent(this, UploadHistoryActivity.class))));
+
         root.addView(managementRow(R.drawable.ic_check,
                 MainActivity.text("\u65e2\u8aad\u3092\u7ba1\u7406", "Manage read positions"),
                 MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u4f4d\u7f6e\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read positions by thread"),
@@ -518,8 +523,6 @@ public class SettingsActivity extends Activity {
                 .setMessage(message)
                 .setNegativeButton(MainActivity.text("\u9589\u3058\u308b", "Close"), null)
                 .setPositiveButton(MainActivity.text("ImgBB API\u3092\u958b\u304f", "Open ImgBB API"),
-                        (d, which) -> openUrl("https://api.imgbb.com/"))
-                .setNeutralButton(MainActivity.text("API\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8", "API docs"),
                         (d, which) -> openUrl("https://api.imgbb.com/"))
                 .create();
         dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
