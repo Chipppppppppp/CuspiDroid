@@ -3527,7 +3527,8 @@ public class MainActivity extends Activity {
         metaRow.addView(copy, new LinearLayout.LayoutParams(dp(36), dp(34)));
         card.addView(metaRow);
 
-        TextView body = postActionPreviewBody(tab, post);
+        boolean aa = tab != null && tab.threadPage != null && aaModeForPost(tab.threadPage, post);
+        TextView body = postActionPreviewBody(tab, post, aa);
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setScrollbarFadingEnabled(true);
@@ -3537,7 +3538,25 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         card.addView(scroll, scrollParams);
-        scroll.post(() -> adjustPostActionPreviewScroll(scroll, body));
+        if (aa) {
+            int[] lastAaWidth = new int[]{0};
+            body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                int width = Math.max(0, right - left);
+                if (width > 0 && width != lastAaWidth[0]) {
+                    lastAaWidth[0] = width;
+                    fitAaTextSize(body, post);
+                }
+                adjustPostActionPreviewScroll(scroll, body);
+            });
+            body.post(() -> {
+                lastAaWidth[0] = body.getWidth();
+                fitAaTextSize(body, post);
+                adjustPostActionPreviewScroll(scroll, body);
+            });
+            body.postDelayed(() -> adjustPostActionPreviewScroll(scroll, body), 80);
+        } else {
+            scroll.post(() -> adjustPostActionPreviewScroll(scroll, body));
+        }
         return card;
     }
 
@@ -3563,8 +3582,7 @@ public class MainActivity extends Activity {
         scroll.setLayoutParams(params);
     }
 
-    private TextView postActionPreviewBody(CuspTab tab, Post post) {
-        boolean aa = tab != null && tab.threadPage != null && aaModeForPost(tab.threadPage, post);
+    private TextView postActionPreviewBody(CuspTab tab, Post post, boolean aa) {
         TextView body = new TextView(this);
         body.setText(aa ? trimTrailingBlankLines(post.body) : post.body);
         body.setTextColor(textColor());
@@ -3577,10 +3595,12 @@ public class MainActivity extends Activity {
         }
         body.setLineSpacing(0, aa ? AA_LINE_SPACING_MULTIPLIER : 1.15f);
         body.setTextIsSelectable(true);
-        body.setPadding(0, dp(4), 0, 0);
+        body.setPadding(0, aa ? 0 : dp(4), 0, 0);
+        body.setMinHeight(0);
+        body.setMinimumHeight(0);
         if (aa) {
+            body.setSingleLine(false);
             body.setHorizontallyScrolling(true);
-            body.post(() -> fitAaTextSize(body));
         }
         return body;
     }
