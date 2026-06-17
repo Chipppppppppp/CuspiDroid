@@ -192,12 +192,16 @@ public class MainActivity extends Activity {
     private static final int REQUEST_IMGUR_MEDIA = 42;
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
-    private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 32;
-    private static final int THREAD_VISIBLE_RENDER_BUDGET = 2;
-    private static final int THREAD_IDLE_RENDER_BUDGET = 5;
-    private static final int THREAD_SCROLL_RENDER_BUDGET = 1;
-    private static final long TAB_UNLOAD_INTERVAL_MS = 60_000L;
-    private static final long TAB_UNLOAD_AFTER_MS = 180_000L;
+    private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
+    private static final int THREAD_VISIBLE_RENDER_BUDGET = 6;
+    private static final int THREAD_IDLE_RENDER_BUDGET = 12;
+    private static final int THREAD_SCROLL_RENDER_BUDGET = 6;
+    private static final int THREAD_AA_RENDER_COST = 4;
+    private static final int THREAD_MEDIA_RENDER_COST = 2;
+    private static final long TAB_UNLOAD_INTERVAL_MS = 15_000L;
+    private static final long TAB_UNLOAD_AFTER_MS = 60_000L;
+    private static final long TAB_UNLOAD_AFTER_MANY_TABS_MS = 15_000L;
+    private static final int MAX_BACKGROUND_TAB_VIEWS = 2;
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
@@ -1799,8 +1803,12 @@ public class MainActivity extends Activity {
                 if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                     tab.readerMode = true;
                     tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
-                    tab.postViews = new LinkedHashMap<>();
-                    tab.readerView = buildThreadView(tab.threadPage, tab);
+                    if (i == currentIndex) {
+                        tab.postViews = new LinkedHashMap<>();
+                        tab.readerView = buildThreadView(tab.threadPage, tab);
+                    } else {
+                        unloadTabView(tab);
+                    }
                 } else if (tab.url != null && !tab.url.isEmpty()) {
                     openInTab(tab, tab.url, false);
                 }
@@ -1811,14 +1819,22 @@ public class MainActivity extends Activity {
                 }
                 if (tab.searchPage != null) {
                     tab.readerMode = true;
-                    tab.readerView = buildSearchView(tab.searchPage);
+                    if (i == currentIndex) {
+                        tab.readerView = buildSearchView(tab.searchPage);
+                    } else {
+                        unloadTabView(tab);
+                    }
                 } else if (tab.url != null && !tab.url.isEmpty()) {
                     openInTab(tab, tab.url, false);
                 }
             } else if (tab.url == null || tab.url.isEmpty()) {
                 tab.readerMode = true;
                 tab.nativeKind = NATIVE_SEARCH_HOME;
-                tab.readerView = buildSearchHomeView(true);
+                if (i == currentIndex) {
+                    tab.readerView = buildSearchHomeView(true);
+                } else {
+                    unloadTabView(tab);
+                }
             } else if (tab.readerView == null) {
                 openInTab(tab, tab.url, false);
             }
@@ -1932,16 +1948,50 @@ public class MainActivity extends Activity {
             return;
         }
         long now = android.os.SystemClock.uptimeMillis();
+        long unloadAfter = tabs.size() > 8 ? TAB_UNLOAD_AFTER_MANY_TABS_MS : TAB_UNLOAD_AFTER_MS;
         for (int i = 0; i < tabs.size(); i++) {
             if (i == currentIndex) {
                 continue;
             }
             CuspTab tab = tabs.get(i);
-            if (tab.readerView == null || now - tab.lastActivatedAt < TAB_UNLOAD_AFTER_MS) {
+            if (tab.readerView == null || now - tab.lastActivatedAt < unloadAfter) {
                 continue;
             }
             unloadTabView(tab);
         }
+        trimBackgroundTabViews();
+    }
+
+    private void trimBackgroundTabViews() {
+        while (backgroundTabViewCount() > MAX_BACKGROUND_TAB_VIEWS) {
+            CuspTab oldest = null;
+            for (int i = 0; i < tabs.size(); i++) {
+                if (i == currentIndex) {
+                    continue;
+                }
+                CuspTab tab = tabs.get(i);
+                if (tab.readerView == null) {
+                    continue;
+                }
+                if (oldest == null || tab.lastActivatedAt < oldest.lastActivatedAt) {
+                    oldest = tab;
+                }
+            }
+            if (oldest == null) {
+                return;
+            }
+            unloadTabView(oldest);
+        }
+    }
+
+    private int backgroundTabViewCount() {
+        int count = 0;
+        for (int i = 0; i < tabs.size(); i++) {
+            if (i != currentIndex && tabs.get(i).readerView != null) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void unloadTabView(CuspTab tab) {
@@ -2204,6 +2254,7 @@ public class MainActivity extends Activity {
         renderTabs();
         scheduleThreadScrollChromeRefresh(tab, 5);
         scheduleTabUnload();
+        trimBackgroundTabViews();
     }
 
     private void ensureTabViewLoaded(CuspTab tab) {
@@ -3584,7 +3635,7 @@ public class MainActivity extends Activity {
 
     private TextView postActionPreviewBody(CuspTab tab, Post post, boolean aa) {
         TextView body = new TextView(this);
-        body.setText(aa ? trimTrailingBlankLines(post.body) : post.body);
+        body.setText(aa ? aaDisplayBody(post) : post.body);
         body.setTextColor(textColor());
         body.setTextSize(POST_TEXT_SIZE_SP);
         if (aa) {
@@ -4396,14 +4447,14 @@ public class MainActivity extends Activity {
         int unloadEnd = lastChildWithTopAtMost(list, unloadBottom);
         int visibleStart = firstChildWithBottomAtLeast(list, scrollY);
         int visibleEnd = lastChildWithTopAtMost(list, scrollY + height);
-        int[] rendered = {0};
+        int[] renderCost = {0};
         boolean[] budgetReached = {false};
         Set<FrameLayout> keep = new LinkedHashSet<>();
         collectVirtualPostSlotsInRange(list, unloadStart, unloadEnd, keep);
         renderVirtualPostSlotsInRange(list, visibleStart, visibleEnd, THREAD_VISIBLE_RENDER_BUDGET,
-                rendered, budgetReached, keep);
+                renderCost, budgetReached, keep);
         int budget = scrolling ? THREAD_SCROLL_RENDER_BUDGET : THREAD_IDLE_RENDER_BUDGET;
-        renderVirtualPostSlotsInRange(list, start, end, budget, rendered, budgetReached, keep);
+        renderVirtualPostSlotsInRange(list, start, end, budget, renderCost, budgetReached, keep);
         if (budgetReached[0]) {
             scheduleThreadPostVisibilityRefresh(tab);
         }
@@ -4424,7 +4475,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderVirtualPostSlotsInRange(ViewGroup list, int start, int end, int budget,
-                                               int[] rendered, boolean[] budgetReached,
+                                               int[] renderCost, boolean[] budgetReached,
                                                Set<FrameLayout> keep) {
         if (list == null || start > end || end < 0) {
             return;
@@ -4447,13 +4498,35 @@ public class MainActivity extends Activity {
             if (isSlotFullyAboveViewport(holder, slot.tab)) {
                 continue;
             }
-            if (rendered[0] >= budget) {
+            int cost = renderCostForSlot(slot);
+            if (renderCost[0] > 0 && renderCost[0] + cost > budget) {
                 budgetReached[0] = true;
                 return;
             }
             renderVirtualPostSlot(holder, slot);
-            rendered[0]++;
+            renderCost[0] += cost;
         }
+    }
+
+    private int renderCostForSlot(VirtualPostSlot slot) {
+        if (slot == null || slot.item == null || slot.item.post == null) {
+            return 1;
+        }
+        int cost = 1;
+        Post post = slot.item.post;
+        if (Boolean.TRUE.equals(post.cachedLikelyAa) || post.aaMode
+                || (post.cachedLikelyAa == null && maybeHeavyAaBody(post.body))) {
+            cost += THREAD_AA_RENDER_COST;
+        }
+        List<ImgurLink> cachedMedia = post.cachedImgurLinks;
+        if (cachedMedia != null && !cachedMedia.isEmpty()) {
+            cost += THREAD_MEDIA_RENDER_COST;
+        }
+        return cost;
+    }
+
+    private static boolean maybeHeavyAaBody(String body) {
+        return body != null && body.length() > 120 && body.indexOf('\n') >= 0;
     }
 
     private void renderVirtualPostSlot(FrameLayout holder, VirtualPostSlot slot) {
@@ -4536,11 +4609,59 @@ public class MainActivity extends Activity {
     private int estimatePostSlotHeight(PostRenderItem item) {
         Post post = item == null ? null : item.post;
         String body = post == null || post.body == null ? "" : post.body;
-        int lines = Math.max(1, body.split("\\n", -1).length);
-        int wrapped = Math.max(0, body.length() / 32);
+        int lines = post == null ? bodyLineCount(body) : bodyLineCount(post);
+        boolean aaLike = post != null && (Boolean.TRUE.equals(post.cachedLikelyAa)
+                || post.aaMode || maybeHeavyAaBody(body));
+        int wrapped = aaLike ? 0 : Math.max(0, body.length() / 38);
+        int textLines = aaLike ? lines : Math.min(42, lines + wrapped);
         int mediaRows = post == null ? 0 : (int) Math.ceil(imgurLinks(post).size() / 3.0);
         int depthPad = item == null ? 0 : Math.min(item.depth, 8) * 2;
-        return dp(62 + Math.min(22, lines + wrapped) * 18 + mediaRows * (MEDIA_GRID_CELL_DP + 10) + depthPad);
+        int lineHeight = aaLike ? estimateAaLineHeight(post, item) : dp(18);
+        return dp(58) + Math.max(1, textLines) * lineHeight
+                + dp(mediaRows * (MEDIA_GRID_CELL_DP + 10) + depthPad);
+    }
+
+    private int estimateAaLineHeight(Post post, PostRenderItem item) {
+        int depth = item == null ? 0 : Math.min(item.depth, 8);
+        int available = getResources().getDisplayMetrics().widthPixels
+                - dp(POST_OUTER_GAP_DP * 2 + 20 + depth * 18);
+        available = Math.max(dp(80), available);
+        float baseSize = aaBaseTextSizePx();
+        float longest = post != null && post.cachedAaLongestLineWidthPx > 0f
+                ? post.cachedAaLongestLineWidthPx
+                : longestLineWidth(aaMeasurePaint(baseSize), aaDisplayBody(post));
+        if (post != null && longest > 0f) {
+            post.cachedAaLongestLineWidthPx = longest;
+        }
+        float targetSize = longest > available
+                ? Math.max(1f, baseSize * Math.max(1, available - 1) / longest)
+                : baseSize;
+        TextPaint paint = aaMeasurePaint(targetSize);
+        Paint.FontMetricsInt metrics = paint.getFontMetricsInt();
+        return Math.max(dp(8), metrics.descent - metrics.ascent);
+    }
+
+    private int bodyLineCount(Post post) {
+        if (post == null) {
+            return 1;
+        }
+        if (post.cachedBodyLineCount <= 0) {
+            post.cachedBodyLineCount = bodyLineCount(post.body);
+        }
+        return post.cachedBodyLineCount;
+    }
+
+    private static int bodyLineCount(String body) {
+        if (body == null || body.isEmpty()) {
+            return 1;
+        }
+        int lines = 1;
+        for (int i = 0; i < body.length(); i++) {
+            if (body.charAt(i) == '\n') {
+                lines++;
+            }
+        }
+        return lines;
     }
 
     private View.OnTouchListener scrubberTouchListener(ScrollView scroll, View frame, View thumb) {
@@ -6003,7 +6124,7 @@ public class MainActivity extends Activity {
             return postContent(post.body, page, tab.threadSearchQuery, longClick, imgurLinks(post));
         }
         TextView body = new TextView(this);
-        String aaBody = trimTrailingBlankLines(post.body);
+        String aaBody = aaDisplayBody(post);
         SpannableString aaText = decoratedPostText(aaBody, page, tab.threadSearchQuery);
         body.setText(aaText);
         body.setTextColor(textColor());
@@ -6128,8 +6249,7 @@ public class MainActivity extends Activity {
         if (available <= 0) {
             return;
         }
-        float baseSize = TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_SP, POST_TEXT_SIZE_SP, getResources().getDisplayMetrics());
+        float baseSize = aaBaseTextSizePx();
         if (post != null && post.cachedAaFitWidth == available && post.cachedAaFitTextSizePx > 0f) {
             applyAaTextSizeIfNeeded(body, post.cachedAaFitTextSizePx);
             body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
@@ -6138,11 +6258,10 @@ public class MainActivity extends Activity {
             body.requestLayout();
             return;
         }
-        String[] lines = body.getText().toString().split("\\n", -1);
         body.setTextScaleX(1f);
         float longest = post != null && post.cachedAaLongestLineWidthPx > 0f
                 ? post.cachedAaLongestLineWidthPx
-                : longestLineWidth(body, lines, baseSize);
+                : longestLineWidth(body, post == null ? body.getText().toString() : aaDisplayBody(post), baseSize);
         if (post != null) {
             post.cachedAaLongestLineWidthPx = longest;
         }
@@ -6151,17 +6270,7 @@ public class MainActivity extends Activity {
         }
         float targetSize = baseSize;
         if (longest > available) {
-            float high = baseSize;
-            float low = 1f;
-            for (int i = 0; i < 14; i++) {
-                float mid = (low + high) / 2f;
-                if (longestLineWidth(body, lines, mid) <= available) {
-                    low = mid;
-                } else {
-                    high = mid;
-                }
-            }
-            targetSize = low;
+            targetSize = Math.max(1f, baseSize * Math.max(1, available - 1) / longest);
         }
         if (post != null) {
             post.cachedAaFitWidth = available;
@@ -6239,6 +6348,11 @@ public class MainActivity extends Activity {
         }
     }
 
+    private float aaBaseTextSizePx() {
+        return TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, POST_TEXT_SIZE_SP, getResources().getDisplayMetrics());
+    }
+
     private void collectVirtualPostSlotsInRange(ViewGroup list, int start, int end, Set<FrameLayout> keep) {
         if (list == null || keep == null || start > end || end < 0) {
             return;
@@ -6252,12 +6366,43 @@ public class MainActivity extends Activity {
         }
     }
 
-    private float longestLineWidth(TextView body, String[] lines, float textSizePx) {
+    private String aaDisplayBody(Post post) {
+        if (post == null) {
+            return "";
+        }
+        if (post.cachedAaBody == null) {
+            post.cachedAaBody = trimTrailingBlankLines(post.body);
+        }
+        return post.cachedAaBody;
+    }
+
+    private TextPaint aaMeasurePaint(float textSizePx) {
+        TextPaint paint = new TextPaint();
+        paint.setTypeface(aaTypeface());
+        paint.setTextSize(textSizePx);
+        return paint;
+    }
+
+    private float longestLineWidth(TextView body, String text, float textSizePx) {
         TextPaint paint = new TextPaint(body.getPaint());
         paint.setTextSize(textSizePx);
+        return longestLineWidth(paint, text);
+    }
+
+    private float longestLineWidth(TextPaint paint, String text) {
         float longest = 0f;
-        for (String line : lines) {
-            longest = Math.max(longest, paint.measureText(line));
+        String value = text == null ? "" : text;
+        int start = 0;
+        int length = value.length();
+        for (int i = 0; i <= length; i++) {
+            if (i == length || value.charAt(i) == '\n') {
+                int end = i;
+                if (end > start && value.charAt(end - 1) == '\r') {
+                    end--;
+                }
+                longest = Math.max(longest, paint.measureText(value, start, end));
+                start = i + 1;
+            }
         }
         return longest;
     }
@@ -13472,6 +13617,8 @@ public class MainActivity extends Activity {
         String cachedNgRulesKey;
         boolean cachedNgMatch;
         Boolean cachedLikelyAa;
+        String cachedAaBody;
+        int cachedBodyLineCount;
         float cachedAaLongestLineWidthPx;
         int cachedAaFitWidth;
         float cachedAaFitTextSizePx;
