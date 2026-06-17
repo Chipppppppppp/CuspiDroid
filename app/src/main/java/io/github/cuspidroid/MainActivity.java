@@ -132,6 +132,7 @@ public class MainActivity extends Activity {
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
+    static final String PREF_AUTO_SCROLL_UNREAD = "auto_scroll_unread_boundary";
     static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
     static final String PREF_THEME_MODE = "theme_mode";
     static final String PREF_BBS_LINKS = "bbs_links";
@@ -9103,9 +9104,15 @@ public class MainActivity extends Activity {
     }
 
     private View renderPostForJump(int number) {
-        CuspTab tab = currentTab();
-        if (tab == null || tab.postSlots == null) {
+        return renderPostForJump(currentTab(), number);
+    }
+
+    private View renderPostForJump(CuspTab tab, int number) {
+        if (tab == null) {
             return null;
+        }
+        if (tab.postSlots == null) {
+            return tab.postViews == null ? null : tab.postViews.get(number);
         }
         FrameLayout holder = tab.postSlots.get(number);
         if (holder == null || !(holder.getTag() instanceof VirtualPostSlot)) {
@@ -10406,8 +10413,8 @@ public class MainActivity extends Activity {
             } else if (tab.hasSavedThreadScroll && threadUrl(tab).equals(tab.threadScrollUrl)) {
                 int target = (int) (range * tab.threadScrollRatio);
                 tab.threadScroll.scrollTo(0, Math.max(0, Math.min(target, range)));
-            } else {
-                scrollToUnreadBoundary(tab);
+            } else if (autoScrollUnreadBoundary()) {
+                scrollToUnreadBoundaryWhenReady(tab, 0);
             }
             revealThreadAfterScrollRestore(tab, attempt);
             scheduleThreadScrollChromeRefresh(tab, 6);
@@ -10437,24 +10444,47 @@ public class MainActivity extends Activity {
         return tab.url == null ? "" : tab.url;
     }
 
-    private void scrollToUnreadBoundary(CuspTab tab) {
-        if (tab == null || tab.threadScroll == null || tab.threadPage == null) {
+    private void scrollToUnreadBoundaryWhenReady(CuspTab tab, int attempt) {
+        if (scrollToUnreadBoundary(tab)) {
+            scheduleThreadPostVisibilityRefresh(tab);
+            if (tab != null && tab.threadScroll != null && attempt < 3) {
+                tab.threadScroll.postDelayed(() -> scrollToUnreadBoundaryWhenReady(tab, attempt + 1), 48);
+            }
             return;
+        }
+        if (tab != null && tab.threadScroll != null && attempt < 12) {
+            tab.threadScroll.postDelayed(() -> scrollToUnreadBoundaryWhenReady(tab, attempt + 1), 50);
+        }
+    }
+
+    private boolean scrollToUnreadBoundary(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null || tab.threadPage == null) {
+            return false;
         }
         View target = null;
         for (Post post : tab.threadPage.posts) {
             if (post.number > tab.readPostNumber) {
-                target = postAnchorView(tab, post.number);
-                break;
+                target = renderPostForJump(tab, post.number);
+                if (target != null) {
+                    break;
+                }
             }
         }
         if (target == null && !tab.threadPage.posts.isEmpty()) {
-            target = postAnchorView(tab, tab.threadPage.posts.get(tab.threadPage.posts.size() - 1).number);
+            for (int i = tab.threadPage.posts.size() - 1; i >= 0; i--) {
+                target = renderPostForJump(tab, tab.threadPage.posts.get(i).number);
+                if (target != null) {
+                    break;
+                }
+            }
         }
         if (target == null) {
-            return;
+            return false;
         }
         View scrollChild = tab.threadScroll.getChildAt(0);
+        if (scrollChild == null) {
+            return false;
+        }
         int y = 0;
         View current = target;
         while (current != null && current != scrollChild) {
@@ -10464,6 +10494,7 @@ public class MainActivity extends Activity {
         }
         int maxY = Math.max(0, scrollChild.getHeight() - tab.threadScroll.getHeight());
         tab.threadScroll.scrollTo(0, Math.max(0, Math.min(y - dp(8), maxY)));
+        return true;
     }
 
     private View postAnchorView(CuspTab tab, int postNumber) {
@@ -10609,6 +10640,10 @@ public class MainActivity extends Activity {
 
     private boolean skipFirstReplyInTree() {
         return preferences.getBoolean(PREF_TREE_SKIP_FIRST_REPLY, false);
+    }
+
+    private boolean autoScrollUnreadBoundary() {
+        return preferences.getBoolean(PREF_AUTO_SCROLL_UNREAD, true);
     }
 
     private boolean externalLinksInApp() {

@@ -43,6 +43,7 @@ public class SettingsActivity extends Activity {
     private RadioButton addressBarBottom;
     private CheckBox treeView;
     private CheckBox treeSkipFirstReply;
+    private CheckBox autoScrollUnread;
     private CheckBox autoAa;
     private CheckBox boardSortBySpeed;
     private RadioButton themeSystem;
@@ -154,6 +155,13 @@ public class SettingsActivity extends Activity {
         treeSkipFirstReply.setTextSize(16);
         Theme.tintCompoundButton(this, treeSkipFirstReply);
         root.addView(treeSkipFirstReply);
+
+        autoScrollUnread = new CheckBox(this);
+        autoScrollUnread.setText(MainActivity.text("\u30b9\u30ec\u8aad\u307f\u8fbc\u307f\u6642\u306b\u672a\u8aad\u306e\u5148\u982d\u3078\u79fb\u52d5", "Jump to the first unread post when opening a thread"));
+        autoScrollUnread.setTextColor(textColor());
+        autoScrollUnread.setTextSize(16);
+        Theme.tintCompoundButton(this, autoScrollUnread);
+        root.addView(autoScrollUnread);
 
         autoAa = new CheckBox(this);
         autoAa.setText(MainActivity.text("AA\u3092\u81ea\u52d5\u5224\u5b9a\u3057\u3066\u8868\u793a", "Automatically detect and show AA"));
@@ -321,6 +329,7 @@ public class SettingsActivity extends Activity {
         }
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
+        autoScrollUnread.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true));
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
         boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
@@ -374,6 +383,7 @@ public class SettingsActivity extends Activity {
             saveSettings(false);
         });
         treeSkipFirstReply.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        autoScrollUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
@@ -453,6 +463,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
                         treeView.isChecked() && treeSkipFirstReply.isChecked())
+                .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, autoScrollUnread.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
@@ -527,6 +538,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
+                .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true)
                 .putBoolean(MainActivity.PREF_AUTO_AA, true)
                 .putBoolean(MainActivity.PREF_AA_DEBUG, false)
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
