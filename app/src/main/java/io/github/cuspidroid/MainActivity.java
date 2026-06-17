@@ -794,14 +794,13 @@ public class MainActivity extends Activity {
         bottomThreadTitle.setEllipsize(TextUtils.TruncateAt.END);
         bottomThreadTitle.setIncludeFontPadding(false);
         bottomThreadTitle.setGravity(Gravity.CENTER_VERTICAL);
-        bottomThreadTitle.setOnClickListener(v -> scrollCurrentThreadToBottom());
         bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
         bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
-        bottomBookmarkButton = iconButton(R.drawable.ic_bookmark_border, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), v -> toggleCurrentThreadBookmark());
+        bottomBookmarkButton = iconButton(R.drawable.ic_bookmark_border, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), null);
         bottomThreadBar.addView(bottomBookmarkButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
         bottomToolbar = new LinearLayout(this);
@@ -2380,7 +2379,9 @@ public class MainActivity extends Activity {
         if (tabOverviewVisible) {
             bottomThreadBar.setVisibility(View.GONE);
         } else if (pendingNewTab) {
-            bottomThreadTitle.setText(text("\u65b0\u898f\u30bf\u30d6", "New tab"));
+            bottomThreadTitle.setText(pendingNewTabTitle());
+            bottomThreadTitle.setOnClickListener(null);
+            bottomThreadTitle.setClickable(false);
             bottomWriteButton.setVisibility(View.GONE);
             bottomBookmarkButton.setVisibility(View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
@@ -2392,14 +2393,62 @@ public class MainActivity extends Activity {
                 bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title);
             }
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
+            bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
+            bottomThreadTitle.setClickable(canWrite);
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            bottomBookmarkButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            bottomBookmarkButton.setImageResource(isSavedItem(PREF_THREAD_BOOKMARKS, tab.url)
-                    ? R.drawable.ic_bookmark : R.drawable.ic_bookmark_border);
+            if (canWrite) {
+                bottomBookmarkButton.setVisibility(View.VISIBLE);
+                bottomBookmarkButton.setContentDescription(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"));
+                bottomBookmarkButton.setImageResource(savedIcon(PREF_THREAD_BOOKMARKS, tab.url));
+                bottomBookmarkButton.setOnClickListener(v -> toggleCurrentThreadBookmark());
+            } else if (NATIVE_BOARD.equals(tab.nativeKind) && isBoardUrl(tab.url)) {
+                bottomBookmarkButton.setVisibility(View.VISIBLE);
+                bottomBookmarkButton.setContentDescription(text("\u304a\u6c17\u306b\u5165\u308a", "Favorite"));
+                bottomBookmarkButton.setImageResource(savedIcon(PREF_BOARD_FAVORITES, tab.url));
+                bottomBookmarkButton.setOnClickListener(v -> {
+                    String boardTitle = tab.searchPage != null && tab.searchPage.title != null
+                            ? tab.searchPage.title : tab.title;
+                    toggleSavedItem(PREF_BOARD_FAVORITES,
+                            boardTitle == null || boardTitle.trim().isEmpty() ? boardTitle(tab.url) : boardTitle,
+                            tab.url);
+                    bottomBookmarkButton.setImageResource(savedIcon(PREF_BOARD_FAVORITES, tab.url));
+                });
+            } else {
+                bottomBookmarkButton.setVisibility(View.GONE);
+                bottomBookmarkButton.setOnClickListener(null);
+            }
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
         }
+    }
+
+    private String pendingNewTabTitle() {
+        String page = newTabNavigationIndex >= 0 && newTabNavigationIndex < newTabNavigationHistory.size()
+                ? newTabNavigationHistory.get(newTabNavigationIndex) : "";
+        if ("5ch".equals(page)) {
+            return text("5ch\u677f\u4e00\u89a7", "5ch boards");
+        }
+        if ("history".equals(page)) {
+            return text("\u5c65\u6b74", "History");
+        }
+        if (page != null && page.startsWith("saved:")) {
+            return savedListTitle(page.substring("saved:".length()));
+        }
+        if (page != null && page.startsWith("bbs-category:")) {
+            BbsCategoryRequest request = decodeBbsCategoryToken(page.substring("bbs-category:".length()));
+            if (request.category != null && !request.category.trim().isEmpty()) {
+                return request.category;
+            }
+            return text("5ch\u677f\u4e00\u89a7", "5ch boards");
+        }
+        if (page != null && page.startsWith("5ch-category:")) {
+            String category = decodeNewTabToken(page.substring("5ch-category:".length()));
+            if (!category.trim().isEmpty()) {
+                return category;
+            }
+        }
+        return text("\u65b0\u898f\u30bf\u30d6", "New tab");
     }
 
     private void setThreadTitleText(TextView view, ThreadPage page, String fallback) {
@@ -3016,7 +3065,8 @@ public class MainActivity extends Activity {
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(POST_OUTER_GAP_DP), dp(POST_OUTER_GAP_DP), dp(POST_OUTER_GAP_DP), dp(24));
+        list.setPadding(dp(POST_OUTER_GAP_DP), dp(POST_OUTER_GAP_DP),
+                dp(POST_OUTER_GAP_DP), dp(POST_OUTER_GAP_DP));
         tab.threadList = list;
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -5128,15 +5178,23 @@ public class MainActivity extends Activity {
                 } else {
                     CuspTab tab = currentTab();
                     if (tab != null) {
+                        tab.readerMode = true;
+                        tab.nativeKind = NATIVE_BOARD;
+                        tab.url = FIVE_CH_BBSMENU_URL;
                         tab.title = result.title;
                         tab.searchPage = result;
                         tab.readerView = resultView;
+                        tab.threadPage = null;
+                        tab.threadScroll = null;
+                        tab.postViews = null;
                     }
                     if (!tabOverviewVisible) {
                         contentFrame.removeAllViews();
                         contentFrame.addView(resultView);
                     }
                 }
+                updateBottomThreadBar(pendingNewTab ? null : currentTab());
+                renderTabs();
             });
         });
     }
@@ -5178,13 +5236,23 @@ public class MainActivity extends Activity {
                 } else {
                     CuspTab tab = currentTab();
                     if (tab != null) {
+                        tab.readerMode = true;
+                        tab.nativeKind = NATIVE_BOARD;
+                        tab.url = result.url;
+                        tab.title = result.title;
+                        tab.searchPage = result;
                         tab.readerView = resultView;
+                        tab.threadPage = null;
+                        tab.threadScroll = null;
+                        tab.postViews = null;
                     }
                     if (!tabOverviewVisible) {
                         contentFrame.removeAllViews();
                         contentFrame.addView(resultView);
                     }
                 }
+                updateBottomThreadBar(pendingNewTab ? null : currentTab());
+                renderTabs();
             });
         });
     }
@@ -5896,7 +5964,7 @@ public class MainActivity extends Activity {
                 list.addView(savedItemRow(key, items.get(i), i));
             }
         }
-        return withScrollScrubber(scroll);
+        return scroll;
     }
 
     private String savedListTitle(String key) {
