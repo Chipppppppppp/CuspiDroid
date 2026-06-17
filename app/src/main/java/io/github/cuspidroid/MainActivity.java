@@ -198,6 +198,9 @@ public class MainActivity extends Activity {
     private static final int THREAD_SCROLL_RENDER_BUDGET = 6;
     private static final int THREAD_AA_RENDER_COST = 4;
     private static final int THREAD_MEDIA_RENDER_COST = 2;
+    private static final int SEARCH_VISIBLE_RENDER_BUDGET = 24;
+    private static final int SEARCH_SCROLL_RENDER_BUDGET = 48;
+    private static final int SEARCH_IDLE_RENDER_BUDGET = 96;
     private static final long TAB_UNLOAD_INTERVAL_MS = 15_000L;
     private static final long TAB_UNLOAD_AFTER_MS = 60_000L;
     private static final long TAB_UNLOAD_AFTER_MANY_TABS_MS = 15_000L;
@@ -3045,7 +3048,7 @@ public class MainActivity extends Activity {
         });
         card.addView(metaView);
 
-        View bodyView = postBodyView(card, page, tab, post);
+        View bodyView = postBodyView(card, page, tab, post, depth);
         card.addView(bodyView);
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
@@ -3884,7 +3887,8 @@ public class MainActivity extends Activity {
     }
 
     private void renderSearchSlots(ScrollView scroll, LinearLayout list, SearchPage page) {
-        list.setTag(new VirtualSearchState());
+        VirtualSearchState state = new VirtualSearchState();
+        list.setTag(state);
         String renderedCategory = null;
         int count = 0;
         for (SearchResult result : page.results) {
@@ -3900,17 +3904,30 @@ public class MainActivity extends Activity {
             count++;
         }
         if (count > 0) {
-            final Runnable[] refreshTask = new Runnable[1];
-            refreshTask[0] = () -> refreshSearchSlots(scroll, list);
+            state.refreshTask = () -> {
+                state.refreshPending = false;
+                refreshSearchSlots(scroll, list);
+            };
             scroll.getViewTreeObserver().addOnScrollChangedListener(() -> {
                 if (list.getTag() instanceof VirtualSearchState) {
                     ((VirtualSearchState) list.getTag()).lastScrollAt = android.os.SystemClock.uptimeMillis();
                 }
-                list.removeCallbacks(refreshTask[0]);
-                list.postDelayed(refreshTask[0], 16);
+                scheduleSearchSlotRefresh(list);
             });
-            list.post(refreshTask[0]);
+            scheduleSearchSlotRefresh(list);
         }
+    }
+
+    private void scheduleSearchSlotRefresh(LinearLayout list) {
+        if (list == null || !(list.getTag() instanceof VirtualSearchState)) {
+            return;
+        }
+        VirtualSearchState state = (VirtualSearchState) list.getTag();
+        if (state.refreshTask == null || state.refreshPending) {
+            return;
+        }
+        state.refreshPending = true;
+        list.post(state.refreshTask);
     }
 
     private void addVirtualSearchSlot(LinearLayout list, VirtualSearchSlot slot) {
@@ -3941,21 +3958,26 @@ public class MainActivity extends Activity {
                 ? (VirtualSearchState) list.getTag() : null;
         boolean scrolling = state != null
                 && android.os.SystemClock.uptimeMillis() - state.lastScrollAt < 180;
-        int top = Math.max(0, scrollY - height * 2);
-        int bottom = scrollY + height * 5;
+        int keepTop = Math.max(0, scrollY - (scrolling ? height * 3 : height * 2));
+        int keepBottom = scrollY + (scrolling ? height * 7 : height * 5);
+        int top = Math.max(0, scrollY - (scrolling ? height : height * 2));
+        int bottom = scrollY + (scrolling ? height * 5 : height * 4);
+        int visibleStart = firstChildWithBottomAtLeast(list, scrollY);
+        int visibleEnd = lastChildWithTopAtMost(list, scrollY + height);
         int start = firstChildWithBottomAtLeast(list, top);
         int end = lastChildWithTopAtMost(list, bottom);
+        int keepStart = firstChildWithBottomAtLeast(list, keepTop);
+        int keepEnd = lastChildWithTopAtMost(list, keepBottom);
         Set<FrameLayout> keep = new LinkedHashSet<>();
-        for (int i = start; i <= end && i < list.getChildCount(); i++) {
-            View child = list.getChildAt(i);
-            Object tag = child.getTag();
-            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualSearchSlot)) {
-                continue;
-            }
-            FrameLayout holder = (FrameLayout) child;
-            VirtualSearchSlot slot = (VirtualSearchSlot) tag;
-            renderSearchSlot(holder, slot);
-            keep.add(holder);
+        collectSearchSlotsInRange(list, keepStart, keepEnd, keep);
+        int[] rendered = {0};
+        boolean[] budgetReached = {false};
+        renderSearchSlotsInRange(scroll, list, visibleStart, visibleEnd, SEARCH_VISIBLE_RENDER_BUDGET,
+                rendered, budgetReached, keep);
+        int budget = scrolling ? SEARCH_SCROLL_RENDER_BUDGET : SEARCH_IDLE_RENDER_BUDGET;
+        renderSearchSlotsInRange(scroll, list, start, end, budget, rendered, budgetReached, keep);
+        if (budgetReached[0]) {
+            scheduleSearchSlotRefresh(list);
         }
         if (!scrolling && state != null && !state.renderedSlots.isEmpty()) {
             for (FrameLayout holder : new ArrayList<>(state.renderedSlots)) {
@@ -3967,6 +3989,52 @@ public class MainActivity extends Activity {
                     recycleSearchSlot(holder, (VirtualSearchSlot) tag);
                 }
             }
+        }
+    }
+
+    private void collectSearchSlotsInRange(ViewGroup list, int start, int end, Set<FrameLayout> keep) {
+        if (list == null || keep == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (child instanceof FrameLayout && tag instanceof VirtualSearchSlot) {
+                keep.add((FrameLayout) child);
+            }
+        }
+    }
+
+    private void renderSearchSlotsInRange(ScrollView scroll, ViewGroup list, int start, int end, int budget,
+                                          int[] rendered, boolean[] budgetReached, Set<FrameLayout> keep) {
+        if (list == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualSearchSlot)) {
+                continue;
+            }
+            FrameLayout holder = (FrameLayout) child;
+            if (keep != null) {
+                keep.add(holder);
+            }
+            VirtualSearchSlot slot = (VirtualSearchSlot) tag;
+            if (slot.rendered) {
+                continue;
+            }
+            if (scroll != null && holder.getBottom() <= scroll.getScrollY()) {
+                continue;
+            }
+            if (rendered[0] >= budget) {
+                budgetReached[0] = true;
+                return;
+            }
+            renderSearchSlot(holder, slot);
+            rendered[0]++;
         }
     }
 
@@ -4559,7 +4627,6 @@ public class MainActivity extends Activity {
             int measured = renderedSlotContentHeight(holder);
             if (measured > 0 && !isSlotFullyAboveViewport(holder, slot.tab)) {
                 slot.height = measured;
-                holder.requestLayout();
             }
             scheduleThreadScrollChromeRefresh(slot.tab, 3);
         });
@@ -4622,9 +4689,8 @@ public class MainActivity extends Activity {
     }
 
     private int estimateAaLineHeight(Post post, PostRenderItem item) {
-        int depth = item == null ? 0 : Math.min(item.depth, 8);
-        int available = getResources().getDisplayMetrics().widthPixels
-                - dp(POST_OUTER_GAP_DP * 2 + 20 + depth * 18);
+        int depth = item == null ? 0 : item.depth;
+        int available = estimatePostTextWidth(depth);
         available = Math.max(dp(80), available);
         float baseSize = aaBaseTextSizePx();
         float longest = post != null && post.cachedAaLongestLineWidthPx > 0f
@@ -4639,6 +4705,12 @@ public class MainActivity extends Activity {
         TextPaint paint = aaMeasurePaint(targetSize);
         Paint.FontMetricsInt metrics = paint.getFontMetricsInt();
         return Math.max(dp(8), metrics.descent - metrics.ascent);
+    }
+
+    private int estimatePostTextWidth(int depth) {
+        int safeDepth = Math.min(Math.max(0, depth), 8);
+        int reservedDp = 24 + POST_OUTER_GAP_DP * 2 + 20 + safeDepth * 18;
+        return Math.max(dp(80), getResources().getDisplayMetrics().widthPixels - dp(reservedDp));
     }
 
     private int bodyLineCount(Post post) {
@@ -6115,6 +6187,10 @@ public class MainActivity extends Activity {
     }
 
     private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post) {
+        return postBodyView(card, page, tab, post, 0);
+    }
+
+    private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post, int depth) {
         Runnable longClick = () -> {
             if (!isPostSwipeBlocked(post)) {
                 showPostActionMenu(card, tab, post);
@@ -6148,18 +6224,21 @@ public class MainActivity extends Activity {
         body.setMovementMethod(LinkMovementMethod.getInstance());
         installLinkTouchTracking(body);
         int[] lastAaWidth = new int[]{0};
+        int estimatedWidth = estimatePostTextWidth(depth);
+        if (estimatedWidth > 0) {
+            lastAaWidth[0] = estimatedWidth;
+            fitAaTextSize(body, post, estimatedWidth);
+        }
         body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             int width = Math.max(0, right - left);
             if (width != lastAaWidth[0]) {
                 lastAaWidth[0] = width;
                 fitAaTextSize(body, post);
-                shrinkAaSlotToContent(body);
             }
         });
         body.post(() -> {
             lastAaWidth[0] = body.getWidth();
             fitAaTextSize(body, post);
-            shrinkAaSlotToContent(body);
         });
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -6246,16 +6325,22 @@ public class MainActivity extends Activity {
 
     private void fitAaTextSize(TextView body, Post post) {
         int available = body.getWidth() - body.getPaddingLeft() - body.getPaddingRight();
+        fitAaTextSize(body, post, available);
+    }
+
+    private void fitAaTextSize(TextView body, Post post, int available) {
         if (available <= 0) {
             return;
         }
         float baseSize = aaBaseTextSizePx();
         if (post != null && post.cachedAaFitWidth == available && post.cachedAaFitTextSizePx > 0f) {
-            applyAaTextSizeIfNeeded(body, post.cachedAaFitTextSizePx);
+            boolean changed = applyAaTextSizeIfNeeded(body, post.cachedAaFitTextSizePx);
             body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
             body.setMinHeight(0);
             body.setMinimumHeight(0);
-            body.requestLayout();
+            if (changed) {
+                body.requestLayout();
+            }
             return;
         }
         body.setTextScaleX(1f);
@@ -6276,47 +6361,12 @@ public class MainActivity extends Activity {
             post.cachedAaFitWidth = available;
             post.cachedAaFitTextSizePx = targetSize;
         }
-        applyAaTextSizeIfNeeded(body, targetSize);
+        boolean changed = applyAaTextSizeIfNeeded(body, targetSize);
         body.setLineSpacing(0, AA_LINE_SPACING_MULTIPLIER);
         body.setMinHeight(0);
         body.setMinimumHeight(0);
-        body.requestLayout();
-    }
-
-    private void shrinkAaSlotToContent(View view) {
-        if (view == null) {
-            return;
-        }
-        view.post(() -> updateRenderedSlotHeight(view));
-        view.postDelayed(() -> updateRenderedSlotHeight(view), 80);
-    }
-
-    private void updateRenderedSlotHeight(View view) {
-        View current = view;
-        while (current != null) {
-            Object tag = current.getTag();
-            if (tag instanceof VirtualPostSlot) {
-                FrameLayout holder = current instanceof FrameLayout ? (FrameLayout) current : null;
-                VirtualPostSlot slot = (VirtualPostSlot) tag;
-                if (holder != null && slot.rendered) {
-                    if (isSlotFullyAboveViewport(holder, slot.tab)) {
-                        return;
-                    }
-                    holder.setMinimumHeight(0);
-                    int measured = renderedSlotContentHeight(holder);
-                    if (measured > 0) {
-                        slot.height = measured;
-                    }
-                    holder.requestLayout();
-                    if (holder.getParent() instanceof View) {
-                        ((View) holder.getParent()).requestLayout();
-                    }
-                    scheduleThreadScrollChromeRefresh(slot.tab, 3);
-                }
-                return;
-            }
-            ViewParent parent = current.getParent();
-            current = parent instanceof View ? (View) parent : null;
+        if (changed) {
+            body.requestLayout();
         }
     }
 
@@ -6342,10 +6392,12 @@ public class MainActivity extends Activity {
         return childHeight > 0 ? childHeight : holder.getHeight();
     }
 
-    private void applyAaTextSizeIfNeeded(TextView body, float textSizePx) {
+    private boolean applyAaTextSizeIfNeeded(TextView body, float textSizePx) {
         if (Math.abs(body.getTextSize() - textSizePx) > 0.5f) {
             body.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx);
+            return true;
         }
+        return false;
     }
 
     private float aaBaseTextSizePx() {
@@ -13267,6 +13319,8 @@ public class MainActivity extends Activity {
 
     private static class VirtualSearchState {
         final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
+        Runnable refreshTask;
+        boolean refreshPending;
         long lastScrollAt;
     }
 
