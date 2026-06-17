@@ -2596,11 +2596,25 @@ public class MainActivity extends Activity {
         if (!pendingNewTab || newTabNavigationIndex < 0 || newTabNavigationIndex >= newTabNavigationHistory.size()) {
             return null;
         }
-        String page = newTabNavigationHistory.get(newTabNavigationIndex);
-        if (page != null && !"home".equals(page)) {
-            return INTERNAL_URL_PREFIX + "newtab/" + encodeNewTabToken(page);
+        if (newTabNavigationIndex > 0) {
+            return INTERNAL_URL_PREFIX + "newtab-history/" + encodeNewTabToken(newTabHistorySnapshot());
         }
         return null;
+    }
+
+    private String newTabHistorySnapshot() {
+        try {
+            JSONObject root = new JSONObject();
+            JSONArray pages = new JSONArray();
+            for (String page : newTabNavigationHistory) {
+                pages.put(page == null ? "" : page);
+            }
+            root.put("pages", pages);
+            root.put("index", newTabNavigationIndex);
+            return root.toString();
+        } catch (Exception error) {
+            return "";
+        }
     }
 
     private String internalPageTitle(String url) {
@@ -2615,6 +2629,11 @@ public class MainActivity extends Activity {
         }
         if (url.startsWith(INTERNAL_URL_PREFIX + "newtab/")) {
             return pendingNewTabPageTitle(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length())));
+        }
+        if (url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/")) {
+            List<String> pages = decodeNewTabHistoryPages(url);
+            int index = decodeNewTabHistoryIndex(url, pages);
+            return pendingNewTabPageTitle(pages.isEmpty() ? "home" : pages.get(Math.max(0, Math.min(index, pages.size() - 1))));
         }
         return text("\u30bf\u30d6", "Tab");
     }
@@ -11296,10 +11315,14 @@ public class MainActivity extends Activity {
     }
 
     private boolean restorePendingNewTabFromInternalUrl(CuspTab tab, String url) {
-        if (url == null || !url.startsWith(INTERNAL_URL_PREFIX + "newtab/")) {
+        if (url == null || (!url.startsWith(INTERNAL_URL_PREFIX + "newtab/")
+                && !url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/"))) {
             return false;
         }
-        String page = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length()));
+        boolean historyUrl = url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/");
+        String page = historyUrl ? null : decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab/").length()));
+        List<String> pages = historyUrl ? decodeNewTabHistoryPages(url) : new ArrayList<>();
+        int restoredIndex = historyUrl ? decodeNewTabHistoryIndex(url, pages) : -1;
         int removeIndex = tabs.indexOf(tab);
         if (removeIndex >= 0) {
             tabs.remove(removeIndex);
@@ -11311,20 +11334,60 @@ public class MainActivity extends Activity {
         }
         pendingNewTab = true;
         pendingPrivateNewTab = isPrivateTab(tab);
-        pendingHistoryAll = "history".equals(page);
         tabOverviewVisible = false;
         newTabNavigationHistory.clear();
-        newTabNavigationHistory.add("home");
-        if (page != null && !page.isEmpty() && !"home".equals(page)) {
-            newTabNavigationHistory.add(page);
-            newTabNavigationIndex = 1;
+        if (!pages.isEmpty()) {
+            newTabNavigationHistory.addAll(pages);
+            newTabNavigationIndex = Math.max(0, Math.min(restoredIndex, newTabNavigationHistory.size() - 1));
         } else {
-            newTabNavigationIndex = 0;
+            newTabNavigationHistory.add("home");
+            if (page != null && !page.isEmpty() && !"home".equals(page)) {
+                newTabNavigationHistory.add(page);
+                newTabNavigationIndex = 1;
+            } else {
+                newTabNavigationIndex = 0;
+            }
         }
+        String currentPage = newTabNavigationHistory.get(newTabNavigationIndex);
+        pendingHistoryAll = "history".equals(currentPage);
         contentFrame.removeAllViews();
-        renderNewTabPage(newTabNavigationHistory.get(newTabNavigationIndex), false);
+        renderNewTabPage(currentPage, false);
         requestSaveTabsSoon();
         return true;
+    }
+
+    private List<String> decodeNewTabHistoryPages(String url) {
+        List<String> pages = new ArrayList<>();
+        try {
+            String json = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab-history/").length()));
+            JSONObject root = new JSONObject(json);
+            JSONArray array = root.optJSONArray("pages");
+            if (array != null) {
+                for (int i = 0; i < array.length(); i++) {
+                    String page = array.optString(i, "");
+                    if (!page.isEmpty()) {
+                        pages.add(page);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        if (pages.isEmpty()) {
+            pages.add("home");
+        } else if (!"home".equals(pages.get(0))) {
+            pages.add(0, "home");
+        }
+        return pages;
+    }
+
+    private int decodeNewTabHistoryIndex(String url, List<String> pages) {
+        try {
+            String json = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "newtab-history/").length()));
+            JSONObject root = new JSONObject(json);
+            return Math.max(0, Math.min(root.optInt("index", pages.size() - 1), pages.size() - 1));
+        } catch (Exception ignored) {
+            return Math.max(0, pages.size() - 1);
+        }
     }
 
     private boolean canGoBackInCurrentTab(CuspTab tab) {
@@ -14121,7 +14184,7 @@ public class MainActivity extends Activity {
             if (hasReplies) {
                 float childTrunkX = connectorX(depth + 1);
                 float cardBottomY = Math.max(branchY, getHeight() - cardBottomGap);
-                float startY = Math.max(branchY, Math.min(getHeight(), cardBottomY + paint.getStrokeWidth() * 0.75f));
+                float startY = Math.max(branchY, Math.min(getHeight(), cardBottomY - paint.getStrokeWidth() * 0.75f));
                 canvas.drawLine(childTrunkX, startY, childTrunkX, getHeight(), paint);
             }
         }
