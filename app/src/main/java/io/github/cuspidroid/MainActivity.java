@@ -9117,6 +9117,9 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(8), dp(18), 0);
         root.addView(helperLine(text("Imgur API\u306eClient ID\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u533f\u540d\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306b\u5fc5\u8981\u3067\u3059\u3002",
                 "Enter an Imgur API Client ID. It is required for anonymous uploads.")));
+        TextView help = actionRow(text("Client ID\u306e\u53d6\u5f97\u65b9\u6cd5", "How to get a Client ID"));
+        help.setOnClickListener(v -> showImgurClientIdHelp());
+        root.addView(help);
         root.addView(input, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -9140,6 +9143,33 @@ public class MainActivity extends Activity {
                 }
             });
         });
+        dialog.show();
+    }
+
+    private void showImgurClientIdHelp() {
+        String message = text(
+                "1. Imgur\u306b\u30ed\u30b0\u30a4\u30f3\u3057\u307e\u3059\u3002\n"
+                        + "2. Imgur API\u306e\u30a2\u30d7\u30ea\u767b\u9332\u30da\u30fc\u30b8\u3092\u958b\u304d\u307e\u3059\u3002\n"
+                        + "3. \u30a2\u30d7\u30ea\u540d\u306f CuspiDroid \u306a\u3069\u4efb\u610f\u306e\u540d\u524d\u306b\u3057\u307e\u3059\u3002\n"
+                        + "4. Authorization type \u306f Anonymous usage without user authorization \u3092\u9078\u3073\u307e\u3059\u3002\n"
+                        + "5. \u5fc5\u8981\u9805\u76ee\u3092\u5165\u529b\u3057\u3066\u767b\u9332\u3057\u3001\u8868\u793a\u3055\u308c\u305f Client ID \u3092\u3053\u3053\u306b\u5165\u529b\u3057\u307e\u3059\u3002\n\n"
+                        + "\u767b\u9332\u30da\u30fc\u30b8\u304c\u958b\u3051\u306a\u3044\u5834\u5408\u306f\u3001Imgur\u5074\u3067API\u767b\u9332\u304c\u4e00\u6642\u7684\u306b\u5229\u7528\u3067\u304d\u306a\u3044\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002",
+                "1. Sign in to Imgur.\n"
+                        + "2. Open the Imgur API application registration page.\n"
+                        + "3. Use any application name, such as CuspiDroid.\n"
+                        + "4. Choose Anonymous usage without user authorization as the authorization type.\n"
+                        + "5. Fill in the required fields, register the app, and enter the displayed Client ID here.\n\n"
+                        + "If the registration page does not open, Imgur API registration may be temporarily unavailable on Imgur's side.");
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("Imgur Client ID\u306e\u53d6\u5f97\u65b9\u6cd5", "How to get an Imgur Client ID"))
+                .setMessage(message)
+                .setNegativeButton(text("\u9589\u3058\u308b", "Close"), null)
+                .setPositiveButton(text("\u767b\u9332\u30da\u30fc\u30b8\u3092\u958b\u304f", "Open registration page"),
+                        (d, which) -> openExternal("https://api.imgur.com/oauth2/addclient"))
+                .setNeutralButton(text("API\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8", "API docs"),
+                        (d, which) -> openExternal("https://apidocs.imgur.com/"))
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
         dialog.show();
     }
 
