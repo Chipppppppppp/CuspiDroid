@@ -6287,18 +6287,17 @@ public class MainActivity extends Activity {
         }
         String value = body.replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = value.split("\\n", -1);
-        int leadingMarkerLines = 0;
+        int candidateLines = 0;
         int targetChars = 0;
         int specialChars = 0;
         for (String line : lines) {
             if (line.isEmpty()) {
                 continue;
             }
-            int first = line.codePointAt(0);
-            if (!isAaSpecialChar(first)) {
+            if (!isAaCandidateLine(line)) {
                 continue;
             }
-            leadingMarkerLines++;
+            candidateLines++;
             for (int i = 0; i < line.length(); ) {
                 int codePoint = line.codePointAt(i);
                 targetChars++;
@@ -6308,17 +6307,39 @@ public class MainActivity extends Activity {
                 i += Character.charCount(codePoint);
             }
         }
+        if (candidateLines < 3) {
+            return new AaDebugMetrics(false, "candidate-lines<3", candidateLines,
+                    targetChars, specialChars, 0f);
+        }
         if (targetChars <= 0) {
-            return new AaDebugMetrics(false, "no-special-leading-lines", leadingMarkerLines,
+            return new AaDebugMetrics(false, "no-candidate-chars", candidateLines,
                     targetChars, specialChars, 0f);
         }
         float ratio = specialChars / (float) targetChars;
         boolean aa = ratio > AA_SPECIAL_CHAR_RATIO_THRESHOLD;
         return new AaDebugMetrics(aa, aa ? "special-char-ratio" : "below",
-                leadingMarkerLines, targetChars, specialChars, ratio);
+                candidateLines, targetChars, specialChars, ratio);
     }
 
-    private static boolean isAaSpecialChar(int codePoint) {
+    private static boolean isAaCandidateLine(String line) {
+        int first = line.codePointAt(0);
+        if (isAaSpaceChar(first) || first == '.' || first == '\uff0e') {
+            return true;
+        }
+        boolean previousSpace = false;
+        for (int i = 0; i < line.length(); ) {
+            int codePoint = line.codePointAt(i);
+            boolean currentSpace = isAaSpaceChar(codePoint);
+            if (previousSpace && currentSpace) {
+                return true;
+            }
+            previousSpace = currentSpace;
+            i += Character.charCount(codePoint);
+        }
+        return false;
+    }
+
+    private static boolean isAaSpaceChar(int codePoint) {
         if (Character.isWhitespace(codePoint)) {
             return true;
         }
@@ -6326,6 +6347,17 @@ public class MainActivity extends Activity {
             case Character.SPACE_SEPARATOR:
             case Character.LINE_SEPARATOR:
             case Character.PARAGRAPH_SEPARATOR:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static boolean isAaSpecialChar(int codePoint) {
+        if (isAaSpaceChar(codePoint)) {
+            return true;
+        }
+        switch (Character.getType(codePoint)) {
             case Character.CONNECTOR_PUNCTUATION:
             case Character.DASH_PUNCTUATION:
             case Character.START_PUNCTUATION:
@@ -12721,16 +12753,16 @@ public class MainActivity extends Activity {
     private static class AaDebugMetrics {
         final boolean aa;
         final String reason;
-        final int leadingMarkerLines;
+        final int candidateLines;
         final int targetChars;
         final int specialChars;
         final float ratio;
 
-        AaDebugMetrics(boolean aa, String reason, int leadingMarkerLines,
+        AaDebugMetrics(boolean aa, String reason, int candidateLines,
                        int targetChars, int specialChars, float ratio) {
             this.aa = aa;
             this.reason = reason;
-            this.leadingMarkerLines = leadingMarkerLines;
+            this.candidateLines = candidateLines;
             this.targetChars = targetChars;
             this.specialChars = specialChars;
             this.ratio = ratio;
@@ -12738,8 +12770,8 @@ public class MainActivity extends Activity {
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) special-leading-lines=%d special-chars=%d target-chars=%d %.1f%% | threshold: special-chars>%.0f%%",
-                    aa ? "YES" : "NO", reason, leadingMarkerLines,
+                    "AA debug: %s (%s) candidate-lines=%d special-chars=%d target-chars=%d %.1f%% | threshold: candidate-lines>=3 & special-chars>%.0f%%",
+                    aa ? "YES" : "NO", reason, candidateLines,
                     specialChars, targetChars, ratio * 100f,
                     AA_SPECIAL_CHAR_RATIO_THRESHOLD * 100f);
         }
