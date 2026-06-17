@@ -13226,7 +13226,7 @@ public class MainActivity extends Activity {
             if (hasReplies) {
                 float childTrunkX = connectorX(depth + 1);
                 float cardBottomY = Math.max(branchY, getHeight() - cardBottomGap);
-                float startY = Math.min(getHeight(), cardBottomY + paint.getStrokeWidth() / 2f);
+                float startY = Math.max(branchY, cardBottomY - paint.getStrokeWidth());
                 canvas.drawLine(childTrunkX, startY, childTrunkX, getHeight(), paint);
             }
         }
