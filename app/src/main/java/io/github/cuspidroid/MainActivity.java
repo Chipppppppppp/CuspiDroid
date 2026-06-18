@@ -208,6 +208,9 @@ public class MainActivity extends Activity {
     private static final int THREAD_SCROLL_RENDER_BUDGET = 6;
     private static final int THREAD_AA_RENDER_COST = 4;
     private static final int THREAD_MEDIA_RENDER_COST = 2;
+    private static final int POPUP_INITIAL_RENDER_COUNT = 1;
+    private static final int POPUP_RENDER_CHUNK_SIZE = 1;
+    private static final int DEFERRED_TEXT_DECORATION_BUDGET = 4;
     private static final int SEARCH_VISIBLE_RENDER_BUDGET = 24;
     private static final int SEARCH_SCROLL_RENDER_BUDGET = 48;
     private static final int SEARCH_IDLE_RENDER_BUDGET = 96;
@@ -6701,8 +6704,7 @@ public class MainActivity extends Activity {
         }
         TextView body = new TextView(this);
         String aaBody = aaDisplayBody(post);
-        SpannableString aaText = decoratedPostText(aaBody, page, tab.threadSearchQuery);
-        body.setText(aaText);
+        body.setText(aaBody);
         body.setTextColor(textColor());
         body.setTextSize(POST_TEXT_SIZE_SP);
         applyAaTypeface(body);
@@ -6721,8 +6723,11 @@ public class MainActivity extends Activity {
             longClick.run();
             return true;
         });
-        body.setMovementMethod(LinkMovementMethod.getInstance());
-        installLinkTouchTracking(body);
+        if (tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
+            decoratePostTextNow(body, aaBody, page, tab.threadSearchQuery);
+        } else {
+            deferPostTextDecoration(body, aaBody, page, null);
+        }
         int[] lastAaWidth = new int[]{0};
         int estimatedWidth = estimatePostTextWidth(depth);
         if (estimatedWidth > 0) {
@@ -6878,6 +6883,10 @@ public class MainActivity extends Activity {
             return holder.getHeight();
         }
         View child = holder.getChildAt(0);
+        int childHeight = child.getHeight();
+        if (childHeight > 0) {
+            return childHeight;
+        }
         int width = holder.getWidth();
         if (width > 0) {
             child.measure(
@@ -6888,7 +6897,6 @@ public class MainActivity extends Activity {
                 return measured;
             }
         }
-        int childHeight = child.getHeight();
         return childHeight > 0 ? childHeight : holder.getHeight();
     }
 
@@ -7296,22 +7304,41 @@ public class MainActivity extends Activity {
                 deferredTextDecorations.remove(i);
             }
         }
-        int decorated = 0;
+        int usedBudget = 0;
         for (DeferredTextDecoration decoration : new ArrayList<>(deferredTextDecorations)) {
             if (decoration.decorated || !isNearViewport(decoration.text)) {
                 continue;
             }
+            int cost = deferredTextDecorationCost(decoration.value);
+            if (usedBudget > 0 && usedBudget + cost > DEFERRED_TEXT_DECORATION_BUDGET) {
+                break;
+            }
             decoration.decorated = true;
             decoratePostTextNow(decoration.text, decoration.value, decoration.page, decoration.highlight);
             deferredTextDecorations.remove(decoration);
-            decorated++;
-            if (decorated >= 4) {
+            usedBudget += cost;
+            if (usedBudget >= DEFERRED_TEXT_DECORATION_BUDGET) {
                 break;
             }
         }
-        if (decorated > 0 && !deferredTextDecorations.isEmpty()) {
+        if (usedBudget > 0 && !deferredTextDecorations.isEmpty()) {
             scheduleDeferredTextDecorations();
         }
+    }
+
+    private int deferredTextDecorationCost(String value) {
+        if (value == null || value.isEmpty()) {
+            return 1;
+        }
+        int cost = 1;
+        int lines = bodyLineCount(value);
+        if (maybeHeavyAaBody(value) || value.length() > 1000 || lines > 16) {
+            cost += 2;
+        }
+        if (value.length() > 3000 || lines > 45) {
+            cost += 2;
+        }
+        return Math.min(DEFERRED_TEXT_DECORATION_BUDGET, cost);
     }
 
     private void scheduleDeferredMediaLoads() {
@@ -8686,12 +8713,6 @@ public class MainActivity extends Activity {
         }
         popupRoot.addView(popupScroll, scrollParams);
 
-        for (int i = 0; i < targets.size(); i++) {
-            Post post = targets.get(i);
-            popupPosts.addView(popupPostCard(page, post, !jumpEachPost),
-                    popupPostParams(jumpEachPost, i == targets.size() - 1));
-        }
-
         int[] anchorLocation = new int[2];
         anchor.getLocationOnScreen(anchorLocation);
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
@@ -8716,12 +8737,21 @@ public class MainActivity extends Activity {
         int measuredContentWidth = jumpEachPost
                 ? postCardWidth
                 : postCardWidth + popupCardInset * 2;
+        boolean incremental = shouldRenderPopupIncrementally(targets);
+        int initialCount = incremental
+                ? Math.min(POPUP_INITIAL_RENDER_COUNT, targets.size())
+                : targets.size();
+        addPopupPosts(popupPosts, page, targets, jumpEachPost, 0, initialCount);
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(Math.max(dp(120), measuredContentWidth), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int desiredHeight = popupPosts.getMeasuredHeight()
                 + (jumpEachPost ? popupFrameInset * 2 : popupRootGap * 2);
-        boolean popupScrollable = desiredHeight > maxHeight;
+        boolean hasDeferredPopupPosts = incremental && initialCount < targets.size();
+        if (hasDeferredPopupPosts) {
+            desiredHeight = Math.max(desiredHeight, maxHeight);
+        }
+        boolean popupScrollable = hasDeferredPopupPosts || desiredHeight > maxHeight;
         int popupHeight = Math.max(dp(40), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(popupScrollable);
         popupScroll.setOverScrollMode(popupScrollable ? View.OVER_SCROLL_IF_CONTENT_SCROLLS : View.OVER_SCROLL_NEVER);
@@ -8737,7 +8767,65 @@ public class MainActivity extends Activity {
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
         animatePopupIn(popup, true);
-        mainHandler.postDelayed(() -> postPopupOpening = false, 300);
+        if (initialCount < targets.size()) {
+            mainHandler.postDelayed(() -> appendPopupPostsChunk(popup, popupPosts, page, targets,
+                    jumpEachPost, initialCount, generation), 16);
+        }
+        mainHandler.postDelayed(() -> {
+            if (generation == postPopupGeneration) {
+                postPopupOpening = false;
+            }
+        }, 300);
+    }
+
+    private boolean shouldRenderPopupIncrementally(List<Post> targets) {
+        if (targets == null || targets.size() <= POPUP_INITIAL_RENDER_COUNT) {
+            return false;
+        }
+        if (targets.size() > 3) {
+            return true;
+        }
+        for (Post post : targets) {
+            if (isHeavyTextPost(post)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isHeavyTextPost(Post post) {
+        if (post == null || post.body == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(post.cachedLikelyAa) || post.aaMode || maybeHeavyAaBody(post.body)) {
+            return true;
+        }
+        return post.body.length() > 1200 || bodyLineCount(post) > 24;
+    }
+
+    private void addPopupPosts(LinearLayout popupPosts, ThreadPage page, List<Post> targets,
+                               boolean jumpEachPost, int start, int end) {
+        int safeStart = Math.max(0, start);
+        int safeEnd = Math.min(targets == null ? 0 : targets.size(), end);
+        for (int i = safeStart; i < safeEnd; i++) {
+            Post post = targets.get(i);
+            popupPosts.addView(popupPostCard(page, post, !jumpEachPost),
+                    popupPostParams(jumpEachPost, i == targets.size() - 1));
+        }
+    }
+
+    private void appendPopupPostsChunk(PopupWindow popup, LinearLayout popupPosts, ThreadPage page,
+                                       List<Post> targets, boolean jumpEachPost, int start, int generation) {
+        if (popup == null || !popup.isShowing() || popupPosts == null
+                || targets == null || generation != postPopupGeneration) {
+            return;
+        }
+        int end = Math.min(targets.size(), start + POPUP_RENDER_CHUNK_SIZE);
+        addPopupPosts(popupPosts, page, targets, jumpEachPost, start, end);
+        if (end < targets.size()) {
+            mainHandler.postDelayed(() -> appendPopupPostsChunk(popup, popupPosts, page, targets,
+                    jumpEachPost, end, generation), 16);
+        }
     }
 
     private View popupPostCard(ThreadPage page, Post post, boolean showFrame) {
