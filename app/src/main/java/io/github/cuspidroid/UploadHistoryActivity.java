@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -12,6 +13,7 @@ import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -28,11 +30,14 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.text.DateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -153,8 +158,9 @@ public class UploadHistoryActivity extends Activity {
 
         ImageView thumbnail = new ImageView(this);
         thumbnail.setBackground(thumbnailBackground());
-        thumbnail.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(dp(76), dp(76));
+        thumbnail.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int mediaSize = dp(108);
+        LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(mediaSize, mediaSize);
         thumbParams.setMargins(0, 0, dp(10), 0);
         row.addView(thumbnail, thumbParams);
         loadThumbnail(thumbnail, item.optString("url", ""));
@@ -162,6 +168,13 @@ public class UploadHistoryActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         row.addView(content, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        ImageButton historyDelete = iconButton(R.drawable.ic_close, MainActivity.text("履歴から削除", "Delete history"));
+        historyDelete.setColorFilter(mutedColor());
+        historyDelete.setOnClickListener(v -> confirmHistoryDelete(index));
+        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(38), dp(38));
+        deleteParams.setMargins(dp(6), 0, 0, 0);
+        row.addView(historyDelete, deleteParams);
 
         TextView name = new TextView(this);
         name.setText(item.optString("name", MainActivity.text("画像", "Image")));
@@ -176,6 +189,7 @@ public class UploadHistoryActivity extends Activity {
 
         TextView url = helperText(item.optString("url", ""));
         url.setTextColor(Theme.accent(this));
+        url.setOnClickListener(v -> openUrl(item.optString("url", "")));
         content.addView(url);
 
         LinearLayout actions = new LinearLayout(this);
@@ -193,10 +207,6 @@ public class UploadHistoryActivity extends Activity {
         TextView remoteDelete = actionButton(MainActivity.text("ImgBBから削除", "Delete from ImgBB"), R.drawable.ic_delete, Color.rgb(190, 50, 50));
         remoteDelete.setOnClickListener(v -> confirmRemoteDelete(item));
         actions.addView(remoteDelete, buttonParams());
-
-        TextView historyDelete = actionButton(MainActivity.text("履歴から削除", "Delete history"), R.drawable.ic_close, mutedColor());
-        historyDelete.setOnClickListener(v -> confirmHistoryDelete(index));
-        actions.addView(historyDelete, buttonParams());
 
         return row;
     }
@@ -217,7 +227,7 @@ public class UploadHistoryActivity extends Activity {
                     Toast.makeText(this, MainActivity.text("ImgBBから削除中...", "Deleting from ImgBB..."), Toast.LENGTH_SHORT).show();
                     executor.execute(() -> {
                         try {
-                            deleteFromImgbb(deleteUrl);
+                            deleteFromImgbb(deleteUrl, item.optString("url", ""));
                             runOnUiThread(() -> Toast.makeText(this,
                                     MainActivity.text("ImgBBから削除しました。", "Deleted from ImgBB."),
                                     Toast.LENGTH_SHORT).show());
@@ -250,6 +260,17 @@ public class UploadHistoryActivity extends Activity {
         if (clipboard != null) {
             clipboard.setPrimaryClip(ClipData.newPlainText("ImgBB URL", value));
             Toast.makeText(this, MainActivity.text("URLをコピーしました。", "URL copied."), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openUrl(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return;
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(value)));
+        } catch (Exception exception) {
+            Toast.makeText(this, MainActivity.text("リンクを開けません。", "Cannot open link."), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -297,26 +318,178 @@ public class UploadHistoryActivity extends Activity {
         return output.toByteArray();
     }
 
-    private void deleteFromImgbb(String deleteUrl) throws Exception {
+    private void deleteFromImgbb(String deleteUrl, String imageUrl) throws Exception {
+        Exception lastError = null;
+        try {
+            requestDeleteUrl(deleteUrl, "DELETE", null);
+            if (isDeletedFromRemote(imageUrl)) {
+                return;
+            }
+        } catch (Exception exception) {
+            lastError = exception;
+        }
+        try {
+            postJsonDelete(deleteUrl);
+            if (isDeletedFromRemote(imageUrl)) {
+                return;
+            }
+        } catch (Exception exception) {
+            lastError = exception;
+        }
+        throw new IllegalStateException(lastError == null
+                ? MainActivity.text("削除後も画像が残っています。", "The image still exists after deletion.")
+                : lastError.getMessage());
+    }
+
+    private String requestDeleteUrl(String deleteUrl, String method, String cookie) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(deleteUrl).openConnection();
-        connection.setRequestMethod("GET");
+        connection.setRequestMethod(method);
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(30000);
         connection.setInstanceFollowRedirects(true);
         connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
         connection.setRequestProperty("Referer", "https://ibb.co/");
         connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        if (cookie != null && !cookie.isEmpty()) {
+            connection.setRequestProperty("Cookie", cookie);
+        }
 
         int code = connection.getResponseCode();
         InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = "";
         if (stream != null) {
-            readLimited(stream, 512 * 1024);
+            response = new String(readLimited(stream, 512 * 1024), UTF8);
             stream.close();
         }
         connection.disconnect();
         if (code >= 400) {
             throw new IllegalStateException("HTTP " + code);
         }
+        return response;
+    }
+
+    private void postJsonDelete(String deleteUrl) throws Exception {
+        Uri uri = Uri.parse(deleteUrl);
+        List<String> segments = uri.getPathSegments();
+        if (segments.size() < 2) {
+            throw new IllegalArgumentException(MainActivity.text("削除URLを解析できません。", "Could not parse delete URL."));
+        }
+        String imageId = segments.get(0);
+        String imageHash = segments.get(1);
+        String pathname = "/" + imageId + "/" + imageHash;
+        String cookie = collectCookies(deleteUrl);
+        String boundary = "----CuspiDroidImgBBDelete" + System.currentTimeMillis();
+
+        HttpURLConnection connection = (HttpURLConnection) new URL("https://ibb.co/json").openConnection();
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(30000);
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        connection.setRequestProperty("Accept", "application/json, text/plain, */*");
+        connection.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        connection.setRequestProperty("Origin", "https://ibb.co");
+        connection.setRequestProperty("Referer", deleteUrl);
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
+        if (!cookie.isEmpty()) {
+            connection.setRequestProperty("Cookie", cookie);
+        }
+
+        try (OutputStream output = connection.getOutputStream()) {
+            writeMultipartField(output, boundary, "pathname", pathname);
+            writeMultipartField(output, boundary, "action", "delete");
+            writeMultipartField(output, boundary, "delete", "image");
+            writeMultipartField(output, boundary, "from", "resource");
+            writeMultipartField(output, boundary, "deleting[id]", imageId);
+            writeMultipartField(output, boundary, "deleting[hash]", imageHash);
+            output.write(("--" + boundary + "--\r\n").getBytes(UTF8));
+        }
+
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = stream == null ? "" : new String(readLimited(stream, 512 * 1024), UTF8);
+        if (stream != null) {
+            stream.close();
+        }
+        connection.disconnect();
+        if (code >= 400 || response.contains("\"error\"")) {
+            throw new IllegalStateException("HTTP " + code);
+        }
+    }
+
+    private String collectCookies(String deleteUrl) {
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(deleteUrl).openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
+            connection.getResponseCode();
+            List<String> cookies = new ArrayList<>();
+            for (String value : connection.getHeaderFields().getOrDefault("Set-Cookie", new ArrayList<>())) {
+                int semicolon = value.indexOf(';');
+                cookies.add(semicolon >= 0 ? value.substring(0, semicolon) : value);
+            }
+            connection.disconnect();
+            return String.join("; ", cookies);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private boolean isDeletedFromRemote(String imageUrl) {
+        if (imageUrl == null || imageUrl.trim().isEmpty()) {
+            return true;
+        }
+        try {
+            Thread.sleep(1200);
+            HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
+            connection.setRequestMethod("HEAD");
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
+            int code = connection.getResponseCode();
+            connection.disconnect();
+            if (code == 404 || code == 410) {
+                return true;
+            }
+            if (code == 405) {
+                return isDeletedByGet(imageUrl);
+            }
+            return false;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isDeletedByGet(String imageUrl) {
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
+            int code = connection.getResponseCode();
+            InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (stream != null) {
+                readLimited(stream, 64 * 1024);
+                stream.close();
+            }
+            connection.disconnect();
+            return code == 404 || code == 410;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void writeMultipartField(OutputStream output, String boundary, String name, String value) throws Exception {
+        output.write(("--" + boundary + "\r\n").getBytes(UTF8));
+        output.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(UTF8));
+        output.write((value == null ? "" : value).getBytes(UTF8));
+        output.write("\r\n".getBytes(UTF8));
     }
 
     private JSONArray readUploads() {

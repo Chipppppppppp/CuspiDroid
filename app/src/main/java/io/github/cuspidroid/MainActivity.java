@@ -1569,9 +1569,13 @@ public class MainActivity extends Activity {
     }
 
     private GradientDrawable roundedDrawable(int fill, int stroke, int radius) {
+        return roundedDrawable(fill, stroke, radius, dp(1));
+    }
+
+    private GradientDrawable roundedDrawable(int fill, int stroke, int radius, int strokeWidth) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(fill);
-        drawable.setStroke(dp(1), stroke);
+        drawable.setStroke(strokeWidth, stroke);
         drawable.setCornerRadius(radius);
         return drawable;
     }
@@ -8658,7 +8662,7 @@ public class MainActivity extends Activity {
         popupScroll.setScrollbarFadingEnabled(true);
         if (jumpEachPost) {
             popupScroll.setPadding(popupFrameInset, popupFrameInset, popupFrameInset, popupFrameInset);
-            popupScroll.setBackground(roundedDrawable(menuColor(), TEAL, dp(12)));
+            popupScroll.setBackground(roundedDrawable(menuColor(), TEAL, dp(12), dp(2)));
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 popupScroll.setClipToOutline(true);
             }
