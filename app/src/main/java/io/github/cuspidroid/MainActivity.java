@@ -1786,6 +1786,7 @@ public class MainActivity extends Activity {
                 tab.knownPostCount = item.optInt("knownPostCount", 0);
                 tab.cachedUnreadCount = item.optInt("cachedUnreadCount", 0);
                 tab.hasThreadStats = item.optBoolean("hasThreadStats", tab.knownMaxPostNumber > 0);
+                tab.knownThreadArchived = item.optBoolean("knownThreadArchived", false);
                 restoreNavigationHistory(tab, item);
                 tab.readerMode = tab.nativeKind != null || url.isEmpty();
                 tab.readerView = loadingView("");
@@ -1946,6 +1947,7 @@ public class MainActivity extends Activity {
                 item.put("knownPostCount", tab.knownPostCount);
                 item.put("cachedUnreadCount", tab.cachedUnreadCount);
                 item.put("hasThreadStats", tab.hasThreadStats);
+                item.put("knownThreadArchived", tab.knownThreadArchived);
                 item.put("navigationIndex", tab.navigationIndex);
                 JSONArray history = new JSONArray();
                 for (String historyUrl : tab.navigationHistory) {
@@ -2507,7 +2509,12 @@ public class MainActivity extends Activity {
     private void setThreadTitleText(TextView view, ThreadPage page, String fallback) {
         String title = page != null && page.title != null && !page.title.trim().isEmpty()
                 ? page.title : (fallback == null || fallback.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : fallback);
-        if (page == null || !page.archived) {
+        setThreadTitleText(view, title, page != null && page.archived);
+    }
+
+    private void setThreadTitleText(TextView view, String title, boolean archived) {
+        title = title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title.trim();
+        if (!archived) {
             view.setText(title);
             return;
         }
@@ -2792,6 +2799,7 @@ public class MainActivity extends Activity {
                         && sameRenderedThread(cached, result)
                         && tab.readerView != null && tab.threadPage == cached) {
                     tab.title = result.title;
+                    applyThreadPageMetadata(cached, result);
                     tab.threadPage = cached;
                     tab.readPostNumber = readPostNumberForTab(tab, result.url);
                     updateTabThreadStats(tab, cached);
@@ -2860,6 +2868,9 @@ public class MainActivity extends Activity {
         if (!TextUtils.equals(a.title, b.title)) {
             return false;
         }
+        if (a.archived != b.archived) {
+            return false;
+        }
         if (a.posts.isEmpty()) {
             return true;
         }
@@ -2869,6 +2880,16 @@ public class MainActivity extends Activity {
                 && TextUtils.equals(lastA.body, lastB.body)
                 && TextUtils.equals(lastA.date, lastB.date)
                 && TextUtils.equals(lastA.id(), lastB.id());
+    }
+
+    private void updateThreadTitleHeader(CuspTab tab, ThreadPage page) {
+        if (tab == null || page == null || tab.threadList == null || tab.threadList.getChildCount() == 0) {
+            return;
+        }
+        View title = tab.threadList.getChildAt(0);
+        if (title instanceof TextView) {
+            setThreadTitleText((TextView) title, page, page.title);
+        }
     }
 
     private void refreshThreadFromBottom(CuspTab tab) {
@@ -2925,7 +2946,7 @@ public class MainActivity extends Activity {
                 if (centerSpinner) {
                     hideCenterSpinner();
                 }
-                if (tab.threadPage != null && tab.threadPage.archived) {
+                if ((tab.threadPage != null && tab.threadPage.archived) || tab.knownThreadArchived) {
                     result.archived = true;
                 }
                 if (tab.threadBottomLoader != null) {
@@ -2942,7 +2963,9 @@ public class MainActivity extends Activity {
                         ? Math.max(0, result.posts.size() - result.newPostCount)
                         : (tab.threadPage == null ? 0 : tab.threadPage.posts.size());
                 if (oldCount <= 0 || tab.threadList == null || tab.postViews == null) {
+                    tab.title = result.title;
                     tab.threadPage = result;
+                    updateThreadTitleHeader(tab, result);
                     tab.readPostNumber = readPostNumberForTab(tab, result.url);
                     updateTabThreadStats(tab, result);
                     tab.postViews = new LinkedHashMap<>();
@@ -2957,19 +2980,25 @@ public class MainActivity extends Activity {
                             scrollCurrentThreadToBottom();
                         }
                     }
+                    renderTabs();
                     if (onComplete != null) {
                         onComplete.run();
                     }
                     return;
                 }
                 if (result.posts.size() <= oldCount) {
+                    tab.title = result.title;
                     tab.threadPage = result;
+                    updateThreadTitleHeader(tab, result);
                     cacheThreadPage(result);
                     tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
                     updateTabThreadStats(tab, result);
                     if (markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
-                        renderTabs();
+                    }
+                    renderTabs();
+                    if (tab == currentTab()) {
+                        updateBottomThreadBar(tab);
                     }
                     if (tab == currentTab() && tab.threadSearchOpen
                             && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
@@ -2984,6 +3013,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 tab.threadPage = result;
+                updateThreadTitleHeader(tab, result);
                 tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
                 updateTabThreadStats(tab, result);
                 markReadTo(tab, lastExistingPostNumber(result, oldCount), false);
@@ -5896,6 +5926,8 @@ public class MainActivity extends Activity {
         String rowTitle = tab.title == null || tab.title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : tab.title;
         if (tab.threadPage != null) {
             setThreadTitleText(title, tab.threadPage, rowTitle);
+        } else if (tab.knownThreadArchived) {
+            setThreadTitleText(title, rowTitle, true);
         } else {
             title.setText(rowTitle);
         }
@@ -11697,7 +11729,7 @@ public class MainActivity extends Activity {
         if (tab == null || result == null || result.error != null) {
             return;
         }
-        if (tab.threadPage != null && tab.threadPage.archived) {
+        if ((tab.threadPage != null && tab.threadPage.archived) || tab.knownThreadArchived) {
             result.archived = true;
         }
         tab.title = result.title;
@@ -13119,7 +13151,18 @@ public class MainActivity extends Activity {
         tab.knownMaxPostNumber = maxPostNumber(page);
         tab.knownPostCount = page.posts == null ? 0 : page.posts.size();
         tab.cachedUnreadCount = countUnreadPosts(page, tab.readPostNumber);
+        tab.knownThreadArchived = page.archived;
         tab.hasThreadStats = true;
+    }
+
+    private void applyThreadPageMetadata(ThreadPage target, ThreadPage source) {
+        if (target == null || source == null) {
+            return;
+        }
+        target.title = source.title;
+        target.datUrl = source.datUrl;
+        target.datByteLength = source.datByteLength;
+        target.archived = source.archived;
     }
 
     private int countUnreadPosts(ThreadPage page, int readPostNumber) {
@@ -13989,6 +14032,7 @@ public class MainActivity extends Activity {
         int knownPostCount;
         int cachedUnreadCount;
         boolean hasThreadStats;
+        boolean knownThreadArchived;
         long bottomScrollLockUntil;
         long lastActivatedAt = android.os.SystemClock.uptimeMillis();
         long lastScrollAt;
