@@ -9612,7 +9612,7 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, text("\u753b\u50cf\u304c\u9078\u629e\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "No image selected."), Toast.LENGTH_SHORT).show();
                 return;
             }
-            pendingImgbbUploadUris = uris;
+            addPendingImgbbUploadUris(uris);
             renderPendingImgbbMedia();
         }
     }
@@ -9707,8 +9707,11 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(92)));
             return;
         }
-        GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(3);
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(true);
+        scroll.setFillViewport(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
         int cellSize = dp(MEDIA_GRID_CELL_DP);
         int gap = dp(6);
         for (Uri uri : pendingImgbbUploadUris) {
@@ -9717,13 +9720,34 @@ public class MainActivity extends Activity {
             image.setBackgroundColor(Theme.dark(this) ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
             image.setImageURI(uri);
             image.setOnClickListener(v -> openImgbbImagePicker(pendingImgbbUploadMessage));
-            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-            params.width = cellSize;
-            params.height = cellSize;
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellSize, cellSize);
             params.setMargins(0, 0, gap, gap);
-            grid.addView(image, params);
+            row.addView(image, params);
         }
-        pendingImgbbMediaBox.addView(grid);
+        TextView add = actionRow(text("+", "+"));
+        add.setGravity(Gravity.CENTER);
+        add.setTextSize(24);
+        add.setOnClickListener(v -> openImgbbImagePicker(pendingImgbbUploadMessage));
+        row.addView(add, new LinearLayout.LayoutParams(cellSize, cellSize));
+        scroll.addView(row, new HorizontalScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        pendingImgbbMediaBox.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, cellSize + gap));
+    }
+
+    private void addPendingImgbbUploadUris(List<Uri> uris) {
+        Set<String> seen = new LinkedHashSet<>();
+        for (Uri current : pendingImgbbUploadUris) {
+            if (current != null) {
+                seen.add(current.toString());
+            }
+        }
+        for (Uri uri : uris) {
+            if (uri == null || !seen.add(uri.toString())) {
+                continue;
+            }
+            pendingImgbbUploadUris.add(uri);
+        }
     }
 
     private int parseImgbbExpiration(String value) {
@@ -9852,26 +9876,31 @@ public class MainActivity extends Activity {
             return;
         }
         Toast.makeText(this, text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e2d", "Uploading to ImgBB..."), Toast.LENGTH_SHORT).show();
-        ioExecutor.execute(() -> {
-            for (Uri uri : uris) {
-                ImgbbUploadResult result;
+        int parallelism = Math.max(1, Math.min(3, uris.size()));
+        ExecutorService uploadExecutor = Executors.newFixedThreadPool(parallelism);
+        AtomicInteger remaining = new AtomicInteger(uris.size());
+        for (Uri uri : uris) {
+            uploadExecutor.execute(() -> {
                 try {
-                    result = uploadImageToImgbb(uri, apiKey, pendingImgbbExpirationSeconds);
+                    ImgbbUploadResult result = uploadImageToImgbb(uri, apiKey, pendingImgbbExpirationSeconds);
                     saveImgbbUpload(result);
+                    runOnUiThread(() -> {
+                        appendUploadUrl(message, result.link);
+                        Toast.makeText(this, text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u307e\u3057\u305f", "Uploaded to ImgBB.") + "\n" + result.link,
+                                Toast.LENGTH_SHORT).show();
+                    });
                 } catch (Exception exception) {
                     String error = exception.getMessage() == null
                             ? text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5931\u6557", "Upload failed.")
                             : exception.getMessage();
                     runOnUiThread(() -> Toast.makeText(this, error, Toast.LENGTH_LONG).show());
-                    continue;
+                } finally {
+                    if (remaining.decrementAndGet() == 0) {
+                        uploadExecutor.shutdown();
+                    }
                 }
-                runOnUiThread(() -> {
-                    appendUploadUrl(message, result.link);
-                    Toast.makeText(this, text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u307e\u3057\u305f", "Uploaded to ImgBB.") + "\n" + result.link,
-                            Toast.LENGTH_SHORT).show();
-                });
-            }
-        });
+            });
+        }
     }
 
     private ImgbbUploadResult uploadImageToImgbb(Uri uri, String apiKey, int expirationSeconds) throws Exception {
@@ -9982,7 +10011,7 @@ public class MainActivity extends Activity {
         return preferences.getString(PREF_IMGBB_API_KEY, "").trim();
     }
 
-    private void saveImgbbUpload(ImgbbUploadResult result) {
+    private synchronized void saveImgbbUpload(ImgbbUploadResult result) {
         try {
             JSONArray array = new JSONArray(preferences.getString(PREF_IMGBB_UPLOADS, "[]"));
             JSONArray next = new JSONArray();
