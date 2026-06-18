@@ -11684,17 +11684,16 @@ public class MainActivity extends Activity {
             return;
         }
         final String url = tab.url;
-        final ThreadPage snapshot = tab.threadPage;
         tabReloadExecutor.execute(() -> {
-            ThreadPage page = null;
+            ThreadOverviewStatus status = null;
             try {
-                page = downloadThreadPageForOverviewReload(url, snapshot);
+                status = downloadThreadOverviewStatus(url);
             } catch (Exception ignored) {
             }
-            ThreadPage result = page;
+            ThreadOverviewStatus result = status;
             mainHandler.post(() -> {
-                if (result != null && result.error == null && url.equals(tab.url)) {
-                    applyOverviewReloadResult(tab, result);
+                if (result != null && url.equals(tab.url)) {
+                    applyOverviewReloadStatus(tab, result);
                 }
                 if (onComplete != null) {
                     onComplete.run();
@@ -11703,51 +11702,109 @@ public class MainActivity extends Activity {
         });
     }
 
-    private ThreadPage downloadThreadPageForOverviewReload(String url, ThreadPage snapshot) throws Exception {
-        ThreadPage base = snapshot;
-        if (base == null || base.posts == null || base.posts.isEmpty()) {
-            base = readCachedThreadPage(url);
-        }
-        if (base != null && base.error == null && base.posts != null && !base.posts.isEmpty()) {
+    private ThreadOverviewStatus downloadThreadOverviewStatus(String url) throws Exception {
+        DatAddress address = datAddress(url);
+        if (address == null) {
+            HttpURLConnection canonical = openConnectionFollowingRedirects(
+                    url,
+                    "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
             try {
-                ThreadPage partial = downloadNewDatPosts(url, base);
-                if (partial != null) {
-                    return partial;
-                }
-            } catch (Exception ignored) {
+                address = datAddress(canonical.getURL().toString());
+            } finally {
+                canonical.disconnect();
             }
         }
-        ThreadPage page = downloadDatThread(url);
-        if (page == null) {
-            String html = download(url);
-            page = parseThread(url, html);
+        if (address == null) {
+            throw new IllegalStateException("Unsupported thread URL.");
         }
-        return page;
+        Exception lastError = null;
+        for (String host : threadSubjectHosts(address)) {
+            try {
+                String scheme = address.scheme == null || address.scheme.isEmpty() ? "https" : address.scheme;
+                String boardUrl = scheme + "://" + host + "/" + address.board + "/";
+                BoardSubject subject = downloadBoardSubject(boardUrl, host, address.board);
+                return threadOverviewStatusFromSubject(url, address.key, subject.body);
+            } catch (Exception error) {
+                lastError = error;
+            }
+        }
+        throw lastError == null ? new IllegalStateException("subject.txt not found.") : lastError;
     }
 
-    private void applyOverviewReloadResult(CuspTab tab, ThreadPage result) {
-        if (tab == null || result == null || result.error != null) {
+    private List<String> threadSubjectHosts(DatAddress address) {
+        List<String> hosts = new ArrayList<>();
+        if (address == null) {
+            return hosts;
+        }
+        addUnique(hosts, address.host);
+        if (address.server != null && !address.server.trim().isEmpty()) {
+            addUnique(hosts, address.server + ".5ch.net");
+            addUnique(hosts, address.server + ".5ch.io");
+        }
+        return hosts;
+    }
+
+    private ThreadOverviewStatus threadOverviewStatusFromSubject(String url, String key, String body) {
+        ThreadOverviewStatus status = new ThreadOverviewStatus();
+        status.url = url;
+        for (String line : (body == null ? "" : body).split("\\r?\\n")) {
+            int sep = line.indexOf("<>");
+            int sepLength = 2;
+            if (sep <= 0) {
+                sep = line.indexOf(",");
+                sepLength = 1;
+            }
+            if (sep <= 0) {
+                continue;
+            }
+            String dat = line.substring(0, sep);
+            if (!dat.endsWith(".dat") && !dat.endsWith(".cgi")) {
+                continue;
+            }
+            String lineKey = dat.substring(0, dat.length() - 4);
+            if (!key.equals(lineKey)) {
+                continue;
+            }
+            String subjectTitle = cleanText(line.substring(sep + sepLength));
+            status.title = stripThreadResponseCount(subjectTitle);
+            status.responseCount = threadResponseCount(subjectTitle);
+            status.archived = false;
+            return status;
+        }
+        status.archived = true;
+        return status;
+    }
+
+    private void applyOverviewReloadStatus(CuspTab tab, ThreadOverviewStatus status) {
+        if (tab == null || status == null) {
             return;
         }
-        if ((tab.threadPage != null && tab.threadPage.archived) || tab.knownThreadArchived) {
-            result.archived = true;
+        boolean archived = status.archived || tab.knownThreadArchived
+                || (tab.threadPage != null && tab.threadPage.archived);
+        String title = status.title == null || status.title.trim().isEmpty()
+                ? (tab.threadPage != null && tab.threadPage.title != null && !tab.threadPage.title.trim().isEmpty()
+                ? tab.threadPage.title : tab.title)
+                : status.title.trim();
+        if (title == null || title.trim().isEmpty()) {
+            title = hostTitle(status.url);
         }
-        tab.title = result.title;
-        tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
-        updateTabThreadStats(tab, result);
-        if (!isPrivateTab(tab)) {
-            cacheThreadPage(result);
+        tab.title = title;
+        tab.knownThreadArchived = archived;
+        tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, status.url));
+        if (tab.threadPage != null) {
+            tab.threadPage.title = title;
+            tab.threadPage.archived = archived;
+            updateThreadTitleHeader(tab, tab.threadPage);
         }
-        if (tab == currentTab() && !tabOverviewVisible && tab.readerView != null) {
-            tab.threadPage = result;
-            tab.postViews = new LinkedHashMap<>();
-            tab.readerView = buildThreadView(result, tab);
-            switchToTab(currentIndex);
-        } else {
-            tab.threadPage = null;
-            tab.postViews = null;
-            tab.postSlots = null;
-            tab.renderedPostSlots = null;
+        if (status.responseCount > 0) {
+            tab.knownMaxPostNumber = status.responseCount;
+            tab.knownPostCount = status.responseCount;
+            tab.cachedUnreadCount = Math.max(0, status.responseCount - tab.readPostNumber);
+            tab.hasThreadStats = true;
+        } else if (tab.threadPage != null) {
+            updateTabThreadStats(tab, tab.threadPage);
+        } else if (tab.hasThreadStats) {
+            tab.cachedUnreadCount = Math.max(0, tab.knownMaxPostNumber - tab.readPostNumber);
         }
     }
 
@@ -12483,6 +12540,13 @@ public class MainActivity extends Activity {
     private int threadResponseCount(String title) {
         Matcher matcher = Pattern.compile("\\((\\d{1,6})\\)\\s*$").matcher(title == null ? "" : title);
         return matcher.find() ? parsePositiveInt(matcher.group(1), 0) : 0;
+    }
+
+    private String stripThreadResponseCount(String title) {
+        return Pattern.compile("\\s*\\(\\d{1,6}\\)\\s*$")
+                .matcher(title == null ? "" : title)
+                .replaceFirst("")
+                .trim();
     }
 
     private double threadVelocity(String key, int responses) {
@@ -14232,6 +14296,13 @@ public class MainActivity extends Activity {
             page.error = message == null ? "Unknown error" : message;
             return page;
         }
+    }
+
+    private static class ThreadOverviewStatus {
+        String url;
+        String title;
+        int responseCount;
+        boolean archived;
     }
 
     private static class DatDownload {
