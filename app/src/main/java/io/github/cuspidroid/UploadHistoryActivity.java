@@ -27,12 +27,22 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.Charset;
 import java.text.DateFormat;
 import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class UploadHistoryActivity extends Activity {
+    private static final Charset UTF8 = Charset.forName("UTF-8");
+
     private SharedPreferences preferences;
     private LinearLayout list;
     private ExecutorService executor;
@@ -207,13 +217,32 @@ public class UploadHistoryActivity extends Activity {
             Toast.makeText(this, MainActivity.text("削除URLが保存されていません。", "No delete URL was saved."), Toast.LENGTH_SHORT).show();
             return;
         }
+        String apiKey = preferences.getString(MainActivity.PREF_IMGBB_API_KEY, "").trim();
+        if (apiKey.isEmpty()) {
+            Toast.makeText(this, MainActivity.text("ImgBB API keyが設定されていません。", "ImgBB API key is not set."), Toast.LENGTH_LONG).show();
+            return;
+        }
         new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("削除URLを開く", "Open delete URL"))
+                .setTitle(MainActivity.text("ImgBBから削除", "Delete from ImgBB"))
                 .setMessage(MainActivity.text(
-                        "ImgBBの公式APIではアップロードのみが案内されているため、ImgBBから返された削除URLを開きます。開いたページで削除を確定してください。",
-                        "ImgBB's official API documents uploads only; this opens the delete URL returned by ImgBB. Confirm deletion on the opened page."))
+                        "ImgBB上の画像を削除します。アップロード履歴は残ります。",
+                        "This removes the image from ImgBB. The upload history stays in the app."))
                 .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
-                .setPositiveButton(MainActivity.text("開く", "Open"), (dialog, which) -> openUrl(deleteUrl))
+                .setPositiveButton(MainActivity.text("削除", "Delete"), (dialog, which) -> {
+                    Toast.makeText(this, MainActivity.text("ImgBBから削除中...", "Deleting from ImgBB..."), Toast.LENGTH_SHORT).show();
+                    executor.execute(() -> {
+                        try {
+                            deleteFromImgbb(deleteUrl, apiKey);
+                            runOnUiThread(() -> Toast.makeText(this,
+                                    MainActivity.text("ImgBBから削除しました。", "Deleted from ImgBB."),
+                                    Toast.LENGTH_SHORT).show());
+                        } catch (Exception e) {
+                            runOnUiThread(() -> Toast.makeText(this,
+                                    MainActivity.text("ImgBBから削除できませんでした: ", "Could not delete from ImgBB: ") + e.getMessage(),
+                                    Toast.LENGTH_LONG).show());
+                        }
+                    });
+                })
                 .show();
     }
     private void confirmHistoryDelete(int index) {
@@ -271,6 +300,95 @@ public class UploadHistoryActivity extends Activity {
     private boolean isVideoUrl(String url, String mime) {
         String value = ((url == null ? "" : url) + " " + (mime == null ? "" : mime)).toLowerCase(java.util.Locale.ROOT);
         return value.contains("video/") || value.matches(".*\\.(mp4|m4v|webm|mov)(\\?.*)?(\\s.*)?");
+    }
+
+    private void deleteFromImgbb(String deleteUrl, String apiKey) throws Exception {
+        Uri uri = Uri.parse(deleteUrl);
+        java.util.List<String> segments = uri.getPathSegments();
+        if (segments.size() < 2) {
+            throw new IllegalArgumentException(MainActivity.text("削除URLを解析できません。", "Could not parse delete URL."));
+        }
+        String imageId = segments.get(0);
+        String imageHash = segments.get(1);
+        String pathname = "/" + imageId + "/" + imageHash;
+        String body = formField("auth_token", apiKey)
+                + "&" + formField("pathname", pathname)
+                + "&" + formField("action", "delete")
+                + "&" + formField("delete", "image")
+                + "&" + formField("type", "image")
+                + "&" + formField("deleting[id]", imageId)
+                + "&" + formField("deleting[hash]", imageHash);
+        String response = postImgbbJson(deleteUrl, body);
+        if (!deleteResponseSuccessful(response)) {
+            throw new IllegalStateException(MainActivity.text("ImgBBの削除応答を確認できません。", "Could not confirm ImgBB deletion."));
+        }
+    }
+
+    private String postImgbbJson(String deleteUrl, String body) throws Exception {
+        byte[] bytes = body.getBytes(UTF8);
+        HttpURLConnection connection = (HttpURLConnection) new URL("https://ibb.co/json").openConnection();
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(30000);
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        connection.setRequestProperty("Accept", "application/json, text/plain, */*");
+        connection.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        connection.setRequestProperty("Origin", "https://ibb.co");
+        connection.setRequestProperty("Referer", deleteUrl);
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
+        connection.setFixedLengthStreamingMode(bytes.length);
+        try (OutputStream output = connection.getOutputStream()) {
+            output.write(bytes);
+        }
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = stream == null ? "" : new String(readLimited(stream, 512 * 1024), UTF8);
+        if (stream != null) {
+            stream.close();
+        }
+        connection.disconnect();
+        if (code >= 400) {
+            throw new IllegalStateException("HTTP " + code);
+        }
+        return response;
+    }
+
+    private boolean deleteResponseSuccessful(String response) {
+        if (response == null || response.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            JSONObject root = new JSONObject(response);
+            if (root.optBoolean("success", false)) {
+                return true;
+            }
+            int status = root.optInt("status_code", root.optInt("status", 0));
+            return status >= 200 && status < 300 && !root.has("error");
+        } catch (Exception ignored) {
+            String text = response.toLowerCase(Locale.ROOT);
+            return text.contains("success") && !text.contains("error");
+        }
+    }
+
+    private String formField(String name, String value) throws Exception {
+        return URLEncoder.encode(name, UTF8.name())
+                + "=" + URLEncoder.encode(value == null ? "" : value, UTF8.name());
+    }
+
+    private byte[] readLimited(InputStream input, int limit) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            total += read;
+            if (total > limit) {
+                break;
+            }
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
     }
 
     private JSONArray readUploads() {
