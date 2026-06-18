@@ -8773,7 +8773,8 @@ public class MainActivity extends Activity {
         int popupOverlap = jumpEachPost ? dp(36) : dp(12);
         int minPopupY = jumpEachPost ? 0 : dp(8);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap - minPopupY);
-        int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels - minPopupY, availableAbove);
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
+        int fullHeightFromTop = Math.max(dp(40), screenHeight - minPopupY);
         int measuredContentWidth = jumpEachPost
                 ? postCardWidth
                 : postCardWidth + popupCardInset * 2;
@@ -8788,6 +8789,9 @@ public class MainActivity extends Activity {
         int desiredHeight = popupPosts.getMeasuredHeight()
                 + (jumpEachPost ? popupFrameInset * 2 : popupRootGap * 2);
         boolean hasDeferredPopupPosts = incremental && initialCount < targets.size();
+        int maxHeight = hasDeferredPopupPosts
+                ? fullHeightFromTop
+                : Math.min(fullHeightFromTop, Math.max(availableAbove, desiredHeight));
         if (hasDeferredPopupPosts) {
             desiredHeight = Math.max(desiredHeight, maxHeight);
         }
@@ -8797,9 +8801,10 @@ public class MainActivity extends Activity {
         popupScroll.setOverScrollMode(popupScrollable ? View.OVER_SCROLL_IF_CONTENT_SCROLLS : View.OVER_SCROLL_NEVER);
         popupScroll.setOnTouchListener((v, event) -> !popupScrollable
                 && event.getActionMasked() == MotionEvent.ACTION_MOVE);
-        int y = placeNearAnchor
-                ? Math.max(minPopupY, anchorLocation[1] - popupHeight)
-                : Math.max(minPopupY, anchorLocation[1] - popupHeight + popupOverlap);
+        int preferredY = placeNearAnchor
+                ? anchorLocation[1] - popupHeight
+                : anchorLocation[1] - popupHeight + popupOverlap;
+        int y = preferredY < minPopupY ? minPopupY : preferredY;
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(false);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
