@@ -251,6 +251,7 @@ public class MainActivity extends Activity {
     private final Set<View> suppressNextLinkClick = new LinkedHashSet<>();
     private final List<PopupWindow> replyPopups = new ArrayList<>();
     private final List<PopupWindow> animatedPopups = new ArrayList<>();
+    private boolean postPopupOpening;
     private int currentIndex = -1;
     private boolean pendingNewTab;
     private boolean pendingPrivateNewTab;
@@ -1845,8 +1846,10 @@ public class MainActivity extends Activity {
                     } else {
                         unloadTabView(tab);
                     }
-                } else if (tab.url != null && !tab.url.isEmpty()) {
+                } else if (i == currentIndex && tab.url != null && !tab.url.isEmpty()) {
                     openInTab(tab, tab.url, false);
+                } else {
+                    unloadTabView(tab);
                 }
             } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
                 if (tab.savedSearchPageJson != null) {
@@ -1860,8 +1863,10 @@ public class MainActivity extends Activity {
                     } else {
                         unloadTabView(tab);
                     }
-                } else if (tab.url != null && !tab.url.isEmpty()) {
+                } else if (i == currentIndex && tab.url != null && !tab.url.isEmpty()) {
                     openInTab(tab, tab.url, false);
+                } else {
+                    unloadTabView(tab);
                 }
             } else if (tab.url == null || tab.url.isEmpty()) {
                 tab.readerMode = true;
@@ -1871,8 +1876,10 @@ public class MainActivity extends Activity {
                 } else {
                     unloadTabView(tab);
                 }
-            } else if (tab.readerView == null) {
+            } else if (i == currentIndex && tab.readerView == null) {
                 openInTab(tab, tab.url, false);
+            } else if (i != currentIndex) {
+                unloadTabView(tab);
             }
             if (i == currentIndex && !tabOverviewVisible && !pendingNewTab) {
                 switchToTab(i);
@@ -8645,6 +8652,10 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
                                 boolean placeNearAnchor) {
+        if (postPopupOpening) {
+            return;
+        }
+        postPopupOpening = true;
         if (!replyPopups.isEmpty()) {
             dismissThreadPopups();
         }
@@ -8730,6 +8741,7 @@ public class MainActivity extends Activity {
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
         animatePopupIn(popup, true);
+        mainHandler.postDelayed(() -> postPopupOpening = false, 300);
     }
 
     private View popupPostCard(ThreadPage page, Post post, boolean showFrame) {

@@ -11,9 +11,13 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
+import android.graphics.ImageDecoder;
+import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -33,11 +37,14 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -163,7 +170,7 @@ public class UploadHistoryActivity extends Activity {
         LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(mediaSize, mediaSize);
         thumbParams.setMargins(0, 0, dp(10), 0);
         row.addView(thumbnail, thumbParams);
-        loadThumbnail(thumbnail, item.optString("url", ""));
+        loadMediaPreview(thumbnail, item.optString("url", ""), item.optString("mime", ""));
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -204,7 +211,7 @@ public class UploadHistoryActivity extends Activity {
         copy.setOnClickListener(v -> copyUrl(item.optString("url", "")));
         actions.addView(copy, buttonParams());
 
-        TextView remoteDelete = actionButton(MainActivity.text("ImgBBから削除", "Delete from ImgBB"), R.drawable.ic_delete, Color.rgb(190, 50, 50));
+        TextView remoteDelete = actionButton(MainActivity.text("削除", "Delete"), R.drawable.ic_delete, Color.rgb(190, 50, 50));
         remoteDelete.setOnClickListener(v -> confirmRemoteDelete(item));
         actions.addView(remoteDelete, buttonParams());
 
@@ -227,7 +234,7 @@ public class UploadHistoryActivity extends Activity {
                     Toast.makeText(this, MainActivity.text("ImgBBから削除中...", "Deleting from ImgBB..."), Toast.LENGTH_SHORT).show();
                     executor.execute(() -> {
                         try {
-                            deleteFromImgbb(deleteUrl, item.optString("url", ""));
+                            deleteFromImgbb(deleteUrl);
                             runOnUiThread(() -> Toast.makeText(this,
                                     MainActivity.text("ImgBBから削除しました。", "Deleted from ImgBB."),
                                     Toast.LENGTH_SHORT).show());
@@ -274,33 +281,88 @@ public class UploadHistoryActivity extends Activity {
         }
     }
 
-    private void loadThumbnail(ImageView target, String url) {
+    private void loadMediaPreview(ImageView target, String url, String mime) {
         if (url == null || url.isEmpty()) {
             return;
         }
         executor.execute(() -> {
             Bitmap bitmap = null;
+            Drawable drawable = null;
             try {
-                HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-                connection.setConnectTimeout(10000);
-                connection.setReadTimeout(15000);
-                connection.setInstanceFollowRedirects(true);
-                try (InputStream input = connection.getInputStream()) {
-                    byte[] data = readLimited(input, 4 * 1024 * 1024);
+                if (isVideoUrl(url, mime)) {
+                    bitmap = videoFrameBitmap(url);
+                } else {
+                    byte[] data = downloadMediaBytes(url, isGifUrl(url, mime) ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
+                    if (isGifUrl(url, mime) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(data)));
+                        if (drawable instanceof AnimatedImageDrawable) {
+                            ((AnimatedImageDrawable) drawable).setRepeatCount(AnimatedImageDrawable.REPEAT_INFINITE);
+                        }
+                    }
                     bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
-                } finally {
-                    connection.disconnect();
                 }
             } catch (Exception ignored) {
                 bitmap = null;
+                drawable = null;
             }
             Bitmap finalBitmap = bitmap;
+            Drawable finalDrawable = drawable;
+            boolean gif = isGifUrl(url, mime);
             runOnUiThread(() -> {
-                if (finalBitmap != null) {
+                if (finalDrawable != null && gif && autoplayGifs()) {
+                    target.setImageDrawable(finalDrawable);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && finalDrawable instanceof AnimatedImageDrawable) {
+                        ((AnimatedImageDrawable) finalDrawable).start();
+                    }
+                } else if (finalBitmap != null) {
                     target.setImageBitmap(finalBitmap);
                 }
             });
         });
+    }
+
+    private byte[] downloadMediaBytes(String url, int limit) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(15000);
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+        try (InputStream input = connection.getInputStream()) {
+            return readLimited(input, limit);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private Bitmap videoFrameBitmap(String url) throws Exception {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(url, new HashMap<>());
+            Bitmap frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (frame == null) {
+                frame = retriever.getFrameAtTime();
+            }
+            return frame;
+        } finally {
+            try {
+                retriever.release();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private boolean autoplayGifs() {
+        return preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false);
+    }
+
+    private boolean isGifUrl(String url, String mime) {
+        String value = ((url == null ? "" : url) + " " + (mime == null ? "" : mime)).toLowerCase(Locale.ROOT);
+        return value.contains("image/gif") || value.endsWith(".gif");
+    }
+
+    private boolean isVideoUrl(String url, String mime) {
+        String value = ((url == null ? "" : url) + " " + (mime == null ? "" : mime)).toLowerCase(Locale.ROOT);
+        return value.contains("video/") || value.matches(".*\\.(mp4|m4v|webm|mov)(\\?.*)?(\\s.*)?");
     }
 
     private byte[] readLimited(InputStream input, int limit) throws Exception {
@@ -318,57 +380,7 @@ public class UploadHistoryActivity extends Activity {
         return output.toByteArray();
     }
 
-    private void deleteFromImgbb(String deleteUrl, String imageUrl) throws Exception {
-        Exception lastError = null;
-        try {
-            requestDeleteUrl(deleteUrl, "DELETE", null);
-            if (isDeletedFromRemote(imageUrl)) {
-                return;
-            }
-        } catch (Exception exception) {
-            lastError = exception;
-        }
-        try {
-            postJsonDelete(deleteUrl);
-            if (isDeletedFromRemote(imageUrl)) {
-                return;
-            }
-        } catch (Exception exception) {
-            lastError = exception;
-        }
-        throw new IllegalStateException(lastError == null
-                ? MainActivity.text("削除後も画像が残っています。", "The image still exists after deletion.")
-                : lastError.getMessage());
-    }
-
-    private String requestDeleteUrl(String deleteUrl, String method, String cookie) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(deleteUrl).openConnection();
-        connection.setRequestMethod(method);
-        connection.setConnectTimeout(15000);
-        connection.setReadTimeout(30000);
-        connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
-        connection.setRequestProperty("Referer", "https://ibb.co/");
-        connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-        if (cookie != null && !cookie.isEmpty()) {
-            connection.setRequestProperty("Cookie", cookie);
-        }
-
-        int code = connection.getResponseCode();
-        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        String response = "";
-        if (stream != null) {
-            response = new String(readLimited(stream, 512 * 1024), UTF8);
-            stream.close();
-        }
-        connection.disconnect();
-        if (code >= 400) {
-            throw new IllegalStateException("HTTP " + code);
-        }
-        return response;
-    }
-
-    private void postJsonDelete(String deleteUrl) throws Exception {
+    private void deleteFromImgbb(String deleteUrl) throws Exception {
         Uri uri = Uri.parse(deleteUrl);
         List<String> segments = uri.getPathSegments();
         if (segments.size() < 2) {
@@ -435,53 +447,6 @@ public class UploadHistoryActivity extends Activity {
             return String.join("; ", cookies);
         } catch (Exception ignored) {
             return "";
-        }
-    }
-
-    private boolean isDeletedFromRemote(String imageUrl) {
-        if (imageUrl == null || imageUrl.trim().isEmpty()) {
-            return true;
-        }
-        try {
-            Thread.sleep(1200);
-            HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
-            connection.setRequestMethod("HEAD");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
-            int code = connection.getResponseCode();
-            connection.disconnect();
-            if (code == 404 || code == 410) {
-                return true;
-            }
-            if (code == 405) {
-                return isDeletedByGet(imageUrl);
-            }
-            return false;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private boolean isDeletedByGet(String imageUrl) {
-        try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
-            int code = connection.getResponseCode();
-            InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            if (stream != null) {
-                readLimited(stream, 64 * 1024);
-                stream.close();
-            }
-            connection.disconnect();
-            return code == 404 || code == 410;
-        } catch (Exception ignored) {
-            return false;
         }
     }
 
