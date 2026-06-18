@@ -8690,7 +8690,7 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
                                 boolean placeNearAnchor) {
-        if (consumePostPopupTap()) {
+        if (consumePostPopupTap(anchor)) {
             return;
         }
         postPopupOpening = true;
@@ -8707,8 +8707,11 @@ public class MainActivity extends Activity {
             return false;
         }
         boolean insideReplyPopup = isViewInsideReplyPopup(source);
+        if (insideReplyPopup) {
+            return false;
+        }
         dismissThreadPopups();
-        return !insideReplyPopup;
+        return true;
     }
 
     private void showPostsPopupNow(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
