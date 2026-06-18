@@ -5,9 +5,6 @@
 <h1 align="center">CuspiDroid</h1>
 
 <p align="center">
-  <a href="https://github.com/ImranR98/Obtainium">
-    <img alt="Get it on Obtainium" src="https://img.shields.io/badge/Get%20it%20on-Obtainium-2563EB?style=for-the-badge">
-  </a>
   <a href="LICENSE">
     <img alt="License: GPL v3" src="https://img.shields.io/badge/License-GPLv3-0F766E?style=for-the-badge">
   </a>
