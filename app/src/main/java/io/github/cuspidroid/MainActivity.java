@@ -148,6 +148,8 @@ public class MainActivity extends Activity {
     static final String PREF_IMGUR_META = "imgur_meta";
     static final String PREF_IMGBB_API_KEY = "imgbb_api_key";
     static final String PREF_IMGBB_UPLOADS = "imgbb_uploads";
+    static final String PREF_CACHE_ENABLED = "cache_enabled";
+    static final String PREF_CACHE_MAX_MB = "cache_max_mb";
     static final String PREF_BOARD_FAVORITES = "board_favorites";
     static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
     static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
@@ -2184,6 +2186,9 @@ public class MainActivity extends Activity {
         if (page == null || page.url == null || page.url.isEmpty() || page.error != null || page.posts.isEmpty()) {
             return;
         }
+        if (!AppCache.enabled(preferences)) {
+            return;
+        }
         try {
             File dir = threadCacheDir();
             if (!dir.exists() && !dir.mkdirs()) {
@@ -2192,12 +2197,13 @@ public class MainActivity extends Activity {
             try (FileOutputStream out = new FileOutputStream(threadCacheFile(page.url))) {
                 out.write(threadPageToJson(page).toString().getBytes(Charset.forName("UTF-8")));
             }
+            AppCache.prune(this, preferences);
         } catch (Exception ignored) {
         }
     }
 
     private ThreadPage readCachedThreadPage(String url) {
-        if (url == null || url.isEmpty()) {
+        if (url == null || url.isEmpty() || !AppCache.enabled(preferences)) {
             return null;
         }
         try {
@@ -2205,6 +2211,7 @@ public class MainActivity extends Activity {
             if (!file.exists() || file.length() <= 0) {
                 return null;
             }
+            file.setLastModified(System.currentTimeMillis());
             return threadPageFromJson(new JSONObject(new String(readFileBytes(file), Charset.forName("UTF-8"))));
         } catch (Exception ignored) {
             return null;
@@ -7681,12 +7688,15 @@ public class MainActivity extends Activity {
         List<String> candidates = new ArrayList<>();
         candidates.add(imageUrl);
         for (String candidate : candidates) {
-            try {
-                File cached = imageCacheFile(candidate);
-                if (cached.exists() && cached.length() > 0 && !isCachedImageMissing(candidate)) {
-                    return new DownloadedImageBytes(candidate, readFileBytes(cached));
+            if (AppCache.enabled(preferences)) {
+                try {
+                    File cached = imageCacheFile(candidate);
+                    if (cached.exists() && cached.length() > 0 && !isCachedImageMissing(candidate)) {
+                        cached.setLastModified(System.currentTimeMillis());
+                        return new DownloadedImageBytes(candidate, readFileBytes(cached));
+                    }
+                } catch (Exception ignored) {
                 }
-            } catch (Exception ignored) {
             }
             HttpURLConnection connection = null;
             try {
@@ -7896,6 +7906,9 @@ public class MainActivity extends Activity {
     }
 
     private ImageLoadResult cachedBitmap(String url, int maxWidth, int maxHeight) {
+        if (!AppCache.enabled(preferences)) {
+            return null;
+        }
         try {
             if (isCachedImageMissing(url)) {
                 Bitmap missing = missingImgurBitmap(maxWidth, maxHeight);
@@ -7903,6 +7916,7 @@ public class MainActivity extends Activity {
             }
             File file = imageCacheFile(url);
             if (file.exists() && file.length() > 0) {
+                file.setLastModified(System.currentTimeMillis());
                 byte[] bytes = readFileBytes(file);
                 Drawable drawable = decodeAnimatedDrawableIfPossible(url, bytes);
                 Bitmap bitmap = decodeBitmap(bytes, maxWidth, maxHeight);
@@ -8020,6 +8034,9 @@ public class MainActivity extends Activity {
     }
 
     private void cacheImageBytes(String url, byte[] bytes) {
+        if (!AppCache.enabled(preferences)) {
+            return;
+        }
         try {
             File dir = imageCacheDir();
             if (!dir.exists() && !dir.mkdirs()) {
@@ -8028,6 +8045,7 @@ public class MainActivity extends Activity {
             try (FileOutputStream out = new FileOutputStream(imageCacheFile(url))) {
                 out.write(bytes);
             }
+            AppCache.prune(this, preferences);
         } catch (Exception ignored) {
         }
     }

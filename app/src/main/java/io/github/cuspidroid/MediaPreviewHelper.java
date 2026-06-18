@@ -98,9 +98,24 @@ final class MediaPreviewHelper {
             Drawable drawable = null;
             try {
                 if (video || isVideoUrl(mediaUrl)) {
-                    bitmap = videoFrameBitmap(mediaUrl);
+                    byte[] cached = AppCache.read(activity, preferences, "media", "video:" + mediaUrl, ".png");
+                    if (cached != null) {
+                        bitmap = BitmapFactory.decodeByteArray(cached, 0, cached.length);
+                    }
+                    if (bitmap == null) {
+                        bitmap = videoFrameBitmap(mediaUrl);
+                        byte[] bytes = bitmapToPng(bitmap);
+                        AppCache.write(activity, preferences, "media", "video:" + mediaUrl, ".png", bytes);
+                    }
                 } else {
-                    byte[] bytes = downloadBytes(mediaUrl, isGifUrl(mediaUrl) ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
+                    boolean gif = isGifUrl(mediaUrl);
+                    byte[] bytes = AppCache.read(activity, preferences, "media", "image:" + mediaUrl,
+                            gif ? ".gif" : ".img");
+                    if (bytes == null) {
+                        bytes = downloadBytes(mediaUrl, gif ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
+                        AppCache.write(activity, preferences, "media", "image:" + mediaUrl,
+                                gif ? ".gif" : ".img", bytes);
+                    }
                     if (isGifUrl(mediaUrl) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
                         if (drawable instanceof AnimatedImageDrawable) {
@@ -225,6 +240,15 @@ final class MediaPreviewHelper {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private static byte[] bitmapToPng(Bitmap bitmap) {
+        if (bitmap == null) {
+            return null;
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 90, output);
+        return output.toByteArray();
     }
 
     private static int dp(Activity activity, int value) {

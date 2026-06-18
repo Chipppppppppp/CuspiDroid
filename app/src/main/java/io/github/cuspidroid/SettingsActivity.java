@@ -18,6 +18,7 @@ import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
@@ -47,6 +48,10 @@ public class SettingsActivity extends Activity {
     private CheckBox omitCopyPaste;
     private CheckBox autoAa;
     private CheckBox boardSortBySpeed;
+    private CheckBox cacheEnabled;
+    private EditText cacheMaxMb;
+    private ProgressBar cacheUsage;
+    private TextView cacheUsageText;
     private RadioButton themeSystem;
     private RadioButton themeLight;
     private RadioButton themeDark;
@@ -92,6 +97,12 @@ public class SettingsActivity extends Activity {
     protected void onPause() {
         saveSettings(false);
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateCacheUsage();
     }
 
     private void buildLayout() {
@@ -298,6 +309,42 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, NgRulesActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u30c7\u30fc\u30bf\u7ba1\u7406", "Data Management")));
+        cacheEnabled = new CheckBox(this);
+        cacheEnabled.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u4f7f\u7528", "Use cache"));
+        cacheEnabled.setTextColor(textColor());
+        cacheEnabled.setTextSize(16);
+        Theme.tintCompoundButton(this, cacheEnabled);
+        root.addView(cacheEnabled);
+
+        root.addView(helperText(MainActivity.text(
+                "\u4e00\u5ea6\u8aad\u307f\u8fbc\u3093\u3060\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u4fdd\u5b58\u3057\u3001\u518d\u8868\u793a\u3092\u9ad8\u901f\u5316\u3057\u307e\u3059\u3002",
+                "Store loaded threads and media for faster reopening.")));
+
+        cacheMaxMb = new EditText(this);
+        cacheMaxMb.setSingleLine(true);
+        cacheMaxMb.setTextSize(14);
+        cacheMaxMb.setTextColor(textColor());
+        cacheMaxMb.setHintTextColor(hintColor());
+        cacheMaxMb.setHint(MainActivity.text("\u6700\u5927\u30ad\u30e3\u30c3\u30b7\u30e5\u30b5\u30a4\u30ba (MB)", "Maximum cache size (MB)"));
+        cacheMaxMb.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        cacheMaxMb.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        cacheMaxMb.setBackground(roundedField());
+        cacheMaxMb.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(cacheMaxMb, fieldParams());
+
+        cacheUsageText = helperText("");
+        root.addView(cacheUsageText);
+        cacheUsage = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        cacheUsage.setMax(1000);
+        cacheUsage.setProgress(0);
+        root.addView(cacheUsage, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
+
+        root.addView(managementRow(android.R.drawable.ic_menu_delete,
+                MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Clear cache"),
+                MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664", "Delete cached threads and media"),
+                v -> confirmClearCache()));
+
         root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
                 MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
                 MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
@@ -347,6 +394,10 @@ public class SettingsActivity extends Activity {
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
         boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
+        cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
+        cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
+        updateCacheDependentSettings();
+        updateCacheUsage();
         String themeMode = preferences.getString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
         if (Theme.MODE_DARK.equals(themeMode)) {
             themeDark.setChecked(true);
@@ -401,6 +452,21 @@ public class SettingsActivity extends Activity {
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        cacheEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            updateCacheDependentSettings();
+            saveSettings(false);
+        });
+        cacheMaxMb.setOnEditorActionListener((v, actionId, event) -> {
+            saveSettings(false);
+            updateCacheUsage();
+            return false;
+        });
+        cacheMaxMb.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                saveSettings(false);
+                updateCacheUsage();
+            }
+        });
         themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
             saveThemeMode();
             group.post(this::recreate);
@@ -482,6 +548,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
+                .putBoolean(MainActivity.PREF_CACHE_ENABLED, cacheEnabled.isChecked())
+                .putInt(MainActivity.PREF_CACHE_MAX_MB, parseCacheMaxMb())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
@@ -553,6 +621,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
                 .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
+                .putBoolean(MainActivity.PREF_CACHE_ENABLED, true)
+                .putInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)
                 .putString(MainActivity.PREF_BOARD_PRIORITY_WORDS, "[]")
                 .putBoolean(MainActivity.PREF_GESTURES_ENABLED, false)
                 .putInt(MainActivity.PREF_GESTURE_SENSITIVITY, 2);
@@ -583,6 +653,59 @@ public class SettingsActivity extends Activity {
         blurGifThumbnails.setAlpha(videoBlurEnabled ? 1f : 0.45f);
         autoplayGifs.setEnabled(mediaEnabled);
         autoplayGifs.setAlpha(mediaEnabled ? 1f : 0.45f);
+    }
+
+    private void updateCacheDependentSettings() {
+        boolean enabled = cacheEnabled.isChecked();
+        cacheMaxMb.setEnabled(enabled);
+        cacheMaxMb.setAlpha(enabled ? 1f : 0.45f);
+        cacheUsage.setAlpha(enabled ? 1f : 0.45f);
+        cacheUsageText.setAlpha(enabled ? 1f : 0.45f);
+    }
+
+    private int parseCacheMaxMb() {
+        int value = AppCache.DEFAULT_MAX_MB;
+        try {
+            value = Integer.parseInt(cacheMaxMb.getText().toString().trim());
+        } catch (Exception ignored) {
+        }
+        value = Math.max(AppCache.MIN_MAX_MB, Math.min(AppCache.MAX_MAX_MB, value));
+        String normalized = String.valueOf(value);
+        if (!normalized.equals(cacheMaxMb.getText().toString().trim())) {
+            cacheMaxMb.setText(normalized);
+            cacheMaxMb.setSelection(cacheMaxMb.getText().length());
+        }
+        return value;
+    }
+
+    private void updateCacheUsage() {
+        if (cacheUsage == null || cacheUsageText == null) {
+            return;
+        }
+        long current = AppCache.size(this);
+        long max = Math.max(1L, parseCacheMaxMb() * 1024L * 1024L);
+        int progress = (int) Math.max(0L, Math.min(1000L, current * 1000L / max));
+        cacheUsage.setProgress(progress);
+        cacheUsageText.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u4f7f\u7528\u91cf: ",
+                "Cache used: ") + AppCache.formatBytes(current) + " / " + AppCache.formatBytes(max));
+    }
+
+    private void confirmClearCache() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Clear cache"))
+                .setMessage(MainActivity.text(
+                        "\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f",
+                        "Delete cached threads and media?"))
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (d, which) -> {
+                    AppCache.clear(this);
+                    updateCacheUsage();
+                    Toast.makeText(this, MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664\u3057\u307e\u3057\u305f", "Cache cleared."),
+                            Toast.LENGTH_SHORT).show();
+                })
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
     }
 
     private TextView sectionTitle(String value) {
