@@ -7,19 +7,14 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
-import android.graphics.ImageDecoder;
-import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.media.MediaMetadataRetriever;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -37,12 +32,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -163,14 +156,15 @@ public class UploadHistoryActivity extends Activity {
         row.setPadding(dp(8), dp(8), dp(8), dp(8));
         row.setBackground(rowBackground());
 
-        ImageView thumbnail = new ImageView(this);
-        thumbnail.setBackground(thumbnailBackground());
-        thumbnail.setScaleType(ImageView.ScaleType.FIT_CENTER);
         int mediaSize = dp(108);
+        String mediaUrl = item.optString("url", "");
+        View thumbnail = MediaPreviewHelper.create(this, preferences, executor,
+                new android.os.Handler(android.os.Looper.getMainLooper()),
+                mediaUrl, mediaUrl, isVideoUrl(mediaUrl, item.optString("mime", "")),
+                mediaSize, null, mediaPreviewCallbacks());
         LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(mediaSize, mediaSize);
         thumbParams.setMargins(0, 0, dp(10), 0);
         row.addView(thumbnail, thumbParams);
-        loadMediaPreview(thumbnail, item.optString("url", ""), item.optString("mime", ""));
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -281,87 +275,27 @@ public class UploadHistoryActivity extends Activity {
         }
     }
 
-    private void loadMediaPreview(ImageView target, String url, String mime) {
-        if (url == null || url.isEmpty()) {
-            return;
-        }
-        executor.execute(() -> {
-            Bitmap bitmap = null;
-            Drawable drawable = null;
-            try {
-                if (isVideoUrl(url, mime)) {
-                    bitmap = videoFrameBitmap(url);
-                } else {
-                    byte[] data = downloadMediaBytes(url, isGifUrl(url, mime) ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
-                    if (isGifUrl(url, mime) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(data)));
-                        if (drawable instanceof AnimatedImageDrawable) {
-                            ((AnimatedImageDrawable) drawable).setRepeatCount(AnimatedImageDrawable.REPEAT_INFINITE);
-                        }
-                    }
-                    bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
-                }
-            } catch (Exception ignored) {
-                bitmap = null;
-                drawable = null;
+    private MediaPreviewHelper.Callback mediaPreviewCallbacks() {
+        return new MediaPreviewHelper.Callback() {
+            @Override
+            public void openImage(String originalUrl, String mediaUrl) {
+                openUrl(mediaUrl);
             }
-            Bitmap finalBitmap = bitmap;
-            Drawable finalDrawable = drawable;
-            boolean gif = isGifUrl(url, mime);
-            runOnUiThread(() -> {
-                if (finalDrawable != null && gif && autoplayGifs()) {
-                    target.setImageDrawable(finalDrawable);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && finalDrawable instanceof AnimatedImageDrawable) {
-                        ((AnimatedImageDrawable) finalDrawable).start();
-                    }
-                } else if (finalBitmap != null) {
-                    target.setImageBitmap(finalBitmap);
-                }
-            });
-        });
-    }
 
-    private byte[] downloadMediaBytes(String url, int limit) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(15000);
-        connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
-        try (InputStream input = connection.getInputStream()) {
-            return readLimited(input, limit);
-        } finally {
-            connection.disconnect();
-        }
-    }
-
-    private Bitmap videoFrameBitmap(String url) throws Exception {
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            retriever.setDataSource(url, new HashMap<>());
-            Bitmap frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-            if (frame == null) {
-                frame = retriever.getFrameAtTime();
+            @Override
+            public void openVideo(String originalUrl, String mediaUrl) {
+                openUrl(mediaUrl);
             }
-            return frame;
-        } finally {
-            try {
-                retriever.release();
-            } catch (Exception ignored) {
+
+            @Override
+            public void openExternal(String url) {
+                openUrl(url);
             }
-        }
-    }
-
-    private boolean autoplayGifs() {
-        return preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false);
-    }
-
-    private boolean isGifUrl(String url, String mime) {
-        String value = ((url == null ? "" : url) + " " + (mime == null ? "" : mime)).toLowerCase(Locale.ROOT);
-        return value.contains("image/gif") || value.endsWith(".gif");
+        };
     }
 
     private boolean isVideoUrl(String url, String mime) {
-        String value = ((url == null ? "" : url) + " " + (mime == null ? "" : mime)).toLowerCase(Locale.ROOT);
+        String value = ((url == null ? "" : url) + " " + (mime == null ? "" : mime)).toLowerCase(java.util.Locale.ROOT);
         return value.contains("video/") || value.matches(".*\\.(mp4|m4v|webm|mov)(\\?.*)?(\\s.*)?");
     }
 
@@ -390,6 +324,19 @@ public class UploadHistoryActivity extends Activity {
         String imageHash = segments.get(1);
         String pathname = "/" + imageId + "/" + imageHash;
         String cookie = collectCookies(deleteUrl);
+        String response = postJsonDeleteMultipart(deleteUrl, pathname, imageId, imageHash, cookie);
+        if (deleteResponseSuccessful(response)) {
+            return;
+        }
+        response = postJsonDeleteUrlEncoded(deleteUrl, pathname, imageId, imageHash, cookie);
+        if (deleteResponseSuccessful(response)) {
+            return;
+        }
+        throw new IllegalStateException(MainActivity.text("ImgBBの削除応答を確認できません。", "Could not confirm ImgBB deletion."));
+    }
+
+    private String postJsonDeleteMultipart(String deleteUrl, String pathname, String imageId,
+                                           String imageHash, String cookie) throws Exception {
         String boundary = "----CuspiDroidImgBBDelete" + System.currentTimeMillis();
 
         HttpURLConnection connection = (HttpURLConnection) new URL("https://ibb.co/json").openConnection();
@@ -424,9 +371,75 @@ public class UploadHistoryActivity extends Activity {
             stream.close();
         }
         connection.disconnect();
-        if (code >= 400 || response.contains("\"error\"")) {
+        if (code >= 400) {
             throw new IllegalStateException("HTTP " + code);
         }
+        return response;
+    }
+
+    private String postJsonDeleteUrlEncoded(String deleteUrl, String pathname, String imageId,
+                                            String imageHash, String cookie) throws Exception {
+        String body = formField("pathname", pathname)
+                + "&" + formField("action", "delete")
+                + "&" + formField("delete", "image")
+                + "&" + formField("from", "resource")
+                + "&" + formField("deleting[id]", imageId)
+                + "&" + formField("deleting[hash]", imageHash);
+        byte[] bytes = body.getBytes(UTF8);
+        HttpURLConnection connection = (HttpURLConnection) new URL("https://ibb.co/json").openConnection();
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(30000);
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        connection.setRequestProperty("Accept", "application/json, text/plain, */*");
+        connection.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        connection.setRequestProperty("Origin", "https://ibb.co");
+        connection.setRequestProperty("Referer", deleteUrl);
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
+        if (!cookie.isEmpty()) {
+            connection.setRequestProperty("Cookie", cookie);
+        }
+        connection.setFixedLengthStreamingMode(bytes.length);
+        try (OutputStream output = connection.getOutputStream()) {
+            output.write(bytes);
+        }
+        int code = connection.getResponseCode();
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = stream == null ? "" : new String(readLimited(stream, 512 * 1024), UTF8);
+        if (stream != null) {
+            stream.close();
+        }
+        connection.disconnect();
+        if (code >= 400) {
+            throw new IllegalStateException("HTTP " + code);
+        }
+        return response;
+    }
+
+    private boolean deleteResponseSuccessful(String response) {
+        if (response == null || response.trim().isEmpty() || response.contains("\"error\"")) {
+            return false;
+        }
+        try {
+            JSONObject root = new JSONObject(response);
+            if (root.optBoolean("success", false)) {
+                return true;
+            }
+            int status = root.optInt("status_code", root.optInt("status", 0));
+            if (status >= 200 && status < 300) {
+                return true;
+            }
+            return false;
+        } catch (Exception ignored) {
+            String text = response.toLowerCase(Locale.ROOT);
+            return text.contains("deleted") || text.contains("success");
+        }
+    }
+
+    private String formField(String name, String value) throws Exception {
+        return java.net.URLEncoder.encode(name, UTF8.name())
+                + "=" + java.net.URLEncoder.encode(value == null ? "" : value, UTF8.name());
     }
 
     private String collectCookies(String deleteUrl) {
@@ -439,9 +452,14 @@ public class UploadHistoryActivity extends Activity {
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 CuspiDroid");
             connection.getResponseCode();
             List<String> cookies = new ArrayList<>();
-            for (String value : connection.getHeaderFields().getOrDefault("Set-Cookie", new ArrayList<>())) {
-                int semicolon = value.indexOf(';');
-                cookies.add(semicolon >= 0 ? value.substring(0, semicolon) : value);
+            for (String key : connection.getHeaderFields().keySet()) {
+                if (key == null || !"set-cookie".equalsIgnoreCase(key)) {
+                    continue;
+                }
+                for (String value : connection.getHeaderFields().get(key)) {
+                    int semicolon = value.indexOf(';');
+                    cookies.add(semicolon >= 0 ? value.substring(0, semicolon) : value);
+                }
             }
             connection.disconnect();
             return String.join("; ", cookies);

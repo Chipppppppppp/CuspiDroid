@@ -244,6 +244,10 @@ public class MainActivity extends Activity {
     private SharedPreferences preferences;
     private EditText pendingImgbbUploadMessage;
     private int pendingImgbbExpirationSeconds;
+    private AlertDialog pendingImgbbUploadDialog;
+    private LinearLayout pendingImgbbMediaBox;
+    private EditText pendingImgbbExpirationInput;
+    private List<Uri> pendingImgbbUploadUris = new ArrayList<>();
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
     private ScrollView visibleThreadScroll;
@@ -7026,93 +7030,8 @@ public class MainActivity extends Activity {
     }
 
     private View imgurPreview(String originalUrl, String imageUrl, Runnable longClickAction, int cellSize) {
-        FrameLayout frame = new FrameLayout(this);
-        frame.setClickable(true);
-        if (longClickAction != null) {
-            frame.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-
-        ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        image.setVisibility(View.GONE);
-        if (longClickAction != null) {
-            image.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-        frame.addView(image, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        ProgressBar spinner = new ProgressBar(this);
-        spinner.setIndeterminate(true);
-        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(36), dp(36));
-        spinnerParams.gravity = Gravity.CENTER;
-        frame.addView(spinner, spinnerParams);
-
-        TextView error = unavailableMediaLabel(text("\u753b\u50cf\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Image unavailable"));
-        error.setVisibility(View.GONE);
-        error.setOnClickListener(v -> openExternal(originalUrl));
-        if (longClickAction != null) {
-            error.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-        frame.addView(error, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        Button reveal = new Button(this);
-        reveal.setText(text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
-        reveal.setAllCaps(false);
-        reveal.setTextSize(12);
-        reveal.setTextColor(textColor());
-        reveal.setVisibility(View.GONE);
-        reveal.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
-        if (longClickAction != null) {
-            reveal.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-        FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(92), dp(36));
-        revealParams.gravity = Gravity.CENTER;
-        frame.addView(reveal, revealParams);
-
-        TextView play = mediaPlayOverlay();
-        play.setVisibility(View.GONE);
-        if (longClickAction != null) {
-            play.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-        frame.addView(play, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        LazyImgurPreview preview = new LazyImgurPreview(originalUrl, imageUrl, frame, image, spinner, error, reveal, play);
-        frame.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-            @Override
-            public void onViewAttachedToWindow(View view) {
-                if (!lazyImgurPreviews.contains(preview)) {
-                    lazyImgurPreviews.add(preview);
-                }
-                scheduleLazyImgurLoads();
-            }
-
-            @Override
-            public void onViewDetachedFromWindow(View view) {
-                lazyImgurPreviews.remove(preview);
-            }
-        });
-        if (frame.isAttachedToWindow()) {
-            lazyImgurPreviews.add(preview);
-            scheduleLazyImgurLoads();
-        }
-        return frame;
+        return MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
+                originalUrl, imageUrl, false, cellSize, longClickAction, mediaPreviewCallbacks());
     }
 
     private TextView mediaPlayOverlay() {
@@ -7126,67 +7045,27 @@ public class MainActivity extends Activity {
     }
 
     private View videoPreview(String originalUrl, String videoUrl, Runnable longClickAction, int cellSize) {
-        FrameLayout frame = new FrameLayout(this);
-        frame.setClickable(true);
-        frame.setBackgroundColor(Color.BLACK);
-        frame.setMinimumWidth(cellSize);
-        frame.setMinimumHeight(cellSize);
-        if (longClickAction != null) {
-            frame.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
+        return MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
+                originalUrl, videoUrl, true, cellSize, longClickAction, mediaPreviewCallbacks());
+    }
 
-        ImageView thumbnail = new ImageView(this);
-        thumbnail.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        thumbnail.setVisibility(View.GONE);
-        frame.addView(thumbnail, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    private MediaPreviewHelper.Callback mediaPreviewCallbacks() {
+        return new MediaPreviewHelper.Callback() {
+            @Override
+            public void openImage(String originalUrl, String mediaUrl) {
+                showImageViewer(originalUrl, mediaUrl);
+            }
 
-        ProgressBar spinner = new ProgressBar(this);
-        spinner.setIndeterminate(true);
-        spinner.setAlpha(0.55f);
-        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(28), dp(28));
-        spinnerParams.gravity = Gravity.CENTER;
-        frame.addView(spinner, spinnerParams);
+            @Override
+            public void openVideo(String originalUrl, String mediaUrl) {
+                showVideoViewer(originalUrl, mediaUrl);
+            }
 
-        TextView error = unavailableMediaLabel(text("\u52d5\u753b\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093", "Video unavailable"));
-        error.setVisibility(View.GONE);
-        error.setOnClickListener(v -> openExternal(originalUrl));
-        if (longClickAction != null) {
-            error.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-
-        TextView play = mediaPlayOverlay();
-        frame.addView(play, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        frame.addView(error, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        Button reveal = new Button(this);
-        reveal.setText(text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
-        reveal.setAllCaps(false);
-        reveal.setTextSize(12);
-        reveal.setTextColor(textColor());
-        reveal.setVisibility(View.GONE);
-        reveal.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
-        if (longClickAction != null) {
-            reveal.setOnLongClickListener(v -> {
-                longClickAction.run();
-                return true;
-            });
-        }
-        FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(dp(92), dp(36));
-        revealParams.gravity = Gravity.CENTER;
-        frame.addView(reveal, revealParams);
-
-        frame.setOnClickListener(v -> showVideoViewer(originalUrl, videoUrl));
-        loadVideoThumbnail(videoUrl, thumbnail, spinner, error, play, reveal);
-        return frame;
+            @Override
+            public void openExternal(String url) {
+                MainActivity.this.openExternal(url);
+            }
+        };
     }
 
     private void loadVideoThumbnail(String videoUrl, ImageView thumbnail, ProgressBar spinner,
@@ -9733,41 +9612,145 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, text("\u753b\u50cf\u304c\u9078\u629e\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "No image selected."), Toast.LENGTH_SHORT).show();
                 return;
             }
-            uploadSelectedImagesToImgbb(uris, pendingImgbbUploadMessage);
+            pendingImgbbUploadUris = uris;
+            renderPendingImgbbMedia();
         }
     }
 
     private void chooseImgbbUploadImage(EditText message) {
         pendingImgbbUploadMessage = message;
         if (imgbbApiKey().isEmpty()) {
-            showImgbbApiKeyDialog(() -> showImgbbExpirationDialog(() -> openImgbbImagePicker(message)));
+            showImgbbApiKeyDialog(() -> showImgbbUploadDialog(message));
             return;
         }
-        showImgbbExpirationDialog(() -> openImgbbImagePicker(message));
+        showImgbbUploadDialog(message);
     }
 
-    private void showImgbbExpirationDialog(Runnable afterSelect) {
-        String[] labels = {
-                text("\u671f\u9650\u306a\u3057", "No expiration"),
-                text("5\u5206", "5 minutes"),
-                text("1\u6642\u9593", "1 hour"),
-                text("1\u65e5", "1 day"),
-                text("1\u9031\u9593", "1 week"),
-                text("1\u304b\u6708", "1 month")
-        };
-        int[] seconds = {0, 300, 3600, 86400, 604800, 2592000};
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306e\u4fdd\u6301\u671f\u9650", "Upload expiration"))
-                .setItems(labels, (choiceDialog, which) -> {
-                    pendingImgbbExpirationSeconds = seconds[Math.max(0, Math.min(which, seconds.length - 1))];
-                    if (afterSelect != null) {
-                        afterSelect.run();
-                    }
-                })
+    private void showImgbbUploadDialog(EditText message) {
+        pendingImgbbUploadMessage = message;
+        pendingImgbbUploadUris = new ArrayList<>();
+        pendingImgbbExpirationSeconds = 0;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(8), dp(18), 0);
+
+        TextView expirationLabel = helperLine(text("\u524a\u9664\u307e\u3067\u306e\u671f\u9650", "Expiration"));
+        root.addView(expirationLabel);
+        LinearLayout presets = new LinearLayout(this);
+        presets.setOrientation(LinearLayout.HORIZONTAL);
+        int[] presetSeconds = {0, 300, 3600, 86400};
+        String[] presetLabels = {text("\u306a\u3057", "None"), text("5\u5206", "5m"), text("1\u6642\u9593", "1h"), text("1\u65e5", "1d")};
+        for (int i = 0; i < presetSeconds.length; i++) {
+            int seconds = presetSeconds[i];
+            TextView chip = actionRow(presetLabels[i]);
+            chip.setGravity(Gravity.CENTER);
+            chip.setOnClickListener(v -> {
+                pendingImgbbExpirationSeconds = seconds;
+                pendingImgbbExpirationInput.setText(seconds <= 0 ? "" : String.valueOf(seconds));
+            });
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(40), 1);
+            chipParams.setMargins(0, 0, dp(6), dp(6));
+            presets.addView(chip, chipParams);
+        }
+        root.addView(presets);
+
+        pendingImgbbExpirationInput = new EditText(this);
+        pendingImgbbExpirationInput.setSingleLine(true);
+        pendingImgbbExpirationInput.setHint(text("\u79d2\u6570\u3001\u307e\u305f\u306f 10m / 2h / 7d", "Seconds, or 10m / 2h / 7d"));
+        pendingImgbbExpirationInput.setTextColor(textColor());
+        pendingImgbbExpirationInput.setHintTextColor(mutedColor());
+        pendingImgbbExpirationInput.setBackground(addressBarBackground());
+        pendingImgbbExpirationInput.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(pendingImgbbExpirationInput, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+
+        pendingImgbbMediaBox = new LinearLayout(this);
+        pendingImgbbMediaBox.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams mediaParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mediaParams.setMargins(0, dp(10), 0, 0);
+        root.addView(pendingImgbbMediaBox, mediaParams);
+        renderPendingImgbbMedia();
+
+        pendingImgbbUploadDialog = new AlertDialog.Builder(this)
+                .setTitle(text("ImgBB\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "ImgBB upload"))
+                .setView(root)
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton("OK", null)
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
-        dialog.show();
+        pendingImgbbUploadDialog.setOnShowListener(d -> {
+            Theme.styleDialog(pendingImgbbUploadDialog, this);
+            pendingImgbbUploadDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                if (pendingImgbbUploadUris.isEmpty()) {
+                    Toast.makeText(this, text("\u753b\u50cf\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", "Choose images."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                pendingImgbbExpirationSeconds = parseImgbbExpiration(pendingImgbbExpirationInput.getText().toString());
+                uploadSelectedImagesToImgbb(new ArrayList<>(pendingImgbbUploadUris), pendingImgbbUploadMessage);
+                pendingImgbbUploadDialog.dismiss();
+            });
+        });
+        pendingImgbbUploadDialog.show();
+    }
+
+    private void renderPendingImgbbMedia() {
+        if (pendingImgbbMediaBox == null) {
+            return;
+        }
+        pendingImgbbMediaBox.removeAllViews();
+        if (pendingImgbbUploadUris.isEmpty()) {
+            TextView choose = actionRow(text("\u753b\u50cf\u3092\u9078\u629e", "Choose images"));
+            choose.setGravity(Gravity.CENTER);
+            choose.setOnClickListener(v -> openImgbbImagePicker(pendingImgbbUploadMessage));
+            pendingImgbbMediaBox.addView(choose, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(92)));
+            return;
+        }
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(3);
+        int cellSize = dp(MEDIA_GRID_CELL_DP);
+        int gap = dp(6);
+        for (Uri uri : pendingImgbbUploadUris) {
+            ImageView image = new ImageView(this);
+            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            image.setBackgroundColor(Theme.dark(this) ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
+            image.setImageURI(uri);
+            image.setOnClickListener(v -> openImgbbImagePicker(pendingImgbbUploadMessage));
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+            params.width = cellSize;
+            params.height = cellSize;
+            params.setMargins(0, 0, gap, gap);
+            grid.addView(image, params);
+        }
+        pendingImgbbMediaBox.addView(grid);
+    }
+
+    private int parseImgbbExpiration(String value) {
+        String raw = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        if (raw.isEmpty()) {
+            return pendingImgbbExpirationSeconds;
+        }
+        try {
+            int multiplier = 1;
+            if (raw.endsWith("m")) {
+                multiplier = 60;
+                raw = raw.substring(0, raw.length() - 1).trim();
+            } else if (raw.endsWith("h")) {
+                multiplier = 3600;
+                raw = raw.substring(0, raw.length() - 1).trim();
+            } else if (raw.endsWith("d")) {
+                multiplier = 86400;
+                raw = raw.substring(0, raw.length() - 1).trim();
+            }
+            int seconds = Math.max(0, Integer.parseInt(raw) * multiplier);
+            if (seconds > 0 && seconds < 60) {
+                return 60;
+            }
+            return Math.min(seconds, 15552000);
+        } catch (Exception ignored) {
+            return pendingImgbbExpirationSeconds;
+        }
     }
 
     private void openImgbbImagePicker(EditText message) {
