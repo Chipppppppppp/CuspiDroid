@@ -27,6 +27,7 @@ import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
@@ -650,7 +651,7 @@ public class MainActivity extends Activity {
                 clearJumpHighlight();
             }
             if (!replyPopups.isEmpty() && !isTouchInsideReplyPopup(event)) {
-                dismissTopReplyPopup();
+                dismissThreadPopups();
                 return true;
             }
             if (addressBar != null && addressBar.hasFocus()
@@ -1592,6 +1593,14 @@ public class MainActivity extends Activity {
             return roundedFill(fill, dp(12));
         }
         return new MyPostBackgroundDrawable(fill, Color.rgb(37, 99, 235), dp(12), dp(5));
+    }
+
+    private Drawable framedPostBackground(Drawable base) {
+        GradientDrawable frame = new GradientDrawable();
+        frame.setColor(Color.TRANSPARENT);
+        frame.setStroke(dp(2), TEAL);
+        frame.setCornerRadius(dp(12));
+        return new LayerDrawable(new Drawable[]{base, frame});
     }
 
     private GradientDrawable addressBarBackground() {
@@ -8632,10 +8641,13 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
                                 boolean placeNearAnchor) {
+        if (!replyPopups.isEmpty()) {
+            dismissThreadPopups();
+        }
         FrameLayout popupRoot = new FrameLayout(this);
         int popupRootGap = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
         int popupFrameInset = jumpEachPost ? dp(POST_OUTER_GAP_DP) : 0;
-        int popupCardInset = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
+        int popupCardInset = 0;
         popupRoot.setPadding(popupRootGap, popupRootGap, popupRootGap, popupRootGap);
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setFocusable(true);
@@ -8645,14 +8657,11 @@ public class MainActivity extends Activity {
         popupScroll.setVerticalScrollBarEnabled(false);
         popupScroll.setScrollbarFadingEnabled(true);
         if (jumpEachPost) {
-            popupScroll.setPadding(0, 0, 0, 0);
-            popupScroll.setBackground(roundedFill(menuColor(), dp(12)));
+            popupScroll.setPadding(popupFrameInset, popupFrameInset, popupFrameInset, popupFrameInset);
+            popupScroll.setBackground(roundedDrawable(menuColor(), TEAL, dp(12)));
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 popupScroll.setClipToOutline(true);
             }
-            popupRoot.addView(popupPostShadowLayer(Color.argb(28, 15, 23, 42)), popupPostShadowParams(0));
-            popupRoot.addView(popupPostShadowLayer(Color.argb(22, 15, 23, 42)), popupPostShadowParams(dp(2)));
-            popupRoot.addView(popupPostShadowLayer(Color.argb(18, 15, 23, 42)), popupPostShadowParams(dp(4)));
         }
         LinearLayout popupPosts = new LinearLayout(this);
         popupPosts.setOrientation(LinearLayout.VERTICAL);
@@ -8662,7 +8671,7 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams scrollParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         if (jumpEachPost) {
-            scrollParams.setMargins(popupFrameInset, popupFrameInset, popupFrameInset, popupFrameInset);
+            scrollParams.setMargins(0, 0, 0, 0);
         }
         popupRoot.addView(popupScroll, scrollParams);
 
@@ -8700,15 +8709,15 @@ public class MainActivity extends Activity {
                 View.MeasureSpec.makeMeasureSpec(Math.max(dp(120), measuredContentWidth), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int desiredHeight = popupPosts.getMeasuredHeight()
-                + (jumpEachPost ? popupFrameInset * 2 : dp(POST_OUTER_GAP_DP * 4));
+                + (jumpEachPost ? popupFrameInset * 2 : popupRootGap * 2);
         boolean popupScrollable = desiredHeight > maxHeight;
-        int popupHeight = Math.max(dp(120), Math.min(desiredHeight, maxHeight));
+        int popupHeight = Math.max(dp(40), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(popupScrollable);
         popupScroll.setOverScrollMode(popupScrollable ? View.OVER_SCROLL_IF_CONTENT_SCROLLS : View.OVER_SCROLL_NEVER);
         popupScroll.setOnTouchListener((v, event) -> !popupScrollable
                 && event.getActionMasked() == MotionEvent.ACTION_MOVE);
         int y = placeNearAnchor
-                ? Math.max(minPopupY, anchorLocation[1] - popupHeight + dp(2))
+                ? Math.max(minPopupY, anchorLocation[1] - popupHeight)
                 : Math.max(minPopupY, anchorLocation[1] - popupHeight + popupOverlap);
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
         popup.setOutsideTouchable(false);
@@ -8719,7 +8728,7 @@ public class MainActivity extends Activity {
         animatePopupIn(popup, true);
     }
 
-    private View popupPostCard(ThreadPage page, Post post, boolean showShadow) {
+    private View popupPostCard(ThreadPage page, Post post, boolean showFrame) {
         CuspTab tab = currentTab();
         if (tab != null) {
             post.aaMode = aaModeForPost(page, post);
@@ -8728,12 +8737,7 @@ public class MainActivity extends Activity {
         shell.setClipChildren(false);
         shell.setClipToPadding(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
-        if (showShadow) {
-            shell.addView(popupPostShadowLayer(Color.argb(28, 15, 23, 42)), popupPostShadowParams(0));
-            shell.addView(popupPostShadowLayer(Color.argb(22, 15, 23, 42)), popupPostShadowParams(dp(2)));
-            shell.addView(popupPostShadowLayer(Color.argb(18, 15, 23, 42)), popupPostShadowParams(dp(4)));
-        }
-        int cardInset = showShadow ? dp(POST_OUTER_GAP_DP) : 0;
+        int cardInset = 0;
         View swipeBackground = new View(this);
         swipeBackground.setBackground(roundedFill(menuColor(), dp(12)));
         FrameLayout.LayoutParams swipeBackgroundParams = new FrameLayout.LayoutParams(
@@ -8749,7 +8753,8 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setTag(R.id.tag_post_card, true);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber, isMyPost(page, post)));
+        Drawable background = postBackground(tab != null && post.number > tab.readPostNumber, isMyPost(page, post));
+        card.setBackground(showFrame ? framedPostBackground(background) : background);
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
                 return true;
@@ -8806,19 +8811,6 @@ public class MainActivity extends Activity {
             current = parent instanceof View ? (View) parent : null;
         }
         return null;
-    }
-
-    private View popupPostShadowLayer(int color) {
-        View shadow = new View(this);
-        shadow.setBackground(roundedFill(color, dp(18)));
-        return shadow;
-    }
-
-    private FrameLayout.LayoutParams popupPostShadowParams(int inset) {
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        params.setMargins(inset, inset, inset, inset);
-        return params;
     }
 
     private LinearLayout.LayoutParams popupPostParams(boolean compact, boolean last) {
