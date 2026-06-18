@@ -3443,7 +3443,7 @@ public class MainActivity extends Activity {
         view.setIncludeFontPadding(false);
         view.setPadding(0, 0, 0, 0);
         view.setOnClickListener(v -> {
-            if (consumePostPopupTap()) {
+            if (consumePostPopupTap(view)) {
                 return;
             }
             showPostsPopup(view, page, Collections.singletonList(post), false, true);
@@ -3898,7 +3898,7 @@ public class MainActivity extends Activity {
                     if (suppressNextLinkClick.remove(widget)) {
                         return;
                     }
-                    if (consumePostPopupTap()) {
+                    if (consumePostPopupTap(widget)) {
                         return;
                     }
                     showIdPopup(widget, page, id);
@@ -8435,7 +8435,7 @@ public class MainActivity extends Activity {
                     if (suppressNextLinkClick.remove(widget)) {
                         return;
                     }
-                    if (consumePostPopupTap()) {
+                    if (consumePostPopupTap(widget)) {
                         return;
                     }
                     routeLink(getURL(), currentTab());
@@ -8632,7 +8632,7 @@ public class MainActivity extends Activity {
                     if (suppressNextLinkClick.remove(widget)) {
                         return;
                     }
-                    if (consumePostPopupTap()) {
+                    if (consumePostPopupTap(widget)) {
                         return;
                     }
                     showReplyPopup(widget, page, from, to);
@@ -8699,11 +8699,16 @@ public class MainActivity extends Activity {
     }
 
     private boolean consumePostPopupTap() {
+        return consumePostPopupTap(null);
+    }
+
+    private boolean consumePostPopupTap(View source) {
         if (!postPopupOpening && replyPopups.isEmpty()) {
             return false;
         }
+        boolean insideReplyPopup = isViewInsideReplyPopup(source);
         dismissThreadPopups();
-        return true;
+        return !insideReplyPopup;
     }
 
     private void showPostsPopupNow(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
@@ -9090,6 +9095,31 @@ public class MainActivity extends Activity {
             if (bounds.contains(x, y)) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    private boolean isViewInsideReplyPopup(View view) {
+        if (view == null) {
+            return false;
+        }
+        for (PopupWindow popup : replyPopups) {
+            View content = popup.getContentView();
+            if (content != null && popup.isShowing() && isDescendantOf(view, content)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isDescendantOf(View child, View ancestor) {
+        View current = child;
+        while (current != null) {
+            if (current == ancestor) {
+                return true;
+            }
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
         }
         return false;
     }
