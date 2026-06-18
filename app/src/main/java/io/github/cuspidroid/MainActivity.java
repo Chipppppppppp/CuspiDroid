@@ -2195,10 +2195,13 @@ public class MainActivity extends Activity {
             if (!dir.exists() && !dir.mkdirs()) {
                 return;
             }
-            try (FileOutputStream out = new FileOutputStream(threadCacheFile(page.url))) {
-                out.write(threadPageToJson(page).toString().getBytes(Charset.forName("UTF-8")));
+            byte[] bytes = threadPageToJson(page).toString().getBytes(Charset.forName("UTF-8"));
+            if (!AppCache.canWrite(this, preferences, bytes.length)) {
+                return;
             }
-            AppCache.prune(this, preferences);
+            try (FileOutputStream out = new FileOutputStream(threadCacheFile(page.url))) {
+                out.write(bytes);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -4230,12 +4233,38 @@ public class MainActivity extends Activity {
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = new TextView(this);
-        title.setText(page.title);
-        title.setTextColor(textColor());
-        title.setTextSize(20);
-        title.setPadding(0, 0, 0, dp(10));
-        list.addView(title);
+        EditText query = new EditText(this);
+        query.setSingleLine(true);
+        query.setText(searchQueryFromUrl(page.url));
+        query.setHint(text("\u691c\u7d22\u8a9e", "Search query"));
+        query.setTextColor(textColor());
+        query.setHintTextColor(mutedColor());
+        query.setTextSize(18);
+        query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        query.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        query.setBackground(addressBarBackground());
+        query.setPadding(dp(12), 0, dp(12), 0);
+        query.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = event != null && event.getAction() == KeyEvent.ACTION_UP
+                    && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || enter) {
+                String value = query.getText().toString().trim();
+                if (!value.isEmpty()) {
+                    try {
+                        InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                        manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
+                    } catch (Exception ignored) {
+                    }
+                    openInCurrentTab(searchUrl(value));
+                }
+                return true;
+            }
+            return false;
+        });
+        LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        queryParams.setMargins(0, 0, 0, dp(10));
+        list.addView(query, queryParams);
 
         if (page.error != null) {
             TextView error = postText(page.error, null);
@@ -8082,7 +8111,7 @@ public class MainActivity extends Activity {
     }
 
     private void cacheImageBytes(String url, byte[] bytes) {
-        if (!AppCache.enabled(preferences)) {
+        if (!AppCache.canWrite(this, preferences, bytes == null ? 0 : bytes.length)) {
             return;
         }
         try {
@@ -8093,7 +8122,6 @@ public class MainActivity extends Activity {
             try (FileOutputStream out = new FileOutputStream(imageCacheFile(url))) {
                 out.write(bytes);
             }
-            AppCache.prune(this, preferences);
         } catch (Exception ignored) {
         }
     }
@@ -8608,14 +8636,7 @@ public class MainActivity extends Activity {
         }
         postPopupOpening = true;
         int generation = ++postPopupGeneration;
-        showPostPopupLoading(anchor, jumpEachPost, placeNearAnchor);
-        mainHandler.post(() -> {
-            if (!postPopupOpening || generation != postPopupGeneration) {
-                return;
-            }
-            dismissThreadPopupsOnly();
-            showPostsPopupNow(anchor, page, targets, jumpEachPost, placeNearAnchor, generation);
-        });
+        showPostsPopupNow(anchor, page, targets, jumpEachPost, placeNearAnchor, generation);
     }
 
     private boolean consumePostPopupTap() {
@@ -8624,52 +8645,6 @@ public class MainActivity extends Activity {
         }
         dismissThreadPopups();
         return true;
-    }
-
-    private void showPostPopupLoading(View anchor, boolean jumpEachPost, boolean placeNearAnchor) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.HORIZONTAL);
-        box.setGravity(Gravity.CENTER_VERTICAL);
-        box.setPadding(dp(14), dp(10), dp(14), dp(10));
-        box.setBackground(roundedDrawable(menuColor(), TEAL, dp(12), dp(2)));
-        ProgressBar spinner = new ProgressBar(this);
-        spinner.setIndeterminate(true);
-        box.addView(spinner, new LinearLayout.LayoutParams(dp(28), dp(28)));
-        TextView label = new TextView(this);
-        label.setText(text("\u8aad\u307f\u8fbc\u307f\u4e2d...", "Loading..."));
-        label.setTextColor(textColor());
-        label.setTextSize(14);
-        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(dp(10), 0, 0, 0);
-        box.addView(label, labelParams);
-
-        int[] anchorLocation = new int[2];
-        anchor.getLocationOnScreen(anchorLocation);
-        int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        View sourcePostCard = findSourcePostCard(anchor);
-        int[] sourceLocation = new int[2];
-        if (sourcePostCard != null) {
-            sourcePostCard.getLocationOnScreen(sourceLocation);
-        }
-        int width = sourcePostCard != null && sourcePostCard.getWidth() > dp(80)
-                ? sourcePostCard.getWidth()
-                : Math.min(screenWidth - dp(POST_OUTER_GAP_DP) * 2, dp(240));
-        int x = sourcePostCard != null
-                ? sourceLocation[0]
-                : Math.max(0, Math.min(anchorLocation[0] - dp(18), screenWidth - width));
-        int popupHeight = dp(54);
-        int popupOverlap = jumpEachPost ? dp(36) : dp(12);
-        int y = placeNearAnchor
-                ? Math.max(0, anchorLocation[1] - popupHeight)
-                : Math.max(0, anchorLocation[1] - popupHeight + popupOverlap);
-        PopupWindow popup = new PopupWindow(box, width, popupHeight, false);
-        popup.setOutsideTouchable(false);
-        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        popup.setOnDismissListener(() -> replyPopups.remove(popup));
-        replyPopups.add(popup);
-        popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
-        animatePopupIn(popup, true);
     }
 
     private void showPostsPopupNow(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
@@ -13554,6 +13529,14 @@ public class MainActivity extends Activity {
     }
 
     private String searchTitle(String url) {
+        String query = searchQueryFromUrl(url);
+        if (query == null || query.trim().isEmpty()) {
+            return text("5ch\u691c\u7d22", "5ch Search");
+        }
+        return text("\u691c\u7d22: ", "Search: ") + query.trim();
+    }
+
+    private String searchQueryFromUrl(String url) {
         String query = "";
         try {
             Uri uri = Uri.parse(url);
@@ -13570,10 +13553,7 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             query = "";
         }
-        if (query == null || query.trim().isEmpty()) {
-            return text("5ch\u691c\u7d22", "5ch Search");
-        }
-        return text("\u691c\u7d22: ", "Search: ") + query.trim();
+        return query == null ? "" : query.trim();
     }
 
     private boolean fastContains(String haystack, String needle) {

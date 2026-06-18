@@ -64,7 +64,7 @@ final class AppCache {
 
     static void write(Context context, SharedPreferences preferences, String name, String key,
                       String extension, byte[] bytes) {
-        if (!enabled(preferences) || bytes == null || bytes.length == 0) {
+        if (!canWrite(context, preferences, bytes == null ? 0 : bytes.length)) {
             return;
         }
         try {
@@ -77,9 +77,17 @@ final class AppCache {
                 output.write(bytes);
             }
             file.setLastModified(System.currentTimeMillis());
-            prune(context, preferences);
         } catch (Exception ignored) {
         }
+    }
+
+    static boolean canWrite(Context context, SharedPreferences preferences, long bytesToAdd) {
+        if (!enabled(preferences) || bytesToAdd <= 0) {
+            return false;
+        }
+        long max = maxBytes(preferences);
+        long current = size(context);
+        return current < max && current + bytesToAdd <= max;
     }
 
     static long size(Context context) {

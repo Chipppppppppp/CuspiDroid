@@ -50,6 +50,7 @@ public class SettingsActivity extends Activity {
     private CheckBox boardSortBySpeed;
     private CheckBox cacheEnabled;
     private EditText cacheMaxMb;
+    private TextView cacheApply;
     private ProgressBar cacheUsage;
     private TextView cacheUsageText;
     private RadioButton themeSystem;
@@ -308,7 +309,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
                 v -> startActivity(new Intent(this, NgRulesActivity.class))));
 
-        root.addView(sectionTitle(MainActivity.text("\u30c7\u30fc\u30bf\u7ba1\u7406", "Data Management")));
+        root.addView(sectionTitle(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5", "Cache")));
         cacheEnabled = new CheckBox(this);
         cacheEnabled.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u4f7f\u7528", "Use cache"));
         cacheEnabled.setTextColor(textColor());
@@ -330,7 +331,16 @@ public class SettingsActivity extends Activity {
         cacheMaxMb.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         cacheMaxMb.setBackground(roundedField());
         cacheMaxMb.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(cacheMaxMb, fieldParams());
+        LinearLayout cacheLimitRow = new LinearLayout(this);
+        cacheLimitRow.setOrientation(LinearLayout.HORIZONTAL);
+        cacheLimitRow.setGravity(Gravity.CENTER_VERTICAL);
+        cacheLimitRow.addView(cacheMaxMb, new LinearLayout.LayoutParams(0, dp(44), 1));
+        cacheApply = smallActionButton(MainActivity.text("\u9069\u7528", "Apply"));
+        cacheApply.setOnClickListener(v -> applyCacheMaxMb());
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(86), dp(44));
+        applyParams.setMargins(dp(8), 0, 0, 0);
+        cacheLimitRow.addView(cacheApply, applyParams);
+        root.addView(cacheLimitRow, fieldParams());
 
         cacheUsageText = helperText("");
         root.addView(cacheUsageText);
@@ -345,6 +355,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664", "Delete cached threads and media"),
                 v -> confirmClearCache()));
 
+        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u4fdd\u5b58\u30c7\u30fc\u30bf", "History & Stored Data")));
         root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
                 MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
                 MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
@@ -360,6 +371,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u4f4d\u7f6e\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read positions by thread"),
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
+        root.addView(sectionTitle(MainActivity.text("\u30e1\u30f3\u30c6\u30ca\u30f3\u30b9", "Maintenance")));
         root.addView(managementRow(android.R.drawable.ic_dialog_info,
                 MainActivity.text("\u30c7\u30d0\u30c3\u30b0\u8a2d\u5b9a", "Debug settings"),
                 MainActivity.text("\u8abf\u67fb\u7528\u306e\u8868\u793a\u3092\u5207\u308a\u66ff\u3048", "Toggle diagnostic displays"),
@@ -456,17 +468,6 @@ public class SettingsActivity extends Activity {
             updateCacheDependentSettings();
             saveSettings(false);
         });
-        cacheMaxMb.setOnEditorActionListener((v, actionId, event) -> {
-            saveSettings(false);
-            updateCacheUsage();
-            return false;
-        });
-        cacheMaxMb.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                saveSettings(false);
-                updateCacheUsage();
-            }
-        });
         themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
             saveThemeMode();
             group.post(this::recreate);
@@ -549,7 +550,6 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, cacheEnabled.isChecked())
-                .putInt(MainActivity.PREF_CACHE_MAX_MB, parseCacheMaxMb())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
@@ -659,23 +659,40 @@ public class SettingsActivity extends Activity {
         boolean enabled = cacheEnabled.isChecked();
         cacheMaxMb.setEnabled(enabled);
         cacheMaxMb.setAlpha(enabled ? 1f : 0.45f);
+        cacheApply.setEnabled(enabled);
+        cacheApply.setAlpha(enabled ? 1f : 0.45f);
         cacheUsage.setAlpha(enabled ? 1f : 0.45f);
         cacheUsageText.setAlpha(enabled ? 1f : 0.45f);
     }
 
-    private int parseCacheMaxMb() {
-        int value = AppCache.DEFAULT_MAX_MB;
+    private Integer parseCacheMaxInput() {
         try {
-            value = Integer.parseInt(cacheMaxMb.getText().toString().trim());
+            return Integer.parseInt(cacheMaxMb.getText().toString().trim());
         } catch (Exception ignored) {
+            return null;
         }
-        value = Math.max(AppCache.MIN_MAX_MB, Math.min(AppCache.MAX_MAX_MB, value));
-        String normalized = String.valueOf(value);
-        if (!normalized.equals(cacheMaxMb.getText().toString().trim())) {
-            cacheMaxMb.setText(normalized);
-            cacheMaxMb.setSelection(cacheMaxMb.getText().length());
+    }
+
+    private void applyCacheMaxMb() {
+        Integer value = parseCacheMaxInput();
+        if (value == null || value < AppCache.MIN_MAX_MB || value > AppCache.MAX_MAX_MB) {
+            Toast.makeText(this, MainActivity.text("32〜2048 MB\u306e\u6570\u5024\u3092\u5165\u529b", "Enter a value from 32 to 2048 MB."), Toast.LENGTH_SHORT).show();
+            cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
+            return;
         }
-        return value;
+        long current = AppCache.size(this);
+        long requested = value * 1024L * 1024L;
+        if (requested < current) {
+            Toast.makeText(this, MainActivity.text(
+                    "\u73fe\u5728\u306e\u30ad\u30e3\u30c3\u30b7\u30e5\u4f7f\u7528\u91cf\u3088\u308a\u5c0f\u3055\u3044\u5024\u306f\u8a2d\u5b9a\u3067\u304d\u307e\u305b\u3093",
+                    "The cache limit cannot be smaller than the current cache size."), Toast.LENGTH_LONG).show();
+            cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
+            return;
+        }
+        preferences.edit().putInt(MainActivity.PREF_CACHE_MAX_MB, value).apply();
+        cacheMaxMb.setText(String.valueOf(value));
+        updateCacheUsage();
+        Toast.makeText(this, MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u30b5\u30a4\u30ba\u3092\u9069\u7528\u3057\u307e\u3057\u305f", "Cache size applied."), Toast.LENGTH_SHORT).show();
     }
 
     private void updateCacheUsage() {
@@ -683,7 +700,7 @@ public class SettingsActivity extends Activity {
             return;
         }
         long current = AppCache.size(this);
-        long max = Math.max(1L, parseCacheMaxMb() * 1024L * 1024L);
+        long max = Math.max(1L, preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB) * 1024L * 1024L);
         int progress = (int) Math.max(0L, Math.min(1000L, current * 1000L / max));
         cacheUsage.setProgress(progress);
         cacheUsageText.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u4f7f\u7528\u91cf: ",
@@ -723,6 +740,19 @@ public class SettingsActivity extends Activity {
         view.setTextColor(mutedColor());
         view.setTextSize(13);
         view.setPadding(0, dp(4), 0, dp(4));
+        return view;
+    }
+
+    private TextView smallActionButton(String value) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextColor(Color.WHITE);
+        view.setTextSize(14);
+        view.setGravity(Gravity.CENTER);
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.rgb(15, 118, 110));
+        background.setCornerRadius(dp(10));
+        view.setBackground(background);
         return view;
     }
 
