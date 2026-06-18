@@ -258,6 +258,7 @@ public class MainActivity extends Activity {
     private final List<PopupWindow> replyPopups = new ArrayList<>();
     private final List<PopupWindow> animatedPopups = new ArrayList<>();
     private boolean postPopupOpening;
+    private int postPopupGeneration;
     private int currentIndex = -1;
     private boolean pendingNewTab;
     private boolean pendingPrivateNewTab;
@@ -3405,7 +3406,12 @@ public class MainActivity extends Activity {
         view.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         view.setIncludeFontPadding(false);
         view.setPadding(0, 0, 0, 0);
-        view.setOnClickListener(v -> showPostsPopup(view, page, Collections.singletonList(post), false, true));
+        view.setOnClickListener(v -> {
+            if (consumePostPopupTap()) {
+                return;
+            }
+            showPostsPopup(view, page, Collections.singletonList(post), false, true);
+        });
         view.setOnLongClickListener(v -> {
             if (!isPostSwipeBlocked(post)) {
                 showPostActionMenu(card, tab, post);
@@ -3854,6 +3860,9 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(View widget) {
                     if (suppressNextLinkClick.remove(widget)) {
+                        return;
+                    }
+                    if (consumePostPopupTap()) {
                         return;
                     }
                     showIdPopup(widget, page, id);
@@ -8339,6 +8348,9 @@ public class MainActivity extends Activity {
                     if (suppressNextLinkClick.remove(widget)) {
                         return;
                     }
+                    if (consumePostPopupTap()) {
+                        return;
+                    }
                     routeLink(getURL(), currentTab());
                 }
             }, start, end, flags);
@@ -8533,6 +8545,9 @@ public class MainActivity extends Activity {
                     if (suppressNextLinkClick.remove(widget)) {
                         return;
                     }
+                    if (consumePostPopupTap()) {
+                        return;
+                    }
                     showReplyPopup(widget, page, from, to);
                 }
 
@@ -8588,12 +8603,79 @@ public class MainActivity extends Activity {
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
                                 boolean placeNearAnchor) {
-        if (postPopupOpening) {
+        if (consumePostPopupTap()) {
             return;
         }
         postPopupOpening = true;
-        if (!replyPopups.isEmpty()) {
-            dismissThreadPopups();
+        int generation = ++postPopupGeneration;
+        showPostPopupLoading(anchor, jumpEachPost, placeNearAnchor);
+        mainHandler.post(() -> {
+            if (!postPopupOpening || generation != postPopupGeneration) {
+                return;
+            }
+            dismissThreadPopupsOnly();
+            showPostsPopupNow(anchor, page, targets, jumpEachPost, placeNearAnchor, generation);
+        });
+    }
+
+    private boolean consumePostPopupTap() {
+        if (!postPopupOpening && replyPopups.isEmpty()) {
+            return false;
+        }
+        dismissThreadPopups();
+        return true;
+    }
+
+    private void showPostPopupLoading(View anchor, boolean jumpEachPost, boolean placeNearAnchor) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(dp(14), dp(10), dp(14), dp(10));
+        box.setBackground(roundedDrawable(menuColor(), TEAL, dp(12), dp(2)));
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        box.addView(spinner, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        TextView label = new TextView(this);
+        label.setText(text("\u8aad\u307f\u8fbc\u307f\u4e2d...", "Loading..."));
+        label.setTextColor(textColor());
+        label.setTextSize(14);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(dp(10), 0, 0, 0);
+        box.addView(label, labelParams);
+
+        int[] anchorLocation = new int[2];
+        anchor.getLocationOnScreen(anchorLocation);
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        View sourcePostCard = findSourcePostCard(anchor);
+        int[] sourceLocation = new int[2];
+        if (sourcePostCard != null) {
+            sourcePostCard.getLocationOnScreen(sourceLocation);
+        }
+        int width = sourcePostCard != null && sourcePostCard.getWidth() > dp(80)
+                ? sourcePostCard.getWidth()
+                : Math.min(screenWidth - dp(POST_OUTER_GAP_DP) * 2, dp(240));
+        int x = sourcePostCard != null
+                ? sourceLocation[0]
+                : Math.max(0, Math.min(anchorLocation[0] - dp(18), screenWidth - width));
+        int popupHeight = dp(54);
+        int popupOverlap = jumpEachPost ? dp(36) : dp(12);
+        int y = placeNearAnchor
+                ? Math.max(0, anchorLocation[1] - popupHeight)
+                : Math.max(0, anchorLocation[1] - popupHeight + popupOverlap);
+        PopupWindow popup = new PopupWindow(box, width, popupHeight, false);
+        popup.setOutsideTouchable(false);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOnDismissListener(() -> replyPopups.remove(popup));
+        replyPopups.add(popup);
+        popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, true);
+    }
+
+    private void showPostsPopupNow(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost,
+                                   boolean placeNearAnchor, int generation) {
+        if (!postPopupOpening || generation != postPopupGeneration) {
+            return;
         }
         FrameLayout popupRoot = new FrameLayout(this);
         int popupRootGap = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
@@ -8603,13 +8685,16 @@ public class MainActivity extends Activity {
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
+        if (jumpEachPost) {
+            popupRoot.setForeground(roundedDrawable(Color.TRANSPARENT, TEAL, dp(12), dp(2)));
+        }
 
         ScrollView popupScroll = new ScrollView(this);
         popupScroll.setVerticalScrollBarEnabled(false);
         popupScroll.setScrollbarFadingEnabled(true);
         if (jumpEachPost) {
             popupScroll.setPadding(popupFrameInset, popupFrameInset, popupFrameInset, popupFrameInset);
-            popupScroll.setBackground(roundedDrawable(menuColor(), TEAL, dp(12), dp(2)));
+            popupScroll.setBackground(roundedFill(menuColor(), dp(12)));
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 popupScroll.setClipToOutline(true);
             }
@@ -8773,6 +8858,12 @@ public class MainActivity extends Activity {
     }
 
     private void dismissThreadPopups() {
+        postPopupOpening = false;
+        postPopupGeneration++;
+        dismissThreadPopupsOnly();
+    }
+
+    private void dismissThreadPopupsOnly() {
         List<PopupWindow> popups = new ArrayList<>(replyPopups);
         replyPopups.clear();
         for (PopupWindow popup : popups) {
