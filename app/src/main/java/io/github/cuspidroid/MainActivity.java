@@ -2799,6 +2799,27 @@ public class MainActivity extends Activity {
                     renderTabs();
                     return;
                 }
+                if (result.error != null) {
+                    Toast.makeText(this, friendlyThreadLoadError(result.error), Toast.LENGTH_SHORT).show();
+                    if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
+                        tab.title = cached.title;
+                        tab.threadPage = cached;
+                        updateTabThreadStats(tab, cached);
+                        if (!tab.threadRendering) {
+                            progressBar.setVisibility(View.GONE);
+                        }
+                        renderTabs();
+                        return;
+                    }
+                    if (tab.threadPage != null && tab.threadPage.error == null && !tab.threadPage.posts.isEmpty()) {
+                        if (!tab.threadRendering) {
+                            progressBar.setVisibility(View.GONE);
+                        }
+                        renderTabs();
+                        return;
+                    }
+                    result.error = text("\u30ad\u30e3\u30c3\u30b7\u30e5\u304c\u306a\u304f\u3001\u30b9\u30ec\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "Could not load the thread and no cache is available.");
+                }
                 tab.title = result.title;
                 tab.threadPage = result;
                 tab.readPostNumber = readPostNumberForTab(tab, result.url);
@@ -2904,7 +2925,7 @@ public class MainActivity extends Activity {
                     resetBottomRefreshLoader(tab.threadBottomLoader);
                 }
                 if (result.error != null) {
-                    Toast.makeText(this, result.error, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, friendlyThreadLoadError(result.error), Toast.LENGTH_SHORT).show();
                     if (onComplete != null) {
                         onComplete.run();
                     }
@@ -3034,6 +3055,24 @@ public class MainActivity extends Activity {
                 renderTabs();
             });
         });
+    }
+
+    private String friendlyThreadLoadError(String detail) {
+        String raw = detail == null ? "" : detail.trim();
+        String lower = raw.toLowerCase(Locale.ROOT);
+        if (lower.contains("unable to resolve host")
+                || lower.contains("no address associated with hostname")
+                || lower.contains("failed to connect")
+                || lower.contains("timeout")
+                || lower.contains("timed out")
+                || lower.contains("network is unreachable")
+                || lower.contains("connection reset")) {
+            return text("\u901a\u4fe1\u3067\u304d\u306a\u3044\u305f\u3081\u3001\u6700\u65b0\u306e\u30b9\u30ec\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002",
+                    "Could not load the latest thread because the network is unavailable.");
+        }
+        return raw.isEmpty()
+                ? text("\u30b9\u30ec\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "Could not load the thread.")
+                : text("\u30b9\u30ec\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "Could not load the thread.");
     }
 
     private ThreadPage downloadThreadPage(String url) throws Exception {

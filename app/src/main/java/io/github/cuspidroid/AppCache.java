@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Locale;
 
 final class AppCache {
-    static final int DEFAULT_MAX_MB = 256;
+    static final int DEFAULT_MAX_MB = 512;
     static final int MIN_MAX_MB = 32;
     static final int MAX_MAX_MB = 2048;
 
