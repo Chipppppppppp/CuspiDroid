@@ -5,11 +5,6 @@
 <h1 align="center">CuspiDroid</h1>
 
 <p align="center">
-  <a href="https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/Chipppppppppp/CuspiDroid">
-    <img src="docs/images/badge_obtainium.png"
-         alt="Get it on Obtainium"
-         height="80">
-  </a>
   <a href="LICENSE">
     <img alt="License: GPL v3" src="https://img.shields.io/badge/License-GPLv3-0F766E?style=for-the-badge">
   </a>
@@ -35,6 +30,14 @@ CuspiDroid は、5ch 互換の掲示板をブラウザライクな UI で閲覧�
 APK は [Releases](https://github.com/Chipppppppppp/CuspiDroid/releases) からダウンロードできます。
 
 Obtainium を使う場合は、この GitHub リポジトリをアプリソースとして追加してください。
+
+<p align="center">
+  <a href="https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/Chipppppppppp/CuspiDroid">
+    <img src="docs/images/badge_obtainium.png"
+         alt="Get it on Obtainium"
+         height="80">
+  </a>
+</p>
 
 ## ビルド
 
