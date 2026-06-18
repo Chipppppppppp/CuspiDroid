@@ -154,6 +154,7 @@ public class MainActivity extends Activity {
     static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
     static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
+    static final String PREF_DISABLE_HISTORY = "disable_history";
     static final String PREF_GESTURES_ENABLED = "gestures_enabled";
     static final String PREF_GESTURE_SENSITIVITY = "gesture_sensitivity";
     static final String PREF_GESTURE_PREFIX = "gesture_";
@@ -661,8 +662,8 @@ public class MainActivity extends Activity {
             if (highlightedPostView != null) {
                 clearJumpHighlight();
             }
-            if (!replyPopups.isEmpty() && !isTouchInsideReplyPopup(event)) {
-                dismissThreadPopups();
+            if (!replyPopups.isEmpty() && !isTouchInsideTopReplyPopup(event)) {
+                dismissTopReplyPopup();
                 return true;
             }
             if (addressBar != null && addressBar.hasFocus()
@@ -8723,11 +8724,12 @@ public class MainActivity extends Activity {
         int popupRootGap = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
         int popupFrameInset = jumpEachPost ? dp(POST_OUTER_GAP_DP) : 0;
         int popupCardInset = 0;
+        boolean framePopupViewport = jumpEachPost || (!jumpEachPost && targets != null && targets.size() == 1);
         popupRoot.setPadding(popupRootGap, popupRootGap, popupRootGap, popupRootGap);
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
-        if (jumpEachPost) {
+        if (framePopupViewport) {
             popupRoot.setForeground(roundedDrawable(Color.TRANSPARENT, TEAL, dp(12), dp(2)));
         }
 
@@ -8774,7 +8776,8 @@ public class MainActivity extends Activity {
         int minPopupY = jumpEachPost ? 0 : dp(8);
         int availableAbove = Math.max(dp(140), anchorLocation[1] + popupOverlap - minPopupY);
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        int fullHeightFromTop = Math.max(dp(40), screenHeight - minPopupY);
+        int popupHeightLimit = Math.max(dp(40), screenHeight / 2);
+        int fullHeightFromTop = Math.max(dp(40), Math.min(screenHeight - minPopupY, popupHeightLimit));
         int measuredContentWidth = jumpEachPost
                 ? postCardWidth
                 : postCardWidth + popupCardInset * 2;
@@ -8782,7 +8785,8 @@ public class MainActivity extends Activity {
         int initialCount = incremental
                 ? Math.min(POPUP_INITIAL_RENDER_COUNT, targets.size())
                 : targets.size();
-        addPopupPosts(popupPosts, page, targets, jumpEachPost, 0, initialCount);
+        boolean showPostFrame = !framePopupViewport && !jumpEachPost;
+        addPopupPosts(popupPosts, page, targets, jumpEachPost, showPostFrame, 0, initialCount);
         popupPosts.measure(
                 View.MeasureSpec.makeMeasureSpec(Math.max(dp(120), measuredContentWidth), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -8814,7 +8818,7 @@ public class MainActivity extends Activity {
         animatePopupIn(popup, true);
         if (initialCount < targets.size()) {
             mainHandler.postDelayed(() -> appendPopupPostsChunk(popup, popupPosts, page, targets,
-                    jumpEachPost, initialCount, generation), 16);
+                    jumpEachPost, showPostFrame, initialCount, generation), 16);
         }
         mainHandler.postDelayed(() -> {
             if (generation == postPopupGeneration) {
@@ -8849,27 +8853,28 @@ public class MainActivity extends Activity {
     }
 
     private void addPopupPosts(LinearLayout popupPosts, ThreadPage page, List<Post> targets,
-                               boolean jumpEachPost, int start, int end) {
+                               boolean jumpEachPost, boolean showPostFrame, int start, int end) {
         int safeStart = Math.max(0, start);
         int safeEnd = Math.min(targets == null ? 0 : targets.size(), end);
         for (int i = safeStart; i < safeEnd; i++) {
             Post post = targets.get(i);
-            popupPosts.addView(popupPostCard(page, post, !jumpEachPost),
+            popupPosts.addView(popupPostCard(page, post, showPostFrame),
                     popupPostParams(jumpEachPost, i == targets.size() - 1));
         }
     }
 
     private void appendPopupPostsChunk(PopupWindow popup, LinearLayout popupPosts, ThreadPage page,
-                                       List<Post> targets, boolean jumpEachPost, int start, int generation) {
+                                       List<Post> targets, boolean jumpEachPost, boolean showPostFrame,
+                                       int start, int generation) {
         if (popup == null || !popup.isShowing() || popupPosts == null
                 || targets == null || generation != postPopupGeneration) {
             return;
         }
         int end = Math.min(targets.size(), start + POPUP_RENDER_CHUNK_SIZE);
-        addPopupPosts(popupPosts, page, targets, jumpEachPost, start, end);
+        addPopupPosts(popupPosts, page, targets, jumpEachPost, showPostFrame, start, end);
         if (end < targets.size()) {
             mainHandler.postDelayed(() -> appendPopupPostsChunk(popup, popupPosts, page, targets,
-                    jumpEachPost, end, generation), 16);
+                    jumpEachPost, showPostFrame, end, generation), 16);
         }
     }
 
@@ -9088,23 +9093,29 @@ public class MainActivity extends Activity {
         });
     }
 
-    private boolean isTouchInsideReplyPopup(MotionEvent event) {
+    private boolean isTouchInsideTopReplyPopup(MotionEvent event) {
+        if (replyPopups.isEmpty()) {
+            return false;
+        }
+        PopupWindow popup = replyPopups.get(replyPopups.size() - 1);
+        return isTouchInsidePopup(event, popup);
+    }
+
+    private boolean isTouchInsidePopup(MotionEvent event, PopupWindow popup) {
+        if (event == null || popup == null || !popup.isShowing()) {
+            return false;
+        }
         int x = (int) event.getRawX();
         int y = (int) event.getRawY();
-        Rect bounds = new Rect();
-        for (PopupWindow popup : replyPopups) {
-            View content = popup.getContentView();
-            if (content == null || !popup.isShowing()) {
-                continue;
-            }
-            int[] location = new int[2];
-            content.getLocationOnScreen(location);
-            bounds.set(location[0], location[1], location[0] + content.getWidth(), location[1] + content.getHeight());
-            if (bounds.contains(x, y)) {
-                return true;
-            }
+        View content = popup.getContentView();
+        if (content == null) {
+            return false;
         }
-        return false;
+        int[] location = new int[2];
+        content.getLocationOnScreen(location);
+        Rect bounds = new Rect(location[0], location[1],
+                location[0] + content.getWidth(), location[1] + content.getHeight());
+        return bounds.contains(x, y);
     }
 
     private boolean isViewInsideReplyPopup(View view) {
@@ -12897,7 +12908,7 @@ public class MainActivity extends Activity {
     }
 
     private void addThreadHistory(CuspTab tab, String url, String title) {
-        if (isPrivateTab(tab)) {
+        if (isPrivateTab(tab) || historyDisabled()) {
             return;
         }
         addThreadHistory(url, title);
@@ -13040,7 +13051,7 @@ public class MainActivity extends Activity {
     }
 
     private int readPostNumberForTab(CuspTab tab, String url) {
-        return isPrivateTab(tab) ? 0 : readPostNumber(preferences, url);
+        return isPrivateTab(tab) || historyDisabled() ? 0 : readPostNumber(preferences, url);
     }
 
     private static void saveReadPostNumber(SharedPreferences preferences, String url, int number) {
@@ -13056,10 +13067,14 @@ public class MainActivity extends Activity {
     }
 
     private void saveReadPostNumber(CuspTab tab, String url, int number) {
-        if (isPrivateTab(tab)) {
+        if (isPrivateTab(tab) || historyDisabled()) {
             return;
         }
         saveReadPostNumber(preferences, url, number);
+    }
+
+    private boolean historyDisabled() {
+        return preferences != null && preferences.getBoolean(PREF_DISABLE_HISTORY, false);
     }
 
     private boolean aaModeForPost(ThreadPage page, Post post) {
@@ -13238,7 +13253,10 @@ public class MainActivity extends Activity {
             return 0;
         }
         if (tab.threadPage != null) {
-            updateTabThreadStats(tab, tab.threadPage);
+            int pageMax = maxPostNumber(tab.threadPage);
+            if (pageMax >= tab.knownMaxPostNumber) {
+                updateTabThreadStats(tab, tab.threadPage);
+            }
         }
         if (tab.hasThreadStats) {
             return Math.max(0, tab.cachedUnreadCount);

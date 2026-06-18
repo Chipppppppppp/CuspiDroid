@@ -49,6 +49,7 @@ public class SettingsActivity extends Activity {
     private CheckBox autoAa;
     private CheckBox boardSortBySpeed;
     private CheckBox cacheEnabled;
+    private CheckBox disableHistory;
     private EditText cacheMaxMb;
     private TextView cacheApply;
     private ProgressBar cacheUsage;
@@ -356,6 +357,13 @@ public class SettingsActivity extends Activity {
                 v -> confirmClearCache()));
 
         root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u4fdd\u5b58\u30c7\u30fc\u30bf", "History & Stored Data")));
+        disableHistory = new CheckBox(this);
+        disableHistory.setText(MainActivity.text("\u5c65\u6b74\u30fb\u65e2\u8aad\u5c65\u6b74\u3092\u8a18\u9332\u3057\u306a\u3044", "Do not record history or read positions"));
+        disableHistory.setTextColor(textColor());
+        disableHistory.setTextSize(16);
+        Theme.tintCompoundButton(this, disableHistory);
+        root.addView(disableHistory);
+
         root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
                 MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
                 MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
@@ -407,6 +415,7 @@ public class SettingsActivity extends Activity {
         updateTreeDependentSettings();
         boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
+        disableHistory.setChecked(preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false));
         cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
         updateCacheDependentSettings();
         updateCacheUsage();
@@ -464,6 +473,7 @@ public class SettingsActivity extends Activity {
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        disableHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         cacheEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             updateCacheDependentSettings();
             saveSettings(false);
@@ -549,6 +559,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
+                .putBoolean(MainActivity.PREF_DISABLE_HISTORY, disableHistory.isChecked())
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, cacheEnabled.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
@@ -621,6 +632,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
                 .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
+                .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, true)
                 .putInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)
                 .putString(MainActivity.PREF_BOARD_PRIORITY_WORDS, "[]")
