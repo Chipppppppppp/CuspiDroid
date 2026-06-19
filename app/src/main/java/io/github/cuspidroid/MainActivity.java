@@ -182,6 +182,7 @@ public class MainActivity extends Activity {
     private static final String PREF_TABS = "saved_tabs";
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
+    private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -6431,23 +6432,11 @@ public class MainActivity extends Activity {
             return;
         }
         List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
-        List<String> shownFolders = new ArrayList<>();
-        for (SavedItem bookmark : bookmarks) {
-            String folder = normalizeSavedFolder(bookmark.folder);
-            if (folder.isEmpty()) {
-                list.addView(bookmarkOverviewItemRow(bookmark, 1));
-                continue;
-            }
-            String topFolder = topSavedFolder(folder);
-            if (!shownFolders.contains(topFolder)) {
-                shownFolders.add(topFolder);
-                addBookmarkOverviewFolderWithItems(list, bookmarks, folders, topFolder, selectedFolder, 1);
-            }
-        }
-        for (String folder : childSavedFolders(PREF_THREAD_BOOKMARKS, "")) {
-            if (!shownFolders.contains(folder)) {
-                shownFolders.add(folder);
-                addBookmarkOverviewFolderWithItems(list, bookmarks, folders, folder, selectedFolder, 1);
+        for (BookmarkNode node : bookmarkChildren("")) {
+            if (node.folderNode) {
+                addBookmarkOverviewFolderWithItems(list, bookmarks, folders, node.folder, selectedFolder, 1);
+            } else {
+                list.addView(bookmarkOverviewItemRow(node.item, 1));
             }
         }
     }
@@ -6455,12 +6444,19 @@ public class MainActivity extends Activity {
     private void addHomeBookmarkSection(LinearLayout list) {
         List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
         List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
-        for (String folder : childSavedFolders(PREF_THREAD_BOOKMARKS, "")) {
-            addHomeBookmarkFolder(list, bookmarks, folders, folder, 0);
-        }
-        for (SavedItem bookmark : bookmarks) {
-            if (normalizeSavedFolder(bookmark.folder).isEmpty()) {
-                list.addView(homeBookmarkItemRow(bookmark, 0));
+        String rootKey = bookmarkOverviewExpandedKey("home:__root__");
+        boolean rootExpanded = bookmarkOverviewExpanded(rootKey, true);
+        list.addView(homeBookmarkRootRow(rootExpanded, v -> {
+            toggleBookmarkOverviewExpanded(rootKey);
+            refreshCurrentHomeOrHistoryView();
+        }));
+        if (rootExpanded) {
+            for (BookmarkNode node : bookmarkChildren("")) {
+                if (node.folderNode) {
+                    addHomeBookmarkFolder(list, bookmarks, folders, node.folder, 1);
+                } else {
+                    list.addView(homeBookmarkItemRow(node.item, 1));
+                }
             }
         }
         if (bookmarks.isEmpty() && folders.isEmpty()) {
@@ -6480,14 +6476,18 @@ public class MainActivity extends Activity {
         if (!expanded) {
             return;
         }
-        for (String child : childSavedFolders(PREF_THREAD_BOOKMARKS, folder)) {
-            addHomeBookmarkFolder(list, bookmarks, folders, child, indentLevel + 1);
-        }
-        for (SavedItem bookmark : bookmarks) {
-            if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
-                list.addView(homeBookmarkItemRow(bookmark, indentLevel + 1));
+        for (BookmarkNode node : bookmarkChildren(folder)) {
+            if (node.folderNode) {
+                addHomeBookmarkFolder(list, bookmarks, folders, node.folder, indentLevel + 1);
+            } else {
+                list.addView(homeBookmarkItemRow(node.item, indentLevel + 1));
             }
         }
+    }
+
+    private View homeBookmarkRootRow(boolean expanded, View.OnClickListener listener) {
+        View row = homeBookmarkFolderRow("", expanded, 0, listener);
+        return row;
     }
 
     private View homeBookmarkFolderRow(String folder, boolean expanded, int indentLevel, View.OnClickListener listener) {
@@ -6498,6 +6498,16 @@ public class MainActivity extends Activity {
         row.setMinimumHeight(dp(48));
         row.setBackgroundColor(postColor());
         row.setOnClickListener(listener);
+        row.setOnLongClickListener(v -> {
+            if (folder.isEmpty()) {
+                return false;
+            }
+            v.startDragAndDrop(ClipData.newPlainText("folder", folder),
+                    new View.DragShadowBuilder(row), new DragPayload(bookmarkNodeDragKey(BookmarkNode.folder(folder)), 0), 0);
+            return true;
+        });
+        row.setOnDragListener((v, event) -> handleHomeBookmarkNodeDrop(event, parentSavedFolder(folder),
+                folder.isEmpty() ? "" : BookmarkNode.folder(folder).orderKey()));
         ImageView arrow = new ImageView(this);
         arrow.setImageResource(expanded ? R.drawable.ic_arrow_down : R.drawable.ic_chevron_right);
         arrow.setColorFilter(mutedColor());
@@ -6509,13 +6519,25 @@ public class MainActivity extends Activity {
         iconParams.setMargins(dp(4), 0, 0, 0);
         row.addView(icon, iconParams);
         TextView label = new TextView(this);
-        label.setText(savedFolderDisplayName(folder));
+        label.setText(folder.isEmpty() ? text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks") : savedFolderDisplayName(folder));
         label.setTextColor(textColor());
         label.setTextSize(15);
         label.setSingleLine(true);
         label.setEllipsize(TextUtils.TruncateAt.END);
         label.setPadding(dp(10), 0, 0, 0);
         row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton add = iconButton(R.drawable.ic_add, text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
+                v -> showCreateHomeBookmarkFolderDialog(folder));
+        add.setColorFilter(mutedColor());
+        add.setBackgroundColor(Color.TRANSPARENT);
+        row.addView(add, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        if (!folder.isEmpty()) {
+            ImageButton delete = iconButton(R.drawable.ic_close, text("\u30d5\u30a9\u30eb\u30c0\u3092\u524a\u9664", "Delete folder"),
+                    v -> confirmDeleteHomeBookmarkFolder(folder));
+            delete.setColorFilter(mutedColor());
+            delete.setBackgroundColor(Color.TRANSPARENT);
+            row.addView(delete, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        }
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, 0, dp(6));
@@ -6525,29 +6547,103 @@ public class MainActivity extends Activity {
 
     private View homeBookmarkItemRow(SavedItem item, int indentLevel) {
         LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10 + indentLevel * 18), dp(8), dp(10), dp(8));
         row.setBackgroundColor(postColor());
         row.setOnClickListener(v -> createTab(item.url, true));
+        row.setOnLongClickListener(v -> {
+            v.startDragAndDrop(ClipData.newPlainText("bookmark", item.url),
+                    new View.DragShadowBuilder(row),
+                    new DragPayload(bookmarkNodeDragKey(BookmarkNode.item(item)), 0), 0);
+            return true;
+        });
+        row.setOnDragListener((v, event) -> handleHomeBookmarkNodeDrop(event,
+                normalizeSavedFolder(item.folder), BookmarkNode.item(item).orderKey()));
+        LinearLayout textBox = new LinearLayout(this);
+        textBox.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
         title.setText(item.title);
         title.setTextColor(textColor());
         title.setTextSize(15);
         title.setMaxLines(2);
         title.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(title);
+        textBox.addView(title);
         TextView url = new TextView(this);
         url.setText(item.url);
         url.setTextColor(mutedColor());
         url.setTextSize(12);
         url.setSingleLine(true);
         url.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(url);
+        textBox.addView(url);
+        row.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton delete = iconButton(R.drawable.ic_close, text("\u524a\u9664", "Delete"),
+                v -> confirmDeleteHomeBookmarkItem(item));
+        delete.setColorFilter(mutedColor());
+        delete.setBackgroundColor(Color.TRANSPARENT);
+        row.addView(delete, new LinearLayout.LayoutParams(dp(36), dp(36)));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, 0, dp(6));
         row.setLayoutParams(params);
         return row;
+    }
+
+    private boolean handleHomeBookmarkNodeDrop(android.view.DragEvent event, String parent, String targetKey) {
+        if (event.getAction() != android.view.DragEvent.ACTION_DROP) {
+            return true;
+        }
+        Object local = event.getLocalState();
+        if (local instanceof DragPayload) {
+            DragPayload payload = (DragPayload) local;
+            String movingKey = bookmarkNodeDragValue(payload.key);
+            if (!movingKey.isEmpty() && !targetKey.isEmpty()) {
+                moveBookmarkNode(parent, movingKey, targetKey);
+                refreshCurrentHomeOrHistoryView();
+                return true;
+            }
+        }
+        return true;
+    }
+
+    private void showCreateHomeBookmarkFolderDialog(String parent) {
+        showSavedFolderNameDialog(
+                text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
+                "",
+                folder -> {
+                    createSavedFolder(PREF_THREAD_BOOKMARKS, parent, folder);
+                    refreshCurrentHomeOrHistoryView();
+                });
+    }
+
+    private void confirmDeleteHomeBookmarkFolder(String folder) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u30d5\u30a9\u30eb\u30c0\u3092\u524a\u9664", "Delete folder"))
+                .setMessage(text("\u30d5\u30a9\u30eb\u30c0\u3060\u3051\u524a\u9664\u3057\u3001\u4e2d\u306e\u9805\u76ee\u306f\u4e00\u89a7\u306b\u623b\u3057\u307e\u3059\u304b\uff1f",
+                        "Delete only the folder and move its items back to the main list?"))
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
+                    deleteSavedFolder(PREF_THREAD_BOOKMARKS, folder);
+                    refreshCurrentHomeOrHistoryView();
+                })
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private void confirmDeleteHomeBookmarkItem(SavedItem item) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u524a\u9664", "Delete"))
+                .setMessage(text("\u3053\u306e\u9805\u76ee\u3092\u30d6\u30c3\u30af\u30de\u30fc\u30af\u304b\u3089\u524a\u9664\u3057\u307e\u3059\u304b\uff1f",
+                        "Delete this item from bookmarks?"))
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
+                    removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
+                    refreshCurrentHomeOrHistoryView();
+                })
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
     }
 
     private void addBookmarkOverviewFolderWithItems(LinearLayout list, List<SavedItem> bookmarks,
@@ -6564,12 +6660,11 @@ public class MainActivity extends Activity {
                 folders.indexOf(folder),
                 v -> toggleBookmarkOverviewExpanded(key)));
         if (expanded) {
-            for (String child : childSavedFolders(PREF_THREAD_BOOKMARKS, folder)) {
-                addBookmarkOverviewFolderWithItems(list, bookmarks, folders, child, selectedFolder, indentLevel + 1);
-            }
-            for (SavedItem bookmark : bookmarks) {
-                if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
-                    list.addView(bookmarkOverviewItemRow(bookmark, indentLevel + 1));
+            for (BookmarkNode node : bookmarkChildren(folder)) {
+                if (node.folderNode) {
+                    addBookmarkOverviewFolderWithItems(list, bookmarks, folders, node.folder, selectedFolder, indentLevel + 1);
+                } else {
+                    list.addView(bookmarkOverviewItemRow(node.item, indentLevel + 1));
                 }
             }
         }
@@ -6596,10 +6691,22 @@ public class MainActivity extends Activity {
                     if (PREF_THREAD_BOOKMARKS.equals(payload.key)) {
                         List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
                         if (payload.index >= 0 && payload.index < items.size()) {
-                            moveSavedItemToFolder(PREF_THREAD_BOOKMARKS, items.get(payload.index).url, folder);
+                            SavedItem moved = items.get(payload.index);
+                            if (parentSavedFolder(folder).equals(normalizeSavedFolder(moved.folder))) {
+                                moveBookmarkNode(parentSavedFolder(folder),
+                                        BookmarkNode.item(moved).orderKey(), BookmarkNode.folder(folder).orderKey());
+                            } else {
+                                moveSavedItemToFolder(PREF_THREAD_BOOKMARKS, moved.url, folder);
+                            }
                             refreshTabOverview();
                             return true;
                         }
+                    }
+                    String movingKey = bookmarkNodeDragValue(payload.key);
+                    if (!movingKey.isEmpty()) {
+                        moveBookmarkNode(parentSavedFolder(folder), movingKey, BookmarkNode.folder(folder).orderKey());
+                        refreshTabOverview();
+                        return true;
                     }
                     if ((PREF_THREAD_BOOKMARKS + ":folder").equals(payload.key) && folderIndex >= 0) {
                         moveBookmarkOverviewFolder(payload.index, folderIndex);
@@ -6615,7 +6722,7 @@ public class MainActivity extends Activity {
             row.setOnLongClickListener(v -> {
                 v.startDragAndDrop(ClipData.newPlainText("bookmark-folder", label),
                         new View.DragShadowBuilder(row),
-                        new DragPayload(PREF_THREAD_BOOKMARKS + ":folder", folderIndex), 0);
+                        new DragPayload(bookmarkNodeDragKey(BookmarkNode.folder(folder)), folderIndex), 0);
                 return true;
             });
         }
@@ -6628,7 +6735,7 @@ public class MainActivity extends Activity {
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_folder);
-        icon.setColorFilter(iconColor);
+        icon.setColorFilter(TEAL);
         LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(26), dp(26));
         iconParams.setMargins(dp(4), 0, 0, 0);
         row.addView(icon, iconParams);
@@ -6697,8 +6804,23 @@ public class MainActivity extends Activity {
                                 return true;
                             }
                             if (PREF_THREAD_BOOKMARKS.equals(payload.key) && itemIndex >= 0) {
-                                moveBookmarkOverviewItem(payload.index, itemIndex);
+                                List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
+                                if (payload.index >= 0 && payload.index < items.size()) {
+                                    SavedItem moved = items.get(payload.index);
+                                    if (normalizeSavedFolder(moved.folder).equals(normalizeSavedFolder(item.folder))) {
+                                        moveBookmarkNode(normalizeSavedFolder(item.folder),
+                                                BookmarkNode.item(moved).orderKey(), BookmarkNode.item(item).orderKey());
+                                    } else {
+                                        moveBookmarkOverviewItem(payload.index, itemIndex);
+                                    }
+                                }
                                 payload.index = itemIndex;
+                                refreshTabOverview();
+                                return true;
+                            }
+                            String movingKey = bookmarkNodeDragValue(payload.key);
+                            if (!movingKey.isEmpty()) {
+                                moveBookmarkNode(normalizeSavedFolder(item.folder), movingKey, BookmarkNode.item(item).orderKey());
                                 refreshTabOverview();
                                 return true;
                             }
@@ -14128,6 +14250,101 @@ public class MainActivity extends Activity {
         return children;
     }
 
+    private List<BookmarkNode> bookmarkChildren(String parent) {
+        parent = normalizeSavedFolder(parent);
+        List<BookmarkNode> nodes = new ArrayList<>();
+        for (String folder : childSavedFolders(PREF_THREAD_BOOKMARKS, parent)) {
+            nodes.add(BookmarkNode.folder(folder));
+        }
+        for (SavedItem item : readSavedItems(PREF_THREAD_BOOKMARKS)) {
+            if (parent.equals(normalizeSavedFolder(item.folder))) {
+                nodes.add(BookmarkNode.item(item));
+            }
+        }
+        List<String> order = bookmarkOrder(parent);
+        Collections.sort(nodes, (left, right) -> {
+            int li = order.indexOf(left.orderKey());
+            int ri = order.indexOf(right.orderKey());
+            if (li < 0) {
+                li = Integer.MAX_VALUE;
+            }
+            if (ri < 0) {
+                ri = Integer.MAX_VALUE;
+            }
+            if (li != ri) {
+                return Integer.compare(li, ri);
+            }
+            return left.label().compareToIgnoreCase(right.label());
+        });
+        return nodes;
+    }
+
+    private List<String> bookmarkOrder(String parent) {
+        parent = normalizeSavedFolder(parent);
+        List<String> order = new ArrayList<>();
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_ORDER, "{}"));
+            JSONArray array = root.optJSONArray(parent);
+            if (array != null) {
+                for (int i = 0; i < array.length(); i++) {
+                    String value = array.optString(i, "");
+                    if (!value.isEmpty() && !order.contains(value)) {
+                        order.add(value);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return order;
+    }
+
+    private void writeBookmarkOrder(String parent, List<BookmarkNode> nodes) {
+        parent = normalizeSavedFolder(parent);
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_ORDER, "{}"));
+            JSONArray array = new JSONArray();
+            for (BookmarkNode node : nodes) {
+                array.put(node.orderKey());
+            }
+            root.put(parent, array);
+            preferences.edit().putString(PREF_BOOKMARK_ORDER, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void moveBookmarkNode(String parent, String movingKey, String targetKey) {
+        List<BookmarkNode> nodes = bookmarkChildren(parent);
+        int from = -1;
+        int to = -1;
+        for (int i = 0; i < nodes.size(); i++) {
+            String key = nodes.get(i).orderKey();
+            if (key.equals(movingKey)) {
+                from = i;
+            }
+            if (key.equals(targetKey)) {
+                to = i;
+            }
+        }
+        if (from < 0 || to < 0 || from == to) {
+            return;
+        }
+        BookmarkNode moved = nodes.remove(from);
+        if (from < to) {
+            to--;
+        }
+        nodes.add(Math.max(0, Math.min(to, nodes.size())), moved);
+        writeBookmarkOrder(parent, nodes);
+    }
+
+    private String bookmarkNodeDragKey(BookmarkNode node) {
+        return "bookmark-node:" + node.orderKey();
+    }
+
+    private String bookmarkNodeDragValue(String dragKey) {
+        return dragKey != null && dragKey.startsWith("bookmark-node:")
+                ? dragKey.substring("bookmark-node:".length()) : "";
+    }
+
     private String savedPageToken(String key, String folder) {
         folder = normalizeSavedFolder(folder);
         return folder.isEmpty() ? key : key + "|" + folder;
@@ -15713,6 +15930,34 @@ public class MainActivity extends Activity {
             this.title = title;
             this.url = url;
             this.folder = folder == null ? "" : folder;
+        }
+    }
+
+    private static class BookmarkNode {
+        final boolean folderNode;
+        final String folder;
+        final SavedItem item;
+
+        private BookmarkNode(boolean folderNode, String folder, SavedItem item) {
+            this.folderNode = folderNode;
+            this.folder = folder == null ? "" : folder;
+            this.item = item;
+        }
+
+        static BookmarkNode folder(String folder) {
+            return new BookmarkNode(true, folder, null);
+        }
+
+        static BookmarkNode item(SavedItem item) {
+            return new BookmarkNode(false, item == null ? "" : item.folder, item);
+        }
+
+        String orderKey() {
+            return folderNode ? "F:" + folder : "I:" + (item == null ? "" : item.url);
+        }
+
+        String label() {
+            return folderNode ? folder : item == null ? "" : item.title;
         }
     }
 
