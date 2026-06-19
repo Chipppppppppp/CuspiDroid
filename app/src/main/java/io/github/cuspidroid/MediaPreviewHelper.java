@@ -20,11 +20,14 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
 
@@ -103,9 +106,14 @@ final class MediaPreviewHelper {
                         bitmap = BitmapFactory.decodeByteArray(cached, 0, cached.length);
                     }
                     if (bitmap == null) {
-                        bitmap = videoFrameBitmap(mediaUrl);
-                        byte[] bytes = bitmapToPng(bitmap);
-                        AppCache.write(activity, preferences, "media", "video:" + mediaUrl, ".png", bytes);
+                        bitmap = videoPosterBitmap(mediaUrl);
+                        if (bitmap == null) {
+                            bitmap = videoFrameBitmap(activity, mediaUrl);
+                        }
+                        if (bitmap != null) {
+                            byte[] bytes = bitmapToPng(bitmap);
+                            AppCache.write(activity, preferences, "media", "video:" + mediaUrl, ".png", bytes);
+                        }
                     }
                 } else {
                     boolean gif = isGifUrl(mediaUrl);
@@ -228,10 +236,93 @@ final class MediaPreviewHelper {
         }
     }
 
-    private static Bitmap videoFrameBitmap(String url) throws Exception {
+    private static Bitmap videoPosterBitmap(String videoUrl) {
+        for (String candidate : videoPosterCandidates(videoUrl)) {
+            try {
+                byte[] bytes = downloadBytes(candidate, 4 * 1024 * 1024);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bitmap != null) {
+                    return bitmap;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static List<String> videoPosterCandidates(String videoUrl) {
+        List<String> candidates = new ArrayList<>();
+        String value = videoUrl == null ? "" : videoUrl;
+        int query = value.indexOf('?');
+        String baseWithExtension = query >= 0 ? value.substring(0, query) : value;
+        String queryPart = query >= 0 ? value.substring(query) : "";
+        int slash = baseWithExtension.lastIndexOf('/');
+        int dot = baseWithExtension.lastIndexOf('.');
+        if (dot <= slash) {
+            return candidates;
+        }
+        String base = baseWithExtension.substring(0, dot);
+        candidates.add(base + ".jpg" + queryPart);
+        candidates.add(base + ".webp" + queryPart);
+        candidates.add(base + ".png" + queryPart);
+        return candidates;
+    }
+
+    private static Bitmap videoFrameBitmap(Activity activity, String url) throws Exception {
+        byte[] bytes = downloadRangeBytes(url, 2 * 1024 * 1024);
+        Bitmap bitmap = videoFrameBitmapFromBytes(activity, bytes);
+        if (bitmap != null) {
+            return bitmap;
+        }
+        bytes = downloadRangeBytes(url, 8 * 1024 * 1024);
+        return videoFrameBitmapFromBytes(activity, bytes);
+    }
+
+    private static byte[] downloadRangeBytes(String url, int limit) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(15000);
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+        connection.setRequestProperty("Range", "bytes=0-" + (limit - 1));
+        try (InputStream input = connection.getInputStream()) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            int read;
+            while ((read = input.read(buffer)) != -1 && total < limit) {
+                int allowed = Math.min(read, limit - total);
+                output.write(buffer, 0, allowed);
+                total += allowed;
+                if (allowed < read) {
+                    break;
+                }
+            }
+            return output.toByteArray();
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static Bitmap videoFrameBitmapFromBytes(Activity activity, byte[] bytes) throws Exception {
+        if (bytes == null || bytes.length <= 0) {
+            return null;
+        }
+        File file = File.createTempFile("cuspidroid-video-thumb-", ".tmp", activity.getCacheDir());
+        try {
+            try (FileOutputStream output = new FileOutputStream(file)) {
+                output.write(bytes);
+            }
+            return videoFrameBitmap(file.getAbsolutePath());
+        } finally {
+            file.delete();
+        }
+    }
+
+    private static Bitmap videoFrameBitmap(String dataSource) throws Exception {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
-            retriever.setDataSource(url, new HashMap<>());
+            retriever.setDataSource(dataSource);
             Bitmap frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
             return frame == null ? retriever.getFrameAtTime() : frame;
         } finally {
