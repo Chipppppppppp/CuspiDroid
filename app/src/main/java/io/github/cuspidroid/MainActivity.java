@@ -5840,10 +5840,40 @@ public class MainActivity extends Activity {
             }
         }
         if (!any) {
-            list.addView(helperLine(privateSection
+            TextView empty = helperLine(privateSection
                     ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
-                    : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs.")));
+                    : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs."));
+            empty.setOnDragListener((v, event) -> {
+                autoScrollDuringDrag(v, event);
+                if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                    Object local = event.getLocalState();
+                    if (local instanceof DragPayload) {
+                        return moveBookmarkToTabsFromPayload((DragPayload) local, tabs.size());
+                    }
+                }
+                return true;
+            });
+            list.addView(empty);
         }
+    }
+
+    private boolean moveBookmarkToTabsFromPayload(DragPayload payload, int index) {
+        if (payload == null) {
+            return false;
+        }
+        if (PREF_THREAD_BOOKMARKS.equals(payload.key)) {
+            moveBookmarkToTabsFromOverview(payload.index, index);
+            return true;
+        }
+        String movingKey = bookmarkNodeDragValue(payload.key);
+        if (movingKey.startsWith("I:")) {
+            int bookmarkIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, movingKey.substring(2));
+            if (bookmarkIndex >= 0) {
+                moveBookmarkToTabsFromOverview(bookmarkIndex, index);
+                return true;
+            }
+        }
+        return false;
     }
 
     private View closedTabUndoBar() {
@@ -5922,33 +5952,25 @@ public class MainActivity extends Activity {
 
     private View tabOverviewRow(CuspTab tab, int index) {
         boolean selected = !pendingNewTab && index == currentIndex;
-        return tabOverviewRowShell(tab, selected,
-                (v, event) -> {
-                    autoScrollDuringDrag(v, event);
-                    if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
-                        Object local = event.getLocalState();
-                        if (local instanceof DragPayload) {
-                            DragPayload payload = (DragPayload) local;
-                            if ("tabs".equals(payload.key)) {
-                                moveTabInOverview(payload, index);
-                                return true;
-                            }
-                            if (PREF_THREAD_BOOKMARKS.equals(payload.key)) {
-                                moveBookmarkToTabsFromOverview(payload.index, index);
-                                return true;
-                            }
-                            String movingKey = bookmarkNodeDragValue(payload.key);
-                            if (movingKey.startsWith("I:")) {
-                                int bookmarkIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, movingKey.substring(2));
-                                if (bookmarkIndex >= 0) {
-                                    moveBookmarkToTabsFromOverview(bookmarkIndex, index);
-                                    return true;
-                                }
-                            }
-                        }
+        View.OnDragListener dragListener = (v, event) -> {
+            autoScrollDuringDrag(v, event);
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    DragPayload payload = (DragPayload) local;
+                    if ("tabs".equals(payload.key)) {
+                        moveTabInOverview(payload, index);
+                        return true;
                     }
-                    return true;
-                },
+                    if (moveBookmarkToTabsFromPayload(payload, index)) {
+                        return true;
+                    }
+                }
+            }
+            return true;
+        };
+        return tabOverviewRowShell(tab, selected,
+                dragListener,
                 v -> selectTabFromOverview(index),
                 (row, shell) -> {
                     row.startDragAndDrop(ClipData.newPlainText("tab", String.valueOf(index)),
@@ -5985,12 +6007,14 @@ public class MainActivity extends Activity {
         row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(clickListener);
+        row.setOnDragListener(dragListener);
         if (longClickListener != null) {
             row.setOnLongClickListener(v -> longClickListener.onLongClick(row, shell));
         }
 
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
+        textBox.setOnDragListener(dragListener);
         TextView title = new TextView(this);
         String rowTitle = tab.title == null || tab.title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : tab.title;
         if (tab.threadPage != null) {
@@ -6001,6 +6025,7 @@ public class MainActivity extends Activity {
             title.setText(rowTitle);
         }
         title.setTextColor(textColor());
+        title.setOnDragListener(dragListener);
         title.setTextSize(14);
         title.setSingleLine(false);
         title.setMaxLines(2);
@@ -6011,6 +6036,7 @@ public class MainActivity extends Activity {
             title.setAutoSizeTextTypeUniformWithConfiguration(11, 14, 1, TypedValue.COMPLEX_UNIT_SP);
         }
         TextView url = new TextView(this);
+        url.setOnDragListener(dragListener);
         url.setText(tab.url == null || tab.url.trim().isEmpty() ? text("\u65b0\u898f\u30bf\u30d6", "New tab") : tab.url);
         url.setTextColor(mutedColor());
         url.setTextSize(12);
@@ -6046,6 +6072,7 @@ public class MainActivity extends Activity {
         }
 
         ImageButton close = iconButton(R.drawable.ic_close, closeLabel, v -> closeListener.close(shell));
+        close.setOnDragListener(dragListener);
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
         closeParams.setMargins(dp(8), 0, 0, 0);
         row.addView(close, closeParams);
