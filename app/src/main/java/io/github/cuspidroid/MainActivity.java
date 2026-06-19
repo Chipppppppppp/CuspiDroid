@@ -6388,6 +6388,7 @@ public class MainActivity extends Activity {
                 text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"),
                 bookmarkOverviewUnreadSum(bookmarks, null),
                 rootExpanded,
+                1,
                 v -> toggleBookmarkOverviewExpanded(rootKey)));
         if (!rootExpanded) {
             return;
@@ -6403,11 +6404,12 @@ public class MainActivity extends Activity {
             list.addView(bookmarkOverviewFolderRow(folder,
                     bookmarkOverviewUnreadSum(bookmarks, folder),
                     expanded,
+                    2,
                     v -> toggleBookmarkOverviewExpanded(key)));
             if (expanded) {
                 for (SavedItem bookmark : bookmarks) {
                     if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
-                        list.addView(bookmarkOverviewItemRow(bookmark, true));
+                        list.addView(bookmarkOverviewItemRow(bookmark, 3));
                     }
                 }
             }
@@ -6418,36 +6420,34 @@ public class MainActivity extends Activity {
                 if (!hasRootItems && !folders.isEmpty()) {
                     list.addView(helperLine(text("\u30d5\u30a9\u30eb\u30c0\u306a\u3057", "No folder")));
                 }
-                list.addView(bookmarkOverviewItemRow(bookmark, false));
+                list.addView(bookmarkOverviewItemRow(bookmark, 2));
                 hasRootItems = true;
             }
         }
     }
 
-    private View bookmarkOverviewFolderRow(String label, int unread, boolean expanded, View.OnClickListener listener) {
+    private View bookmarkOverviewFolderRow(String label, int unread, boolean expanded, int indentLevel,
+                                           View.OnClickListener listener) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
-        row.setMinimumHeight(dp(56));
+        row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
-        params.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(params);
         row.setOnClickListener(listener);
 
-        TextView arrow = new TextView(this);
-        arrow.setText(expanded ? "v" : ">");
-        arrow.setTextColor(TEAL);
-        arrow.setTextSize(18);
-        arrow.setGravity(Gravity.CENTER);
-        row.addView(arrow, new LinearLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.MATCH_PARENT));
+        int iconColor = mutedColor();
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(expanded ? R.drawable.ic_arrow_down : R.drawable.ic_chevron_right);
+        arrow.setColorFilter(iconColor);
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_folder);
-        icon.setColorFilter(TEAL);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        icon.setColorFilter(iconColor);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(26), dp(26));
+        iconParams.setMargins(dp(4), 0, 0, 0);
+        row.addView(icon, iconParams);
 
         TextView textView = new TextView(this);
         textView.setText(label);
@@ -6458,20 +6458,16 @@ public class MainActivity extends Activity {
         textView.setPadding(dp(10), 0, 0, 0);
         row.addView(textView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         addUnreadBadgeIfNeeded(row, unread);
-        return row;
+        return bookmarkOverviewShell(row, indentLevel);
     }
 
-    private View bookmarkOverviewItemRow(SavedItem item, boolean nested) {
+    private View bookmarkOverviewItemRow(SavedItem item, int indentLevel) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(nested ? dp(58) : dp(10), dp(7), dp(8), dp(7));
-        row.setMinimumHeight(dp(70));
+        row.setPadding(dp(10), dp(7), dp(8), dp(7));
+        row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(70));
-        params.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(params);
         row.setOnClickListener(v -> routeLink(item.url, currentTab()));
 
         LinearLayout textBox = new LinearLayout(this);
@@ -6496,7 +6492,19 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
         row.addView(textBox, new LinearLayout.LayoutParams(0, dp(54), 1));
         addUnreadBadgeIfNeeded(row, bookmarkOverviewUnread(item));
-        return row;
+        return bookmarkOverviewShell(row, indentLevel);
+    }
+
+    private View bookmarkOverviewShell(View row, int indentLevel) {
+        FrameLayout shell = new FrameLayout(this);
+        int indent = dp(18 * Math.max(0, indentLevel));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(78));
+        params.setMargins(indent, 0, 0, dp(8));
+        shell.setLayoutParams(params);
+        shell.addView(row, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
+        return shell;
     }
 
     private void addUnreadBadgeIfNeeded(LinearLayout row, int unread) {
