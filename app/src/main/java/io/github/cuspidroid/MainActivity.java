@@ -6418,7 +6418,7 @@ public class MainActivity extends Activity {
         list.addView(bookmarkOverviewFolderRow(
                 text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"),
                 "",
-                bookmarkOverviewUnreadSum(bookmarks, null),
+                rootExpanded ? 0 : bookmarkOverviewUnreadSum(bookmarks, null),
                 rootExpanded,
                 0,
                 hasSelectedBookmark && !rootExpanded,
@@ -6453,7 +6453,7 @@ public class MainActivity extends Activity {
         boolean expanded = bookmarkOverviewExpanded(key, false);
         list.addView(bookmarkOverviewFolderRow(folder,
                 folder,
-                bookmarkOverviewUnreadSum(bookmarks, folder),
+                expanded ? 0 : bookmarkOverviewUnreadSum(bookmarks, folder),
                 expanded,
                 1,
                 folder.equals(selectedFolder) && !expanded,
@@ -6566,7 +6566,7 @@ public class MainActivity extends Activity {
                     }
                     return true;
                 },
-                v -> routeLink(item.url, currentTab()),
+                v -> openBookmarkOverviewItem(item),
                 (row, rowShell) -> {
                     if (itemIndex < 0) {
                         return false;
@@ -6581,6 +6581,17 @@ public class MainActivity extends Activity {
                 (row, deleteLeft, deleteRight, rowShell) ->
                         attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item));
         return bookmarkOverviewShell(shell, indentLevel, dp(78));
+    }
+
+    private void openBookmarkOverviewItem(SavedItem item) {
+        if (item == null || item.url == null || item.url.trim().isEmpty()) {
+            return;
+        }
+        tabOverviewVisible = false;
+        tabOverviewScrollY = 0;
+        pendingHistoryAll = false;
+        openInCurrentTab(item.url);
+        renderTabs();
     }
 
     private View bookmarkOverviewShell(View row, int indentLevel, int height) {
