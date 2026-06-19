@@ -8,7 +8,6 @@ import android.graphics.Color;
 import android.graphics.ImageDecoder;
 import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.Drawable;
-import android.media.MediaMetadataRetriever;
 import android.os.Build;
 import android.os.Handler;
 import android.view.Gravity;
@@ -20,8 +19,6 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -85,6 +82,13 @@ final class MediaPreviewHelper {
 
         TextView play = playOverlay(activity);
         play.setVisibility(video ? View.VISIBLE : View.GONE);
+        play.setOnClickListener(v -> {
+            if (video) {
+                callback.openVideo(originalUrl, mediaUrl);
+            } else {
+                callback.openImage(originalUrl, mediaUrl);
+            }
+        });
         frame.addView(play, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -100,6 +104,7 @@ final class MediaPreviewHelper {
             Bitmap bitmap = null;
             Drawable drawable = null;
             try {
+                boolean gif = isGifUrl(mediaUrl);
                 if (video || isVideoUrl(mediaUrl)) {
                     byte[] cached = AppCache.read(activity, preferences, "media", "video:" + mediaUrl, ".png");
                     if (cached != null) {
@@ -107,16 +112,24 @@ final class MediaPreviewHelper {
                     }
                     if (bitmap == null) {
                         bitmap = videoPosterBitmap(mediaUrl);
-                        if (bitmap == null) {
-                            bitmap = videoFrameBitmap(activity, mediaUrl);
-                        }
                         if (bitmap != null) {
                             byte[] bytes = bitmapToPng(bitmap);
                             AppCache.write(activity, preferences, "media", "video:" + mediaUrl, ".png", bytes);
                         }
                     }
+                } else if (gif && !autoplayGifs(preferences)) {
+                    byte[] cached = AppCache.read(activity, preferences, "media", "gif-poster:" + mediaUrl, ".png");
+                    if (cached != null) {
+                        bitmap = BitmapFactory.decodeByteArray(cached, 0, cached.length);
+                    }
+                    if (bitmap == null) {
+                        bitmap = videoPosterBitmap(mediaUrl);
+                        if (bitmap != null) {
+                            byte[] bytes = bitmapToPng(bitmap);
+                            AppCache.write(activity, preferences, "media", "gif-poster:" + mediaUrl, ".png", bytes);
+                        }
+                    }
                 } else {
-                    boolean gif = isGifUrl(mediaUrl);
                     byte[] bytes = AppCache.read(activity, preferences, "media", "image:" + mediaUrl,
                             gif ? ".gif" : ".img");
                     if (bytes == null) {
@@ -165,8 +178,8 @@ final class MediaPreviewHelper {
                         });
                     }
                 } else {
-                    error.setVisibility(View.VISIBLE);
-                    play.setVisibility(View.GONE);
+                    error.setVisibility(video || (gif && !autoplayGifs(preferences)) ? View.GONE : View.VISIBLE);
+                    play.setVisibility(video || (gif && !autoplayGifs(preferences)) ? View.VISIBLE : View.GONE);
                 }
             });
         });
@@ -266,71 +279,6 @@ final class MediaPreviewHelper {
         candidates.add(base + ".webp" + queryPart);
         candidates.add(base + ".png" + queryPart);
         return candidates;
-    }
-
-    private static Bitmap videoFrameBitmap(Activity activity, String url) throws Exception {
-        byte[] bytes = downloadRangeBytes(url, 2 * 1024 * 1024);
-        Bitmap bitmap = videoFrameBitmapFromBytes(activity, bytes);
-        if (bitmap != null) {
-            return bitmap;
-        }
-        bytes = downloadRangeBytes(url, 8 * 1024 * 1024);
-        return videoFrameBitmapFromBytes(activity, bytes);
-    }
-
-    private static byte[] downloadRangeBytes(String url, int limit) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(15000);
-        connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
-        connection.setRequestProperty("Range", "bytes=0-" + (limit - 1));
-        try (InputStream input = connection.getInputStream()) {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int total = 0;
-            int read;
-            while ((read = input.read(buffer)) != -1 && total < limit) {
-                int allowed = Math.min(read, limit - total);
-                output.write(buffer, 0, allowed);
-                total += allowed;
-                if (allowed < read) {
-                    break;
-                }
-            }
-            return output.toByteArray();
-        } finally {
-            connection.disconnect();
-        }
-    }
-
-    private static Bitmap videoFrameBitmapFromBytes(Activity activity, byte[] bytes) throws Exception {
-        if (bytes == null || bytes.length <= 0) {
-            return null;
-        }
-        File file = File.createTempFile("cuspidroid-video-thumb-", ".tmp", activity.getCacheDir());
-        try {
-            try (FileOutputStream output = new FileOutputStream(file)) {
-                output.write(bytes);
-            }
-            return videoFrameBitmap(file.getAbsolutePath());
-        } finally {
-            file.delete();
-        }
-    }
-
-    private static Bitmap videoFrameBitmap(String dataSource) throws Exception {
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            retriever.setDataSource(dataSource);
-            Bitmap frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-            return frame == null ? retriever.getFrameAtTime() : frame;
-        } finally {
-            try {
-                retriever.release();
-            } catch (Exception ignored) {
-            }
-        }
     }
 
     private static byte[] bitmapToPng(Bitmap bitmap) {

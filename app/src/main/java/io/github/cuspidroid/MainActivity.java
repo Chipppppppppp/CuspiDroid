@@ -28,7 +28,6 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
-import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -7191,82 +7190,6 @@ public class MainActivity extends Activity {
                 MainActivity.this.openExternal(url);
             }
         };
-    }
-
-    private void loadVideoThumbnail(String videoUrl, ImageView thumbnail, ProgressBar spinner,
-                                    TextView error, TextView play, Button reveal) {
-        ioExecutor.execute(() -> {
-            Bitmap bitmap = videoFrameBitmap(videoUrl, dp(MEDIA_GRID_CELL_DP), dp(MEDIA_GRID_CELL_DP));
-            Bitmap displayBitmap = bitmap;
-            boolean sensitive = false;
-            if (bitmap != null && blurVideoThumbnails()) {
-                Boolean cachedSensitive = readCachedImageSensitive(videoUrl);
-                if (cachedSensitive != null) {
-                    sensitive = cachedSensitive;
-                } else {
-                    sensitive = isGraphicViolenceImage(bitmap);
-                    saveImageSensitive(videoUrl, sensitive);
-                }
-                if (sensitive) {
-                    displayBitmap = blurredBitmap(bitmap);
-                }
-            }
-            Bitmap finalDisplayBitmap = displayBitmap;
-            boolean finalSensitive = sensitive;
-            runOnUiThread(() -> {
-                if (!thumbnail.isAttachedToWindow()) {
-                    return;
-                }
-                spinner.setVisibility(View.GONE);
-                if (bitmap == null) {
-                    thumbnail.setVisibility(View.GONE);
-                    play.setVisibility(View.VISIBLE);
-                    error.setVisibility(View.GONE);
-                    return;
-                }
-                thumbnail.setImageBitmap(finalDisplayBitmap);
-                thumbnail.setVisibility(View.VISIBLE);
-                play.setVisibility(View.VISIBLE);
-                if (finalSensitive && bitmap != null && blurVideoThumbnails()) {
-                    reveal.setVisibility(View.VISIBLE);
-                    reveal.setOnClickListener(v -> {
-                        thumbnail.setImageBitmap(bitmap);
-                        reveal.setVisibility(View.GONE);
-                    });
-                }
-            });
-        });
-    }
-
-    private Bitmap videoFrameBitmap(String videoUrl, int maxWidth, int maxHeight) {
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            retriever.setDataSource(normalizeUrl(videoUrl), Collections.singletonMap("User-Agent", "CuspiDroid/0.1"));
-            Bitmap frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-            if (frame == null) {
-                return null;
-            }
-            int width = frame.getWidth();
-            int height = frame.getHeight();
-            if (width <= 0 || height <= 0 || (width <= maxWidth && height <= maxHeight)) {
-                return frame;
-            }
-            float scale = Math.min(maxWidth / (float) width, maxHeight / (float) height);
-            int scaledWidth = Math.max(1, Math.round(width * scale));
-            int scaledHeight = Math.max(1, Math.round(height * scale));
-            Bitmap scaled = Bitmap.createScaledBitmap(frame, scaledWidth, scaledHeight, true);
-            if (scaled != frame) {
-                frame.recycle();
-            }
-            return scaled;
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            try {
-                retriever.release();
-            } catch (Exception ignored) {
-            }
-        }
     }
 
     private View deferredMediaPreview(ImgurLink link, Runnable longClickAction, int cellSize) {
