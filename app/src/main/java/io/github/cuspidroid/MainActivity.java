@@ -184,6 +184,7 @@ public class MainActivity extends Activity {
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
     private static final String HOME_BOOKMARK_SECTION_TAG = "home_bookmark_section";
+    private static final String CLOSED_TAB_UNDO_TAG = "closed_tab_undo";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -5846,6 +5847,7 @@ public class MainActivity extends Activity {
 
     private View closedTabUndoBar() {
         LinearLayout bar = new LinearLayout(this);
+        bar.setTag(CLOSED_TAB_UNDO_TAG);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(14), 0, dp(6), 0);
@@ -6230,6 +6232,7 @@ public class MainActivity extends Activity {
             return;
         }
         showClosedTabUndo(closed);
+        syncClosedTabUndoBar();
         tabOverviewVisible = true;
         pendingNewTab = tabs.isEmpty();
         updateBottomThreadBar(currentTab());
@@ -7428,6 +7431,24 @@ public class MainActivity extends Activity {
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
         populateTabOverviewList(list);
+        syncClosedTabUndoBar();
+    }
+
+    private void syncClosedTabUndoBar() {
+        if (contentFrame == null || contentFrame.getChildCount() == 0
+                || !(contentFrame.getChildAt(0) instanceof FrameLayout)) {
+            return;
+        }
+        FrameLayout root = (FrameLayout) contentFrame.getChildAt(0);
+        for (int i = root.getChildCount() - 1; i >= 0; i--) {
+            View child = root.getChildAt(i);
+            if (CLOSED_TAB_UNDO_TAG.equals(child.getTag())) {
+                root.removeViewAt(i);
+            }
+        }
+        if (recentlyClosedTab != null) {
+            root.addView(closedTabUndoBar(), closedTabUndoParams());
+        }
     }
 
     private View buildSavedItemsView(String key) {
