@@ -5924,22 +5924,42 @@ public class MainActivity extends Activity {
 
     private View tabOverviewRow(CuspTab tab, int index) {
         boolean selected = !pendingNewTab && index == currentIndex;
+        return tabOverviewRowShell(tab, selected,
+                (v, event) -> {
+                    if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                        Object local = event.getLocalState();
+                        if (local instanceof DragPayload) {
+                            DragPayload payload = (DragPayload) local;
+                            if ("tabs".equals(payload.key)) {
+                                moveTabInOverview(payload, index);
+                                return true;
+                            }
+                        }
+                    }
+                    return true;
+                },
+                v -> selectTabFromOverview(index),
+                (row, shell) -> {
+                    row.startDragAndDrop(ClipData.newPlainText("tab", String.valueOf(index)),
+                            new View.DragShadowBuilder(shell), new DragPayload("tabs", index), 0);
+                    return true;
+                },
+                text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab"),
+                shell -> closeTabFromOverview(tabs.indexOf(tab), shell),
+                (row, deleteLeft, deleteRight, shell) ->
+                        attachTabOverviewSwipe(row, deleteLeft, deleteRight, tab, index, shell));
+    }
+
+    private FrameLayout tabOverviewRowShell(CuspTab tab, boolean selected, View.OnDragListener dragListener,
+                                            View.OnClickListener clickListener,
+                                            TabOverviewLongClick longClickListener,
+                                            String closeLabel,
+                                            TabOverviewClose closeListener,
+                                            TabOverviewSwipeSetup swipeSetup) {
         FrameLayout shell = new FrameLayout(this);
         shell.setClipChildren(false);
         shell.setBackgroundColor(Color.TRANSPARENT);
-        shell.setOnDragListener((v, event) -> {
-            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
-                Object local = event.getLocalState();
-                if (local instanceof DragPayload) {
-                    DragPayload payload = (DragPayload) local;
-                    if ("tabs".equals(payload.key)) {
-                        moveTabInOverview(payload, index);
-                        return true;
-                    }
-                }
-            }
-            return true;
-        });
+        shell.setOnDragListener(dragListener);
         ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
         deleteLeft.setColorFilter(TEAL);
         ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
@@ -5953,12 +5973,10 @@ public class MainActivity extends Activity {
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(78));
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
-        row.setOnClickListener(v -> selectTabFromOverview(index));
-        row.setOnLongClickListener(v -> {
-            v.startDragAndDrop(ClipData.newPlainText("tab", String.valueOf(index)),
-                    new View.DragShadowBuilder(shell), new DragPayload("tabs", index), 0);
-            return true;
-        });
+        row.setOnClickListener(clickListener);
+        if (longClickListener != null) {
+            row.setOnLongClickListener(v -> longClickListener.onLongClick(row, shell));
+        }
 
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
@@ -6016,8 +6034,7 @@ public class MainActivity extends Activity {
             row.addView(privateIcon, privateIconParams);
         }
 
-        ImageButton close = iconButton(R.drawable.ic_close, text("\u30bf\u30d6\u3092\u9589\u3058\u308b", "Close tab"),
-                v -> closeTabFromOverview(tabs.indexOf(tab), shell));
+        ImageButton close = iconButton(R.drawable.ic_close, closeLabel, v -> closeListener.close(shell));
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
         closeParams.setMargins(dp(8), 0, 0, 0);
         row.addView(close, closeParams);
@@ -6028,8 +6045,20 @@ public class MainActivity extends Activity {
         shell.setLayoutParams(rowParams);
         shell.addView(row, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
-        attachTabOverviewSwipe(row, deleteLeft, deleteRight, tab, index, shell);
+        swipeSetup.attach(row, deleteLeft, deleteRight, shell);
         return shell;
+    }
+
+    private interface TabOverviewLongClick {
+        boolean onLongClick(View row, FrameLayout shell);
+    }
+
+    private interface TabOverviewClose {
+        void close(FrameLayout shell);
+    }
+
+    private interface TabOverviewSwipeSetup {
+        void attach(View row, View deleteLeft, View deleteRight, FrameLayout shell);
     }
 
     private void attachTabOverviewSwipe(View row, View deleteLeft, View deleteRight, CuspTab tab, int index, View shell) {
@@ -6398,10 +6427,6 @@ public class MainActivity extends Activity {
         if (!rootExpanded) {
             return;
         }
-        if (bookmarks.isEmpty()) {
-            list.addView(helperLine(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u306a\u3057", "No bookmarks.")));
-            return;
-        }
         List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
         List<String> shownFolders = new ArrayList<>();
         for (SavedItem bookmark : bookmarks) {
@@ -6511,82 +6536,42 @@ public class MainActivity extends Activity {
 
     private View bookmarkOverviewItemRow(SavedItem item, int indentLevel) {
         int itemIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, item.url);
-        FrameLayout shell = new FrameLayout(this);
-        shell.setBackgroundColor(Color.TRANSPARENT);
-        shell.setOnDragListener((v, event) -> {
-            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
-                Object local = event.getLocalState();
-                if (local instanceof DragPayload) {
-                    DragPayload payload = (DragPayload) local;
-                    if (PREF_THREAD_BOOKMARKS.equals(payload.key) && itemIndex >= 0) {
-                        moveBookmarkOverviewItem(payload.index, itemIndex);
-                        payload.index = itemIndex;
-                        refreshTabOverview();
-                        return true;
+        CuspTab tab = bookmarkOverviewTab(item);
+        FrameLayout shell = tabOverviewRowShell(tab, bookmarkOverviewItemSelected(item),
+                (v, event) -> {
+                    if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                        Object local = event.getLocalState();
+                        if (local instanceof DragPayload) {
+                            DragPayload payload = (DragPayload) local;
+                            if (PREF_THREAD_BOOKMARKS.equals(payload.key) && itemIndex >= 0) {
+                                moveBookmarkOverviewItem(payload.index, itemIndex);
+                                payload.index = itemIndex;
+                                refreshTabOverview();
+                                return true;
+                            }
+                            if ((PREF_THREAD_BOOKMARKS + ":folder").equals(payload.key) && itemIndex >= 0) {
+                                moveBookmarkOverviewFolderBeforeItem(payload.index, itemIndex);
+                                refreshTabOverview();
+                                return true;
+                            }
+                        }
                     }
-                    if ((PREF_THREAD_BOOKMARKS + ":folder").equals(payload.key) && itemIndex >= 0) {
-                        moveBookmarkOverviewFolderBeforeItem(payload.index, itemIndex);
-                        refreshTabOverview();
-                        return true;
+                    return true;
+                },
+                v -> routeLink(item.url, currentTab()),
+                (row, rowShell) -> {
+                    if (itemIndex < 0) {
+                        return false;
                     }
-                }
-            }
-            return true;
-        });
-        ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        deleteLeft.setColorFilter(TEAL);
-        ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        deleteRight.setColorFilter(TEAL);
-        shell.addView(deleteLeft);
-        shell.addView(deleteRight);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10), dp(7), dp(8), dp(7));
-        row.setMinimumHeight(dp(78));
-        row.setBackground(roundedDrawable(postColor(),
-                bookmarkOverviewItemSelected(item) ? TEAL : borderColor(), dp(8)));
-        row.setOnClickListener(v -> routeLink(item.url, currentTab()));
-        row.setOnLongClickListener(v -> {
-            if (itemIndex < 0) {
-                return false;
-            }
-            v.startDragAndDrop(ClipData.newPlainText("bookmark", item.url),
-                    new View.DragShadowBuilder(shell), new DragPayload(PREF_THREAD_BOOKMARKS, itemIndex), 0);
-            return true;
-        });
-
-        LinearLayout textBox = new LinearLayout(this);
-        textBox.setOrientation(LinearLayout.VERTICAL);
-        TextView title = new TextView(this);
-        title.setText(bookmarkOverviewTitle(item));
-        title.setTextColor(textColor());
-        title.setTextSize(14);
-        title.setMaxLines(2);
-        title.setEllipsize(TextUtils.TruncateAt.END);
-        title.setIncludeFontPadding(false);
-        TextView url = new TextView(this);
-        url.setText(item.url);
-        url.setTextColor(mutedColor());
-        url.setTextSize(12);
-        url.setSingleLine(true);
-        url.setEllipsize(TextUtils.TruncateAt.END);
-        url.setIncludeFontPadding(false);
-        textBox.addView(title, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
-        textBox.addView(url, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
-        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(56), 1));
-        addUnreadBadgeIfNeeded(row, bookmarkOverviewUnread(item));
-        ImageButton close = iconButton(R.drawable.ic_close, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u524a\u9664", "Delete bookmark"),
-                v -> deleteBookmarkFromOverview(item));
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
-        closeParams.setMargins(dp(8), 0, 0, 0);
-        row.addView(close, closeParams);
-        shell.addView(row, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
-        attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item);
+                    row.startDragAndDrop(ClipData.newPlainText("bookmark", item.url),
+                            new View.DragShadowBuilder(rowShell),
+                            new DragPayload(PREF_THREAD_BOOKMARKS, itemIndex), 0);
+                    return true;
+                },
+                text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u524a\u9664", "Delete bookmark"),
+                rowShell -> deleteBookmarkFromOverview(item),
+                (row, deleteLeft, deleteRight, rowShell) ->
+                        attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item));
         return bookmarkOverviewShell(shell, indentLevel, dp(78));
     }
 
@@ -6621,6 +6606,29 @@ public class MainActivity extends Activity {
             currentUrl = tab.url;
         }
         return trimSlash(normalizeUrl(currentUrl)).equals(trimSlash(normalizeUrl(item.url)));
+    }
+
+    private CuspTab bookmarkOverviewTab(SavedItem item) {
+        CuspTab tab = new CuspTab();
+        tab.url = item == null ? "" : item.url;
+        tab.title = item == null ? "" : item.title;
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_THREAD;
+        BookmarkOverviewStatus status = item == null ? null : bookmarkOverviewStatus(item.url);
+        if (status != null) {
+            if (status.title != null && !status.title.trim().isEmpty()) {
+                tab.title = status.title.trim();
+            }
+            tab.knownThreadArchived = status.archived;
+            if (status.responseCount > 0) {
+                tab.knownMaxPostNumber = status.responseCount;
+                tab.knownPostCount = status.responseCount;
+                tab.readPostNumber = readPostNumber(preferences, item.url);
+                tab.cachedUnreadCount = Math.max(0, status.responseCount - tab.readPostNumber);
+                tab.hasThreadStats = true;
+            }
+        }
+        return tab;
     }
 
     private int savedItemIndex(String key, String url) {
@@ -12457,14 +12465,6 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             return null;
         }
-    }
-
-    private String bookmarkOverviewTitle(SavedItem item) {
-        BookmarkOverviewStatus status = item == null ? null : bookmarkOverviewStatus(item.url);
-        if (status != null && status.title != null && !status.title.trim().isEmpty()) {
-            return status.archived ? text("[DAT\u843d\u3061] ", "[Archived] ") + status.title.trim() : status.title.trim();
-        }
-        return item == null ? "" : item.title;
     }
 
     private int bookmarkOverviewUnread(SavedItem item) {
