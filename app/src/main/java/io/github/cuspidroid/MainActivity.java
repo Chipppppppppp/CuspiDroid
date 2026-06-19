@@ -6130,24 +6130,23 @@ public class MainActivity extends Activity {
             return;
         }
         int action = event.getAction();
-        if (action != android.view.DragEvent.ACTION_DRAG_LOCATION
-                && action != android.view.DragEvent.ACTION_DRAG_ENTERED) {
+        if (action != android.view.DragEvent.ACTION_DRAG_LOCATION) {
             return;
         }
         ScrollView scroll = anchor instanceof ScrollView ? (ScrollView) anchor : findParentScrollView(anchor);
         if (scroll == null || scroll.getHeight() <= 0) {
             return;
         }
-        int[] scrollLocation = new int[2];
         int[] anchorLocation = new int[2];
-        scroll.getLocationOnScreen(scrollLocation);
         anchor.getLocationOnScreen(anchorLocation);
-        float y = anchorLocation[1] + event.getY() - scrollLocation[1];
-        int edge = dp(72);
-        int step = dp(22);
-        if (y < edge) {
+        float screenY = anchorLocation[1] + event.getY();
+        Rect visibleFrame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(visibleFrame);
+        int edge = dp(28);
+        int step = dp(18);
+        if (screenY <= visibleFrame.top + edge) {
             scroll.smoothScrollBy(0, -step);
-        } else if (y > scroll.getHeight() - edge) {
+        } else if (screenY >= visibleFrame.bottom - edge) {
             scroll.smoothScrollBy(0, step);
         }
     }
