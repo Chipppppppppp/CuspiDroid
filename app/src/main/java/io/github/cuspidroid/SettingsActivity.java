@@ -288,6 +288,12 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoplayGifs);
         root.addView(autoplayGifs);
 
+        root.addView(managementRow(R.drawable.ic_close,
+                MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
+                MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
+                v -> startActivity(new Intent(this, NgRulesActivity.class))));
+
+        root.addView(sectionTitle(MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Uploads")));
         imgbbApiKey = new EditText(this);
         imgbbApiKey.setSingleLine(true);
         imgbbApiKey.setTextSize(14);
@@ -305,10 +311,10 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u7528\u306eAPI key\u3092\u53d6\u5f97\u3059\u308b\u624b\u9806", "Steps for getting an API key for image uploads"),
                 v -> showImgbbApiKeyHelp()));
 
-        root.addView(managementRow(R.drawable.ic_close,
-                MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
-                MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
-                v -> startActivity(new Intent(this, NgRulesActivity.class))));
+        root.addView(managementRow(R.drawable.ic_copy,
+                MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092\u7ba1\u7406", "Manage upload history"),
+                MainActivity.text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u305f\u753b\u50cf\u3068URL\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete images and URLs uploaded to ImgBB"),
+                v -> startActivity(new Intent(this, UploadHistoryActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5", "Cache")));
         cacheEnabled = new CheckBox(this);
@@ -368,11 +374,6 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
                 MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
                 v -> startActivity(new Intent(this, HistoryActivity.class))));
-
-        root.addView(managementRow(R.drawable.ic_copy,
-                MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092\u7ba1\u7406", "Manage upload history"),
-                MainActivity.text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u305f\u753b\u50cf\u3068URL\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete images and URLs uploaded to ImgBB"),
-                v -> startActivity(new Intent(this, UploadHistoryActivity.class))));
 
         root.addView(managementRow(R.drawable.ic_check,
                 MainActivity.text("\u65e2\u8aad\u3092\u7ba1\u7406", "Manage read positions"),

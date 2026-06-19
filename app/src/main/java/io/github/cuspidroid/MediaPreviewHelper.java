@@ -56,6 +56,13 @@ final class MediaPreviewHelper {
         ImageView image = new ImageView(activity);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setVisibility(View.GONE);
+        image.setOnClickListener(v -> {
+            if (video) {
+                callback.openVideo(originalUrl, mediaUrl);
+            } else {
+                callback.openImage(originalUrl, mediaUrl);
+            }
+        });
         if (longClickAction != null) {
             image.setOnLongClickListener(v -> {
                 longClickAction.run();
