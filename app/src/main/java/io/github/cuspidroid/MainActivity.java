@@ -5937,6 +5937,14 @@ public class MainActivity extends Activity {
                                 moveBookmarkToTabsFromOverview(payload.index, index);
                                 return true;
                             }
+                            String movingKey = bookmarkNodeDragValue(payload.key);
+                            if (movingKey.startsWith("I:")) {
+                                int bookmarkIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, movingKey.substring(2));
+                                if (bookmarkIndex >= 0) {
+                                    moveBookmarkToTabsFromOverview(bookmarkIndex, index);
+                                    return true;
+                                }
+                            }
                         }
                     }
                     return true;
@@ -7050,9 +7058,9 @@ public class MainActivity extends Activity {
                     return true;
                 },
                 text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u524a\u9664", "Delete bookmark"),
-                rowShell -> deleteBookmarkFromOverview(item),
+                rowShell -> deleteBookmarkFromOverview(item, rowShell),
                 (row, deleteLeft, deleteRight, rowShell) ->
-                        attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item));
+                        attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item, rowShell));
         return bookmarkOverviewShell(shell, indentLevel, dp(78));
     }
 
@@ -7161,7 +7169,7 @@ public class MainActivity extends Activity {
         return -1;
     }
 
-    private void attachBookmarkOverviewSwipe(View row, View deleteLeft, View deleteRight, SavedItem item) {
+    private void attachBookmarkOverviewSwipe(View row, View deleteLeft, View deleteRight, SavedItem item, View shell) {
         final float[] downX = new float[1];
         final float[] downY = new float[1];
         final boolean[] dragging = new boolean[1];
@@ -7195,7 +7203,7 @@ public class MainActivity extends Activity {
                     deleteLeft.animate().alpha(0f).setDuration(130).start();
                     deleteRight.animate().alpha(0f).setDuration(130).start();
                     if (event.getAction() == MotionEvent.ACTION_UP && Math.abs(tx) >= dp(54)) {
-                        deleteBookmarkFromOverview(item);
+                        deleteBookmarkFromOverview(item, shell);
                     }
                     return true;
                 }
@@ -7205,12 +7213,21 @@ public class MainActivity extends Activity {
     }
 
     private void deleteBookmarkFromOverview(SavedItem item) {
+        deleteBookmarkFromOverview(item, null);
+    }
+
+    private void deleteBookmarkFromOverview(SavedItem item, View rowView) {
         if (item == null) {
             return;
         }
         showBookmarkClosedUndo(item);
+        syncClosedTabUndoBar();
         removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
-        refreshTabOverview();
+        if (rowView == null || rowView.getParent() == null) {
+            refreshTabOverview();
+        } else {
+            animateTabOverviewRowRemoval(rowView);
+        }
     }
 
     private void showBookmarkClosedUndo(SavedItem item) {
