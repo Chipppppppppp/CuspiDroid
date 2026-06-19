@@ -183,6 +183,7 @@ public class MainActivity extends Activity {
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
+    private static final String HOME_BOOKMARK_SECTION_TAG = "home_bookmark_section";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -5390,6 +5391,10 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(bgColor());
         scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOnDragListener((v, event) -> {
+            autoScrollDuringDrag(scroll, event);
+            return true;
+        });
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
@@ -5420,8 +5425,11 @@ public class MainActivity extends Activity {
                 list.addView(row);
             }
         }
-        list.addView(sectionTitleView(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks")));
-        addHomeBookmarkSection(list);
+        LinearLayout bookmarkSection = new LinearLayout(this);
+        bookmarkSection.setOrientation(LinearLayout.VERTICAL);
+        bookmarkSection.setTag(HOME_BOOKMARK_SECTION_TAG);
+        populateHomeBookmarkSection(bookmarkSection);
+        list.addView(bookmarkSection);
         if (showHistoryOnHome()) {
             addHistorySection(list, fullHistory);
         }
@@ -5913,6 +5921,7 @@ public class MainActivity extends Activity {
         boolean selected = !pendingNewTab && index == currentIndex;
         return tabOverviewRowShell(tab, selected,
                 (v, event) -> {
+                    autoScrollDuringDrag(v, event);
                     if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
                         Object local = event.getLocalState();
                         if (local instanceof DragPayload) {
@@ -6528,6 +6537,46 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void populateHomeBookmarkSection(LinearLayout section) {
+        section.removeAllViews();
+        section.addView(sectionTitleView(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks")));
+        addHomeBookmarkSection(section);
+    }
+
+    private boolean refreshHomeBookmarkSectionOnly() {
+        LinearLayout section = findTaggedLinearLayout(contentFrame, HOME_BOOKMARK_SECTION_TAG);
+        if (section == null) {
+            return false;
+        }
+        populateHomeBookmarkSection(section);
+        return true;
+    }
+
+    private LinearLayout findTaggedLinearLayout(View view, Object tag) {
+        if (view == null) {
+            return null;
+        }
+        if (view instanceof LinearLayout && tag.equals(view.getTag())) {
+            return (LinearLayout) view;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                LinearLayout found = findTaggedLinearLayout(group.getChildAt(i), tag);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void refreshHomeBookmarksOrCurrentView() {
+        if (!refreshHomeBookmarkSectionOnly()) {
+            refreshCurrentHomeOrHistoryView();
+        }
+    }
+
     private void addHomeBookmarkSection(LinearLayout list) {
         List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
         List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
@@ -6677,6 +6726,7 @@ public class MainActivity extends Activity {
 
     private boolean handleHomeBookmarkNodeDrop(android.view.DragEvent event, String parent, String targetFolder,
                                                String targetKey, boolean targetIsFolder, View anchor) {
+        autoScrollDuringDrag(anchor, event);
         if (event.getAction() != android.view.DragEvent.ACTION_DROP) {
             return true;
         }
@@ -6697,7 +6747,7 @@ public class MainActivity extends Activity {
                 } else if (!targetKey.isEmpty()) {
                     moveBookmarkNodeToParentNear(movingKey, parent, targetKey, zone > 0);
                 }
-                refreshCurrentHomeOrHistoryView();
+                refreshHomeBookmarksOrCurrentView();
                 return true;
             }
         }
@@ -6710,7 +6760,7 @@ public class MainActivity extends Activity {
                 "",
                 folder -> {
                     createSavedFolder(PREF_THREAD_BOOKMARKS, parent, folder);
-                    refreshCurrentHomeOrHistoryView();
+                    refreshHomeBookmarksOrCurrentView();
                 });
     }
 
@@ -6722,7 +6772,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
                     deleteSavedFolder(PREF_THREAD_BOOKMARKS, folder);
-                    refreshCurrentHomeOrHistoryView();
+                    refreshHomeBookmarksOrCurrentView();
                 })
                 .create();
         dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
@@ -6737,7 +6787,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
                     removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
-                    refreshCurrentHomeOrHistoryView();
+                    refreshHomeBookmarksOrCurrentView();
                 })
                 .create();
         dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
@@ -6778,6 +6828,7 @@ public class MainActivity extends Activity {
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(listener);
         row.setOnDragListener((v, event) -> {
+            autoScrollDuringDrag(v, event);
             if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
                 Object local = event.getLocalState();
                 if (local instanceof DragPayload) {
@@ -6915,6 +6966,7 @@ public class MainActivity extends Activity {
         CuspTab tab = bookmarkOverviewTab(item);
         FrameLayout shell = tabOverviewRowShell(tab, bookmarkOverviewItemSelected(item),
                 (v, event) -> {
+                    autoScrollDuringDrag(v, event);
                     if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
                         Object local = event.getLocalState();
                         if (local instanceof DragPayload) {
@@ -7361,7 +7413,7 @@ public class MainActivity extends Activity {
             refreshTabOverviewListOnly();
             renderTabs();
         } else if (!refreshTabOverviewAfterToggle) {
-            refreshCurrentHomeOrHistoryView();
+            refreshHomeBookmarksOrCurrentView();
         }
     }
 
