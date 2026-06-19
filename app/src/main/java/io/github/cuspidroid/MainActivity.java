@@ -13144,7 +13144,8 @@ public class MainActivity extends Activity {
         int total = 0;
         String normalizedFolder = folder == null ? null : normalizeSavedFolder(folder);
         for (SavedItem bookmark : bookmarks) {
-            if (normalizedFolder != null && !normalizedFolder.equals(normalizeSavedFolder(bookmark.folder))) {
+            if (normalizedFolder != null
+                    && !savedFolderDescendantOrSelf(normalizedFolder, normalizeSavedFolder(bookmark.folder))) {
                 continue;
             }
             total += bookmarkOverviewUnread(bookmark);
