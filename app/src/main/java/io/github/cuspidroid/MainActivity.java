@@ -12600,6 +12600,9 @@ public class MainActivity extends Activity {
 
         parseMachiPosts(html, page.posts);
         if (page.posts.isEmpty()) {
+            parseKakoPosts(html, page.posts);
+        }
+        if (page.posts.isEmpty()) {
             parseModernPosts(html, page.posts);
         }
         if (page.posts.isEmpty()) {
@@ -12613,6 +12616,40 @@ public class MainActivity extends Activity {
         page.postsByNumber.clear();
         for (Post post : page.posts) {
             page.postsByNumber.put(post.number, post);
+        }
+    }
+
+    private void parseKakoPosts(String html, List<Post> posts) {
+        Pattern pattern = Pattern.compile(
+                "<div\\s+id=[\"'](\\d+)[\"'][^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])post(?![A-Za-z0-9_-])[^\"']*[\"'][^>]*>(.*?)(?=<div\\s+id=[\"']\\d+[\"'][^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])post(?![A-Za-z0-9_-])|<div[^>]+class=[\"'][^\"']*ads_container|<div[^>]+class=[\"'][^\"']*navmenu|</div>\\s*<footer|</body>)",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(html);
+        while (matcher.find()) {
+            String block = matcher.group(2);
+            String body = firstMatch(block,
+                    "<section[^>]+class=[\"'][^\"']*post-content[^\"']*[\"'][^>]*>(.*?)</section>");
+            if (body == null) {
+                continue;
+            }
+            Post post = new Post();
+            post.number = parsePositiveInt(matcher.group(1), posts.size() + 1);
+            post.name = valueOr(firstMatch(block,
+                    "<span[^>]+class=[\"'][^\"']*postusername[^\"']*[\"'][^>]*>\\s*<b[^>]*>(.*?)</b>"), "anonymous");
+            post.date = valueOr(firstMatch(block,
+                    "<span[^>]+class=[\"'][^\"']*date[^\"']*[\"'][^>]*>(.*?)</span>"), "");
+            String id = firstMatch(block,
+                    "<span[^>]+class=[\"'][^\"']*uid[^\"']*[\"'][^>]*>(.*?)</span>");
+            if (id != null && !cleanText(id).isEmpty()) {
+                String plainId = cleanText(id);
+                post.date = post.date == null || post.date.trim().isEmpty()
+                        ? plainId
+                        : post.date + " " + plainId;
+            }
+            post.body = cleanText(body);
+            if (post.body.isEmpty()) {
+                continue;
+            }
+            posts.add(post);
         }
     }
 
