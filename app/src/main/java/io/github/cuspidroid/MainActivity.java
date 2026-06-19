@@ -6388,10 +6388,12 @@ public class MainActivity extends Activity {
         boolean rootExpanded = bookmarkOverviewExpanded(rootKey, true);
         list.addView(bookmarkOverviewFolderRow(
                 text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"),
+                "",
                 bookmarkOverviewUnreadSum(bookmarks, null),
                 rootExpanded,
                 0,
-                hasSelectedBookmark,
+                hasSelectedBookmark && !rootExpanded,
+                -1,
                 v -> toggleBookmarkOverviewExpanded(rootKey)));
         if (!rootExpanded) {
             return;
@@ -6401,37 +6403,48 @@ public class MainActivity extends Activity {
             return;
         }
         List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
-        for (String folder : folders) {
-            String key = bookmarkOverviewExpandedKey(folder);
-            boolean expanded = bookmarkOverviewExpanded(key, false);
-            list.addView(bookmarkOverviewFolderRow(folder,
-                    bookmarkOverviewUnreadSum(bookmarks, folder),
-                    expanded,
-                    1,
-                    folder.equals(selectedFolder),
-                    v -> toggleBookmarkOverviewExpanded(key)));
-            if (expanded) {
-                for (SavedItem bookmark : bookmarks) {
-                    if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
-                        list.addView(bookmarkOverviewItemRow(bookmark, 2));
-                    }
-                }
+        List<String> shownFolders = new ArrayList<>();
+        for (SavedItem bookmark : bookmarks) {
+            String folder = normalizeSavedFolder(bookmark.folder);
+            if (folder.isEmpty()) {
+                list.addView(bookmarkOverviewItemRow(bookmark, 1));
+                continue;
+            }
+            if (!shownFolders.contains(folder)) {
+                shownFolders.add(folder);
+                addBookmarkOverviewFolderWithItems(list, bookmarks, folders, folder, selectedFolder);
             }
         }
-        boolean hasRootItems = false;
-        for (SavedItem bookmark : bookmarks) {
-            if (normalizeSavedFolder(bookmark.folder).isEmpty()) {
-                if (!hasRootItems && !folders.isEmpty()) {
-                    list.addView(helperLine(text("\u30d5\u30a9\u30eb\u30c0\u306a\u3057", "No folder")));
-                }
-                list.addView(bookmarkOverviewItemRow(bookmark, 1));
-                hasRootItems = true;
+        for (String folder : folders) {
+            if (!shownFolders.contains(folder)) {
+                addBookmarkOverviewFolderWithItems(list, bookmarks, folders, folder, selectedFolder);
             }
         }
     }
 
-    private View bookmarkOverviewFolderRow(String label, int unread, boolean expanded, int indentLevel,
-                                           boolean selected, View.OnClickListener listener) {
+    private void addBookmarkOverviewFolderWithItems(LinearLayout list, List<SavedItem> bookmarks,
+                                                    List<String> folders, String folder, String selectedFolder) {
+        String key = bookmarkOverviewExpandedKey(folder);
+        boolean expanded = bookmarkOverviewExpanded(key, false);
+        list.addView(bookmarkOverviewFolderRow(folder,
+                folder,
+                bookmarkOverviewUnreadSum(bookmarks, folder),
+                expanded,
+                1,
+                folder.equals(selectedFolder) && !expanded,
+                folders.indexOf(folder),
+                v -> toggleBookmarkOverviewExpanded(key)));
+        if (expanded) {
+            for (SavedItem bookmark : bookmarks) {
+                if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
+                    list.addView(bookmarkOverviewItemRow(bookmark, 2));
+                }
+            }
+        }
+    }
+
+    private View bookmarkOverviewFolderRow(String label, String folder, int unread, boolean expanded, int indentLevel,
+                                           boolean selected, int folderIndex, View.OnClickListener listener) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -6439,6 +6452,37 @@ public class MainActivity extends Activity {
         row.setMinimumHeight(dp(56));
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(listener);
+        row.setOnDragListener((v, event) -> {
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    DragPayload payload = (DragPayload) local;
+                    if (PREF_THREAD_BOOKMARKS.equals(payload.key)) {
+                        List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
+                        if (payload.index >= 0 && payload.index < items.size()) {
+                            moveSavedItemToFolder(PREF_THREAD_BOOKMARKS, items.get(payload.index).url, folder);
+                            refreshTabOverview();
+                            return true;
+                        }
+                    }
+                    if ((PREF_THREAD_BOOKMARKS + ":folder").equals(payload.key) && folderIndex >= 0) {
+                        moveBookmarkOverviewFolder(payload.index, folderIndex);
+                        payload.index = folderIndex;
+                        refreshTabOverview();
+                        return true;
+                    }
+                }
+            }
+            return true;
+        });
+        if (folderIndex >= 0) {
+            row.setOnLongClickListener(v -> {
+                v.startDragAndDrop(ClipData.newPlainText("bookmark-folder", label),
+                        new View.DragShadowBuilder(row),
+                        new DragPayload(PREF_THREAD_BOOKMARKS + ":folder", folderIndex), 0);
+                return true;
+            });
+        }
 
         int iconColor = mutedColor();
         ImageView arrow = new ImageView(this);
@@ -6466,6 +6510,36 @@ public class MainActivity extends Activity {
     }
 
     private View bookmarkOverviewItemRow(SavedItem item, int indentLevel) {
+        int itemIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, item.url);
+        FrameLayout shell = new FrameLayout(this);
+        shell.setBackgroundColor(Color.TRANSPARENT);
+        shell.setOnDragListener((v, event) -> {
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    DragPayload payload = (DragPayload) local;
+                    if (PREF_THREAD_BOOKMARKS.equals(payload.key) && itemIndex >= 0) {
+                        moveBookmarkOverviewItem(payload.index, itemIndex);
+                        payload.index = itemIndex;
+                        refreshTabOverview();
+                        return true;
+                    }
+                    if ((PREF_THREAD_BOOKMARKS + ":folder").equals(payload.key) && itemIndex >= 0) {
+                        moveBookmarkOverviewFolderBeforeItem(payload.index, itemIndex);
+                        refreshTabOverview();
+                        return true;
+                    }
+                }
+            }
+            return true;
+        });
+        ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        deleteLeft.setColorFilter(TEAL);
+        ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        deleteRight.setColorFilter(TEAL);
+        shell.addView(deleteLeft);
+        shell.addView(deleteRight);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -6474,6 +6548,14 @@ public class MainActivity extends Activity {
         row.setBackground(roundedDrawable(postColor(),
                 bookmarkOverviewItemSelected(item) ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(v -> routeLink(item.url, currentTab()));
+        row.setOnLongClickListener(v -> {
+            if (itemIndex < 0) {
+                return false;
+            }
+            v.startDragAndDrop(ClipData.newPlainText("bookmark", item.url),
+                    new View.DragShadowBuilder(shell), new DragPayload(PREF_THREAD_BOOKMARKS, itemIndex), 0);
+            return true;
+        });
 
         LinearLayout textBox = new LinearLayout(this);
         textBox.setOrientation(LinearLayout.VERTICAL);
@@ -6492,12 +6574,20 @@ public class MainActivity extends Activity {
         url.setEllipsize(TextUtils.TruncateAt.END);
         url.setIncludeFontPadding(false);
         textBox.addView(title, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
         textBox.addView(url, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
-        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(54), 1));
+        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(56), 1));
         addUnreadBadgeIfNeeded(row, bookmarkOverviewUnread(item));
-        return bookmarkOverviewShell(row, indentLevel, dp(78));
+        ImageButton close = iconButton(R.drawable.ic_close, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u524a\u9664", "Delete bookmark"),
+                v -> deleteBookmarkFromOverview(item));
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
+        closeParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(close, closeParams);
+        shell.addView(row, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
+        attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item);
+        return bookmarkOverviewShell(shell, indentLevel, dp(78));
     }
 
     private View bookmarkOverviewShell(View row, int indentLevel, int height) {
@@ -6531,6 +6621,168 @@ public class MainActivity extends Activity {
             currentUrl = tab.url;
         }
         return trimSlash(normalizeUrl(currentUrl)).equals(trimSlash(normalizeUrl(item.url)));
+    }
+
+    private int savedItemIndex(String key, String url) {
+        String normalized = trimSlash(normalizeUrl(url));
+        List<SavedItem> items = readSavedItems(key);
+        for (int i = 0; i < items.size(); i++) {
+            if (trimSlash(normalizeUrl(items.get(i).url)).equals(normalized)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void attachBookmarkOverviewSwipe(View row, View deleteLeft, View deleteRight, SavedItem item) {
+        final float[] downX = new float[1];
+        final float[] downY = new float[1];
+        final boolean[] dragging = new boolean[1];
+        row.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downX[0] = event.getRawX();
+                downY[0] = event.getRawY();
+                dragging[0] = false;
+                row.clearAnimation();
+                return false;
+            }
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                float dx = event.getRawX() - downX[0];
+                float dy = event.getRawY() - downY[0];
+                if (!dragging[0] && Math.abs(dx) > dp(12) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
+                    dragging[0] = true;
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                if (dragging[0]) {
+                    float translation = Math.max(-dp(108), Math.min(dp(108), dx * 0.58f));
+                    row.setTranslationX(translation);
+                    deleteLeft.setAlpha(Math.max(0f, Math.min(1f, translation / dp(64))));
+                    deleteRight.setAlpha(Math.max(0f, Math.min(1f, -translation / dp(64))));
+                    return true;
+                }
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (dragging[0]) {
+                    float tx = row.getTranslationX();
+                    row.animate().translationX(0).setDuration(130).start();
+                    deleteLeft.animate().alpha(0f).setDuration(130).start();
+                    deleteRight.animate().alpha(0f).setDuration(130).start();
+                    if (event.getAction() == MotionEvent.ACTION_UP && Math.abs(tx) >= dp(54)) {
+                        deleteBookmarkFromOverview(item);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    private void deleteBookmarkFromOverview(SavedItem item) {
+        if (item == null) {
+            return;
+        }
+        removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
+        refreshTabOverview();
+    }
+
+    private void moveBookmarkOverviewItem(int from, int to) {
+        List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
+        if (from < 0 || from >= items.size() || to < 0 || to >= items.size() || from == to) {
+            return;
+        }
+        String targetFolder = normalizeSavedFolder(items.get(to).folder);
+        SavedItem moved = items.remove(from);
+        int insert = to;
+        if (from < insert) {
+            insert--;
+        }
+        items.add(insert, new SavedItem(moved.title, moved.url, targetFolder));
+        writeSavedItems(PREF_THREAD_BOOKMARKS, items);
+    }
+
+    private void moveSavedFolder(String key, int from, int to) {
+        List<String> folders = readSavedFolders(key);
+        if (from < 0 || from >= folders.size() || to < 0 || to >= folders.size() || from == to) {
+            return;
+        }
+        String folder = folders.remove(from);
+        int insert = to;
+        if (from < insert) {
+            insert--;
+        }
+        folders.add(insert, folder);
+        writeSavedFolders(key, folders);
+    }
+
+    private void moveBookmarkOverviewFolder(int from, int to) {
+        List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
+        if (from < 0 || from >= folders.size() || to < 0 || to >= folders.size() || from == to) {
+            return;
+        }
+        String targetFolder = folders.get(to);
+        moveSavedFolder(PREF_THREAD_BOOKMARKS, from, to);
+        moveBookmarkFolderItemsBeforeTarget(folders.get(from), targetFolder, -1);
+    }
+
+    private void moveBookmarkOverviewFolderBeforeItem(int folderIndex, int targetItemIndex) {
+        List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
+        if (folderIndex < 0 || folderIndex >= folders.size()) {
+            return;
+        }
+        String folder = folders.get(folderIndex);
+        moveBookmarkFolderItemsBeforeTarget(folder, null, targetItemIndex);
+    }
+
+    private void moveBookmarkFolderItemsBeforeTarget(String folder, String targetFolder, int targetItemIndex) {
+        folder = normalizeSavedFolder(folder);
+        targetFolder = targetFolder == null ? null : normalizeSavedFolder(targetFolder);
+        if (folder.isEmpty() || folder.equals(targetFolder)) {
+            return;
+        }
+        List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
+        List<SavedItem> moved = new ArrayList<>();
+        List<SavedItem> rest = new ArrayList<>();
+        for (SavedItem item : items) {
+            if (folder.equals(normalizeSavedFolder(item.folder))) {
+                moved.add(item);
+            } else {
+                rest.add(item);
+            }
+        }
+        if (moved.isEmpty()) {
+            return;
+        }
+        int insert = rest.size();
+        if (targetFolder != null) {
+            for (int i = 0; i < rest.size(); i++) {
+                if (targetFolder.equals(normalizeSavedFolder(rest.get(i).folder))) {
+                    insert = i;
+                    break;
+                }
+            }
+        } else if (targetItemIndex >= 0 && targetItemIndex < items.size()) {
+            String targetUrl = items.get(targetItemIndex).url;
+            for (int i = 0; i < rest.size(); i++) {
+                if (sameSavedUrl(rest.get(i).url, targetUrl)) {
+                    insert = i;
+                    break;
+                }
+            }
+        }
+        rest.addAll(insert, moved);
+        writeSavedItems(PREF_THREAD_BOOKMARKS, rest);
+    }
+
+    private boolean sameSavedUrl(String left, String right) {
+        return trimSlash(normalizeUrl(left)).equals(trimSlash(normalizeUrl(right)));
+    }
+
+    private void refreshTabOverview() {
+        if (tabOverviewVisible && contentFrame != null) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
+            renderTabs();
+        }
     }
 
     private void addUnreadBadgeIfNeeded(LinearLayout row, int unread) {
