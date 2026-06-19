@@ -60,6 +60,7 @@ import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
@@ -15006,6 +15007,15 @@ public class MainActivity extends Activity {
         });
         dialog.show();
         input.requestFocus();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+        }
+        input.postDelayed(() -> {
+            InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (manager != null) {
+                manager.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+            }
+        }, 120);
     }
 
     private void confirmDeleteSavedItem(String key, SavedItem item, String folder) {
