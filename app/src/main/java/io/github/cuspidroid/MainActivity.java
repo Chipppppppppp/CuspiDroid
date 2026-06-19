@@ -532,6 +532,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        migrateFavoriteBoardsToBookmarks();
         appliedThemeMode = themeMode();
         buildLayout();
         contentFrame.addView(loadingView(""));
@@ -823,7 +824,7 @@ public class MainActivity extends Activity {
         bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
-        bottomBookmarkButton = iconButton(R.drawable.ic_bookmark_border, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), null);
+        bottomBookmarkButton = iconButton(R.drawable.ic_star_border, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), null);
         bottomThreadBar.addView(bottomBookmarkButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
         bottomToolbar = new LinearLayout(this);
@@ -2477,23 +2478,11 @@ public class MainActivity extends Activity {
             bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
             bottomThreadTitle.setClickable(canWrite);
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            if (canWrite) {
+            if (tab.url != null && !tab.url.trim().isEmpty() && !isInternalPageUrl(tab.url)) {
                 bottomBookmarkButton.setVisibility(View.VISIBLE);
                 bottomBookmarkButton.setContentDescription(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"));
                 bottomBookmarkButton.setImageResource(savedIcon(PREF_THREAD_BOOKMARKS, tab.url));
-                bottomBookmarkButton.setOnClickListener(v -> toggleCurrentThreadBookmark());
-            } else if (NATIVE_BOARD.equals(tab.nativeKind) && isBoardUrl(tab.url)) {
-                bottomBookmarkButton.setVisibility(View.VISIBLE);
-                bottomBookmarkButton.setContentDescription(text("\u304a\u6c17\u306b\u5165\u308a", "Favorite"));
-                bottomBookmarkButton.setImageResource(savedIcon(PREF_BOARD_FAVORITES, tab.url));
-                bottomBookmarkButton.setOnClickListener(v -> {
-                    String boardTitle = tab.searchPage != null && tab.searchPage.title != null
-                            ? tab.searchPage.title : tab.title;
-                    toggleSavedItem(PREF_BOARD_FAVORITES,
-                            boardTitle == null || boardTitle.trim().isEmpty() ? boardTitle(tab.url) : boardTitle,
-                            tab.url);
-                    bottomBookmarkButton.setImageResource(savedIcon(PREF_BOARD_FAVORITES, tab.url));
-                });
+                bottomBookmarkButton.setOnClickListener(v -> toggleCurrentBookmark());
             } else {
                 bottomBookmarkButton.setVisibility(View.GONE);
                 bottomBookmarkButton.setOnClickListener(null);
@@ -4752,33 +4741,11 @@ public class MainActivity extends Activity {
     }
 
     private ImageButton saveToggleButtonForResult(SearchResult result) {
-        if (result == null || result.url == null) {
-            return null;
-        }
-        String key;
-        if (isThreadUrl(result.url)) {
-            key = PREF_THREAD_BOOKMARKS;
-        } else if (isBoardUrl(result.url) || isBbsDirectoryUrl(result.url)) {
-            key = PREF_BOARD_FAVORITES;
-        } else {
-            return null;
-        }
-        boolean boardFavorite = PREF_BOARD_FAVORITES.equals(key);
-        ImageButton button = iconButton(savedIcon(key, result.url),
-                boardFavorite ? text("\u304a\u6c17\u306b\u5165\u308a", "Favorite") : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"),
-                null);
-        button.setOnClickListener(v -> {
-            toggleSavedItem(key, result.title, result.url);
-            button.setImageResource(savedIcon(key, result.url));
-        });
-        return button;
+        return null;
     }
 
     private int savedIcon(String key, String url) {
         boolean saved = isSavedItem(key, url);
-        if (PREF_THREAD_BOOKMARKS.equals(key)) {
-            return saved ? R.drawable.ic_bookmark : R.drawable.ic_bookmark_border;
-        }
         return saved ? R.drawable.ic_star : R.drawable.ic_star_border;
     }
 
@@ -5445,7 +5412,6 @@ public class MainActivity extends Activity {
             }
         }
         list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
-        list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
         list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
         if (showHistoryOnHome()) {
             addHistorySection(list, fullHistory);
@@ -6357,7 +6323,7 @@ public class MainActivity extends Activity {
         row.setLayoutParams(rowParams);
 
         ImageView icon = new ImageView(this);
-        icon.setImageResource(PREF_BOARD_FAVORITES.equals(key) ? R.drawable.ic_star : R.drawable.ic_bookmark);
+        icon.setImageResource(R.drawable.ic_star);
         icon.setColorFilter(TEAL);
         row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
 
@@ -6614,11 +6580,19 @@ public class MainActivity extends Activity {
     }
 
     private String selectedBookmarkOverviewFolder(List<SavedItem> bookmarks) {
+        for (SavedItem bookmark : bookmarks) {
+            if (bookmarkOverviewItemSelected(bookmark)) {
+                return normalizeSavedFolder(bookmark.folder);
+            }
+        }
         return null;
     }
 
     private boolean bookmarkOverviewItemSelected(SavedItem item) {
-        return false;
+        CuspTab tab = currentTab();
+        return tab != null && tab.bookmarkOverviewTab
+                && item != null && item.url != null
+                && sameSavedUrl(threadUrl(tab), item.url);
     }
 
     private CuspTab bookmarkOverviewTab(SavedItem item) {
@@ -6626,7 +6600,8 @@ public class MainActivity extends Activity {
         tab.url = item == null ? "" : item.url;
         tab.title = item == null ? "" : item.title;
         tab.readerMode = true;
-        tab.nativeKind = NATIVE_THREAD;
+        tab.nativeKind = isThreadUrl(tab.url) ? NATIVE_THREAD
+                : isBoardUrl(tab.url) || isBbsDirectoryUrl(tab.url) ? NATIVE_BOARD : null;
         BookmarkOverviewStatus status = item == null ? null : bookmarkOverviewStatus(item.url);
         if (status != null) {
             if (status.title != null && !status.title.trim().isEmpty()) {
@@ -7007,9 +6982,7 @@ public class MainActivity extends Activity {
         if (!folder.isEmpty()) {
             return folder;
         }
-        return PREF_BOARD_FAVORITES.equals(key)
-                ? text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards")
-                : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks");
+        return text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks");
     }
 
     private View savedItemRow(String key, SavedItem item, int index) {
@@ -13759,6 +13732,45 @@ public class MainActivity extends Activity {
         return items;
     }
 
+    private void migrateFavoriteBoardsToBookmarks() {
+        if (preferences == null || preferences.getBoolean("favorite_boards_migrated_to_bookmarks", false)) {
+            return;
+        }
+        List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+        boolean changed = false;
+        for (SavedItem favorite : readSavedItems(PREF_BOARD_FAVORITES)) {
+            boolean exists = false;
+            for (SavedItem bookmark : bookmarks) {
+                if (sameSavedUrl(bookmark.url, favorite.url)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                bookmarks.add(new SavedItem(favorite.title, favorite.url, favorite.folder));
+                changed = true;
+            }
+        }
+        SharedPreferences.Editor editor = preferences.edit()
+                .putBoolean("favorite_boards_migrated_to_bookmarks", true)
+                .putString(PREF_BOARD_FAVORITES, "[]");
+        if (changed) {
+            JSONArray array = new JSONArray();
+            try {
+                for (SavedItem item : bookmarks) {
+                    JSONObject object = new JSONObject();
+                    object.put("title", item.title);
+                    object.put("url", item.url);
+                    object.put("folder", normalizeSavedFolder(item.folder));
+                    array.put(object);
+                }
+            } catch (Exception ignored) {
+            }
+            editor.putString(PREF_THREAD_BOOKMARKS, array.toString());
+        }
+        editor.apply();
+    }
+
     private void writeSavedItems(String key, List<SavedItem> items) {
         JSONArray array = new JSONArray();
         try {
@@ -14063,12 +14075,14 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
-    private void toggleCurrentThreadBookmark() {
+    private void toggleCurrentBookmark() {
         CuspTab tab = currentTab();
-        if (tab == null || tab.url == null || !isThreadUrl(tab.url)) {
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty() || isInternalPageUrl(tab.url)) {
             return;
         }
-        String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
+        String title = tab.threadPage != null && tab.threadPage.title != null
+                ? tab.threadPage.title
+                : tab.searchPage != null && tab.searchPage.title != null ? tab.searchPage.title : tab.title;
         toggleSavedItem(PREF_THREAD_BOOKMARKS, title, tab.url);
         updateBottomThreadBar(tab);
     }
