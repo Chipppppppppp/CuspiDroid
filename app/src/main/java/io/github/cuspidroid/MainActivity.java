@@ -5733,28 +5733,14 @@ public class MainActivity extends Activity {
         });
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setLayoutTransition(new LayoutTransition());
         list.setPadding(dp(12), dp(12), dp(12), dp(84));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        populateTabOverviewList(list);
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = sectionTitleView(tabOverviewPrivateMode
-                ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tabs")
-                : text("\u901a\u5e38\u30bf\u30d6", "Normal tabs"));
-        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
-        list.addView(header);
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
-        if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
-            addBookmarkOverviewSection(list);
-        }
-        addTabOverviewSection(list, tabOverviewPrivateMode);
-
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
         reloadAll.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
         FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
@@ -5774,6 +5760,23 @@ public class MainActivity extends Activity {
             scroll.post(() -> scroll.scrollTo(0, tabOverviewScrollY));
         }
         return root;
+    }
+
+    private void populateTabOverviewList(LinearLayout list) {
+        list.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = sectionTitleView(tabOverviewPrivateMode
+                ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tabs")
+                : text("\u901a\u5e38\u30bf\u30d6", "Normal tabs"));
+        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
+        list.addView(header);
+        if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
+            addBookmarkOverviewSection(list);
+        }
+        addTabOverviewSection(list, tabOverviewPrivateMode);
     }
 
     private ImageButton privateModeButton(boolean active, View.OnClickListener listener) {
@@ -5909,7 +5912,6 @@ public class MainActivity extends Activity {
         boolean selected = !pendingNewTab && index == currentIndex;
         return tabOverviewRowShell(tab, selected,
                 (v, event) -> {
-                    autoScrollDuringDrag(v, event);
                     if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
                         Object local = event.getLocalState();
                         if (local instanceof DragPayload) {
@@ -6473,7 +6475,7 @@ public class MainActivity extends Activity {
                 0,
                 hasSelectedBookmark && !rootExpanded,
                 -1,
-                v -> toggleBookmarkOverviewExpanded(rootKey)));
+                v -> toggleBookmarkOverviewExpanded(rootKey, true)));
         if (!rootExpanded) {
             return;
         }
@@ -6493,8 +6495,7 @@ public class MainActivity extends Activity {
         String rootKey = bookmarkOverviewExpandedKey("home:__root__");
         boolean rootExpanded = bookmarkOverviewExpanded(rootKey, true);
         list.addView(homeBookmarkRootRow(rootExpanded, v -> {
-            toggleBookmarkOverviewExpanded(rootKey);
-            refreshCurrentHomeOrHistoryView();
+            toggleBookmarkOverviewExpanded(rootKey, false);
         }));
         if (rootExpanded) {
             for (BookmarkNode node : bookmarkChildren("")) {
@@ -6516,8 +6517,7 @@ public class MainActivity extends Activity {
         boolean expanded = bookmarkOverviewExpanded(key, false);
         list.addView(homeBookmarkFolderRow(folder, expanded, indentLevel,
                 v -> {
-                    toggleBookmarkOverviewExpanded(key);
-                    refreshCurrentHomeOrHistoryView();
+                    toggleBookmarkOverviewExpanded(key, false);
                 }));
         if (!expanded) {
             return;
@@ -6638,7 +6638,6 @@ public class MainActivity extends Activity {
 
     private boolean handleHomeBookmarkNodeDrop(android.view.DragEvent event, String parent, String targetFolder,
                                                String targetKey, boolean targetIsFolder, View anchor) {
-        autoScrollDuringDrag(anchor, event);
         if (event.getAction() != android.view.DragEvent.ACTION_DROP) {
             return true;
         }
@@ -6739,7 +6738,6 @@ public class MainActivity extends Activity {
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(listener);
         row.setOnDragListener((v, event) -> {
-            autoScrollDuringDrag(v, event);
             if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
                 Object local = event.getLocalState();
                 if (local instanceof DragPayload) {
@@ -6860,7 +6858,6 @@ public class MainActivity extends Activity {
         CuspTab tab = bookmarkOverviewTab(item);
         FrameLayout shell = tabOverviewRowShell(tab, bookmarkOverviewItemSelected(item),
                 (v, event) -> {
-                    autoScrollDuringDrag(v, event);
                     if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
                         Object local = event.getLocalState();
                         if (local instanceof DragPayload) {
@@ -7296,6 +7293,10 @@ public class MainActivity extends Activity {
     }
 
     private void toggleBookmarkOverviewExpanded(String key) {
+        toggleBookmarkOverviewExpanded(key, true);
+    }
+
+    private void toggleBookmarkOverviewExpanded(String key, boolean refreshTabOverviewAfterToggle) {
         try {
             JSONObject object = new JSONObject(preferences.getString(PREF_BOOKMARK_OVERVIEW_EXPANDED, "{}"));
             boolean next = !object.optBoolean(key, "__root__".equals(key));
@@ -7303,11 +7304,25 @@ public class MainActivity extends Activity {
             preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_EXPANDED, object.toString()).apply();
         } catch (Exception ignored) {
         }
-        if (tabOverviewVisible && contentFrame != null) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+        if (refreshTabOverviewAfterToggle && tabOverviewVisible && contentFrame != null) {
+            refreshTabOverviewListOnly();
             renderTabs();
+        } else if (!refreshTabOverviewAfterToggle) {
+            refreshCurrentHomeOrHistoryView();
         }
+    }
+
+    private void refreshTabOverviewListOnly() {
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
+            if (contentFrame != null) {
+                contentFrame.removeAllViews();
+                contentFrame.addView(buildTabOverviewView());
+            }
+            return;
+        }
+        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        populateTabOverviewList(list);
     }
 
     private View buildSavedItemsView(String key) {
@@ -14400,11 +14415,7 @@ public class MainActivity extends Activity {
         if (from < 0 || to < 0 || from == to) {
             return;
         }
-        BookmarkNode moved = nodes.remove(from);
-        if (from < to) {
-            to--;
-        }
-        nodes.add(Math.max(0, Math.min(to, nodes.size())), moved);
+        Collections.swap(nodes, from, to);
         writeBookmarkOrder(parent, nodes);
     }
 
