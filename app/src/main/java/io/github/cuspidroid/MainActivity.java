@@ -6457,16 +6457,8 @@ public class MainActivity extends Activity {
         textBox.addView(url);
         shell.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-        ImageButton move = iconButton(R.drawable.ic_folder, text("\u30d5\u30a9\u30eb\u30c0\u3078\u79fb\u52d5", "Move to folder"),
-                v -> showMoveSavedItemDialog(key, item, folder));
-        move.setColorFilter(mutedColor());
-        move.setBackgroundColor(Color.TRANSPARENT);
-        shell.addView(move, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-        ImageButton delete = iconButton(R.drawable.ic_close, text("\u524a\u9664", "Delete"), v -> {
-            removeSavedItem(key, item.url);
-            showSavedItemsView(key, folder);
-        });
+        ImageButton delete = iconButton(R.drawable.ic_close, text("\u524a\u9664", "Delete"),
+                v -> confirmDeleteSavedItem(key, item, folder));
         delete.setColorFilter(mutedColor());
         delete.setBackgroundColor(Color.TRANSPARENT);
         shell.addView(delete, new LinearLayout.LayoutParams(dp(42), dp(42)));
@@ -6482,6 +6474,34 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, 0, dp(8));
         shell.setLayoutParams(params);
+        shell.setOnDragListener((v, event) -> {
+            switch (event.getAction()) {
+                case android.view.DragEvent.ACTION_DRAG_ENTERED:
+                    shell.setBackground(roundedDrawable(postColor(), TEAL, dp(8), dp(2)));
+                    return true;
+                case android.view.DragEvent.ACTION_DRAG_EXITED:
+                case android.view.DragEvent.ACTION_DRAG_ENDED:
+                    shell.setBackgroundColor(postColor());
+                    return true;
+                case android.view.DragEvent.ACTION_DROP:
+                    shell.setBackgroundColor(postColor());
+                    Object local = event.getLocalState();
+                    if (local instanceof DragPayload) {
+                        DragPayload payload = (DragPayload) local;
+                        if (key.equals(payload.key)) {
+                            List<SavedItem> items = readSavedItems(key);
+                            if (payload.index >= 0 && payload.index < items.size()) {
+                                moveSavedItemToFolder(key, items.get(payload.index).url, folder);
+                                showSavedItemsView(key);
+                                return true;
+                            }
+                        }
+                    }
+                    return true;
+                default:
+                    return true;
+            }
+        });
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_folder);
@@ -13274,17 +13294,23 @@ public class MainActivity extends Activity {
     }
 
     private void showSavedFolderNameDialog(String title, String initialValue, SavedFolderNameCallback callback) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(10), dp(20), 0);
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setText(initialValue == null ? "" : initialValue);
         input.setSelectAllOnFocus(true);
         input.setTextColor(textColor());
         input.setHintTextColor(mutedColor());
+        input.setTextSize(16);
         input.setPadding(dp(12), 0, dp(12), 0);
-        input.setBackgroundColor(postColor());
+        input.setBackground(roundedDrawable(postColor(), borderColor(), dp(8), dp(1)));
+        root.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(title)
-                .setView(input)
+                .setView(root)
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("OK", "OK"), null)
                 .create();
@@ -13304,35 +13330,15 @@ public class MainActivity extends Activity {
         input.requestFocus();
     }
 
-    private void showMoveSavedItemDialog(String key, SavedItem item, String currentFolder) {
-        List<String> folders = readSavedFolders(key);
-        List<String> labels = new ArrayList<>();
-        List<String> values = new ArrayList<>();
-        labels.add(text("\u30d5\u30a9\u30eb\u30c0\u306a\u3057", "No folder"));
-        values.add("");
-        for (String folder : folders) {
-            labels.add(folder);
-            values.add(folder);
-        }
-        labels.add(text("\u65b0\u3057\u3044\u30d5\u30a9\u30eb\u30c0...", "New folder..."));
-        values.add(null);
+    private void confirmDeleteSavedItem(String key, SavedItem item, String folder) {
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(text("\u79fb\u52d5\u5148", "Move to"))
-                .setItems(labels.toArray(new String[0]), (d, which) -> {
-                    String folder = values.get(which);
-                    if (folder == null) {
-                        showSavedFolderNameDialog(
-                                text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
-                                "",
-                                newFolder -> {
-                                    createSavedFolder(key, newFolder);
-                                    moveSavedItemToFolder(key, item.url, newFolder);
-                                    showSavedItemsView(key, normalizeSavedFolder(newFolder));
-                                });
-                    } else {
-                        moveSavedItemToFolder(key, item.url, folder);
-                        showSavedItemsView(key, currentFolder);
-                    }
+                .setTitle(text("\u524a\u9664", "Delete"))
+                .setMessage(text("\u3053\u306e\u9805\u76ee\u3092\u4e00\u89a7\u304b\u3089\u524a\u9664\u3057\u307e\u3059\u304b\uff1f",
+                        "Delete this item from the list?"))
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
+                    removeSavedItem(key, item.url);
+                    showSavedItemsView(key, folder);
                 })
                 .create();
         dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
