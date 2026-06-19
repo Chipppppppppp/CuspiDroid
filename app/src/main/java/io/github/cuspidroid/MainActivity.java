@@ -1739,6 +1739,26 @@ public class MainActivity extends Activity {
         renderTabs();
     }
 
+    private void createBookmarkOverviewTab(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return;
+        }
+        CuspTab tab = new CuspTab();
+        tab.title = text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
+        tab.url = "";
+        tab.bookmarkOverviewTab = true;
+        tab.privateBrowsing = currentTabIsPrivate();
+        tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        tabs.add(tab);
+        currentIndex = tabs.size() - 1;
+        pendingNewTab = false;
+        tabOverviewVisible = false;
+        contentFrame.removeAllViews();
+        contentFrame.addView(loadingView(""));
+        openInCurrentTab(normalizeUrl(url), true, true);
+        renderTabs();
+    }
+
     private void createBlankTab() {
         showPendingNewTab();
     }
@@ -7095,11 +7115,9 @@ public class MainActivity extends Activity {
         if (item == null || item.url == null || item.url.trim().isEmpty()) {
             return;
         }
-        tabOverviewVisible = false;
         tabOverviewScrollY = 0;
         pendingHistoryAll = false;
-        openInCurrentTab(item.url, true, true);
-        renderTabs();
+        createBookmarkOverviewTab(item.url);
     }
 
     private View bookmarkOverviewShell(View row, int indentLevel, int height) {
