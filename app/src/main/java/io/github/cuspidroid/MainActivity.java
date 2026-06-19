@@ -5812,8 +5812,7 @@ public class MainActivity extends Activity {
         tabOverviewPrivateMode = !tabOverviewPrivateMode;
         if (tabOverviewVisible && contentFrame != null) {
             contentFrame.setBackgroundColor(bgColor());
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+            refreshTabOverviewListOnly();
             renderTabs();
         }
     }
@@ -5860,8 +5859,7 @@ public class MainActivity extends Activity {
                 clearClosedTabUndoTask = null;
             }
             if (tabOverviewVisible) {
-                contentFrame.removeAllViews();
-                contentFrame.addView(buildTabOverviewView());
+                refreshTabOverviewListOnly();
             }
         });
         return bar;
@@ -6123,8 +6121,7 @@ public class MainActivity extends Activity {
         renderTabs();
         saveTabs(false);
         if (tabOverviewVisible) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+            refreshTabOverviewListOnly();
         }
     }
 
@@ -6182,8 +6179,7 @@ public class MainActivity extends Activity {
         updateBottomThreadBar(currentTab());
         renderTabs();
         if (rowView == null || rowView.getParent() == null) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+            refreshTabOverviewListOnly();
             return;
         }
         animateTabOverviewRowRemoval(rowView);
@@ -6209,8 +6205,7 @@ public class MainActivity extends Activity {
             @Override
             public void onAnimationEnd(android.animation.Animator animation) {
                 if (contentFrame != null && tabOverviewVisible) {
-                    contentFrame.removeAllViews();
-                    contentFrame.addView(buildTabOverviewView());
+                    refreshTabOverviewListOnly();
                 }
             }
         });
@@ -6326,8 +6321,7 @@ public class MainActivity extends Activity {
             recentlyClosedTab = null;
             clearClosedTabUndoTask = null;
             if (tabOverviewVisible && contentFrame != null) {
-                contentFrame.removeAllViews();
-                contentFrame.addView(buildTabOverviewView());
+                refreshTabOverviewListOnly();
             }
         };
         mainHandler.postDelayed(clearClosedTabUndoTask, 4500);
@@ -6366,8 +6360,7 @@ public class MainActivity extends Activity {
         recentlyClosedTab = null;
         requestSaveTabsSoon();
         if (tabOverviewVisible && contentFrame != null) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+            refreshTabOverviewListOnly();
             updateBottomThreadBar(currentTab());
             renderTabs();
         }
@@ -6456,8 +6449,7 @@ public class MainActivity extends Activity {
         requestSaveTabsSoon();
         renderTabs();
         if (tabOverviewVisible && contentFrame != null) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+            refreshTabOverviewListOnly();
         }
     }
 
@@ -6646,16 +6638,17 @@ public class MainActivity extends Activity {
             DragPayload payload = (DragPayload) local;
             String movingKey = bookmarkNodeDragValue(payload.key);
             if (!movingKey.isEmpty()) {
+                int zone = bookmarkDropZone(event, anchor, targetIsFolder);
                 if (targetIsFolder) {
-                    if (movingKey.startsWith("F:")
-                            && parentSavedFolder(movingKey.substring(2)).equals(parentSavedFolder(targetFolder))
-                            && !targetKey.isEmpty()) {
-                        moveBookmarkNode(parentSavedFolder(targetFolder), movingKey, targetKey);
+                    if (zone < 0 && !targetKey.isEmpty()) {
+                        moveBookmarkNodeToParentNear(movingKey, parentSavedFolder(targetFolder), targetKey, false);
+                    } else if (zone > 0 && !targetKey.isEmpty()) {
+                        moveBookmarkNodeToParentNear(movingKey, parentSavedFolder(targetFolder), targetKey, true);
                     } else {
                         moveBookmarkNodeIntoFolder(movingKey, targetFolder);
                     }
                 } else if (!targetKey.isEmpty()) {
-                    moveBookmarkNodeToParentBefore(movingKey, parent, targetKey);
+                    moveBookmarkNodeToParentNear(movingKey, parent, targetKey, zone > 0);
                 }
                 refreshCurrentHomeOrHistoryView();
                 return true;
@@ -6750,20 +6743,37 @@ public class MainActivity extends Activity {
                         List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
                         if (payload.index >= 0 && payload.index < items.size()) {
                             SavedItem moved = items.get(payload.index);
-                            moveBookmarkNodeIntoFolder(BookmarkNode.item(moved).orderKey(), folder);
+                            String movingKey = BookmarkNode.item(moved).orderKey();
+                            int zone = bookmarkDropZone(event, v, true);
+                            if (zone < 0) {
+                                moveBookmarkNodeToParentNear(movingKey, parentSavedFolder(folder),
+                                        BookmarkNode.folder(folder).orderKey(), false);
+                            } else if (zone > 0) {
+                                moveBookmarkNodeToParentNear(movingKey, parentSavedFolder(folder),
+                                        BookmarkNode.folder(folder).orderKey(), true);
+                            } else {
+                                moveBookmarkNodeIntoFolder(movingKey, folder);
+                            }
                             refreshTabOverview();
                             return true;
                         }
                     }
                     String movingKey = bookmarkNodeDragValue(payload.key);
                     if (!movingKey.isEmpty()) {
-                        if (movingKey.startsWith("I:")) {
+                        int zone = bookmarkDropZone(event, v, true);
+                        if (zone < 0) {
+                            moveBookmarkNodeToParentNear(movingKey, parentSavedFolder(folder),
+                                    BookmarkNode.folder(folder).orderKey(), false);
+                        } else if (zone > 0) {
+                            moveBookmarkNodeToParentNear(movingKey, parentSavedFolder(folder),
+                                    BookmarkNode.folder(folder).orderKey(), true);
+                        } else if (movingKey.startsWith("I:")) {
                             moveBookmarkNodeIntoFolder(movingKey, folder);
                         } else {
                             String movingFolder = movingKey.substring(2);
                             String movingParent = parentSavedFolder(movingFolder);
                             if (movingParent.equals(parentSavedFolder(folder))) {
-                                moveBookmarkNode(parentSavedFolder(folder), movingKey, BookmarkNode.folder(folder).orderKey());
+                                moveBookmarkNodeIntoFolder(movingKey, folder);
                             } else {
                                 moveBookmarkNodeIntoFolder(movingKey, folder);
                             }
@@ -6870,12 +6880,9 @@ public class MainActivity extends Activity {
                                 List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
                                 if (payload.index >= 0 && payload.index < items.size()) {
                                     SavedItem moved = items.get(payload.index);
-                                    if (normalizeSavedFolder(moved.folder).equals(normalizeSavedFolder(item.folder))) {
-                                        moveBookmarkNode(normalizeSavedFolder(item.folder),
-                                                BookmarkNode.item(moved).orderKey(), BookmarkNode.item(item).orderKey());
-                                    } else {
-                                        moveBookmarkOverviewItem(payload.index, itemIndex);
-                                    }
+                                    moveBookmarkNodeToParentNear(BookmarkNode.item(moved).orderKey(),
+                                            normalizeSavedFolder(item.folder), BookmarkNode.item(item).orderKey(),
+                                            bookmarkDropZone(event, v, false) > 0);
                                 }
                                 payload.index = itemIndex;
                                 refreshTabOverview();
@@ -6883,8 +6890,8 @@ public class MainActivity extends Activity {
                             }
                             String movingKey = bookmarkNodeDragValue(payload.key);
                             if (!movingKey.isEmpty()) {
-                                moveBookmarkNodeToParentBefore(movingKey, normalizeSavedFolder(item.folder),
-                                        BookmarkNode.item(item).orderKey());
+                                moveBookmarkNodeToParentNear(movingKey, normalizeSavedFolder(item.folder),
+                                        BookmarkNode.item(item).orderKey(), bookmarkDropZone(event, v, false) > 0);
                                 refreshTabOverview();
                                 return true;
                             }
@@ -7256,8 +7263,7 @@ public class MainActivity extends Activity {
 
     private void refreshTabOverview() {
         if (tabOverviewVisible && contentFrame != null) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+            refreshTabOverviewListOnly();
             renderTabs();
         }
     }
@@ -12787,8 +12793,7 @@ public class MainActivity extends Activity {
                 requestSaveTabsSoon();
                 if (wasOverview) {
                     if (tabOverviewVisible) {
-                        contentFrame.removeAllViews();
-                        contentFrame.addView(buildTabOverviewView());
+                        refreshTabOverviewListOnly();
                         renderTabs();
                     }
                 }
@@ -14399,26 +14404,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void moveBookmarkNode(String parent, String movingKey, String targetKey) {
-        List<BookmarkNode> nodes = bookmarkChildren(parent);
-        int from = -1;
-        int to = -1;
-        for (int i = 0; i < nodes.size(); i++) {
-            String key = nodes.get(i).orderKey();
-            if (key.equals(movingKey)) {
-                from = i;
-            }
-            if (key.equals(targetKey)) {
-                to = i;
-            }
-        }
-        if (from < 0 || to < 0 || from == to) {
-            return;
-        }
-        Collections.swap(nodes, from, to);
-        writeBookmarkOrder(parent, nodes);
-    }
-
     private void moveBookmarkNodeIntoFolder(String movingKey, String targetFolder) {
         targetFolder = normalizeSavedFolder(targetFolder);
         if (movingKey == null || movingKey.length() < 3) {
@@ -14455,7 +14440,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void moveBookmarkNodeToParentBefore(String movingKey, String targetParent, String targetKey) {
+    private void moveBookmarkNodeToParentNear(String movingKey, String targetParent, String targetKey, boolean after) {
         targetParent = normalizeSavedFolder(targetParent);
         if (movingKey == null || movingKey.isEmpty() || targetKey == null || targetKey.isEmpty()) {
             return;
@@ -14468,7 +14453,47 @@ public class MainActivity extends Activity {
                 return;
             }
         }
-        moveBookmarkNode(targetParent, movingKey, targetKey);
+        List<BookmarkNode> nodes = bookmarkChildren(targetParent);
+        BookmarkNode moved = null;
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            if (nodes.get(i).orderKey().equals(movingKey)) {
+                moved = nodes.remove(i);
+                break;
+            }
+        }
+        if (moved == null) {
+            return;
+        }
+        int target = -1;
+        for (int i = 0; i < nodes.size(); i++) {
+            if (nodes.get(i).orderKey().equals(targetKey)) {
+                target = i;
+                break;
+            }
+        }
+        if (target < 0) {
+            nodes.add(moved);
+        } else {
+            nodes.add(Math.max(0, Math.min(after ? target + 1 : target, nodes.size())), moved);
+        }
+        writeBookmarkOrder(targetParent, nodes);
+    }
+
+    private int bookmarkDropZone(android.view.DragEvent event, View target, boolean hasCenter) {
+        if (event == null || target == null || target.getHeight() <= 0) {
+            return 0;
+        }
+        float ratio = event.getY() / Math.max(1f, target.getHeight());
+        if (hasCenter) {
+            if (ratio < 0.32f) {
+                return -1;
+            }
+            if (ratio > 0.68f) {
+                return 1;
+            }
+            return 0;
+        }
+        return ratio < 0.5f ? -1 : 1;
     }
 
     private String bookmarkNodeParent(String key) {
@@ -15016,8 +15041,7 @@ public class MainActivity extends Activity {
         if (refreshOverview) {
             renderTabs();
             if (tabOverviewVisible) {
-                contentFrame.removeAllViews();
-                contentFrame.addView(buildTabOverviewView());
+                refreshTabOverviewListOnly();
             }
         }
     }
@@ -15032,8 +15056,7 @@ public class MainActivity extends Activity {
         refreshUnreadColors(tab);
         renderTabs();
         if (tabOverviewVisible) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildTabOverviewView());
+            refreshTabOverviewListOnly();
         }
     }
 
