@@ -13973,6 +13973,18 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void setImageDrawable(Drawable drawable) {
+            super.setImageDrawable(drawable);
+            post(this::fitImage);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            post(this::fitImage);
+        }
+
+        @Override
         public boolean onTouchEvent(MotionEvent event) {
             scaleDetector.onTouchEvent(event);
             if (event.getPointerCount() > 1) {
