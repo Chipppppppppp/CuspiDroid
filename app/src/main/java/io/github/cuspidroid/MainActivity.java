@@ -6669,6 +6669,11 @@ public class MainActivity extends Activity {
         add.setBackgroundColor(Color.TRANSPARENT);
         row.addView(add, new LinearLayout.LayoutParams(dp(36), dp(36)));
         if (!folder.isEmpty()) {
+            ImageButton rename = iconButton(R.drawable.ic_edit, text("\u540d\u524d\u3092\u5909\u66f4", "Rename"),
+                    v -> showRenameHomeBookmarkFolderDialog(folder));
+            rename.setColorFilter(mutedColor());
+            rename.setBackgroundColor(Color.TRANSPARENT);
+            row.addView(rename, new LinearLayout.LayoutParams(dp(36), dp(36)));
             ImageButton delete = iconButton(R.drawable.ic_close, text("\u30d5\u30a9\u30eb\u30c0\u3092\u524a\u9664", "Delete folder"),
                     v -> confirmDeleteHomeBookmarkFolder(folder));
             delete.setColorFilter(mutedColor());
@@ -6763,6 +6768,16 @@ public class MainActivity extends Activity {
                 "",
                 folder -> {
                     createSavedFolder(PREF_THREAD_BOOKMARKS, parent, folder);
+                    refreshHomeBookmarksOrCurrentView();
+                });
+    }
+
+    private void showRenameHomeBookmarkFolderDialog(String oldFolder) {
+        showSavedFolderNameDialog(
+                text("\u30d5\u30a9\u30eb\u30c0\u540d\u3092\u5909\u66f4", "Rename folder"),
+                savedFolderDisplayName(oldFolder),
+                folder -> {
+                    renameBookmarkFolder(oldFolder, folder);
                     refreshHomeBookmarksOrCurrentView();
                 });
     }
@@ -6924,6 +6939,13 @@ public class MainActivity extends Activity {
         row.addView(textView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
         addUnreadBadgeIfNeeded(row, unread);
+        if (folderIndex >= 0) {
+            ImageButton rename = iconButton(R.drawable.ic_edit, text("\u540d\u524d\u3092\u5909\u66f4", "Rename"),
+                    v -> showRenameBookmarkOverviewFolderDialog(folder));
+            rename.setColorFilter(mutedColor());
+            rename.setBackgroundColor(Color.TRANSPARENT);
+            row.addView(rename, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        }
         ImageButton add = iconButton(R.drawable.ic_add, text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
                 v -> showCreateBookmarkOverviewFolderDialog(folder));
         add.setColorFilter(mutedColor());
@@ -6945,6 +6967,16 @@ public class MainActivity extends Activity {
                 "",
                 folder -> {
                     createSavedFolder(PREF_THREAD_BOOKMARKS, parent, folder);
+                    refreshTabOverview();
+                });
+    }
+
+    private void showRenameBookmarkOverviewFolderDialog(String oldFolder) {
+        showSavedFolderNameDialog(
+                text("\u30d5\u30a9\u30eb\u30c0\u540d\u3092\u5909\u66f4", "Rename folder"),
+                savedFolderDisplayName(oldFolder),
+                folder -> {
+                    renameBookmarkFolder(oldFolder, folder);
                     refreshTabOverview();
                 });
     }
@@ -14559,6 +14591,57 @@ public class MainActivity extends Activity {
             appendBookmarkOrder(targetFolder, "F:" + newFolder);
             removeBookmarkOrderEntry(oldParent, "F:" + folder);
         }
+    }
+
+    private void renameBookmarkFolder(String oldFolder, String newName) {
+        oldFolder = normalizeSavedFolder(oldFolder);
+        String newFolder = childSavedFolderPath(parentSavedFolder(oldFolder), newName);
+        if (oldFolder.isEmpty() || newFolder.isEmpty() || oldFolder.equals(newFolder)) {
+            return;
+        }
+        renameSavedFolder(PREF_THREAD_BOOKMARKS, oldFolder, newName);
+        renameBookmarkOrderFolders(oldFolder, newFolder);
+    }
+
+    private void renameBookmarkOrderFolders(String oldFolder, String newFolder) {
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_ORDER, "{}"));
+            JSONObject next = new JSONObject();
+            java.util.Iterator<String> keys = root.keys();
+            while (keys.hasNext()) {
+                String parent = keys.next();
+                JSONArray source = root.optJSONArray(parent);
+                if (source == null) {
+                    continue;
+                }
+                JSONArray array = new JSONArray();
+                for (int i = 0; i < source.length(); i++) {
+                    String value = source.optString(i, "");
+                    if (value.startsWith("F:")) {
+                        value = "F:" + renamedBookmarkFolderPath(value.substring(2), oldFolder, newFolder);
+                    }
+                    if (!value.isEmpty() && !containsString(array, value)) {
+                        array.put(value);
+                    }
+                }
+                next.put(renamedBookmarkFolderPath(parent, oldFolder, newFolder), array);
+            }
+            preferences.edit().putString(PREF_BOOKMARK_ORDER, next.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String renamedBookmarkFolderPath(String folder, String oldFolder, String newFolder) {
+        folder = normalizeSavedFolder(folder);
+        oldFolder = normalizeSavedFolder(oldFolder);
+        newFolder = normalizeSavedFolder(newFolder);
+        if (folder.equals(oldFolder)) {
+            return newFolder;
+        }
+        if (!oldFolder.isEmpty() && folder.startsWith(oldFolder + "/")) {
+            return newFolder + folder.substring(oldFolder.length());
+        }
+        return folder;
     }
 
     private void moveBookmarkNodeToParentNear(String movingKey, String targetParent, String targetKey, boolean after) {
