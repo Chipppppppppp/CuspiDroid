@@ -6382,13 +6382,16 @@ public class MainActivity extends Activity {
 
     private void addBookmarkOverviewSection(LinearLayout list) {
         List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+        String selectedFolder = selectedBookmarkOverviewFolder(bookmarks);
+        boolean hasSelectedBookmark = selectedFolder != null;
         String rootKey = bookmarkOverviewExpandedKey("");
         boolean rootExpanded = bookmarkOverviewExpanded(rootKey, true);
         list.addView(bookmarkOverviewFolderRow(
                 text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"),
                 bookmarkOverviewUnreadSum(bookmarks, null),
                 rootExpanded,
-                1,
+                0,
+                hasSelectedBookmark,
                 v -> toggleBookmarkOverviewExpanded(rootKey)));
         if (!rootExpanded) {
             return;
@@ -6404,12 +6407,13 @@ public class MainActivity extends Activity {
             list.addView(bookmarkOverviewFolderRow(folder,
                     bookmarkOverviewUnreadSum(bookmarks, folder),
                     expanded,
-                    2,
+                    1,
+                    folder.equals(selectedFolder),
                     v -> toggleBookmarkOverviewExpanded(key)));
             if (expanded) {
                 for (SavedItem bookmark : bookmarks) {
                     if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
-                        list.addView(bookmarkOverviewItemRow(bookmark, 3));
+                        list.addView(bookmarkOverviewItemRow(bookmark, 2));
                     }
                 }
             }
@@ -6420,20 +6424,20 @@ public class MainActivity extends Activity {
                 if (!hasRootItems && !folders.isEmpty()) {
                     list.addView(helperLine(text("\u30d5\u30a9\u30eb\u30c0\u306a\u3057", "No folder")));
                 }
-                list.addView(bookmarkOverviewItemRow(bookmark, 2));
+                list.addView(bookmarkOverviewItemRow(bookmark, 1));
                 hasRootItems = true;
             }
         }
     }
 
     private View bookmarkOverviewFolderRow(String label, int unread, boolean expanded, int indentLevel,
-                                           View.OnClickListener listener) {
+                                           boolean selected, View.OnClickListener listener) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
-        row.setMinimumHeight(dp(78));
-        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        row.setMinimumHeight(dp(56));
+        row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(listener);
 
         int iconColor = mutedColor();
@@ -6458,7 +6462,7 @@ public class MainActivity extends Activity {
         textView.setPadding(dp(10), 0, 0, 0);
         row.addView(textView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         addUnreadBadgeIfNeeded(row, unread);
-        return bookmarkOverviewShell(row, indentLevel);
+        return bookmarkOverviewShell(row, indentLevel, dp(56));
     }
 
     private View bookmarkOverviewItemRow(SavedItem item, int indentLevel) {
@@ -6467,7 +6471,8 @@ public class MainActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(78));
-        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        row.setBackground(roundedDrawable(postColor(),
+                bookmarkOverviewItemSelected(item) ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(v -> routeLink(item.url, currentTab()));
 
         LinearLayout textBox = new LinearLayout(this);
@@ -6492,19 +6497,40 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
         row.addView(textBox, new LinearLayout.LayoutParams(0, dp(54), 1));
         addUnreadBadgeIfNeeded(row, bookmarkOverviewUnread(item));
-        return bookmarkOverviewShell(row, indentLevel);
+        return bookmarkOverviewShell(row, indentLevel, dp(78));
     }
 
-    private View bookmarkOverviewShell(View row, int indentLevel) {
+    private View bookmarkOverviewShell(View row, int indentLevel, int height) {
         FrameLayout shell = new FrameLayout(this);
         int indent = dp(18 * Math.max(0, indentLevel));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(78));
+                ViewGroup.LayoutParams.MATCH_PARENT, height);
         params.setMargins(indent, 0, 0, dp(8));
         shell.setLayoutParams(params);
         shell.addView(row, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
+                ViewGroup.LayoutParams.MATCH_PARENT, height));
         return shell;
+    }
+
+    private String selectedBookmarkOverviewFolder(List<SavedItem> bookmarks) {
+        for (SavedItem bookmark : bookmarks) {
+            if (bookmarkOverviewItemSelected(bookmark)) {
+                return normalizeSavedFolder(bookmark.folder);
+            }
+        }
+        return null;
+    }
+
+    private boolean bookmarkOverviewItemSelected(SavedItem item) {
+        CuspTab tab = currentTab();
+        if (item == null || tab == null || item.url == null || item.url.trim().isEmpty()) {
+            return false;
+        }
+        String currentUrl = threadUrl(tab);
+        if (currentUrl == null || currentUrl.trim().isEmpty()) {
+            currentUrl = tab.url;
+        }
+        return trimSlash(normalizeUrl(currentUrl)).equals(trimSlash(normalizeUrl(item.url)));
     }
 
     private void addUnreadBadgeIfNeeded(LinearLayout row, int unread) {
