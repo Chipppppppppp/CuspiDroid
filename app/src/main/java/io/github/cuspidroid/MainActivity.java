@@ -151,6 +151,8 @@ public class MainActivity extends Activity {
     static final String PREF_CACHE_MAX_MB = "cache_max_mb";
     static final String PREF_BOARD_FAVORITES = "board_favorites";
     static final String PREF_THREAD_BOOKMARKS = "thread_bookmarks";
+    static final String PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW = "show_bookmarks_in_tab_overview";
+    static final String PREF_SHOW_HISTORY_ON_HOME = "show_history_on_home";
     static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
     static final String PREF_DISABLE_HISTORY = "disable_history";
@@ -178,6 +180,8 @@ public class MainActivity extends Activity {
             GESTURE_FIND, GESTURE_BOARD
     };
     private static final String PREF_TABS = "saved_tabs";
+    private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
+    private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -1088,6 +1092,29 @@ public class MainActivity extends Activity {
                 suggestionsPanel.addView(item);
                 tabCount++;
                 if (tabCount >= 6) {
+                    break;
+                }
+            }
+            int bookmarkCount = 0;
+            for (SavedItem bookmark : readSavedItems(PREF_THREAD_BOOKMARKS)) {
+                String title = bookmark.title == null ? "" : bookmark.title;
+                String url = bookmark.url == null ? "" : bookmark.url;
+                if (!title.toLowerCase(Locale.ROOT).contains(query)
+                        && !url.toLowerCase(Locale.ROOT).contains(query)) {
+                    continue;
+                }
+                TextView item = suggestionItem(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), title);
+                item.setOnClickListener(v -> {
+                    addressBar.setText(url);
+                    addressBar.setSelection(addressBar.getText().length());
+                    openFromAddressBar();
+                });
+                if (suggestionsPanel.getChildCount() > 0) {
+                    suggestionsPanel.addView(suggestionDivider());
+                }
+                suggestionsPanel.addView(item);
+                bookmarkCount++;
+                if (bookmarkCount >= 6) {
                     break;
                 }
             }
@@ -5413,7 +5440,9 @@ public class MainActivity extends Activity {
         list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
         list.addView(savedListButton(text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards"), PREF_BOARD_FAVORITES));
         list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
-        addHistorySection(list, fullHistory);
+        if (showHistoryOnHome()) {
+            addHistorySection(list, fullHistory);
+        }
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         addPrivateModeOverlay(root, currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
@@ -5738,6 +5767,9 @@ public class MainActivity extends Activity {
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
+        if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
+            addBookmarkOverviewSection(list);
+        }
         addTabOverviewSection(list, tabOverviewPrivateMode);
 
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
@@ -6345,6 +6377,163 @@ public class MainActivity extends Activity {
                 contentFrame.addView(view);
                 renderTabs();
             }
+        }
+    }
+
+    private void addBookmarkOverviewSection(LinearLayout list) {
+        List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+        String rootKey = bookmarkOverviewExpandedKey("");
+        boolean rootExpanded = bookmarkOverviewExpanded(rootKey, true);
+        list.addView(bookmarkOverviewFolderRow(
+                text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"),
+                bookmarkOverviewUnreadSum(bookmarks, null),
+                rootExpanded,
+                v -> toggleBookmarkOverviewExpanded(rootKey)));
+        if (!rootExpanded) {
+            return;
+        }
+        if (bookmarks.isEmpty()) {
+            list.addView(helperLine(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u306a\u3057", "No bookmarks.")));
+            return;
+        }
+        List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
+        for (String folder : folders) {
+            String key = bookmarkOverviewExpandedKey(folder);
+            boolean expanded = bookmarkOverviewExpanded(key, false);
+            list.addView(bookmarkOverviewFolderRow(folder,
+                    bookmarkOverviewUnreadSum(bookmarks, folder),
+                    expanded,
+                    v -> toggleBookmarkOverviewExpanded(key)));
+            if (expanded) {
+                for (SavedItem bookmark : bookmarks) {
+                    if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
+                        list.addView(bookmarkOverviewItemRow(bookmark, true));
+                    }
+                }
+            }
+        }
+        boolean hasRootItems = false;
+        for (SavedItem bookmark : bookmarks) {
+            if (normalizeSavedFolder(bookmark.folder).isEmpty()) {
+                if (!hasRootItems && !folders.isEmpty()) {
+                    list.addView(helperLine(text("\u30d5\u30a9\u30eb\u30c0\u306a\u3057", "No folder")));
+                }
+                list.addView(bookmarkOverviewItemRow(bookmark, false));
+                hasRootItems = true;
+            }
+        }
+    }
+
+    private View bookmarkOverviewFolderRow(String label, int unread, boolean expanded, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(7), dp(8), dp(7));
+        row.setMinimumHeight(dp(56));
+        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+        params.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(params);
+        row.setOnClickListener(listener);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_folder);
+        icon.setColorFilter(TEAL);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+
+        TextView textView = new TextView(this);
+        textView.setText((expanded ? "\u25be " : "\u25b8 ") + label);
+        textView.setTextColor(textColor());
+        textView.setTextSize(15);
+        textView.setSingleLine(true);
+        textView.setEllipsize(TextUtils.TruncateAt.END);
+        textView.setPadding(dp(10), 0, 0, 0);
+        row.addView(textView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        addUnreadBadgeIfNeeded(row, unread);
+        return row;
+    }
+
+    private View bookmarkOverviewItemRow(SavedItem item, boolean nested) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(nested ? dp(26) : dp(10), dp(7), dp(8), dp(7));
+        row.setMinimumHeight(dp(70));
+        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(70));
+        params.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(params);
+        row.setOnClickListener(v -> routeLink(item.url, currentTab()));
+
+        LinearLayout textBox = new LinearLayout(this);
+        textBox.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText(bookmarkOverviewTitle(item));
+        title.setTextColor(textColor());
+        title.setTextSize(14);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setIncludeFontPadding(false);
+        TextView url = new TextView(this);
+        url.setText(item.url);
+        url.setTextColor(mutedColor());
+        url.setTextSize(12);
+        url.setSingleLine(true);
+        url.setEllipsize(TextUtils.TruncateAt.END);
+        url.setIncludeFontPadding(false);
+        textBox.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+        textBox.addView(url, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
+        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(54), 1));
+        addUnreadBadgeIfNeeded(row, bookmarkOverviewUnread(item));
+        return row;
+    }
+
+    private void addUnreadBadgeIfNeeded(LinearLayout row, int unread) {
+        if (unread <= 0) {
+            return;
+        }
+        TextView unreadBadge = new TextView(this);
+        unreadBadge.setText(String.valueOf(unread));
+        unreadBadge.setTextColor(Color.WHITE);
+        unreadBadge.setTextSize(12);
+        unreadBadge.setGravity(Gravity.CENTER);
+        unreadBadge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(12)));
+        LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(34), dp(24));
+        unreadParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(unreadBadge, unreadParams);
+    }
+
+    private String bookmarkOverviewExpandedKey(String folder) {
+        return normalizeSavedFolder(folder).isEmpty()
+                ? "__root__"
+                : normalizeSavedFolder(folder);
+    }
+
+    private boolean bookmarkOverviewExpanded(String key, boolean defaultValue) {
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_BOOKMARK_OVERVIEW_EXPANDED, "{}"));
+            return object.has(key) ? object.optBoolean(key, defaultValue) : defaultValue;
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
+    }
+
+    private void toggleBookmarkOverviewExpanded(String key) {
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_BOOKMARK_OVERVIEW_EXPANDED, "{}"));
+            boolean next = !object.optBoolean(key, "__root__".equals(key));
+            object.put(key, next);
+            preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_EXPANDED, object.toString()).apply();
+        } catch (Exception ignored) {
+        }
+        if (tabOverviewVisible && contentFrame != null) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
+            renderTabs();
         }
     }
 
@@ -11743,15 +11932,20 @@ public class MainActivity extends Activity {
         List<CuspTab> targets = new ArrayList<>();
         for (CuspTab tab : new ArrayList<>(tabs)) {
             if (tab == null || tab.url == null || tab.url.isEmpty()
-                    || !tab.readerMode || !NATIVE_THREAD.equals(tab.nativeKind)) {
+                    || !tab.readerMode || !NATIVE_THREAD.equals(tab.nativeKind)
+                    || (wasOverview && tab.privateBrowsing != tabOverviewPrivateMode)) {
                 continue;
             }
             targets.add(tab);
         }
-        if (wasOverview && centerSpinner && !targets.isEmpty()) {
+        List<SavedItem> bookmarkTargets = wasOverview && !tabOverviewPrivateMode && showBookmarksInTabOverview()
+                ? readSavedItems(PREF_THREAD_BOOKMARKS)
+                : new ArrayList<>();
+        int totalTargets = targets.size() + bookmarkTargets.size();
+        if (wasOverview && centerSpinner && totalTargets > 0) {
             showCenterSpinner();
         }
-        AtomicInteger remaining = new AtomicInteger(targets.size());
+        AtomicInteger remaining = new AtomicInteger(totalTargets);
         Runnable done = () -> {
             if (remaining.decrementAndGet() <= 0) {
                 if (wasOverview && centerSpinner) {
@@ -11772,7 +11966,10 @@ public class MainActivity extends Activity {
         for (CuspTab tab : targets) {
             reloadThreadTabForOverview(tab, done);
         }
-        if (wasOverview && targets.isEmpty()) {
+        for (SavedItem bookmark : bookmarkTargets) {
+            reloadBookmarkForOverview(bookmark, done);
+        }
+        if (wasOverview && totalTargets == 0) {
             tabOverviewVisible = true;
         }
     }
@@ -11795,6 +11992,32 @@ public class MainActivity extends Activity {
             mainHandler.post(() -> {
                 if (result != null && url.equals(tab.url)) {
                     applyOverviewReloadStatus(tab, result);
+                }
+                if (onComplete != null) {
+                    onComplete.run();
+                }
+            });
+        });
+    }
+
+    private void reloadBookmarkForOverview(SavedItem bookmark, Runnable onComplete) {
+        if (bookmark == null || bookmark.url == null || bookmark.url.isEmpty()) {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+            return;
+        }
+        final String url = bookmark.url;
+        tabReloadExecutor.execute(() -> {
+            ThreadOverviewStatus status = null;
+            try {
+                status = downloadThreadOverviewStatus(url);
+            } catch (Exception ignored) {
+            }
+            ThreadOverviewStatus result = status;
+            mainHandler.post(() -> {
+                if (result != null) {
+                    saveBookmarkOverviewStatus(url, result);
                 }
                 if (onComplete != null) {
                     onComplete.run();
@@ -11907,6 +12130,71 @@ public class MainActivity extends Activity {
         } else if (tab.hasThreadStats) {
             tab.cachedUnreadCount = Math.max(0, tab.knownMaxPostNumber - tab.readPostNumber);
         }
+    }
+
+    private void saveBookmarkOverviewStatus(String url, ThreadOverviewStatus status) {
+        if (url == null || status == null) {
+            return;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_OVERVIEW_STATUS, "{}"));
+            JSONObject item = new JSONObject();
+            item.put("title", status.title == null ? "" : status.title);
+            item.put("responseCount", status.responseCount);
+            item.put("archived", status.archived);
+            item.put("updatedAt", System.currentTimeMillis());
+            root.put(url, item);
+            preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_STATUS, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private BookmarkOverviewStatus bookmarkOverviewStatus(String url) {
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_OVERVIEW_STATUS, "{}"));
+            JSONObject item = root.optJSONObject(url);
+            if (item == null) {
+                return null;
+            }
+            BookmarkOverviewStatus status = new BookmarkOverviewStatus();
+            status.title = item.optString("title", "");
+            status.responseCount = item.optInt("responseCount", 0);
+            status.archived = item.optBoolean("archived", false);
+            return status;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String bookmarkOverviewTitle(SavedItem item) {
+        BookmarkOverviewStatus status = item == null ? null : bookmarkOverviewStatus(item.url);
+        if (status != null && status.title != null && !status.title.trim().isEmpty()) {
+            return status.archived ? text("[DAT\u843d\u3061] ", "[Archived] ") + status.title.trim() : status.title.trim();
+        }
+        return item == null ? "" : item.title;
+    }
+
+    private int bookmarkOverviewUnread(SavedItem item) {
+        if (item == null || item.url == null) {
+            return 0;
+        }
+        BookmarkOverviewStatus status = bookmarkOverviewStatus(item.url);
+        if (status == null || status.responseCount <= 0) {
+            return 0;
+        }
+        return Math.max(0, status.responseCount - readPostNumber(preferences, item.url));
+    }
+
+    private int bookmarkOverviewUnreadSum(List<SavedItem> bookmarks, String folder) {
+        int total = 0;
+        String normalizedFolder = folder == null ? null : normalizeSavedFolder(folder);
+        for (SavedItem bookmark : bookmarks) {
+            if (normalizedFolder != null && !normalizedFolder.equals(normalizeSavedFolder(bookmark.folder))) {
+                continue;
+            }
+            total += bookmarkOverviewUnread(bookmark);
+        }
+        return total;
     }
 
     private void closeCurrentTab() {
@@ -13409,6 +13697,14 @@ public class MainActivity extends Activity {
         return preferences != null && preferences.getBoolean(PREF_DISABLE_HISTORY, false);
     }
 
+    private boolean showBookmarksInTabOverview() {
+        return preferences == null || preferences.getBoolean(PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true);
+    }
+
+    private boolean showHistoryOnHome() {
+        return preferences == null || preferences.getBoolean(PREF_SHOW_HISTORY_ON_HOME, true);
+    }
+
     private boolean aaModeForPost(ThreadPage page, Post post) {
         if (page == null || post == null) {
             return false;
@@ -14716,6 +15012,12 @@ public class MainActivity extends Activity {
 
     private static class ThreadOverviewStatus {
         String url;
+        String title;
+        int responseCount;
+        boolean archived;
+    }
+
+    private static class BookmarkOverviewStatus {
         String title;
         int responseCount;
         boolean archived;

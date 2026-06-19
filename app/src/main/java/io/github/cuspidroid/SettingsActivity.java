@@ -50,6 +50,8 @@ public class SettingsActivity extends Activity {
     private CheckBox boardSortBySpeed;
     private CheckBox cacheEnabled;
     private CheckBox disableHistory;
+    private CheckBox showBookmarksInTabOverview;
+    private CheckBox showHistoryOnHome;
     private EditText cacheMaxMb;
     private TextView cacheApply;
     private ProgressBar cacheUsage;
@@ -154,6 +156,13 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
                 MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
                 v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
+
+        showBookmarksInTabOverview = new CheckBox(this);
+        showBookmarksInTabOverview.setText(MainActivity.text("\u30bf\u30d6\u4e00\u89a7\u306b\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u8868\u793a", "Show bookmarks in the tab overview"));
+        showBookmarksInTabOverview.setTextColor(textColor());
+        showBookmarksInTabOverview.setTextSize(16);
+        Theme.tintCompoundButton(this, showBookmarksInTabOverview);
+        root.addView(showBookmarksInTabOverview);
 
         root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u8868\u793a", "Thread View")));
         treeView = new CheckBox(this);
@@ -363,6 +372,13 @@ public class SettingsActivity extends Activity {
                 v -> confirmClearCache()));
 
         root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u4fdd\u5b58\u30c7\u30fc\u30bf", "History & Stored Data")));
+        showHistoryOnHome = new CheckBox(this);
+        showHistoryOnHome.setText(MainActivity.text("\u65b0\u898f\u30bf\u30d6\u306b\u5c65\u6b74\u3092\u8868\u793a", "Show history on the new tab page"));
+        showHistoryOnHome.setTextColor(textColor());
+        showHistoryOnHome.setTextSize(16);
+        Theme.tintCompoundButton(this, showHistoryOnHome);
+        root.addView(showHistoryOnHome);
+
         disableHistory = new CheckBox(this);
         disableHistory.setText(MainActivity.text("\u5c65\u6b74\u30fb\u65e2\u8aad\u5c65\u6b74\u3092\u8a18\u9332\u3057\u306a\u3044", "Do not record history or read positions"));
         disableHistory.setTextColor(textColor());
@@ -416,6 +432,8 @@ public class SettingsActivity extends Activity {
         updateTreeDependentSettings();
         boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
+        showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
+        showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
         disableHistory.setChecked(preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false));
         cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
         updateCacheDependentSettings();
@@ -474,6 +492,8 @@ public class SettingsActivity extends Activity {
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         disableHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         cacheEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             updateCacheDependentSettings();
@@ -560,6 +580,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
+                .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
+                .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, disableHistory.isChecked())
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, cacheEnabled.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
@@ -633,6 +655,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
                 .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
+                .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true)
+                .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true)
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, true)
                 .putInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)
