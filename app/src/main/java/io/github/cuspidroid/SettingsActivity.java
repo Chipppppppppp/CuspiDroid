@@ -128,7 +128,7 @@ public class SettingsActivity extends Activity {
         title.setPadding(0, 0, 0, dp(16));
         root.addView(title);
 
-        root.addView(sectionTitle(MainActivity.text("\u8868\u793a\u3068\u64cd\u4f5c", "Display & Controls")));
+        root.addView(sectionTitle(MainActivity.text("\u8868\u793a", "Display")));
         themeGroup = new RadioGroup(this);
         themeGroup.setOrientation(RadioGroup.VERTICAL);
         themeSystem = radio(MainActivity.text("\u7aef\u672b\u306e\u30c6\u30fc\u30de\u306b\u5f93\u3046", "Follow device theme"));
@@ -152,17 +152,25 @@ public class SettingsActivity extends Activity {
         addressBarPosition.addView(addressBarTop, new RadioGroup.LayoutParams(0, dp(44), 1));
         root.addView(addressBarPosition);
 
-        root.addView(managementRow(R.drawable.ic_jump_arrow,
-                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
-                MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
-                v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
-
         showBookmarksInTabOverview = new CheckBox(this);
         showBookmarksInTabOverview.setText(MainActivity.text("\u30bf\u30d6\u4e00\u89a7\u306b\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u8868\u793a", "Show bookmarks in the tab overview"));
         showBookmarksInTabOverview.setTextColor(textColor());
         showBookmarksInTabOverview.setTextSize(16);
         Theme.tintCompoundButton(this, showBookmarksInTabOverview);
         root.addView(showBookmarksInTabOverview);
+
+        showHistoryOnHome = new CheckBox(this);
+        showHistoryOnHome.setText(MainActivity.text("\u65b0\u898f\u30bf\u30d6\u306b\u5c65\u6b74\u3092\u8868\u793a", "Show history on the new tab page"));
+        showHistoryOnHome.setTextColor(textColor());
+        showHistoryOnHome.setTextSize(16);
+        Theme.tintCompoundButton(this, showHistoryOnHome);
+        root.addView(showHistoryOnHome);
+
+        root.addView(sectionTitle(MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u64cd\u4f5c", "Gesture Controls")));
+        root.addView(managementRow(R.drawable.ic_jump_arrow,
+                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
+                MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
+                v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u8868\u793a", "Thread View")));
         treeView = new CheckBox(this);
@@ -371,13 +379,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664", "Delete cached threads and media"),
                 v -> confirmClearCache()));
 
-        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u4fdd\u5b58\u30c7\u30fc\u30bf", "History & Stored Data")));
-        showHistoryOnHome = new CheckBox(this);
-        showHistoryOnHome.setText(MainActivity.text("\u65b0\u898f\u30bf\u30d6\u306b\u5c65\u6b74\u3092\u8868\u793a", "Show history on the new tab page"));
-        showHistoryOnHome.setTextColor(textColor());
-        showHistoryOnHome.setTextSize(16);
-        Theme.tintCompoundButton(this, showHistoryOnHome);
-        root.addView(showHistoryOnHome);
+        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u65e2\u8aad", "History & Read State")));
 
         disableHistory = new CheckBox(this);
         disableHistory.setText(MainActivity.text("\u5c65\u6b74\u30fb\u65e2\u8aad\u5c65\u6b74\u3092\u8a18\u9332\u3057\u306a\u3044", "Do not record history or read positions"));
