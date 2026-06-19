@@ -6482,6 +6482,10 @@ public class MainActivity extends Activity {
                 Object local = event.getLocalState();
                 if (local instanceof DragPayload) {
                     DragPayload payload = (DragPayload) local;
+                    if ("tabs".equals(payload.key)) {
+                        moveTabToBookmarksFromOverview(payload.index, folder, -1);
+                        return true;
+                    }
                     if (PREF_THREAD_BOOKMARKS.equals(payload.key)) {
                         List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
                         if (payload.index >= 0 && payload.index < items.size()) {
@@ -6543,6 +6547,10 @@ public class MainActivity extends Activity {
                         Object local = event.getLocalState();
                         if (local instanceof DragPayload) {
                             DragPayload payload = (DragPayload) local;
+                            if ("tabs".equals(payload.key) && itemIndex >= 0) {
+                                moveTabToBookmarksFromOverview(payload.index, normalizeSavedFolder(item.folder), itemIndex);
+                                return true;
+                            }
                             if (PREF_THREAD_BOOKMARKS.equals(payload.key) && itemIndex >= 0) {
                                 moveBookmarkOverviewItem(payload.index, itemIndex);
                                 payload.index = itemIndex;
@@ -6588,24 +6596,11 @@ public class MainActivity extends Activity {
     }
 
     private String selectedBookmarkOverviewFolder(List<SavedItem> bookmarks) {
-        for (SavedItem bookmark : bookmarks) {
-            if (bookmarkOverviewItemSelected(bookmark)) {
-                return normalizeSavedFolder(bookmark.folder);
-            }
-        }
         return null;
     }
 
     private boolean bookmarkOverviewItemSelected(SavedItem item) {
-        CuspTab tab = currentTab();
-        if (item == null || tab == null || item.url == null || item.url.trim().isEmpty()) {
-            return false;
-        }
-        String currentUrl = threadUrl(tab);
-        if (currentUrl == null || currentUrl.trim().isEmpty()) {
-            currentUrl = tab.url;
-        }
-        return trimSlash(normalizeUrl(currentUrl)).equals(trimSlash(normalizeUrl(item.url)));
+        return false;
     }
 
     private CuspTab bookmarkOverviewTab(SavedItem item) {
@@ -6628,7 +6623,38 @@ public class MainActivity extends Activity {
                 tab.hasThreadStats = true;
             }
         }
+        CuspTab openTab = matchingThreadTab(item == null ? "" : item.url);
+        if (openTab != null) {
+            if ((tab.title == null || tab.title.trim().isEmpty()) && openTab.title != null) {
+                tab.title = openTab.title;
+            }
+            tab.knownThreadArchived = tab.knownThreadArchived || openTab.knownThreadArchived
+                    || (openTab.threadPage != null && openTab.threadPage.archived);
+            if (!tab.hasThreadStats && openTab.hasThreadStats) {
+                tab.knownMaxPostNumber = openTab.knownMaxPostNumber;
+                tab.knownPostCount = openTab.knownPostCount;
+                tab.readPostNumber = readPostNumber(preferences, tab.url);
+                tab.cachedUnreadCount = Math.max(0, tab.knownMaxPostNumber - tab.readPostNumber);
+                tab.hasThreadStats = true;
+            }
+        }
         return tab;
+    }
+
+    private CuspTab matchingThreadTab(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return null;
+        }
+        for (CuspTab tab : tabs) {
+            if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind)) {
+                continue;
+            }
+            String tabUrl = threadUrl(tab);
+            if (sameSavedUrl(tabUrl, url)) {
+                return tab;
+            }
+        }
+        return null;
     }
 
     private int savedItemIndex(String key, String url) {
@@ -6689,8 +6715,79 @@ public class MainActivity extends Activity {
         if (item == null) {
             return;
         }
+        showBookmarkClosedUndo(item);
         removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
         refreshTabOverview();
+    }
+
+    private void showBookmarkClosedUndo(SavedItem item) {
+        ClosedTab closed = new ClosedTab(bookmarkOverviewTab(item), Math.max(0, tabs.size()), currentIndex);
+        showClosedTabUndo(closed);
+    }
+
+    private void moveTabToBookmarksFromOverview(int tabIndex, String folder, int beforeItemIndex) {
+        if (tabIndex < 0 || tabIndex >= tabs.size()) {
+            return;
+        }
+        CuspTab tab = tabs.get(tabIndex);
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
+            return;
+        }
+        addBookmarkFromTab(tab, folder, beforeItemIndex);
+        closeTabFromOverview(tabIndex);
+    }
+
+    private void addBookmarkFromTab(CuspTab tab, String folder, int beforeItemIndex) {
+        List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
+        String url = tab.url;
+        for (int i = items.size() - 1; i >= 0; i--) {
+            if (sameSavedUrl(items.get(i).url, url)) {
+                items.remove(i);
+            }
+        }
+        folder = normalizeSavedFolder(folder);
+        String title = tab.title == null || tab.title.trim().isEmpty() ? hostTitle(url) : tab.title;
+        SavedItem added = new SavedItem(cleanTitle(title, url), url, folder);
+        int insert = 0;
+        if (beforeItemIndex >= 0) {
+            String beforeUrl = "";
+            List<SavedItem> current = readSavedItems(PREF_THREAD_BOOKMARKS);
+            if (beforeItemIndex < current.size()) {
+                beforeUrl = current.get(beforeItemIndex).url;
+            }
+            insert = items.size();
+            for (int i = 0; i < items.size(); i++) {
+                if (sameSavedUrl(items.get(i).url, beforeUrl)) {
+                    insert = i;
+                    break;
+                }
+            }
+        } else if (!folder.isEmpty()) {
+            insert = items.size();
+            for (int i = 0; i < items.size(); i++) {
+                if (folder.equals(normalizeSavedFolder(items.get(i).folder))) {
+                    insert = i;
+                    break;
+                }
+            }
+        }
+        items.add(Math.max(0, Math.min(insert, items.size())), added);
+        writeSavedItems(PREF_THREAD_BOOKMARKS, items);
+        if (!folder.isEmpty()) {
+            List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
+            if (!folders.contains(folder)) {
+                folders.add(folder);
+                writeSavedFolders(PREF_THREAD_BOOKMARKS, folders);
+            }
+        }
+        if (tab.hasThreadStats || tab.knownThreadArchived) {
+            ThreadOverviewStatus status = new ThreadOverviewStatus();
+            status.url = url;
+            status.title = title;
+            status.responseCount = Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
+            status.archived = tab.knownThreadArchived || (tab.threadPage != null && tab.threadPage.archived);
+            saveBookmarkOverviewStatus(url, status);
+        }
     }
 
     private void moveBookmarkOverviewItem(int from, int to) {
@@ -12444,7 +12541,7 @@ public class MainActivity extends Activity {
             item.put("responseCount", status.responseCount);
             item.put("archived", status.archived);
             item.put("updatedAt", System.currentTimeMillis());
-            root.put(url, item);
+            root.put(bookmarkOverviewStatusKey(url), item);
             preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_STATUS, root.toString()).apply();
         } catch (Exception ignored) {
         }
@@ -12453,7 +12550,10 @@ public class MainActivity extends Activity {
     private BookmarkOverviewStatus bookmarkOverviewStatus(String url) {
         try {
             JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_OVERVIEW_STATUS, "{}"));
-            JSONObject item = root.optJSONObject(url);
+            JSONObject item = root.optJSONObject(bookmarkOverviewStatusKey(url));
+            if (item == null) {
+                item = root.optJSONObject(url);
+            }
             if (item == null) {
                 return null;
             }
@@ -12465,6 +12565,10 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private String bookmarkOverviewStatusKey(String url) {
+        return trimSlash(normalizeUrl(url));
     }
 
     private int bookmarkOverviewUnread(SavedItem item) {
