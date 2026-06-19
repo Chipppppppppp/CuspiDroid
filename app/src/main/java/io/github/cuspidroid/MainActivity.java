@@ -180,7 +180,12 @@ public class MainActivity extends Activity {
             GESTURE_RIGHT_TAB, GESTURE_LEFT_TAB, GESTURE_SETTINGS, GESTURE_NEXT_THREAD,
             GESTURE_FIND, GESTURE_BOARD
     };
-    private static final String PREF_TABS = "saved_tabs";
+    static final String PREF_TABS = "saved_tabs";
+    static final String PREF_SYNC2CH_ID = "sync2ch_id";
+    static final String PREF_SYNC2CH_API_PASSWORD = "sync2ch_api_password";
+    static final String PREF_SYNC2CH_SYNC_NUMBER = "sync2ch_sync_number";
+    static final String PREF_SYNC2CH_CLIENT_ID = "sync2ch_client_id";
+    static final String PREF_SYNC2CH_UPDATED_AT = "sync2ch_updated_at";
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
@@ -290,6 +295,7 @@ public class MainActivity extends Activity {
     private int pageSearchGeneration;
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
+    private long appliedSync2chUpdateAt;
     private ScrollView dragAutoScrollView;
     private Runnable dragAutoScrollTask;
     private int dragAutoScrollDelta;
@@ -541,6 +547,7 @@ public class MainActivity extends Activity {
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         migrateFavoriteBoardsToBookmarks();
         appliedThemeMode = themeMode();
+        appliedSync2chUpdateAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
         buildLayout();
         contentFrame.addView(loadingView(""));
         scheduleTabUnload();
@@ -593,6 +600,17 @@ public class MainActivity extends Activity {
                 showPendingNewTabHistory(pendingHistoryAll);
             } else if (currentIndex >= 0 && currentIndex < tabs.size()) {
                 switchToTab(currentIndex);
+            }
+        }
+        long syncUpdatedAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
+        if (syncUpdatedAt != appliedSync2chUpdateAt) {
+            appliedSync2chUpdateAt = syncUpdatedAt;
+            if (restoreTabs()) {
+                if (currentIndex >= 0 && currentIndex < tabs.size()) {
+                    switchToTab(currentIndex);
+                } else {
+                    renderTabs();
+                }
             }
         }
         scheduleTabUnload();

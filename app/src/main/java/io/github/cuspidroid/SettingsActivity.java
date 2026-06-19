@@ -52,6 +52,8 @@ public class SettingsActivity extends Activity {
     private CheckBox disableHistory;
     private CheckBox showBookmarksInTabOverview;
     private CheckBox showHistoryOnHome;
+    private EditText sync2chId;
+    private EditText sync2chApiPassword;
     private EditText cacheMaxMb;
     private TextView cacheApply;
     private ProgressBar cacheUsage;
@@ -398,6 +400,46 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u4f4d\u7f6e\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read positions by thread"),
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
+        root.addView(sectionTitle("Sync2ch"));
+        sync2chId = new EditText(this);
+        sync2chId.setSingleLine(true);
+        sync2chId.setTextSize(14);
+        sync2chId.setTextColor(textColor());
+        sync2chId.setHintTextColor(hintColor());
+        sync2chId.setHint(MainActivity.text("Sync2ch ID", "Sync2ch ID"));
+        sync2chId.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        sync2chId.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        sync2chId.setBackground(roundedField());
+        sync2chId.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(sync2chId, fieldParams());
+
+        sync2chApiPassword = new EditText(this);
+        sync2chApiPassword.setSingleLine(true);
+        sync2chApiPassword.setTextSize(14);
+        sync2chApiPassword.setTextColor(textColor());
+        sync2chApiPassword.setHintTextColor(hintColor());
+        sync2chApiPassword.setHint(MainActivity.text("API\u63a5\u7d9a\u7528\u30d1\u30b9\u30ef\u30fc\u30c9", "API connection password"));
+        sync2chApiPassword.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        sync2chApiPassword.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        sync2chApiPassword.setBackground(roundedField());
+        sync2chApiPassword.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(sync2chApiPassword, fieldParams());
+
+        root.addView(helperText(MainActivity.text(
+                "Sync2ch\u306e\u30a2\u30ab\u30a6\u30f3\u30c8\u60c5\u5831\u306b\u8868\u793a\u3055\u308c\u308b\u300cAPI\u63a5\u7d9a\u7528\u30d1\u30b9\u30ef\u30fc\u30c9\u300d\u3092\u4f7f\u3044\u307e\u3059\u3002\u30ed\u30b0\u30a4\u30f3\u7528\u30d1\u30b9\u30ef\u30fc\u30c9\u3068\u306f\u5225\u3067\u3059\u3002\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u901a\u5e38\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092\u540c\u671f\u3057\u307e\u3059\u3002",
+                "Use the API connection password shown on your Sync2ch account page. It is different from your login password. Bookmarks, normal tabs, and read positions are synced.")));
+
+        root.addView(managementRow(android.R.drawable.ic_menu_help,
+                MainActivity.text("Sync2ch\u30a2\u30ab\u30a6\u30f3\u30c8\u60c5\u5831", "Sync2ch account information"),
+                MainActivity.text("API\u63a5\u7d9a\u7528\u30d1\u30b9\u30ef\u30fc\u30c9\u306e\u78ba\u8a8d\u5148\u3092\u958b\u304f", "Open the page where the API connection password is shown"),
+                v -> openUrl("https://sync2ch.com/user")));
+
+        root.addView(managementRow(android.R.drawable.ic_popup_sync,
+                MainActivity.text("Sync2ch\u3067\u540c\u671f", "Sync with Sync2ch"),
+                MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u901a\u5e38\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092\u30de\u30fc\u30b8", "Merge bookmarks, normal tabs, and read positions"),
+                v -> runSync2chNow()));
+
         root.addView(sectionTitle(MainActivity.text("\u30e1\u30f3\u30c6\u30ca\u30f3\u30b9", "Maintenance")));
         root.addView(managementRow(android.R.drawable.ic_dialog_info,
                 MainActivity.text("\u30c7\u30d0\u30c3\u30b0\u8a2d\u5b9a", "Debug settings"),
@@ -437,6 +479,8 @@ public class SettingsActivity extends Activity {
         showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
         showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
         disableHistory.setChecked(preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false));
+        sync2chId.setText(preferences.getString(MainActivity.PREF_SYNC2CH_ID, ""));
+        sync2chApiPassword.setText(preferences.getString(MainActivity.PREF_SYNC2CH_API_PASSWORD, ""));
         cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
         updateCacheDependentSettings();
         updateCacheUsage();
@@ -479,6 +523,24 @@ public class SettingsActivity extends Activity {
             return false;
         });
         imgbbApiKey.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                saveSettings(false);
+            }
+        });
+        sync2chId.setOnEditorActionListener((v, actionId, event) -> {
+            saveSettings(false);
+            return false;
+        });
+        sync2chId.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                saveSettings(false);
+            }
+        });
+        sync2chApiPassword.setOnEditorActionListener((v, actionId, event) -> {
+            saveSettings(false);
+            return false;
+        });
+        sync2chApiPassword.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) {
                 saveSettings(false);
             }
@@ -585,6 +647,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, disableHistory.isChecked())
+                .putString(MainActivity.PREF_SYNC2CH_ID, sync2chId.getText().toString().trim())
+                .putString(MainActivity.PREF_SYNC2CH_API_PASSWORD, sync2chApiPassword.getText().toString().trim())
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, cacheEnabled.isChecked())
                 .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
@@ -635,6 +699,27 @@ public class SettingsActivity extends Activity {
 
     private void openUrl(String url) {
         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+    }
+
+    private void runSync2chNow() {
+        saveSettings(false);
+        Toast.makeText(this, MainActivity.text("Sync2ch\u3067\u540c\u671f\u4e2d", "Syncing with Sync2ch..."), Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                Sync2chClient.Result result = Sync2chClient.sync(getApplicationContext(), preferences);
+                runOnUiThread(() -> Toast.makeText(this,
+                        MainActivity.text("Sync2ch\u540c\u671f\u5b8c\u4e86", "Sync2ch sync complete")
+                                + "\n" + MainActivity.text("\u8ffd\u52a0\u30bf\u30d6: ", "Added tabs: ")
+                                + result.addedOpenThreads
+                                + "  " + MainActivity.text("\u8ffd\u52a0\u30d6\u30c3\u30af\u30de\u30fc\u30af: ", "Added bookmarks: ")
+                                + result.addedBookmarks,
+                        Toast.LENGTH_LONG).show());
+            } catch (Exception error) {
+                runOnUiThread(() -> Toast.makeText(this,
+                        MainActivity.text("Sync2ch\u540c\u671f\u5931\u6557: ", "Sync2ch sync failed: ")
+                                + error.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "CuspiDroid-Sync2ch").start();
     }
 
     private void resetSettingsDefaults() {
