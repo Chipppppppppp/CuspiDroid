@@ -6923,6 +6923,7 @@ public class MainActivity extends Activity {
         textView.setPadding(dp(10), 0, 0, 0);
         row.addView(textView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
+        addUnreadBadgeIfNeeded(row, unread);
         ImageButton add = iconButton(R.drawable.ic_add, text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
                 v -> showCreateBookmarkOverviewFolderDialog(folder));
         add.setColorFilter(mutedColor());
@@ -6935,7 +6936,6 @@ public class MainActivity extends Activity {
             delete.setBackgroundColor(Color.TRANSPARENT);
             row.addView(delete, new LinearLayout.LayoutParams(dp(38), dp(38)));
         }
-        addUnreadBadgeIfNeeded(row, unread);
         return bookmarkOverviewShell(row, indentLevel, dp(56));
     }
 
