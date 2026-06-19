@@ -287,6 +287,9 @@ public class MainActivity extends Activity {
     private int pageSearchGeneration;
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
+    private ScrollView dragAutoScrollView;
+    private Runnable dragAutoScrollTask;
+    private int dragAutoScrollDelta;
     private int tabOverviewScrollY;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
@@ -6130,11 +6133,18 @@ public class MainActivity extends Activity {
             return;
         }
         int action = event.getAction();
+        if (action == android.view.DragEvent.ACTION_DRAG_ENDED
+                || action == android.view.DragEvent.ACTION_DROP
+                || action == android.view.DragEvent.ACTION_DRAG_EXITED) {
+            stopDragAutoScroll();
+            return;
+        }
         if (action != android.view.DragEvent.ACTION_DRAG_LOCATION) {
             return;
         }
         ScrollView scroll = anchor instanceof ScrollView ? (ScrollView) anchor : findParentScrollView(anchor);
         if (scroll == null || scroll.getHeight() <= 0) {
+            stopDragAutoScroll();
             return;
         }
         int[] anchorLocation = new int[2];
@@ -6142,12 +6152,50 @@ public class MainActivity extends Activity {
         float screenY = anchorLocation[1] + event.getY();
         Rect visibleFrame = new Rect();
         getWindow().getDecorView().getWindowVisibleDisplayFrame(visibleFrame);
-        int edge = dp(28);
-        int step = dp(18);
+        int edge = dp(48);
+        int maxStep = dp(34);
+        int minStep = dp(5);
+        int nextDelta = 0;
         if (screenY <= visibleFrame.top + edge) {
-            scroll.smoothScrollBy(0, -step);
+            float ratio = Math.min(1f, Math.max(0f, (visibleFrame.top + edge - screenY) / Math.max(1f, edge)));
+            nextDelta = -Math.max(minStep, Math.round(maxStep * ratio));
         } else if (screenY >= visibleFrame.bottom - edge) {
-            scroll.smoothScrollBy(0, step);
+            float ratio = Math.min(1f, Math.max(0f, (screenY - (visibleFrame.bottom - edge)) / Math.max(1f, edge)));
+            nextDelta = Math.max(minStep, Math.round(maxStep * ratio));
+        }
+        if (nextDelta == 0) {
+            stopDragAutoScroll();
+            return;
+        }
+        dragAutoScrollView = scroll;
+        dragAutoScrollDelta = nextDelta;
+        startDragAutoScroll();
+    }
+
+    private void startDragAutoScroll() {
+        if (dragAutoScrollTask != null) {
+            return;
+        }
+        dragAutoScrollTask = new Runnable() {
+            @Override
+            public void run() {
+                if (dragAutoScrollView == null || dragAutoScrollDelta == 0) {
+                    dragAutoScrollTask = null;
+                    return;
+                }
+                dragAutoScrollView.scrollBy(0, dragAutoScrollDelta);
+                mainHandler.postDelayed(this, 16);
+            }
+        };
+        mainHandler.post(dragAutoScrollTask);
+    }
+
+    private void stopDragAutoScroll() {
+        dragAutoScrollView = null;
+        dragAutoScrollDelta = 0;
+        if (dragAutoScrollTask != null) {
+            mainHandler.removeCallbacks(dragAutoScrollTask);
+            dragAutoScrollTask = null;
         }
     }
 
