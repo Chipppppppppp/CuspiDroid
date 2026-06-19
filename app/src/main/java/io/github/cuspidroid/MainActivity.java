@@ -825,7 +825,6 @@ public class MainActivity extends Activity {
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
         bottomBookmarkButton = iconButton(R.drawable.ic_star_border, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), null);
-        bottomThreadBar.addView(bottomBookmarkButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
         bottomToolbar = new LinearLayout(this);
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
@@ -1369,6 +1368,17 @@ public class MainActivity extends Activity {
             openBoard.setAlpha(0.45f);
         }
         menu.addView(openBoard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        View bookmark = menuIconItem(savedIcon(PREF_THREAD_BOOKMARKS, tab == null ? "" : tab.url),
+                text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), v -> {
+                    dismissPopupAnimated(popup);
+                    toggleCurrentBookmark();
+                });
+        if (!canBookmarkTab(tab)) {
+            bookmark.setEnabled(false);
+            bookmark.setAlpha(0.45f);
+        }
+        menu.addView(bookmark, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_search, text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page"), v -> {
             dismissPopupAnimated(popup);
@@ -2478,15 +2488,8 @@ public class MainActivity extends Activity {
             bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
             bottomThreadTitle.setClickable(canWrite);
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            if (tab.url != null && !tab.url.trim().isEmpty() && !isInternalPageUrl(tab.url)) {
-                bottomBookmarkButton.setVisibility(View.VISIBLE);
-                bottomBookmarkButton.setContentDescription(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"));
-                bottomBookmarkButton.setImageResource(savedIcon(PREF_THREAD_BOOKMARKS, tab.url));
-                bottomBookmarkButton.setOnClickListener(v -> toggleCurrentBookmark());
-            } else {
-                bottomBookmarkButton.setVisibility(View.GONE);
-                bottomBookmarkButton.setOnClickListener(null);
-            }
+            bottomBookmarkButton.setVisibility(View.GONE);
+            bottomBookmarkButton.setOnClickListener(null);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
@@ -5411,8 +5414,8 @@ public class MainActivity extends Activity {
                 list.addView(row);
             }
         }
-        list.addView(sectionTitleView(text("\u4fdd\u5b58\u6e08\u307f", "Saved")));
-        list.addView(savedListButton(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"), PREF_THREAD_BOOKMARKS));
+        list.addView(sectionTitleView(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks")));
+        addHomeBookmarkSection(list);
         if (showHistoryOnHome()) {
             addHistorySection(list, fullHistory);
         }
@@ -5907,6 +5910,10 @@ public class MainActivity extends Activity {
                                 moveTabInOverview(payload, index);
                                 return true;
                             }
+                            if (PREF_THREAD_BOOKMARKS.equals(payload.key)) {
+                                moveBookmarkToTabsFromOverview(payload.index, index);
+                                return true;
+                            }
                         }
                     }
                     return true;
@@ -6382,6 +6389,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void moveBookmarkToTabsFromOverview(int bookmarkIndex, int to) {
+        List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
+        if (bookmarkIndex < 0 || bookmarkIndex >= items.size()) {
+            return;
+        }
+        SavedItem item = items.get(bookmarkIndex);
+        CuspTab tab = bookmarkOverviewTab(item);
+        tab.bookmarkOverviewTab = false;
+        tab.readerView = loadingView("");
+        int insert = Math.max(0, Math.min(to, tabs.size()));
+        tabs.add(insert, tab);
+        removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
+        if (currentIndex >= insert) {
+            currentIndex++;
+        }
+        requestSaveTabsSoon();
+        renderTabs();
+        if (tabOverviewVisible && contentFrame != null) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildTabOverviewView());
+        }
+    }
+
     private void addBookmarkOverviewSection(LinearLayout list) {
         List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
         String selectedFolder = selectedBookmarkOverviewFolder(bookmarks);
@@ -6422,12 +6452,110 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void addHomeBookmarkSection(LinearLayout list) {
+        List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+        List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
+        for (String folder : childSavedFolders(PREF_THREAD_BOOKMARKS, "")) {
+            addHomeBookmarkFolder(list, bookmarks, folders, folder, 0);
+        }
+        for (SavedItem bookmark : bookmarks) {
+            if (normalizeSavedFolder(bookmark.folder).isEmpty()) {
+                list.addView(homeBookmarkItemRow(bookmark, 0));
+            }
+        }
+        if (bookmarks.isEmpty() && folders.isEmpty()) {
+            list.addView(helperLine(text("\u307e\u3060\u3042\u308a\u307e\u305b\u3093", "Nothing saved yet.")));
+        }
+    }
+
+    private void addHomeBookmarkFolder(LinearLayout list, List<SavedItem> bookmarks, List<String> folders,
+                                       String folder, int indentLevel) {
+        String key = bookmarkOverviewExpandedKey("home:" + folder);
+        boolean expanded = bookmarkOverviewExpanded(key, false);
+        list.addView(homeBookmarkFolderRow(folder, expanded, indentLevel,
+                v -> {
+                    toggleBookmarkOverviewExpanded(key);
+                    refreshCurrentHomeOrHistoryView();
+                }));
+        if (!expanded) {
+            return;
+        }
+        for (String child : childSavedFolders(PREF_THREAD_BOOKMARKS, folder)) {
+            addHomeBookmarkFolder(list, bookmarks, folders, child, indentLevel + 1);
+        }
+        for (SavedItem bookmark : bookmarks) {
+            if (folder.equals(normalizeSavedFolder(bookmark.folder))) {
+                list.addView(homeBookmarkItemRow(bookmark, indentLevel + 1));
+            }
+        }
+    }
+
+    private View homeBookmarkFolderRow(String folder, boolean expanded, int indentLevel, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10 + indentLevel * 18), dp(7), dp(8), dp(7));
+        row.setMinimumHeight(dp(48));
+        row.setBackgroundColor(postColor());
+        row.setOnClickListener(listener);
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(expanded ? R.drawable.ic_arrow_down : R.drawable.ic_chevron_right);
+        arrow.setColorFilter(mutedColor());
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_folder);
+        icon.setColorFilter(TEAL);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(24), dp(24));
+        iconParams.setMargins(dp(4), 0, 0, 0);
+        row.addView(icon, iconParams);
+        TextView label = new TextView(this);
+        label.setText(savedFolderDisplayName(folder));
+        label.setTextColor(textColor());
+        label.setTextSize(15);
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setPadding(dp(10), 0, 0, 0);
+        row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(6));
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    private View homeBookmarkItemRow(SavedItem item, int indentLevel) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(10 + indentLevel * 18), dp(8), dp(10), dp(8));
+        row.setBackgroundColor(postColor());
+        row.setOnClickListener(v -> createTab(item.url, true));
+        TextView title = new TextView(this);
+        title.setText(item.title);
+        title.setTextColor(textColor());
+        title.setTextSize(15);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(title);
+        TextView url = new TextView(this);
+        url.setText(item.url);
+        url.setTextColor(mutedColor());
+        url.setTextSize(12);
+        url.setSingleLine(true);
+        url.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(url);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(6));
+        row.setLayoutParams(params);
+        return row;
+    }
+
     private void addBookmarkOverviewFolderWithItems(LinearLayout list, List<SavedItem> bookmarks,
                                                     List<String> folders, String folder, String selectedFolder,
                                                     int indentLevel) {
         String key = bookmarkOverviewExpandedKey(folder);
         boolean expanded = bookmarkOverviewExpanded(key, false);
-        list.addView(bookmarkOverviewFolderRow(folder,
+        list.addView(bookmarkOverviewFolderRow(savedFolderDisplayName(folder),
                 folder,
                 expanded ? 0 : bookmarkOverviewUnreadSum(bookmarks, folder),
                 expanded,
@@ -7043,7 +7171,7 @@ public class MainActivity extends Activity {
     private String savedListTitle(String key, String folder) {
         folder = normalizeSavedFolder(folder);
         if (!folder.isEmpty()) {
-            return folder;
+            return savedFolderDisplayName(folder);
         }
         return text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks");
     }
@@ -14253,14 +14381,28 @@ public class MainActivity extends Activity {
 
     private void toggleCurrentBookmark() {
         CuspTab tab = currentTab();
-        if (tab == null || tab.url == null || tab.url.trim().isEmpty() || isInternalPageUrl(tab.url)) {
+        if (!canBookmarkTab(tab)) {
             return;
+        }
+        toggleSavedItem(PREF_THREAD_BOOKMARKS, bookmarkTitleForTab(tab), tab.url);
+        updateBottomThreadBar(tab);
+    }
+
+    private boolean canBookmarkTab(CuspTab tab) {
+        return tab != null && tab.url != null && !tab.url.trim().isEmpty() && !isInternalPageUrl(tab.url);
+    }
+
+    private String bookmarkTitleForTab(CuspTab tab) {
+        if (tab == null) {
+            return "";
         }
         String title = tab.threadPage != null && tab.threadPage.title != null
                 ? tab.threadPage.title
                 : tab.searchPage != null && tab.searchPage.title != null ? tab.searchPage.title : tab.title;
-        toggleSavedItem(PREF_THREAD_BOOKMARKS, title, tab.url);
-        updateBottomThreadBar(tab);
+        if (title == null || title.trim().isEmpty()) {
+            return hostTitle(tab.url);
+        }
+        return title;
     }
 
     private static int readPostNumber(SharedPreferences preferences, String url) {
