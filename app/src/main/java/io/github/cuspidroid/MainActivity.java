@@ -1795,7 +1795,8 @@ public class MainActivity extends Activity {
                 } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
                     tab.savedSearchPageJson = item.optJSONObject("searchPage");
                 } else if (NATIVE_SAVED.equals(tab.nativeKind) && url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
-                    tab.readerView = buildSavedItemsView(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+                    SavedPage savedPage = savedPageFromToken(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+                    tab.readerView = buildSavedItemsView(savedPage.key, savedPage.folder);
                 } else if (NATIVE_HISTORY.equals(tab.nativeKind)) {
                     tab.readerView = buildHistoryView();
                 } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
@@ -2488,7 +2489,8 @@ public class MainActivity extends Activity {
             return text("\u5c65\u6b74", "History");
         }
         if (page != null && page.startsWith("saved:")) {
-            return savedListTitle(page.substring("saved:".length()));
+            SavedPage savedPage = savedPageFromToken(page.substring("saved:".length()));
+            return savedListTitle(savedPage.key, savedPage.folder);
         }
         if (page != null && page.startsWith("bbs-category:")) {
             BbsCategoryRequest request = decodeBbsCategoryToken(page.substring("bbs-category:".length()));
@@ -2619,7 +2621,11 @@ public class MainActivity extends Activity {
     }
 
     private String savedPageUrl(String key) {
-        return INTERNAL_URL_PREFIX + "saved/" + encodeNewTabToken(key);
+        return savedPageUrl(key, "");
+    }
+
+    private String savedPageUrl(String key, String folder) {
+        return INTERNAL_URL_PREFIX + "saved/" + encodeNewTabToken(savedPageToken(key, folder));
     }
 
     private String historyPageUrl() {
@@ -2656,7 +2662,8 @@ public class MainActivity extends Activity {
             return text("\u30bf\u30d6", "Tab");
         }
         if (url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
-            return savedListTitle(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+            SavedPage savedPage = savedPageFromToken(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+            return savedListTitle(savedPage.key, savedPage.folder);
         }
         if (url.equals(historyPageUrl())) {
             return text("\u5c65\u6b74", "History");
@@ -2682,7 +2689,8 @@ public class MainActivity extends Activity {
         tab.postViews = null;
         if (url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
             tab.nativeKind = NATIVE_SAVED;
-            tab.readerView = buildSavedItemsView(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+            SavedPage savedPage = savedPageFromToken(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+            tab.readerView = buildSavedItemsView(savedPage.key, savedPage.folder);
         } else if (url.equals(historyPageUrl())) {
             tab.nativeKind = NATIVE_HISTORY;
             tab.readerView = buildHistoryView();
@@ -6181,7 +6189,8 @@ public class MainActivity extends Activity {
         } else if (page != null && page.startsWith("bbs-category:")) {
             showBbsCategoryView(page.substring("bbs-category:".length()), record);
         } else if (page != null && page.startsWith("saved:")) {
-            showSavedItemsView(page.substring("saved:".length()), record);
+            SavedPage savedPage = savedPageFromToken(page.substring("saved:".length()));
+            showSavedItemsView(savedPage.key, savedPage.folder, record);
         } else {
             pendingHistoryAll = false;
             contentFrame.removeAllViews();
@@ -6295,14 +6304,23 @@ public class MainActivity extends Activity {
     }
 
     private void showSavedItemsView(String key) {
-        showSavedItemsView(key, true);
+        showSavedItemsView(key, "", true);
     }
 
     private void showSavedItemsView(String key, boolean recordHistory) {
+        showSavedItemsView(key, "", recordHistory);
+    }
+
+    private void showSavedItemsView(String key, String folder) {
+        showSavedItemsView(key, folder, true);
+    }
+
+    private void showSavedItemsView(String key, String folder, boolean recordHistory) {
+        folder = normalizeSavedFolder(folder);
         if (recordHistory) {
-            recordNewTabPage("saved:" + key);
+            recordNewTabPage("saved:" + savedPageToken(key, folder));
         }
-        View view = buildSavedItemsView(key);
+        View view = buildSavedItemsView(key, folder);
         if (pendingNewTab) {
             contentFrame.removeAllViews();
             contentFrame.addView(view);
@@ -6310,14 +6328,14 @@ public class MainActivity extends Activity {
         } else {
             CuspTab tab = currentTab();
             if (tab != null) {
-                String url = savedPageUrl(key);
+                String url = savedPageUrl(key, folder);
                 if (recordHistory) {
                     recordNavigation(tab, url);
                 }
                 tab.readerMode = true;
                 tab.nativeKind = NATIVE_SAVED;
                 tab.url = url;
-                tab.title = savedListTitle(key);
+                tab.title = savedListTitle(key, folder);
                 tab.threadPage = null;
                 tab.searchPage = null;
                 tab.threadScroll = null;
@@ -6331,6 +6349,11 @@ public class MainActivity extends Activity {
     }
 
     private View buildSavedItemsView(String key) {
+        return buildSavedItemsView(key, "");
+    }
+
+    private View buildSavedItemsView(String key, String folder) {
+        folder = normalizeSavedFolder(folder);
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
@@ -6339,25 +6362,56 @@ public class MainActivity extends Activity {
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        list.addView(sectionTitleView(savedListTitle(key)));
-        List<SavedItem> items = readSavedItems(key);
-        if (items.isEmpty()) {
-            list.addView(helperLine(text("\u307e\u3060\u3042\u308a\u307e\u305b\u3093", "Nothing saved yet.")));
-        } else {
-            for (int i = 0; i < items.size(); i++) {
-                list.addView(savedItemRow(key, items.get(i), i));
+        list.addView(sectionTitleView(savedListTitle(key, folder)));
+        boolean hasFolders = false;
+        if (folder.isEmpty()) {
+            list.addView(actionButtonRow(R.drawable.ic_add,
+                    text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
+                    v -> showCreateSavedFolderDialog(key)));
+            for (String currentFolder : readSavedFolders(key)) {
+                list.addView(savedFolderRow(key, currentFolder));
+                hasFolders = true;
             }
+        } else {
+            list.addView(actionButtonRow(R.drawable.ic_arrow_back,
+                    text("\u4e00\u89a7\u306b\u623b\u308b", "Back to list"),
+                    v -> showSavedItemsView(key)));
+        }
+        List<SavedItem> items = readSavedItems(key);
+        boolean added = false;
+        for (int i = 0; i < items.size(); i++) {
+            SavedItem item = items.get(i);
+            if (!folder.equals(normalizeSavedFolder(item.folder))) {
+                continue;
+            }
+            list.addView(savedItemRow(key, item, i, folder));
+            added = true;
+        }
+        if (!added && !hasFolders) {
+            list.addView(helperLine(text("\u307e\u3060\u3042\u308a\u307e\u305b\u3093", "Nothing saved yet.")));
         }
         return scroll;
     }
 
     private String savedListTitle(String key) {
+        return savedListTitle(key, "");
+    }
+
+    private String savedListTitle(String key, String folder) {
+        folder = normalizeSavedFolder(folder);
+        if (!folder.isEmpty()) {
+            return folder;
+        }
         return PREF_BOARD_FAVORITES.equals(key)
                 ? text("\u304a\u6c17\u306b\u5165\u308a\u677f", "Favorite boards")
                 : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks");
     }
 
     private View savedItemRow(String key, SavedItem item, int index) {
+        return savedItemRow(key, item, index, normalizeSavedFolder(item.folder));
+    }
+
+    private View savedItemRow(String key, SavedItem item, int index, String folder) {
         LinearLayout shell = new LinearLayout(this);
         shell.setOrientation(LinearLayout.HORIZONTAL);
         shell.setGravity(Gravity.CENTER_VERTICAL);
@@ -6374,7 +6428,7 @@ public class MainActivity extends Activity {
                     if (key.equals(payload.key)) {
                         moveSavedItem(key, payload.index, index);
                         payload.index = index;
-                        showSavedItemsView(key);
+                        showSavedItemsView(key, folder);
                         return true;
                     }
                 }
@@ -6403,14 +6457,69 @@ public class MainActivity extends Activity {
         textBox.addView(url);
         shell.addView(textBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
+        ImageButton move = iconButton(R.drawable.ic_folder, text("\u30d5\u30a9\u30eb\u30c0\u3078\u79fb\u52d5", "Move to folder"),
+                v -> showMoveSavedItemDialog(key, item, folder));
+        move.setColorFilter(mutedColor());
+        move.setBackgroundColor(Color.TRANSPARENT);
+        shell.addView(move, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
         ImageButton delete = iconButton(R.drawable.ic_close, text("\u524a\u9664", "Delete"), v -> {
             removeSavedItem(key, item.url);
-            showSavedItemsView(key);
+            showSavedItemsView(key, folder);
         });
         delete.setColorFilter(mutedColor());
         delete.setBackgroundColor(Color.TRANSPARENT);
         shell.addView(delete, new LinearLayout.LayoutParams(dp(42), dp(42)));
         return shell;
+    }
+
+    private View savedFolderRow(String key, String folder) {
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.HORIZONTAL);
+        shell.setGravity(Gravity.CENTER_VERTICAL);
+        shell.setBackgroundColor(postColor());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        shell.setLayoutParams(params);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_folder);
+        icon.setColorFilter(TEAL);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(26), dp(26));
+        iconParams.setMargins(dp(10), 0, 0, 0);
+        shell.addView(icon, iconParams);
+
+        TextView label = new TextView(this);
+        label.setText(folder + "  " + savedFolderItemCount(key, folder));
+        label.setTextColor(textColor());
+        label.setTextSize(16);
+        label.setPadding(dp(10), dp(12), dp(10), dp(12));
+        label.setOnClickListener(v -> showSavedItemsView(key, folder));
+        shell.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        ImageButton rename = iconButton(R.drawable.ic_edit, text("\u540d\u524d\u3092\u5909\u66f4", "Rename"),
+                v -> showRenameSavedFolderDialog(key, folder));
+        rename.setColorFilter(mutedColor());
+        rename.setBackgroundColor(Color.TRANSPARENT);
+        shell.addView(rename, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        ImageButton delete = iconButton(R.drawable.ic_close, text("\u30d5\u30a9\u30eb\u30c0\u3092\u524a\u9664", "Delete folder"),
+                v -> confirmDeleteSavedFolder(key, folder));
+        delete.setColorFilter(mutedColor());
+        delete.setBackgroundColor(Color.TRANSPARENT);
+        shell.addView(delete, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        return shell;
+    }
+
+    private View actionButtonRow(int iconRes, String label, View.OnClickListener listener) {
+        LinearLayout row = menuIconItem(iconRes, label, listener);
+        row.setBackgroundColor(postColor());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(params);
+        return row;
     }
 
     private TextView sectionTitleView(String value) {
@@ -12917,8 +13026,9 @@ public class MainActivity extends Activity {
                 }
                 String title = object.optString("title", "").trim();
                 String url = object.optString("url", "").trim();
+                String folder = normalizeSavedFolder(object.optString("folder", ""));
                 if (!title.isEmpty() && !url.isEmpty()) {
-                    items.add(new SavedItem(title, url));
+                    items.add(new SavedItem(title, url, folder));
                 }
             }
         } catch (Exception ignored) {
@@ -12933,11 +13043,89 @@ public class MainActivity extends Activity {
                 JSONObject object = new JSONObject();
                 object.put("title", item.title);
                 object.put("url", item.url);
+                object.put("folder", normalizeSavedFolder(item.folder));
                 array.put(object);
             }
         } catch (Exception ignored) {
         }
         preferences.edit().putString(key, array.toString()).apply();
+    }
+
+    private List<String> readSavedFolders(String key) {
+        List<String> folders = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(preferences.getString(savedFoldersKey(key), "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                String folder = normalizeSavedFolder(array.optString(i, ""));
+                if (!folder.isEmpty() && !folders.contains(folder)) {
+                    folders.add(folder);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        for (SavedItem item : readSavedItems(key)) {
+            String folder = normalizeSavedFolder(item.folder);
+            if (!folder.isEmpty() && !folders.contains(folder)) {
+                folders.add(folder);
+            }
+        }
+        return folders;
+    }
+
+    private void writeSavedFolders(String key, List<String> folders) {
+        JSONArray array = new JSONArray();
+        try {
+            for (String folder : folders) {
+                folder = normalizeSavedFolder(folder);
+                if (!folder.isEmpty() && !containsString(array, folder)) {
+                    array.put(folder);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(savedFoldersKey(key), array.toString()).apply();
+    }
+
+    private boolean containsString(JSONArray array, String value) {
+        for (int i = 0; i < array.length(); i++) {
+            if (value.equals(array.optString(i, ""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String savedFoldersKey(String key) {
+        return key + "_folders";
+    }
+
+    private String normalizeSavedFolder(String folder) {
+        return folder == null ? "" : folder.trim();
+    }
+
+    private String savedPageToken(String key, String folder) {
+        folder = normalizeSavedFolder(folder);
+        return folder.isEmpty() ? key : key + "|" + folder;
+    }
+
+    private SavedPage savedPageFromToken(String token) {
+        String value = token == null ? "" : token;
+        int sep = value.indexOf('|');
+        if (sep < 0) {
+            return new SavedPage(value, "");
+        }
+        return new SavedPage(value.substring(0, sep), value.substring(sep + 1));
+    }
+
+    private int savedFolderItemCount(String key, String folder) {
+        int count = 0;
+        folder = normalizeSavedFolder(folder);
+        for (SavedItem item : readSavedItems(key)) {
+            if (folder.equals(normalizeSavedFolder(item.folder))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private boolean isSavedItem(String key, String url) {
@@ -12964,7 +13152,7 @@ public class MainActivity extends Activity {
                 return;
             }
         }
-        items.add(0, new SavedItem(cleanTitle(title, url), url));
+        items.add(0, new SavedItem(cleanTitle(title, url), url, ""));
         writeSavedItems(key, items);
     }
 
@@ -12978,6 +13166,79 @@ public class MainActivity extends Activity {
         writeSavedItems(key, items);
     }
 
+    private void moveSavedItemToFolder(String key, String url, String folder) {
+        List<SavedItem> items = readSavedItems(key);
+        folder = normalizeSavedFolder(folder);
+        for (int i = 0; i < items.size(); i++) {
+            SavedItem item = items.get(i);
+            if (url.equals(item.url)) {
+                items.set(i, new SavedItem(item.title, item.url, folder));
+                break;
+            }
+        }
+        if (!folder.isEmpty()) {
+            List<String> folders = readSavedFolders(key);
+            if (!folders.contains(folder)) {
+                folders.add(folder);
+                writeSavedFolders(key, folders);
+            }
+        }
+        writeSavedItems(key, items);
+    }
+
+    private void createSavedFolder(String key, String folder) {
+        folder = normalizeSavedFolder(folder);
+        if (folder.isEmpty()) {
+            return;
+        }
+        List<String> folders = readSavedFolders(key);
+        if (!folders.contains(folder)) {
+            folders.add(folder);
+            writeSavedFolders(key, folders);
+        }
+    }
+
+    private void renameSavedFolder(String key, String oldFolder, String newFolder) {
+        oldFolder = normalizeSavedFolder(oldFolder);
+        newFolder = normalizeSavedFolder(newFolder);
+        if (oldFolder.isEmpty() || newFolder.isEmpty() || oldFolder.equals(newFolder)) {
+            return;
+        }
+        List<String> folders = readSavedFolders(key);
+        for (int i = 0; i < folders.size(); i++) {
+            if (oldFolder.equals(folders.get(i))) {
+                folders.set(i, newFolder);
+            }
+        }
+        if (!folders.contains(newFolder)) {
+            folders.add(newFolder);
+        }
+        List<SavedItem> items = readSavedItems(key);
+        for (int i = 0; i < items.size(); i++) {
+            SavedItem item = items.get(i);
+            if (oldFolder.equals(normalizeSavedFolder(item.folder))) {
+                items.set(i, new SavedItem(item.title, item.url, newFolder));
+            }
+        }
+        writeSavedFolders(key, folders);
+        writeSavedItems(key, items);
+    }
+
+    private void deleteSavedFolder(String key, String folder) {
+        folder = normalizeSavedFolder(folder);
+        List<String> folders = readSavedFolders(key);
+        folders.remove(folder);
+        List<SavedItem> items = readSavedItems(key);
+        for (int i = 0; i < items.size(); i++) {
+            SavedItem item = items.get(i);
+            if (folder.equals(normalizeSavedFolder(item.folder))) {
+                items.set(i, new SavedItem(item.title, item.url, ""));
+            }
+        }
+        writeSavedFolders(key, folders);
+        writeSavedItems(key, items);
+    }
+
     private void moveSavedItem(String key, int from, int to) {
         List<SavedItem> items = readSavedItems(key);
         if (from < 0 || from >= items.size() || to < 0 || to >= items.size() || from == to) {
@@ -12986,6 +13247,111 @@ public class MainActivity extends Activity {
         SavedItem item = items.remove(from);
         items.add(to, item);
         writeSavedItems(key, items);
+    }
+
+    private void showCreateSavedFolderDialog(String key) {
+        showSavedFolderNameDialog(
+                text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
+                "",
+                folder -> {
+                    createSavedFolder(key, folder);
+                    showSavedItemsView(key);
+                });
+    }
+
+    private void showRenameSavedFolderDialog(String key, String oldFolder) {
+        showSavedFolderNameDialog(
+                text("\u30d5\u30a9\u30eb\u30c0\u540d\u3092\u5909\u66f4", "Rename folder"),
+                oldFolder,
+                folder -> {
+                    renameSavedFolder(key, oldFolder, folder);
+                    showSavedItemsView(key);
+                });
+    }
+
+    private interface SavedFolderNameCallback {
+        void onFolderName(String folder);
+    }
+
+    private void showSavedFolderNameDialog(String title, String initialValue, SavedFolderNameCallback callback) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(initialValue == null ? "" : initialValue);
+        input.setSelectAllOnFocus(true);
+        input.setTextColor(textColor());
+        input.setHintTextColor(mutedColor());
+        input.setPadding(dp(12), 0, dp(12), 0);
+        input.setBackgroundColor(postColor());
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(input)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("OK", "OK"), null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String folder = normalizeSavedFolder(input.getText().toString());
+                if (folder.isEmpty()) {
+                    Toast.makeText(this, text("\u30d5\u30a9\u30eb\u30c0\u540d\u3092\u5165\u529b", "Enter a folder name."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                callback.onFolderName(folder);
+                dialog.dismiss();
+            });
+        });
+        dialog.show();
+        input.requestFocus();
+    }
+
+    private void showMoveSavedItemDialog(String key, SavedItem item, String currentFolder) {
+        List<String> folders = readSavedFolders(key);
+        List<String> labels = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+        labels.add(text("\u30d5\u30a9\u30eb\u30c0\u306a\u3057", "No folder"));
+        values.add("");
+        for (String folder : folders) {
+            labels.add(folder);
+            values.add(folder);
+        }
+        labels.add(text("\u65b0\u3057\u3044\u30d5\u30a9\u30eb\u30c0...", "New folder..."));
+        values.add(null);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u79fb\u52d5\u5148", "Move to"))
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    String folder = values.get(which);
+                    if (folder == null) {
+                        showSavedFolderNameDialog(
+                                text("\u30d5\u30a9\u30eb\u30c0\u3092\u4f5c\u6210", "Create folder"),
+                                "",
+                                newFolder -> {
+                                    createSavedFolder(key, newFolder);
+                                    moveSavedItemToFolder(key, item.url, newFolder);
+                                    showSavedItemsView(key, normalizeSavedFolder(newFolder));
+                                });
+                    } else {
+                        moveSavedItemToFolder(key, item.url, folder);
+                        showSavedItemsView(key, currentFolder);
+                    }
+                })
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private void confirmDeleteSavedFolder(String key, String folder) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u30d5\u30a9\u30eb\u30c0\u3092\u524a\u9664", "Delete folder"))
+                .setMessage(text("\u30d5\u30a9\u30eb\u30c0\u3060\u3051\u524a\u9664\u3057\u3001\u4e2d\u306e\u9805\u76ee\u306f\u4e00\u89a7\u306b\u623b\u3057\u307e\u3059\u304b\uff1f",
+                        "Delete only the folder and move its items back to the main list?"))
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
+                    deleteSavedFolder(key, folder);
+                    showSavedItemsView(key);
+                })
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
     }
 
     private void toggleCurrentThreadBookmark() {
@@ -14287,10 +14653,26 @@ public class MainActivity extends Activity {
     private static class SavedItem {
         final String title;
         final String url;
+        final String folder;
 
         SavedItem(String title, String url) {
+            this(title, url, "");
+        }
+
+        SavedItem(String title, String url, String folder) {
             this.title = title;
             this.url = url;
+            this.folder = folder == null ? "" : folder;
+        }
+    }
+
+    private static class SavedPage {
+        final String key;
+        final String folder;
+
+        SavedPage(String key, String folder) {
+            this.key = key == null ? "" : key;
+            this.folder = folder == null ? "" : folder;
         }
     }
 
