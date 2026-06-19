@@ -1074,27 +1074,6 @@ public class MainActivity extends Activity {
         String clipboardLink = query.isEmpty() ? clipboardLink() : null;
         configureSuggestionsPanel(!query.isEmpty());
         if (!query.isEmpty()) {
-            int tabCount = 0;
-            for (int i = 0; i < tabs.size(); i++) {
-                CuspTab tab = tabs.get(i);
-                String title = tabSuggestionTitle(tab);
-                String url = tab.url == null ? "" : tab.url;
-                if (!title.toLowerCase(Locale.ROOT).contains(query)
-                        && !url.toLowerCase(Locale.ROOT).contains(query)) {
-                    continue;
-                }
-                int index = i;
-                TextView item = suggestionItem(text("\u30bf\u30d6", "Tab"), title);
-                item.setOnClickListener(v -> switchToTab(index));
-                if (suggestionsPanel.getChildCount() > 0) {
-                    suggestionsPanel.addView(suggestionDivider());
-                }
-                suggestionsPanel.addView(item);
-                tabCount++;
-                if (tabCount >= 6) {
-                    break;
-                }
-            }
             int bookmarkCount = 0;
             for (SavedItem bookmark : readSavedItems(PREF_THREAD_BOOKMARKS)) {
                 String title = bookmark.title == null ? "" : bookmark.title;
@@ -1115,6 +1094,27 @@ public class MainActivity extends Activity {
                 suggestionsPanel.addView(item);
                 bookmarkCount++;
                 if (bookmarkCount >= 6) {
+                    break;
+                }
+            }
+            int tabCount = 0;
+            for (int i = 0; i < tabs.size(); i++) {
+                CuspTab tab = tabs.get(i);
+                String title = tabSuggestionTitle(tab);
+                String url = tab.url == null ? "" : tab.url;
+                if (!title.toLowerCase(Locale.ROOT).contains(query)
+                        && !url.toLowerCase(Locale.ROOT).contains(query)) {
+                    continue;
+                }
+                int index = i;
+                TextView item = suggestionItem(text("\u30bf\u30d6", "Tab"), title);
+                item.setOnClickListener(v -> switchToTab(index));
+                if (suggestionsPanel.getChildCount() > 0) {
+                    suggestionsPanel.addView(suggestionDivider());
+                }
+                suggestionsPanel.addView(item);
+                tabCount++;
+                if (tabCount >= 6) {
                     break;
                 }
             }
@@ -6437,13 +6437,20 @@ public class MainActivity extends Activity {
         row.setLayoutParams(params);
         row.setOnClickListener(listener);
 
+        TextView arrow = new TextView(this);
+        arrow.setText(expanded ? "v" : ">");
+        arrow.setTextColor(TEAL);
+        arrow.setTextSize(18);
+        arrow.setGravity(Gravity.CENTER);
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.MATCH_PARENT));
+
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_folder);
         icon.setColorFilter(TEAL);
         row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
 
         TextView textView = new TextView(this);
-        textView.setText((expanded ? "\u25be " : "\u25b8 ") + label);
+        textView.setText(label);
         textView.setTextColor(textColor());
         textView.setTextSize(15);
         textView.setSingleLine(true);
@@ -6458,7 +6465,7 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(nested ? dp(26) : dp(10), dp(7), dp(8), dp(7));
+        row.setPadding(nested ? dp(58) : dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(70));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
