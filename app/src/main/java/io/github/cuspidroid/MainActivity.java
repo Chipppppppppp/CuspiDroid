@@ -1803,6 +1803,7 @@ public class MainActivity extends Activity {
                 tab.title = item.optString("title", text("\u65b0\u898f\u30bf\u30d6", "New tab"));
                 tab.url = url;
                 tab.privateBrowsing = item.optBoolean("privateBrowsing", false);
+                tab.bookmarkOverviewTab = item.optBoolean("bookmarkOverviewTab", false);
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
@@ -1966,6 +1967,7 @@ public class MainActivity extends Activity {
                 item.put("url", tab.url == null ? "" : tab.url);
                 item.put("title", tab.title == null ? "Tab" : tab.title);
                 item.put("privateBrowsing", false);
+                item.put("bookmarkOverviewTab", tab.bookmarkOverviewTab);
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
                 item.put("threadBottomOffset", tab.threadBottomOffset);
@@ -2588,6 +2590,10 @@ public class MainActivity extends Activity {
     }
 
     private void openInCurrentTab(String url, boolean addHistory) {
+        openInCurrentTab(url, addHistory, false);
+    }
+
+    private void openInCurrentTab(String url, boolean addHistory, boolean bookmarkOverviewTab) {
         if (pendingNewTab) {
             openPendingNewTabUrl(url);
             return;
@@ -2597,6 +2603,7 @@ public class MainActivity extends Activity {
             createTab(url, true);
             return;
         }
+        tab.bookmarkOverviewTab = bookmarkOverviewTab;
         if (isInternalPageUrl(url)) {
             if (addHistory) {
                 recordNavigation(tab, url);
@@ -5836,7 +5843,7 @@ public class MainActivity extends Activity {
         boolean any = false;
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
-            if (tab.privateBrowsing == privateSection) {
+            if (tab.privateBrowsing == privateSection && !tab.bookmarkOverviewTab) {
                 list.addView(tabOverviewRow(tab, i));
                 any = true;
             }
@@ -6590,7 +6597,7 @@ public class MainActivity extends Activity {
         tabOverviewVisible = false;
         tabOverviewScrollY = 0;
         pendingHistoryAll = false;
-        openInCurrentTab(item.url);
+        openInCurrentTab(item.url, true, true);
         renderTabs();
     }
 
@@ -15219,6 +15226,7 @@ public class MainActivity extends Activity {
         int returnToIndex = -1;
         boolean backToNewTab;
         boolean privateBrowsing;
+        boolean bookmarkOverviewTab;
         boolean readerMode;
         List<String> navigationHistory = new ArrayList<>();
         int navigationIndex = -1;
