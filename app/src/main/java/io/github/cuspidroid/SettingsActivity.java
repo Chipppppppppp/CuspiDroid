@@ -27,6 +27,8 @@ import android.widget.Toast;
 
 public class SettingsActivity extends Activity {
     private static final int REQUEST_CHMATE_DATABASE = 4201;
+    private static final int REQUEST_CUSPIDROID_BACKUP_CREATE = 4202;
+    private static final int REQUEST_CUSPIDROID_BACKUP_RESTORE = 4203;
     private static final int TEXT = Color.rgb(31, 41, 55);
     private static final int MUTED = Color.rgb(79, 91, 103);
     private static final int SURFACE = Color.rgb(247, 248, 250);
@@ -460,6 +462,16 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u8868\u793a\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3059", "Restore display, search, gesture, and related settings"),
                 v -> confirmResetDefaults()));
 
+        root.addView(managementRow(android.R.drawable.ic_menu_save,
+                MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u4f5c\u6210", "Create CuspiDroid backup"),
+                MainActivity.text("\u8a2d\u5b9a\u3001\u30bf\u30d6\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092zip\u306b\u4fdd\u5b58", "Save settings, tabs, bookmarks, history, and read positions to a zip"),
+                v -> createCuspiDroidBackup()));
+
+        root.addView(managementRow(android.R.drawable.ic_menu_upload,
+                MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u304b\u3089\u5fa9\u5143", "Restore CuspiDroid backup"),
+                MainActivity.text("CuspiDroid\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u304b\u3089\u8a2d\u5b9a\u3068\u30c7\u30fc\u30bf\u3092\u5fa9\u5143", "Restore settings and data from a CuspiDroid backup zip"),
+                v -> confirmChooseCuspiDroidBackup()));
+
         root.addView(managementRow(android.R.drawable.ic_menu_upload,
                 MainActivity.text("ChMate\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u304b\u3089\u5fa9\u5143", "Restore from ChMate backup"),
                 MainActivity.text("ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u304b\u3089\u30b9\u30ec\u60c5\u5831\u3092\u30de\u30fc\u30b8", "Merge thread data from a ChMate backup zip"),
@@ -472,6 +484,10 @@ public class SettingsActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CHMATE_DATABASE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             restoreChMateBackup(data.getData());
+        } else if (requestCode == REQUEST_CUSPIDROID_BACKUP_CREATE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            exportCuspiDroidBackup(data.getData());
+        } else if (requestCode == REQUEST_CUSPIDROID_BACKUP_RESTORE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            confirmRestoreCuspiDroidBackup(data.getData());
         }
     }
 
@@ -745,6 +761,95 @@ public class SettingsActivity extends Activity {
                                 + error.getMessage(), Toast.LENGTH_LONG).show());
             }
         }, "CuspiDroid-Sync2ch").start();
+    }
+
+    private void createCuspiDroidBackup() {
+        saveSettings(false);
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/zip");
+        intent.putExtra(Intent.EXTRA_TITLE, "cuspidroid-backup-" + backupTimestamp() + ".zip");
+        startActivityForResult(intent, REQUEST_CUSPIDROID_BACKUP_CREATE);
+    }
+
+    private void exportCuspiDroidBackup(Uri uri) {
+        Toast.makeText(this, MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u4f5c\u6210\u4e2d", "Creating CuspiDroid backup..."), Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                CuspiDroidBackup.exportBackup(getApplicationContext(), preferences, uri);
+                runOnUiThread(() -> Toast.makeText(this,
+                        MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u4f5c\u6210\u3057\u307e\u3057\u305f", "CuspiDroid backup created"),
+                        Toast.LENGTH_LONG).show());
+            } catch (Exception error) {
+                runOnUiThread(() -> Toast.makeText(this,
+                        MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u4f5c\u6210\u5931\u6557: ", "CuspiDroid backup failed: ")
+                                + error.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "CuspiDroid-BackupExport").start();
+    }
+
+    private void confirmChooseCuspiDroidBackup() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u304b\u3089\u5fa9\u5143", "Restore CuspiDroid backup"))
+                .setMessage(MainActivity.text(
+                        "CuspiDroid\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u3092\u9078\u629e\u3057\u307e\u3059\u3002\u5fa9\u5143\u6642\u306b\u73fe\u5728\u306e\u8a2d\u5b9a\u3001\u30bf\u30d6\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u306f\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u5185\u5bb9\u3067\u7f6e\u304d\u63db\u308f\u308a\u307e\u3059\u3002",
+                        "Choose a CuspiDroid backup zip. Restoring replaces the current settings, tabs, bookmarks, history, and read positions with the backup contents."))
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u9078\u629e", "Choose"), (d, which) -> openCuspiDroidBackupPicker())
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private void openCuspiDroidBackupPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, REQUEST_CUSPIDROID_BACKUP_RESTORE);
+    }
+
+    private void confirmRestoreCuspiDroidBackup(Uri uri) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("\u5fa9\u5143\u3057\u307e\u3059\u304b\uff1f", "Restore backup?"))
+                .setMessage(MainActivity.text(
+                        "\u73fe\u5728\u306eCuspiDroid\u306e\u30c7\u30fc\u30bf\u306f\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u306e\u5185\u5bb9\u3067\u7f6e\u304d\u63db\u308f\u308a\u307e\u3059\u3002",
+                        "Current CuspiDroid data will be replaced with the backup contents."))
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u5fa9\u5143", "Restore"), (d, which) -> restoreCuspiDroidBackup(uri))
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private void restoreCuspiDroidBackup(Uri uri) {
+        Toast.makeText(this, MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u5fa9\u5143\u4e2d", "Restoring CuspiDroid backup..."), Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                CuspiDroidBackup.Result result = CuspiDroidBackup.importBackup(getApplicationContext(), preferences, uri);
+                preferences.edit().putLong(MainActivity.PREF_LOCAL_BACKUP_RESTORED_AT, System.currentTimeMillis()).apply();
+                runOnUiThread(() -> {
+                    loadSettings();
+                    updateMediaDependentSettings();
+                    updateTreeDependentSettings();
+                    updateCacheDependentSettings();
+                    updateCacheUsage();
+                    Toast.makeText(this,
+                            MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u5fa9\u5143\u3057\u307e\u3057\u305f", "CuspiDroid backup restored")
+                                    + "\n" + MainActivity.text("\u5fa9\u5143\u9805\u76ee: ", "Restored entries: ")
+                                    + result.restoredPreferences,
+                            Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> Toast.makeText(this,
+                        MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u5fa9\u5143\u5931\u6557: ", "CuspiDroid restore failed: ")
+                                + error.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "CuspiDroid-BackupRestore").start();
+    }
+
+    private String backupTimestamp() {
+        return new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                .format(new java.util.Date());
     }
 
     private void showChMateRestoreHelp() {

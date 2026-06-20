@@ -187,6 +187,7 @@ public class MainActivity extends Activity {
     static final String PREF_SYNC2CH_SYNC_NUMBER = "sync2ch_sync_number";
     static final String PREF_SYNC2CH_CLIENT_ID = "sync2ch_client_id";
     static final String PREF_SYNC2CH_UPDATED_AT = "sync2ch_updated_at";
+    static final String PREF_LOCAL_BACKUP_RESTORED_AT = "local_backup_restored_at";
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
@@ -297,6 +298,7 @@ public class MainActivity extends Activity {
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
     private long appliedSync2chUpdateAt;
+    private long appliedLocalBackupRestoreAt;
     private ScrollView dragAutoScrollView;
     private Runnable dragAutoScrollTask;
     private int dragAutoScrollDelta;
@@ -549,6 +551,7 @@ public class MainActivity extends Activity {
         migrateFavoriteBoardsToBookmarks();
         appliedThemeMode = themeMode();
         appliedSync2chUpdateAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
+        appliedLocalBackupRestoreAt = preferences.getLong(PREF_LOCAL_BACKUP_RESTORED_AT, 0L);
         buildLayout();
         contentFrame.addView(loadingView(""));
         scheduleTabUnload();
@@ -612,6 +615,17 @@ public class MainActivity extends Activity {
                 } else {
                     renderTabs();
                 }
+            }
+        }
+        long backupRestoredAt = preferences.getLong(PREF_LOCAL_BACKUP_RESTORED_AT, 0L);
+        if (backupRestoredAt != appliedLocalBackupRestoreAt) {
+            appliedLocalBackupRestoreAt = backupRestoredAt;
+            appliedThemeMode = themeMode();
+            buildLayout();
+            if (restoreTabs() && currentIndex >= 0 && currentIndex < tabs.size()) {
+                switchToTab(currentIndex);
+            } else {
+                showPendingNewTab();
             }
         }
         scheduleTabUnload();
