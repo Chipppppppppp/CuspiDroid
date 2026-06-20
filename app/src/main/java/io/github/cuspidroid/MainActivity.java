@@ -1101,26 +1101,28 @@ public class MainActivity extends Activity {
         configureSuggestionsPanel(!query.isEmpty());
         if (!query.isEmpty()) {
             int bookmarkCount = 0;
-            for (SavedItem bookmark : readSavedItems(PREF_THREAD_BOOKMARKS)) {
-                String title = bookmark.title == null ? "" : bookmark.title;
-                String url = bookmark.url == null ? "" : bookmark.url;
-                if (!title.toLowerCase(Locale.ROOT).contains(query)
-                        && !url.toLowerCase(Locale.ROOT).contains(query)) {
-                    continue;
-                }
-                TextView item = suggestionItem(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), title);
-                item.setOnClickListener(v -> {
-                    addressBar.setText(url);
-                    addressBar.setSelection(addressBar.getText().length());
-                    openFromAddressBar();
-                });
-                if (suggestionsPanel.getChildCount() > 0) {
-                    suggestionsPanel.addView(suggestionDivider());
-                }
-                suggestionsPanel.addView(item);
-                bookmarkCount++;
-                if (bookmarkCount >= 6) {
-                    break;
+            if (!showBookmarksInTabOverview()) {
+                for (SavedItem bookmark : readSavedItems(PREF_THREAD_BOOKMARKS)) {
+                    String title = bookmark.title == null ? "" : bookmark.title;
+                    String url = bookmark.url == null ? "" : bookmark.url;
+                    if (!title.toLowerCase(Locale.ROOT).contains(query)
+                            && !url.toLowerCase(Locale.ROOT).contains(query)) {
+                        continue;
+                    }
+                    TextView item = suggestionItem(text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), title);
+                    item.setOnClickListener(v -> {
+                        addressBar.setText(url);
+                        addressBar.setSelection(addressBar.getText().length());
+                        openFromAddressBar();
+                    });
+                    if (suggestionsPanel.getChildCount() > 0) {
+                        suggestionsPanel.addView(suggestionDivider());
+                    }
+                    suggestionsPanel.addView(item);
+                    bookmarkCount++;
+                    if (bookmarkCount >= 6) {
+                        break;
+                    }
                 }
             }
             int tabCount = 0;
@@ -5913,7 +5915,8 @@ public class MainActivity extends Activity {
         }
         String movingKey = bookmarkNodeDragValue(payload.key);
         if (movingKey.startsWith("I:")) {
-            int bookmarkIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, movingKey.substring(2));
+            SavedItem item = savedItemByBookmarkKey(movingKey);
+            int bookmarkIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, item);
             if (bookmarkIndex >= 0) {
                 moveBookmarkToTabsFromOverview(bookmarkIndex, index);
                 return true;
@@ -6583,7 +6586,7 @@ public class MainActivity extends Activity {
         tab.readerView = loadingView("");
         int insert = Math.max(0, Math.min(to, tabs.size()));
         tabs.add(insert, tab);
-        removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
+        removeSavedItem(PREF_THREAD_BOOKMARKS, item);
         if (currentIndex >= insert) {
             currentIndex++;
         }
@@ -6886,7 +6889,7 @@ public class MainActivity extends Activity {
                         "Delete this item from bookmarks?"))
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
-                    removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
+                    removeSavedItem(PREF_THREAD_BOOKMARKS, item);
                     refreshHomeBookmarksOrCurrentView();
                 })
                 .create();
@@ -7079,7 +7082,7 @@ public class MainActivity extends Activity {
     }
 
     private View bookmarkOverviewItemRow(SavedItem item, int indentLevel) {
-        int itemIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, item.url);
+        int itemIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, item);
         CuspTab tab = bookmarkOverviewTab(item);
         FrameLayout shell = tabOverviewRowShell(tab, bookmarkOverviewItemSelected(item),
                 (v, event) -> {
@@ -7240,6 +7243,19 @@ public class MainActivity extends Activity {
         return -1;
     }
 
+    private int savedItemIndex(String key, SavedItem target) {
+        if (target == null) {
+            return -1;
+        }
+        List<SavedItem> items = readSavedItems(key);
+        for (int i = 0; i < items.size(); i++) {
+            if (sameSavedItem(items.get(i), target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private void attachBookmarkOverviewSwipe(View row, View deleteLeft, View deleteRight, SavedItem item, View shell) {
         final float[] downX = new float[1];
         final float[] downY = new float[1];
@@ -7293,7 +7309,7 @@ public class MainActivity extends Activity {
         }
         showBookmarkClosedUndo(item);
         syncClosedTabUndoBar();
-        removeSavedItem(PREF_THREAD_BOOKMARKS, item.url);
+        removeSavedItem(PREF_THREAD_BOOKMARKS, item);
         if (rowView == null || rowView.getParent() == null) {
             refreshTabOverview();
         } else {
@@ -7302,14 +7318,14 @@ public class MainActivity extends Activity {
     }
 
     private void showBookmarkClosedUndo(SavedItem item) {
-        ClosedTab closed = new ClosedTab(item, savedItemIndex(PREF_THREAD_BOOKMARKS, item.url));
+        ClosedTab closed = new ClosedTab(item, savedItemIndex(PREF_THREAD_BOOKMARKS, item));
         showClosedTabUndo(closed);
     }
 
     private void restoreDeletedBookmark(SavedItem item, int index) {
         List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
         for (SavedItem existing : items) {
-            if (sameSavedUrl(existing.url, item.url)) {
+            if (sameSavedItem(existing, item)) {
                 return;
             }
         }
@@ -7342,12 +7358,12 @@ public class MainActivity extends Activity {
     private void addBookmarkFromTab(CuspTab tab, String folder, int beforeItemIndex) {
         List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
         String url = tab.url;
+        folder = normalizeSavedFolder(folder);
         for (int i = items.size() - 1; i >= 0; i--) {
-            if (sameSavedUrl(items.get(i).url, url)) {
+            if (sameSavedItem(items.get(i), url, folder)) {
                 items.remove(i);
             }
         }
-        folder = normalizeSavedFolder(folder);
         String title = tab.title == null || tab.title.trim().isEmpty() ? hostTitle(url) : tab.title;
         SavedItem added = new SavedItem(cleanTitle(title, url), url, folder);
         int insert = 0;
@@ -7359,7 +7375,7 @@ public class MainActivity extends Activity {
             }
             insert = items.size();
             for (int i = 0; i < items.size(); i++) {
-                if (sameSavedUrl(items.get(i).url, beforeUrl)) {
+                if (sameSavedItem(items.get(i), beforeUrl, folder)) {
                     insert = i;
                     break;
                 }
@@ -7482,6 +7498,16 @@ public class MainActivity extends Activity {
 
     private boolean sameSavedUrl(String left, String right) {
         return trimSlash(normalizeUrl(left)).equals(trimSlash(normalizeUrl(right)));
+    }
+
+    private boolean sameSavedItem(SavedItem left, SavedItem right) {
+        return right != null && sameSavedItem(left, right.url, right.folder);
+    }
+
+    private boolean sameSavedItem(SavedItem item, String url, String folder) {
+        return item != null
+                && sameSavedUrl(item.url, url)
+                && normalizeSavedFolder(item.folder).equals(normalizeSavedFolder(folder));
     }
 
     private void refreshTabOverview() {
@@ -14647,8 +14673,8 @@ public class MainActivity extends Activity {
         }
         List<String> order = bookmarkOrder(parent);
         Collections.sort(nodes, (left, right) -> {
-            int li = order.indexOf(left.orderKey());
-            int ri = order.indexOf(right.orderKey());
+            int li = bookmarkOrderIndex(order, left);
+            int ri = bookmarkOrderIndex(order, right);
             if (li < 0) {
                 li = Integer.MAX_VALUE;
             }
@@ -14661,6 +14687,14 @@ public class MainActivity extends Activity {
             return left.label().compareToIgnoreCase(right.label());
         });
         return nodes;
+    }
+
+    private int bookmarkOrderIndex(List<String> order, BookmarkNode node) {
+        int index = order.indexOf(node.orderKey());
+        if (index < 0 && node != null && !node.folderNode && node.item != null) {
+            index = order.indexOf(legacyBookmarkItemKey(node.item.url));
+        }
+        return index;
     }
 
     private List<String> bookmarkOrder(String parent) {
@@ -14702,18 +14736,20 @@ public class MainActivity extends Activity {
             return;
         }
         if (movingKey.startsWith("I:")) {
-            String url = movingKey.substring(2);
-            SavedItem item = savedItemByUrl(PREF_THREAD_BOOKMARKS, url);
+            SavedItem item = savedItemByBookmarkKey(movingKey);
             if (item == null) {
                 return;
             }
+            String url = item.url;
+            String oldKey = itemBookmarkOrderKey(item);
             String oldParent = normalizeSavedFolder(item.folder);
             if (oldParent.equals(targetFolder)) {
                 return;
             }
-            moveSavedItemToFolder(PREF_THREAD_BOOKMARKS, url, targetFolder);
-            appendBookmarkOrder(targetFolder, "I:" + url);
-            removeBookmarkOrderEntry(oldParent, "I:" + url);
+            moveSavedItemToFolder(PREF_THREAD_BOOKMARKS, url, oldParent, targetFolder);
+            appendBookmarkOrder(targetFolder, itemBookmarkOrderKey(url, targetFolder));
+            removeBookmarkOrderEntry(oldParent, oldKey);
+            removeBookmarkOrderEntry(oldParent, legacyBookmarkItemKey(url));
             return;
         }
         if (movingKey.startsWith("F:")) {
@@ -14844,7 +14880,7 @@ public class MainActivity extends Activity {
             return "";
         }
         if (key.startsWith("I:")) {
-            SavedItem item = savedItemByUrl(PREF_THREAD_BOOKMARKS, key.substring(2));
+            SavedItem item = savedItemByBookmarkKey(key);
             return item == null ? "" : normalizeSavedFolder(item.folder);
         }
         if (key.startsWith("F:")) {
@@ -14858,7 +14894,8 @@ public class MainActivity extends Activity {
             return "";
         }
         if (originalKey.startsWith("I:")) {
-            return originalKey;
+            SavedItem item = savedItemByBookmarkKey(originalKey);
+            return item == null ? "" : itemBookmarkOrderKey(item.url, targetParent);
         }
         if (originalKey.startsWith("F:")) {
             return "F:" + childSavedFolderPath(targetParent, savedFolderDisplayName(originalKey.substring(2)));
@@ -14873,6 +14910,25 @@ public class MainActivity extends Activity {
             }
         }
         return null;
+    }
+
+    private SavedItem savedItemByBookmarkKey(String bookmarkKey) {
+        if (bookmarkKey == null || !bookmarkKey.startsWith("I:")) {
+            return null;
+        }
+        String value = bookmarkKey.substring(2);
+        int sep = value.indexOf('\n');
+        if (sep >= 0) {
+            String folder = normalizeSavedFolder(value.substring(0, sep));
+            String url = value.substring(sep + 1);
+            for (SavedItem item : readSavedItems(PREF_THREAD_BOOKMARKS)) {
+                if (folder.equals(normalizeSavedFolder(item.folder)) && sameSavedUrl(item.url, url)) {
+                    return item;
+                }
+            }
+            return null;
+        }
+        return savedItemByUrl(PREF_THREAD_BOOKMARKS, value);
     }
 
     private boolean savedItemExists(String key, String url) {
@@ -14924,6 +14980,18 @@ public class MainActivity extends Activity {
     private String bookmarkNodeDragValue(String dragKey) {
         return dragKey != null && dragKey.startsWith("bookmark-node:")
                 ? dragKey.substring("bookmark-node:".length()) : "";
+    }
+
+    private String itemBookmarkOrderKey(SavedItem item) {
+        return item == null ? "I:" : itemBookmarkOrderKey(item.url, item.folder);
+    }
+
+    private String itemBookmarkOrderKey(String url, String folder) {
+        return "I:" + normalizeSavedFolder(folder) + "\n" + (url == null ? "" : url.trim());
+    }
+
+    private String legacyBookmarkItemKey(String url) {
+        return "I:" + (url == null ? "" : url.trim());
     }
 
     private String savedPageToken(String key, String folder) {
@@ -14989,12 +15057,31 @@ public class MainActivity extends Activity {
         writeSavedItems(key, items);
     }
 
-    private void moveSavedItemToFolder(String key, String url, String folder) {
+    private void removeSavedItem(String key, SavedItem target) {
+        if (target == null) {
+            return;
+        }
         List<SavedItem> items = readSavedItems(key);
+        for (int i = items.size() - 1; i >= 0; i--) {
+            if (sameSavedItem(items.get(i), target)) {
+                items.remove(i);
+                break;
+            }
+        }
+        writeSavedItems(key, items);
+    }
+
+    private void moveSavedItemToFolder(String key, String url, String folder) {
+        moveSavedItemToFolder(key, url, null, folder);
+    }
+
+    private void moveSavedItemToFolder(String key, String url, String oldFolder, String folder) {
+        List<SavedItem> items = readSavedItems(key);
+        oldFolder = oldFolder == null ? null : normalizeSavedFolder(oldFolder);
         folder = normalizeSavedFolder(folder);
         for (int i = 0; i < items.size(); i++) {
             SavedItem item = items.get(i);
-            if (url.equals(item.url)) {
+            if (url.equals(item.url) && (oldFolder == null || oldFolder.equals(normalizeSavedFolder(item.folder)))) {
                 items.set(i, new SavedItem(item.title, item.url, folder));
                 break;
             }
@@ -15163,7 +15250,7 @@ public class MainActivity extends Activity {
                         "Delete this item from the list?"))
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> {
-                    removeSavedItem(key, item.url);
+                    removeSavedItem(key, item);
                     showSavedItemsView(key, folder);
                 })
                 .create();
@@ -16541,7 +16628,8 @@ public class MainActivity extends Activity {
         }
 
         String orderKey() {
-            return folderNode ? "F:" + folder : "I:" + (item == null ? "" : item.url);
+            return folderNode ? "F:" + folder
+                    : "I:" + (item == null ? "" : item.folder) + "\n" + (item == null ? "" : item.url);
         }
 
         String label() {
