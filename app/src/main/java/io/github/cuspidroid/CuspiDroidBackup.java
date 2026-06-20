@@ -42,6 +42,14 @@ final class CuspiDroidBackup {
             writeRawPreferenceJson(zip, "read_posts.json", preferences, MainActivity.PREF_READ_POSTS, "{}");
             writeRawPreferenceJson(zip, "tabs.json", preferences, MainActivity.PREF_TABS, "");
             writeRawPreferenceJson(zip, "upload_history.json", preferences, MainActivity.PREF_IMGBB_UPLOADS, "[]");
+            writeJson(zip, "prefs/cuspidroid_settings.json", prefs);
+            writeRawPreferenceJson(zip, "files/bookmarks.json", preferences, MainActivity.PREF_THREAD_BOOKMARKS, "[]");
+            writeRawPreferenceJson(zip, "files/history.json", preferences, MainActivity.PREF_HISTORY, "[]");
+            writeRawPreferenceJson(zip, "files/readPosts.json", preferences, MainActivity.PREF_READ_POSTS, "{}");
+            writeRawPreferenceJson(zip, "files/tabs.json", preferences, MainActivity.PREF_TABS, "");
+            writeRawPreferenceJson(zip, "files/uploadHistory.json", preferences, MainActivity.PREF_IMGBB_UPLOADS, "[]");
+            writeRawPreferenceJson(zip, "files/myPosts.json", preferences, MainActivity.PREF_MY_POSTS, "{}");
+            writePostDataList(zip, preferences);
         }
     }
 
@@ -165,6 +173,37 @@ final class CuspiDroidBackup {
         ZipEntry entry = new ZipEntry(name);
         zip.putNextEntry(entry);
         zip.write(object.toString(2).getBytes(StandardCharsets.UTF_8));
+        zip.closeEntry();
+    }
+
+    private static void writePostDataList(ZipOutputStream zip, SharedPreferences preferences) throws Exception {
+        JSONObject source = new JSONObject(preferences.getString(MainActivity.PREF_MY_POSTS, "{}"));
+        JSONArray array = new JSONArray();
+        java.util.Iterator<String> urls = source.keys();
+        while (urls.hasNext()) {
+            String url = urls.next();
+            JSONArray hashes = source.optJSONArray(url);
+            if (hashes == null) {
+                continue;
+            }
+            for (int i = 0; i < hashes.length(); i++) {
+                String hash = hashes.optString(i, "");
+                if (hash.isEmpty()) {
+                    continue;
+                }
+                JSONObject item = new JSONObject();
+                item.put("url", url);
+                item.put("body", "");
+                item.put("bodyHash", hash);
+                item.put("posted", 0);
+                item.put("title", "");
+                item.put("targetTitle", "");
+                array.put(item);
+            }
+        }
+        ZipEntry entry = new ZipEntry("files/postDataList.json");
+        zip.putNextEntry(entry);
+        zip.write(array.toString(2).getBytes(StandardCharsets.UTF_8));
         zip.closeEntry();
     }
 

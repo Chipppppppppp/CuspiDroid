@@ -858,9 +858,9 @@ public class SettingsActivity extends Activity {
                 .setTitle(MainActivity.text("ChMate\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u304b\u3089\u5fa9\u5143", "Restore from ChMate backup"))
                 .setMessage(MainActivity.text(
                         "ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u30d5\u30a1\u30a4\u30eb\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002zip\u5185\u306e databases/roidon.sqlite \u3068 dat \u30d5\u30a1\u30a4\u30eb\u3092\u8aad\u307f\u53d6\u308a\u307e\u3059\u3002\n\n"
-                                + "\u8a2d\u5b9a\u306f\u5fa9\u5143\u305b\u305a\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092\u73fe\u5728\u306e\u30c7\u30fc\u30bf\u306b\u8ffd\u52a0\u30fb\u30de\u30fc\u30b8\u3057\u307e\u3059\u3002",
+                                + "\u8a2d\u5b9a\u306f\u5fa9\u5143\u305b\u305a\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001files/postDataList.json \u306e\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u73fe\u5728\u306e\u30c7\u30fc\u30bf\u306b\u8ffd\u52a0\u30fb\u30de\u30fc\u30b8\u3057\u307e\u3059\u3002",
                         "Select the ChMate backup zip file. databases/roidon.sqlite and dat files inside the zip are read.\n\n"
-                                + "Settings are not restored. Bookmarks, history, and read positions are added and merged into the current data."))
+                                + "Settings are not restored. Bookmarks, history, read positions, and post history from files/postDataList.json are added and merged into the current data."))
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(MainActivity.text("\u9078\u629e", "Choose"), (d, which) -> openChMateDatabasePicker())
                 .create();
@@ -886,6 +886,7 @@ public class SettingsActivity extends Activity {
                                 + "  " + MainActivity.text("\u5c65\u6b74: ", "History: ") + result.addedHistory
                                 + "\n" + MainActivity.text("\u65e2\u8aad\u66f4\u65b0: ", "Read positions: ") + result.updatedReadPositions
                                 + "  " + MainActivity.text("\u30bf\u30d6: ", "Tabs: ") + result.addedTabs
+                                + "\n" + MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74: ", "Post history: ") + result.addedPostHistory
                                 + "\n" + MainActivity.text("\u5fa9\u5143\u3067\u304d\u306a\u304b\u3063\u305f\u30b9\u30ec: ", "Skipped threads: ") + result.skippedThreads,
                         Toast.LENGTH_LONG).show());
             } catch (Exception error) {

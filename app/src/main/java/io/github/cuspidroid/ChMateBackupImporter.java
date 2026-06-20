@@ -16,6 +16,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -43,6 +45,7 @@ final class ChMateBackupImporter {
             database = SQLiteDatabase.openDatabase(backupFiles.database.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
             Result result = new Result();
             importThreads(database, preferences, backupFiles.datHosts, result);
+            importPostDataList(preferences, backupFiles.postDataList, result);
             return result;
         } finally {
             if (database != null) {
@@ -89,6 +92,8 @@ final class ChMateBackupImporter {
                     walkTree(context, treeUri, childId, backupFiles);
                 } else if ("roidon.sqlite".equalsIgnoreCase(name)) {
                     backupFiles.database = copyToTempDatabase(context, childUri);
+                } else if ("postDataList.json".equalsIgnoreCase(name)) {
+                    backupFiles.postDataList = readPostDataList(readBytes(context, childUri, 8 * 1024 * 1024));
                 } else if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".dat")) {
                     readDatHost(context, childUri, name, backupFiles);
                 }
@@ -134,6 +139,9 @@ final class ChMateBackupImporter {
                 if (lower.endsWith("/databases/roidon.sqlite") || lower.equals("databases/roidon.sqlite")
                         || lower.endsWith("roidon.sqlite")) {
                     backupFiles.database = copyZipEntryToTempDatabase(context, zip);
+                } else if (lower.endsWith("/files/postdatalist.json") || lower.equals("files/postdatalist.json")
+                        || lower.endsWith("postdatalist.json")) {
+                    backupFiles.postDataList = readPostDataList(readZipEntryBytes(zip, 8 * 1024 * 1024));
                 } else if (lower.contains("/dat/") && lower.endsWith(".dat") || lower.startsWith("dat/") && lower.endsWith(".dat")) {
                     readDatHost(readZipEntryBytes(zip, 512 * 1024), displayName, backupFiles);
                 }
@@ -323,6 +331,49 @@ final class ChMateBackupImporter {
                 .apply();
     }
 
+    private static void importPostDataList(SharedPreferences preferences, JSONArray postDataList, Result result) {
+        if (postDataList == null || postDataList.length() == 0) {
+            return;
+        }
+        try {
+            JSONObject myPosts = jsonObject(preferences.getString(MainActivity.PREF_MY_POSTS, "{}"));
+            for (int i = 0; i < postDataList.length(); i++) {
+                JSONObject item = postDataList.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String url = item.optString("url", "").trim();
+                String hash = postBodyHash(item.optString("body", ""));
+                if (isBlank(url) || isBlank(hash)) {
+                    continue;
+                }
+                JSONArray old = myPosts.optJSONArray(url);
+                JSONArray next = new JSONArray();
+                next.put(hash);
+                boolean exists = false;
+                if (old != null) {
+                    for (int j = 0; j < old.length() && next.length() < 80; j++) {
+                        String value = old.optString(j, "");
+                        if (hash.equals(value)) {
+                            exists = true;
+                        } else if (!isBlank(value)) {
+                            next.put(value);
+                        }
+                    }
+                }
+                if (!exists) {
+                    result.addedPostHistory++;
+                }
+                myPosts.put(url, next);
+            }
+            preferences.edit()
+                    .putString(MainActivity.PREF_MY_POSTS, myPosts.toString())
+                    .putLong(MainActivity.PREF_SYNC2CH_UPDATED_AT, System.currentTimeMillis())
+                    .apply();
+        } catch (Exception ignored) {
+        }
+    }
+
     private static boolean shouldRestoreAsTab(int flag) {
         return (flag & 4) != 0;
     }
@@ -491,6 +542,56 @@ final class ChMateBackupImporter {
         }
     }
 
+    private static JSONArray readPostDataList(byte[] bytes) {
+        try {
+            return new JSONArray(new String(bytes == null ? new byte[0] : bytes, StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            return new JSONArray();
+        }
+    }
+
+    private static String postBodyHash(String body) {
+        String normalized = normalizeOwnPostBody(body);
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(normalized.getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte value : bytes) {
+                builder.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+            }
+            return builder.toString();
+        } catch (Exception ignored) {
+            return normalized;
+        }
+    }
+
+    private static String normalizeOwnPostBody(String body) {
+        if (body == null) {
+            return "";
+        }
+        return stripHtml(body).replace("\r\n", "\n").replace('\r', '\n').trim();
+    }
+
+    private static String stripHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("<br>", "\n")
+                .replace("<br/>", "\n")
+                .replace("<br />", "\n")
+                .replaceAll("<[^>]+>", "")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .trim();
+    }
+
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
     }
@@ -501,11 +602,13 @@ final class ChMateBackupImporter {
         int addedTabs;
         int updatedReadPositions;
         int skippedThreads;
+        int addedPostHistory;
     }
 
     private static final class BackupFiles {
         File database;
         final JSONObject datHosts = new JSONObject();
+        JSONArray postDataList = new JSONArray();
 
         void delete() {
             if (database != null) {
