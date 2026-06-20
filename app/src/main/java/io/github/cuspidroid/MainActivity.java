@@ -239,6 +239,9 @@ public class MainActivity extends Activity {
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
     private static final float AA_SCORE_PER_LINE_THRESHOLD = 0.5f;
+    private static final int AA_SCORE_MIN = 5;
+    private static final Pattern AA_LEADING_DOT_SPACE_PATTERN = Pattern.compile("^[.\\uFF0E]*[\\s\\p{Zs}\\u2028\\u2029]+");
+    private static final Pattern AA_DOUBLE_SPACE_PATTERN = Pattern.compile("[\\s\\p{Zs}\\u2028\\u2029]{2,}");
     private static final int POST_OUTER_GAP_DP = 4;
 
     private final List<CuspTab> tabs = new ArrayList<>();
@@ -8507,12 +8510,14 @@ public class MainActivity extends Activity {
                 continue;
             }
             lineCount++;
-            int bodyStart = bodyStartAfterLeadingDotsAndSpaces(line);
-            if (bodyStart >= 0) {
+            Matcher leading = AA_LEADING_DOT_SPACE_PATTERN.matcher(line);
+            boolean leadingMatch = leading.find();
+            int bodyStart = leadingMatch ? leading.end() : 0;
+            if (leadingMatch) {
                 score += 2;
                 leadingDotSpaceScore += 2;
             }
-            if (hasDoubleSpaceRun(bodyStart >= 0 ? line.substring(bodyStart) : line)) {
+            if (AA_DOUBLE_SPACE_PATTERN.matcher(line.substring(bodyStart)).find()) {
                 score++;
                 doubleSpaceScore++;
             }
@@ -8521,59 +8526,9 @@ public class MainActivity extends Activity {
             return new AaDebugMetrics(false, "no-lines", 0, 0, 0, 0, 0f);
         }
         float ratio = score / (float) lineCount;
-        boolean aa = ratio > AA_SCORE_PER_LINE_THRESHOLD;
+        boolean aa = score >= AA_SCORE_MIN && ratio > AA_SCORE_PER_LINE_THRESHOLD;
         return new AaDebugMetrics(aa, aa ? "score-ratio" : "below",
                 lineCount, score, leadingDotSpaceScore, doubleSpaceScore, ratio);
-    }
-
-    private static int bodyStartAfterLeadingDotsAndSpaces(String line) {
-        boolean sawSpace = false;
-        int i = 0;
-        while (i < line.length()) {
-            int codePoint = line.codePointAt(i);
-            if (isAaSpaceChar(codePoint)) {
-                sawSpace = true;
-                i += Character.charCount(codePoint);
-                continue;
-            }
-            if (sawSpace) {
-                break;
-            }
-            if (codePoint == '.' || codePoint == '\uff0e') {
-                i += Character.charCount(codePoint);
-                continue;
-            }
-            return -1;
-        }
-        return sawSpace ? i : -1;
-    }
-
-    private static boolean hasDoubleSpaceRun(String line) {
-        boolean previousSpace = false;
-        for (int i = 0; i < line.length(); ) {
-            int codePoint = line.codePointAt(i);
-            boolean currentSpace = isAaSpaceChar(codePoint);
-            if (previousSpace && currentSpace) {
-                return true;
-            }
-            previousSpace = currentSpace;
-            i += Character.charCount(codePoint);
-        }
-        return false;
-    }
-
-    private static boolean isAaSpaceChar(int codePoint) {
-        if (Character.isWhitespace(codePoint)) {
-            return true;
-        }
-        switch (Character.getType(codePoint)) {
-            case Character.SPACE_SEPARATOR:
-            case Character.LINE_SEPARATOR:
-            case Character.PARAGRAPH_SEPARATOR:
-                return true;
-            default:
-                return false;
-        }
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
@@ -16297,9 +16252,10 @@ public class MainActivity extends Activity {
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) lines=%d score=%d ratio=%.2f leading-dot-space=%d double-space-lines=%d | threshold: ratio>%.2f",
+                    "AA debug: %s (%s) lines=%d score=%d ratio=%.2f leading-dot-space=%d double-space-lines=%d | threshold: score>=%d & ratio>%.2f",
                     aa ? "YES" : "NO", reason, lineCount, score, ratio,
                     leadingDotSpaceScore, doubleSpaceScore,
+                    AA_SCORE_MIN,
                     AA_SCORE_PER_LINE_THRESHOLD);
         }
     }
