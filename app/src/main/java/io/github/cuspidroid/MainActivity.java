@@ -155,7 +155,16 @@ public class MainActivity extends Activity {
     static final String PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW = "show_bookmarks_in_tab_overview";
     static final String PREF_SHOW_HISTORY_ON_HOME = "show_history_on_home";
     static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
+    static final String PREF_BOARD_THREAD_SORT_KEY = "board_thread_sort_key";
+    static final String PREF_BOARD_THREAD_SORT_DESC = "board_thread_sort_desc";
+    static final String PREF_BOARD_SHOW_RESPONSES = "board_show_responses";
+    static final String PREF_BOARD_SHOW_VELOCITY = "board_show_velocity";
+    static final String PREF_BOARD_SHOW_ORDER = "board_show_order";
+    static final String PREF_BOARD_SHOW_CREATED = "board_show_created";
+    static final String PREF_BOARD_SHOW_UNREAD = "board_show_unread";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
+    static final String PREF_WRITE_NAME_HISTORY = "write_name_history";
+    static final String PREF_WRITE_MAIL_HISTORY = "write_mail_history";
     static final String PREF_DISABLE_HISTORY = "disable_history";
     static final String PREF_GESTURES_ENABLED = "gestures_enabled";
     static final String PREF_GESTURE_SENSITIVITY = "gesture_sensitivity";
@@ -191,6 +200,11 @@ public class MainActivity extends Activity {
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
+    static final String BOARD_SORT_RESPONSES = "responses";
+    static final String BOARD_SORT_VELOCITY = "velocity";
+    static final String BOARD_SORT_ORDER = "order";
+    static final String BOARD_SORT_CREATED = "created";
+    static final String BOARD_SORT_UNREAD = "unread";
     private static final String HOME_BOOKMARK_SECTION_TAG = "home_bookmark_section";
     private static final String CLOSED_TAB_UNDO_TAG = "closed_tab_undo";
     static final String PREF_HISTORY = "thread_history";
@@ -2369,6 +2383,9 @@ public class MainActivity extends Activity {
             item.put("responses", result.responses);
             item.put("velocity", result.velocity);
             item.put("boardOrder", result.boardOrder);
+            item.put("createdAt", result.createdAt);
+            item.put("unread", result.unread);
+            item.put("boardName", result.boardName == null ? "" : result.boardName);
             if (result.priorityMatch != null) {
                 JSONObject priority = new JSONObject();
                 priority.put("value", result.priorityMatch.value);
@@ -2403,6 +2420,9 @@ public class MainActivity extends Activity {
                 result.responses = item.optInt("responses", 0);
                 result.velocity = item.optDouble("velocity", 0d);
                 result.boardOrder = item.optInt("boardOrder", i);
+                result.createdAt = item.optLong("createdAt", 0L);
+                result.unread = item.optInt("unread", 0);
+                result.boardName = item.optString("boardName", "");
                 Object priority = item.opt("priorityMatch");
                 if (priority instanceof JSONObject) {
                     JSONObject priorityObject = (JSONObject) priority;
@@ -4685,7 +4705,9 @@ public class MainActivity extends Activity {
         row.addView(resultTitle);
 
         TextView meta = new TextView(this);
-        meta.setText(styledResultMeta(result.meta));
+        String metaValue = result != null && result.boardName != null && !result.boardName.isEmpty()
+                ? boardThreadMeta(result) : result.meta;
+        meta.setText(styledResultMeta(metaValue));
         meta.setTextColor(mutedColor());
         meta.setTextSize(12);
         row.addView(meta);
@@ -4784,6 +4806,8 @@ public class MainActivity extends Activity {
         SpannableString text = new SpannableString(value);
         applyMetaNumberStyle(text, value, "(?:\u30ec\u30b9|Posts):\\s*(\\d+)", false);
         applyMetaNumberStyle(text, value, "(?:\u52e2\u3044|Speed):\\s*(\\d+(?:\\.\\d+)?)", true);
+        applyMetaNumberStyle(text, value, "(?:\u9806\u4f4d|Rank):\\s*(\\d+)", false);
+        applyMetaNumberStyle(text, value, "(?:\u672a\u8aad|Unread):\\s*(\\d+)", false);
         return text;
     }
 
@@ -11103,6 +11127,78 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    private View writeHistoryField(EditText input, String prefKey, String tooltip) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(input, new LinearLayout.LayoutParams(0, dp(48), 1));
+        ImageButton history = iconButton(R.drawable.ic_more_vert, tooltip,
+                v -> showWriteFieldHistory(v, input, prefKey));
+        history.setColorFilter(mutedColor());
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(dp(44), dp(44));
+        buttonParams.setMargins(dp(6), 0, 0, 0);
+        row.addView(history, buttonParams);
+        return row;
+    }
+
+    private void showWriteFieldHistory(View anchor, EditText input, String prefKey) {
+        List<String> values = readWriteFieldHistory(prefKey);
+        if (values.isEmpty()) {
+            Toast.makeText(this, text("\u5c65\u6b74\u306a\u3057", "No history."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(240), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+        for (String value : values) {
+            LinearLayout item = menuIconItem(R.drawable.ic_text_fields, value, v -> {
+                dismissPopupAnimated(popup);
+                input.setText(value);
+                input.setSelection(input.getText().length());
+                input.requestFocus();
+            });
+            menu.addView(item, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        showPopupAttachedToAnchor(popup, menu, anchor);
+    }
+
+    private List<String> readWriteFieldHistory(String prefKey) {
+        List<String> values = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(preferences.getString(prefKey, "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                String value = array.optString(i, "").trim();
+                if (!value.isEmpty() && !values.contains(value)) {
+                    values.add(value);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return values;
+    }
+
+    private void saveWriteFieldHistory(String prefKey, String value) {
+        value = value == null ? "" : value.trim();
+        if (value.isEmpty()) {
+            return;
+        }
+        List<String> old = readWriteFieldHistory(prefKey);
+        JSONArray next = new JSONArray();
+        next.put(value);
+        for (String item : old) {
+            if (!value.equals(item) && next.length() < 20) {
+                next.put(item);
+            }
+        }
+        preferences.edit().putString(prefKey, next.toString()).apply();
+    }
+
     private void showWriteDialog(String initialMessage) {
         CuspTab tab = currentTab();
         if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
@@ -11126,7 +11222,8 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         nameParams.setMargins(0, 0, 0, dp(8));
-        form.addView(name, nameParams);
+        form.addView(writeHistoryField(name, PREF_WRITE_NAME_HISTORY,
+                text("\u540d\u524d\u5c65\u6b74", "Name history")), nameParams);
 
         EditText mail = new EditText(this);
         mail.setSingleLine(true);
@@ -11138,7 +11235,8 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams mailParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         mailParams.setMargins(0, 0, 0, dp(10));
-        form.addView(mail, mailParams);
+        form.addView(writeHistoryField(mail, PREF_WRITE_MAIL_HISTORY,
+                text("\u30e1\u30fc\u30eb\u5c65\u6b74", "Mail history")), mailParams);
 
         EditText message = new EditText(this);
         message.setMinLines(9);
@@ -11195,7 +11293,11 @@ public class MainActivity extends Activity {
                 return;
             }
             dialog.dismiss();
-            submitPost(tab, name.getText().toString(), mail.getText().toString(), body);
+            String nameValue = name.getText().toString();
+            String mailValue = mail.getText().toString();
+            saveWriteFieldHistory(PREF_WRITE_NAME_HISTORY, nameValue);
+            saveWriteFieldHistory(PREF_WRITE_MAIL_HISTORY, mailValue);
+            submitPost(tab, nameValue, mailValue, body);
             });
         });
         dialog.show();
@@ -13735,6 +13837,7 @@ public class MainActivity extends Activity {
         SearchPage page = new SearchPage();
         page.url = boardUrl;
         page.title = boardTitle(boardUrl);
+        int order = 1;
         for (String line : body.split("\\r?\\n")) {
             int sep = line.indexOf("<>");
             int sepLength = 2;
@@ -13757,9 +13860,14 @@ public class MainActivity extends Activity {
             result.url = subject.threadBase + key + "/";
             result.responses = responses;
             result.velocity = threadVelocity(key, responses);
+            result.boardOrder = order;
+            result.createdAt = threadCreatedAtMillis(key);
+            result.unread = Math.max(0, responses - readPostNumber(preferences, result.url));
+            result.boardName = board;
             result.priorityMatch = matchingBoardPriorityWord(title);
-            result.meta = boardThreadMeta(board, responses, result.velocity);
+            result.meta = boardThreadMeta(result);
             page.results.add(result);
+            order++;
         }
         sortBoardResults(page.results);
         return page;
@@ -14054,13 +14162,21 @@ public class MainActivity extends Activity {
         return responses / days;
     }
 
+    private long threadCreatedAtMillis(String key) {
+        int created = parsePositiveInt(key, 0);
+        return created <= 0 ? 0L : created * 1000L;
+    }
+
     private void sortBoardResults(List<SearchResult> results) {
         if (results == null || results.isEmpty()) {
             return;
         }
-        final boolean sortBySpeed = preferences.getBoolean(PREF_BOARD_SORT_BY_SPEED, true);
+        final String sortKey = boardThreadSortKey();
+        final boolean desc = boardThreadSortDesc();
         for (int i = 0; i < results.size(); i++) {
-            results.get(i).boardOrder = i;
+            if (results.get(i).boardOrder <= 0) {
+                results.get(i).boardOrder = i + 1;
+            }
         }
         Collections.sort(results, (left, right) -> {
             int leftPriority = left.priorityMatch == null ? 0 : 1;
@@ -14068,14 +14184,41 @@ public class MainActivity extends Activity {
             if (leftPriority != rightPriority) {
                 return Integer.compare(rightPriority, leftPriority);
             }
-            if (sortBySpeed) {
-                int velocity = Double.compare(right.velocity, left.velocity);
-                if (velocity != 0) {
-                    return velocity;
-                }
+            int compared = compareBoardSortValue(left, right, sortKey);
+            if (compared != 0) {
+                return desc ? -compared : compared;
             }
             return Integer.compare(left.boardOrder, right.boardOrder);
         });
+    }
+
+    private int compareBoardSortValue(SearchResult left, SearchResult right, String sortKey) {
+        if (BOARD_SORT_RESPONSES.equals(sortKey)) {
+            return Integer.compare(left.responses, right.responses);
+        }
+        if (BOARD_SORT_VELOCITY.equals(sortKey)) {
+            return Double.compare(left.velocity, right.velocity);
+        }
+        if (BOARD_SORT_CREATED.equals(sortKey)) {
+            return Long.compare(left.createdAt, right.createdAt);
+        }
+        if (BOARD_SORT_UNREAD.equals(sortKey)) {
+            return Integer.compare(left.unread, right.unread);
+        }
+        return Integer.compare(left.boardOrder, right.boardOrder);
+    }
+
+    private String boardThreadSortKey() {
+        String key = preferences.getString(PREF_BOARD_THREAD_SORT_KEY, "");
+        if (key == null || key.isEmpty()) {
+            return preferences.getBoolean(PREF_BOARD_SORT_BY_SPEED, true)
+                    ? BOARD_SORT_VELOCITY : BOARD_SORT_ORDER;
+        }
+        return key;
+    }
+
+    private boolean boardThreadSortDesc() {
+        return preferences.getBoolean(PREF_BOARD_THREAD_SORT_DESC, true);
     }
 
     private BoardPriorityMatch matchingBoardPriorityWord(String title) {
@@ -14103,14 +14246,39 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private String boardThreadMeta(String board, int responses, double velocity) {
-        String count = responses > 0
-                ? text("\u30ec\u30b9: ", "Posts: ") + responses
-                : text("\u30ec\u30b9: -", "Posts: -");
-        String speed = velocity > 0
-                ? text("\u52e2\u3044: ", "Speed: ") + String.format(Locale.ROOT, "%.1f", velocity)
-                : text("\u52e2\u3044: -", "Speed: -");
-        return board + "  " + count + "  " + speed;
+    private String boardThreadMeta(SearchResult result) {
+        List<String> parts = new ArrayList<>();
+        String board = result == null || result.boardName == null ? "" : result.boardName;
+        if (!board.isEmpty()) {
+            parts.add(board);
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
+            parts.add(result.responses > 0
+                    ? text("\u30ec\u30b9: ", "Posts: ") + result.responses
+                    : text("\u30ec\u30b9: -", "Posts: -"));
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_VELOCITY, true)) {
+            parts.add(result.velocity > 0
+                    ? text("\u52e2\u3044: ", "Speed: ") + String.format(Locale.ROOT, "%.1f", result.velocity)
+                    : text("\u52e2\u3044: -", "Speed: -"));
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_ORDER, true)) {
+            parts.add(text("\u9806\u4f4d: ", "Rank: ") + (result.boardOrder > 0 ? result.boardOrder : "-"));
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_CREATED, true)) {
+            parts.add(text("\u4f5c\u6210: ", "Created: ") + boardCreatedText(result.createdAt));
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true)) {
+            parts.add(text("\u672a\u8aad: ", "Unread: ") + Math.max(0, result.unread));
+        }
+        return TextUtils.join("  ", parts);
+    }
+
+    private String boardCreatedText(long createdAt) {
+        if (createdAt <= 0) {
+            return "-";
+        }
+        return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(createdAt));
     }
 
     private ThreadPage parseThread(String url, String html) {
@@ -16707,6 +16875,9 @@ public class MainActivity extends Activity {
         int responses;
         double velocity;
         int boardOrder;
+        long createdAt;
+        int unread;
+        String boardName;
         BoardPriorityMatch priorityMatch;
     }
 

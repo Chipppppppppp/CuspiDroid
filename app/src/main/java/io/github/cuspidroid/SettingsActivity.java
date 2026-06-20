@@ -50,7 +50,20 @@ public class SettingsActivity extends Activity {
     private CheckBox autoScrollUnread;
     private CheckBox omitCopyPaste;
     private CheckBox autoAa;
-    private CheckBox boardSortBySpeed;
+    private CheckBox boardShowResponses;
+    private CheckBox boardShowVelocity;
+    private CheckBox boardShowOrder;
+    private CheckBox boardShowCreated;
+    private CheckBox boardShowUnread;
+    private RadioGroup boardSortGroup;
+    private RadioButton boardSortResponses;
+    private RadioButton boardSortVelocity;
+    private RadioButton boardSortOrder;
+    private RadioButton boardSortCreated;
+    private RadioButton boardSortUnread;
+    private RadioGroup boardSortDirectionGroup;
+    private RadioButton boardSortDesc;
+    private RadioButton boardSortAsc;
     private CheckBox cacheEnabled;
     private CheckBox disableHistory;
     private CheckBox showBookmarksInTabOverview;
@@ -215,12 +228,47 @@ public class SettingsActivity extends Activity {
         root.addView(autoAa);
 
         root.addView(sectionTitle(MainActivity.text("\u677f\u30b9\u30ec\u4e00\u89a7", "Board Thread List")));
-        boardSortBySpeed = new CheckBox(this);
-        boardSortBySpeed.setText(MainActivity.text("\u677f\u306e\u30b9\u30ec\u3092\u52e2\u3044\u9806\u306b\u4e26\u3079\u308b", "Sort board threads by speed"));
-        boardSortBySpeed.setTextColor(textColor());
-        boardSortBySpeed.setTextSize(16);
-        Theme.tintCompoundButton(this, boardSortBySpeed);
-        root.addView(boardSortBySpeed);
+        root.addView(helperText(MainActivity.text("\u8868\u793a\u3059\u308b\u9805\u76ee", "Displayed fields")));
+        boardShowResponses = settingCheckBox(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
+        boardShowVelocity = settingCheckBox(MainActivity.text("\u52e2\u3044", "Speed"));
+        boardShowOrder = settingCheckBox(MainActivity.text("\u9806\u4f4d", "Rank"));
+        boardShowCreated = settingCheckBox(MainActivity.text("\u4f5c\u6210\u65e5\u6642", "Created time"));
+        boardShowUnread = settingCheckBox(MainActivity.text("\u672a\u8aad\u6570", "Unread count"));
+        root.addView(boardShowResponses);
+        root.addView(boardShowVelocity);
+        root.addView(boardShowOrder);
+        root.addView(boardShowCreated);
+        root.addView(boardShowUnread);
+
+        root.addView(helperText(MainActivity.text("\u4e26\u3079\u66ff\u3048", "Sort by")));
+        boardSortGroup = new RadioGroup(this);
+        boardSortGroup.setOrientation(RadioGroup.VERTICAL);
+        boardSortResponses = radio(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
+        boardSortVelocity = radio(MainActivity.text("\u52e2\u3044", "Speed"));
+        boardSortOrder = radio(MainActivity.text("\u9806\u4f4d", "Rank"));
+        boardSortCreated = radio(MainActivity.text("\u4f5c\u6210\u65e5\u6642", "Created time"));
+        boardSortUnread = radio(MainActivity.text("\u672a\u8aad\u6570", "Unread count"));
+        boardSortResponses.setId(View.generateViewId());
+        boardSortVelocity.setId(View.generateViewId());
+        boardSortOrder.setId(View.generateViewId());
+        boardSortCreated.setId(View.generateViewId());
+        boardSortUnread.setId(View.generateViewId());
+        boardSortGroup.addView(boardSortResponses);
+        boardSortGroup.addView(boardSortVelocity);
+        boardSortGroup.addView(boardSortOrder);
+        boardSortGroup.addView(boardSortCreated);
+        boardSortGroup.addView(boardSortUnread);
+        root.addView(boardSortGroup);
+
+        boardSortDirectionGroup = new RadioGroup(this);
+        boardSortDirectionGroup.setOrientation(RadioGroup.HORIZONTAL);
+        boardSortDesc = radio(MainActivity.text("\u964d\u9806", "Descending"));
+        boardSortAsc = radio(MainActivity.text("\u6607\u9806", "Ascending"));
+        boardSortDesc.setId(View.generateViewId());
+        boardSortAsc.setId(View.generateViewId());
+        boardSortDirectionGroup.addView(boardSortDesc, new RadioGroup.LayoutParams(0, dp(44), 1));
+        boardSortDirectionGroup.addView(boardSortAsc, new RadioGroup.LayoutParams(0, dp(44), 1));
+        root.addView(boardSortDirectionGroup);
 
         root.addView(managementRow(R.drawable.ic_text_fields,
                 MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words"),
@@ -513,7 +561,30 @@ public class SettingsActivity extends Activity {
         omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
-        boardSortBySpeed.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true));
+        boardShowResponses.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SHOW_RESPONSES, true));
+        boardShowVelocity.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SHOW_VELOCITY, true));
+        boardShowOrder.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SHOW_ORDER, true));
+        boardShowCreated.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SHOW_CREATED, true));
+        boardShowUnread.setChecked(preferences.getBoolean(MainActivity.PREF_BOARD_SHOW_UNREAD, true));
+        String boardSortKey = preferences.getString(MainActivity.PREF_BOARD_THREAD_SORT_KEY,
+                preferences.getBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
+                        ? MainActivity.BOARD_SORT_VELOCITY : MainActivity.BOARD_SORT_ORDER);
+        if (MainActivity.BOARD_SORT_RESPONSES.equals(boardSortKey)) {
+            boardSortResponses.setChecked(true);
+        } else if (MainActivity.BOARD_SORT_ORDER.equals(boardSortKey)) {
+            boardSortOrder.setChecked(true);
+        } else if (MainActivity.BOARD_SORT_CREATED.equals(boardSortKey)) {
+            boardSortCreated.setChecked(true);
+        } else if (MainActivity.BOARD_SORT_UNREAD.equals(boardSortKey)) {
+            boardSortUnread.setChecked(true);
+        } else {
+            boardSortVelocity.setChecked(true);
+        }
+        if (preferences.getBoolean(MainActivity.PREF_BOARD_THREAD_SORT_DESC, true)) {
+            boardSortDesc.setChecked(true);
+        } else {
+            boardSortAsc.setChecked(true);
+        }
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
         showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
         showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
@@ -595,7 +666,13 @@ public class SettingsActivity extends Activity {
         autoScrollUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
-        boardSortBySpeed.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        boardShowResponses.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        boardShowVelocity.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        boardShowOrder.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        boardShowCreated.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        boardShowUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        boardSortGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        boardSortDirectionGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         disableHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -684,7 +761,15 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, autoScrollUnread.isChecked())
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
-                .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, boardSortBySpeed.isChecked())
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_RESPONSES, boardShowResponses.isChecked())
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_VELOCITY, boardShowVelocity.isChecked())
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_ORDER, boardShowOrder.isChecked())
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_CREATED, boardShowCreated.isChecked())
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_UNREAD, boardShowUnread.isChecked())
+                .putString(MainActivity.PREF_BOARD_THREAD_SORT_KEY, selectedBoardSortKey())
+                .putBoolean(MainActivity.PREF_BOARD_THREAD_SORT_DESC, boardSortDesc.isChecked())
+                .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED,
+                        MainActivity.BOARD_SORT_VELOCITY.equals(selectedBoardSortKey()) && boardSortDesc.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, disableHistory.isChecked())
@@ -705,6 +790,23 @@ public class SettingsActivity extends Activity {
             themeMode = Theme.MODE_DARK;
         }
         preferences.edit().putString(MainActivity.PREF_THEME_MODE, themeMode).apply();
+    }
+
+    private String selectedBoardSortKey() {
+        int checkedId = boardSortGroup.getCheckedRadioButtonId();
+        if (checkedId == boardSortResponses.getId()) {
+            return MainActivity.BOARD_SORT_RESPONSES;
+        }
+        if (checkedId == boardSortOrder.getId()) {
+            return MainActivity.BOARD_SORT_ORDER;
+        }
+        if (checkedId == boardSortCreated.getId()) {
+            return MainActivity.BOARD_SORT_CREATED;
+        }
+        if (checkedId == boardSortUnread.getId()) {
+            return MainActivity.BOARD_SORT_UNREAD;
+        }
+        return MainActivity.BOARD_SORT_VELOCITY;
     }
 
     private void confirmResetDefaults() {
@@ -917,6 +1019,13 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
                 .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_RESPONSES, true)
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_VELOCITY, true)
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_ORDER, true)
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_CREATED, true)
+                .putBoolean(MainActivity.PREF_BOARD_SHOW_UNREAD, true)
+                .putString(MainActivity.PREF_BOARD_THREAD_SORT_KEY, MainActivity.BOARD_SORT_VELOCITY)
+                .putBoolean(MainActivity.PREF_BOARD_THREAD_SORT_DESC, true)
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true)
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true)
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
@@ -1070,6 +1179,15 @@ public class SettingsActivity extends Activity {
         button.setTextSize(16);
         Theme.tintCompoundButton(this, button);
         return button;
+    }
+
+    private CheckBox settingCheckBox(String value) {
+        CheckBox box = new CheckBox(this);
+        box.setText(value);
+        box.setTextColor(textColor());
+        box.setTextSize(16);
+        Theme.tintCompoundButton(this, box);
+        return box;
     }
 
     private View managementRow(int iconRes, String title, String subtitle, View.OnClickListener listener) {
