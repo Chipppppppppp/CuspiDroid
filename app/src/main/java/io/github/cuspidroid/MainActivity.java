@@ -2289,6 +2289,7 @@ public class MainActivity extends Activity {
                 post.name = item.optString("name", "");
                 post.date = item.optString("date", "");
                 post.body = item.optString("body", "");
+                post.cachedLikelyAa = likelyAaPost(post.body);
                 page.posts.add(post);
                 page.postsByNumber.put(post.number, post);
             }
@@ -8506,10 +8507,12 @@ public class MainActivity extends Activity {
                 continue;
             }
             lineCount++;
-            if (startsWithDotsThenSpace(line)) {
+            int bodyStart = bodyStartAfterLeadingDotsAndSpaces(line);
+            if (bodyStart >= 0) {
                 score += 2;
                 leadingDotSpaceScore += 2;
-            } else if (hasDoubleSpaceRun(line)) {
+            }
+            if (hasDoubleSpaceRun(bodyStart >= 0 ? line.substring(bodyStart) : line)) {
                 score++;
                 doubleSpaceScore++;
             }
@@ -8523,20 +8526,26 @@ public class MainActivity extends Activity {
                 lineCount, score, leadingDotSpaceScore, doubleSpaceScore, ratio);
     }
 
-    private static boolean startsWithDotsThenSpace(String line) {
+    private static int bodyStartAfterLeadingDotsAndSpaces(String line) {
         boolean sawSpace = false;
-        for (int i = 0; i < line.length(); ) {
+        int i = 0;
+        while (i < line.length()) {
             int codePoint = line.codePointAt(i);
             if (isAaSpaceChar(codePoint)) {
                 sawSpace = true;
+                i += Character.charCount(codePoint);
+                continue;
+            }
+            if (sawSpace) {
                 break;
             }
-            if (codePoint != '.' && codePoint != '\uff0e') {
-                return false;
+            if (codePoint == '.' || codePoint == '\uff0e') {
+                i += Character.charCount(codePoint);
+                continue;
             }
-            i += Character.charCount(codePoint);
+            return -1;
         }
-        return sawSpace;
+        return sawSpace ? i : -1;
     }
 
     private static boolean hasDoubleSpaceRun(String line) {
@@ -13747,6 +13756,7 @@ public class MainActivity extends Activity {
             post.name = cleanText(fields[0]);
             post.date = cleanText(fields[2]);
             post.body = cleanText(fields[3]);
+            post.cachedLikelyAa = likelyAaPost(post.body);
             page.posts.add(post);
             page.postsByNumber.put(post.number, post);
             if (number == 1 && fields.length >= 5 && !cleanText(fields[4]).isEmpty()) {
@@ -14174,6 +14184,9 @@ public class MainActivity extends Activity {
     private void indexPosts(ThreadPage page) {
         page.postsByNumber.clear();
         for (Post post : page.posts) {
+            if (post.cachedLikelyAa == null) {
+                post.cachedLikelyAa = likelyAaPost(post.body);
+            }
             page.postsByNumber.put(post.number, post);
         }
     }
