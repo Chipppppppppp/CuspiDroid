@@ -451,20 +451,10 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u901a\u5e38\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092\u30de\u30fc\u30b8", "Merge bookmarks, normal tabs, and read positions"),
                 v -> runSync2chNow()));
 
-        root.addView(sectionTitle(MainActivity.text("\u30e1\u30f3\u30c6\u30ca\u30f3\u30b9", "Maintenance")));
-        root.addView(managementRow(android.R.drawable.ic_dialog_info,
-                MainActivity.text("\u30c7\u30d0\u30c3\u30b0\u8a2d\u5b9a", "Debug settings"),
-                MainActivity.text("\u8abf\u67fb\u7528\u306e\u8868\u793a\u3092\u5207\u308a\u66ff\u3048", "Toggle diagnostic displays"),
-                v -> startActivity(new Intent(this, DebugSettingsActivity.class))));
-
-        root.addView(managementRow(android.R.drawable.ic_menu_revert,
-                MainActivity.text("\u8a2d\u5b9a\u3092\u30c7\u30d5\u30a9\u30eb\u30c8\u306b\u623b\u3059", "Reset all settings"),
-                MainActivity.text("\u8868\u793a\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3059", "Restore display, search, gesture, and related settings"),
-                v -> confirmResetDefaults()));
-
+        root.addView(sectionTitle(MainActivity.text("\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3068\u5fa9\u5143", "Backup & Restore")));
         root.addView(managementRow(android.R.drawable.ic_menu_save,
                 MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u4f5c\u6210", "Create CuspiDroid backup"),
-                MainActivity.text("\u8a2d\u5b9a\u3001\u30bf\u30d6\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092zip\u306b\u4fdd\u5b58", "Save settings, tabs, bookmarks, history, and read positions to a zip"),
+                MainActivity.text("\u8a2d\u5b9a\u3001\u30bf\u30d6\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092zip\u306b\u4fdd\u5b58", "Save settings, tabs, bookmarks, history, read positions, and upload history to a zip"),
                 v -> createCuspiDroidBackup()));
 
         root.addView(managementRow(android.R.drawable.ic_menu_upload,
@@ -476,6 +466,17 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("ChMate\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u304b\u3089\u5fa9\u5143", "Restore from ChMate backup"),
                 MainActivity.text("ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u304b\u3089\u30b9\u30ec\u60c5\u5831\u3092\u30de\u30fc\u30b8", "Merge thread data from a ChMate backup zip"),
                 v -> showChMateRestoreHelp()));
+
+        root.addView(sectionTitle(MainActivity.text("\u30e1\u30f3\u30c6\u30ca\u30f3\u30b9", "Maintenance")));
+        root.addView(managementRow(android.R.drawable.ic_dialog_info,
+                MainActivity.text("\u30c7\u30d0\u30c3\u30b0\u8a2d\u5b9a", "Debug settings"),
+                MainActivity.text("\u8abf\u67fb\u7528\u306e\u8868\u793a\u3092\u5207\u308a\u66ff\u3048", "Toggle diagnostic displays"),
+                v -> startActivity(new Intent(this, DebugSettingsActivity.class))));
+
+        root.addView(managementRow(android.R.drawable.ic_menu_revert,
+                MainActivity.text("\u8a2d\u5b9a\u3092\u30c7\u30d5\u30a9\u30eb\u30c8\u306b\u623b\u3059", "Reset all settings"),
+                MainActivity.text("\u8868\u793a\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3059", "Restore display, search, gesture, and related settings"),
+                v -> confirmResetDefaults()));
 
     }
 

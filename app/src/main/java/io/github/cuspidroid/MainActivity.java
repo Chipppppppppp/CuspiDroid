@@ -238,7 +238,7 @@ public class MainActivity extends Activity {
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
-    private static final float AA_SPECIAL_CHAR_RATIO_THRESHOLD = 0.35f;
+    private static final float AA_DOUBLE_SPACE_RUNS_PER_LINE_THRESHOLD = 0.6f;
     private static final int POST_OUTER_GAP_DP = 4;
 
     private final List<CuspTab> tabs = new ArrayList<>();
@@ -8493,13 +8493,12 @@ public class MainActivity extends Activity {
 
     private static AaDebugMetrics aaDebugMetrics(String body) {
         if (body == null) {
-            return new AaDebugMetrics(false, "null", 0, 0, 0, 0f);
+            return new AaDebugMetrics(false, "null", 0, 0, 0f);
         }
         String value = body.replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = value.split("\\n", -1);
         int candidateLines = 0;
-        int targetChars = 0;
-        int specialChars = 0;
+        int doubleSpaceRuns = 0;
         for (String line : lines) {
             if (line.isEmpty()) {
                 continue;
@@ -8508,27 +8507,37 @@ public class MainActivity extends Activity {
                 continue;
             }
             candidateLines++;
-            for (int i = 0; i < line.length(); ) {
-                int codePoint = line.codePointAt(i);
-                targetChars++;
-                if (isAaSpecialChar(codePoint)) {
-                    specialChars++;
-                }
-                i += Character.charCount(codePoint);
-            }
+            doubleSpaceRuns += countDoubleSpaceRuns(line);
         }
         if (candidateLines < 3) {
             return new AaDebugMetrics(false, "candidate-lines<3", candidateLines,
-                    targetChars, specialChars, 0f);
+                    doubleSpaceRuns, 0f);
         }
-        if (targetChars <= 0) {
-            return new AaDebugMetrics(false, "no-candidate-chars", candidateLines,
-                    targetChars, specialChars, 0f);
+        float ratio = doubleSpaceRuns / (float) candidateLines;
+        boolean aa = ratio > AA_DOUBLE_SPACE_RUNS_PER_LINE_THRESHOLD;
+        return new AaDebugMetrics(aa, aa ? "double-space-runs" : "below",
+                candidateLines, doubleSpaceRuns, ratio);
+    }
+
+    private static int countDoubleSpaceRuns(String line) {
+        int runs = 0;
+        int length = 0;
+        for (int i = 0; i < line.length(); ) {
+            int codePoint = line.codePointAt(i);
+            if (isAaSpaceChar(codePoint)) {
+                length++;
+            } else {
+                if (length >= 2) {
+                    runs++;
+                }
+                length = 0;
+            }
+            i += Character.charCount(codePoint);
         }
-        float ratio = specialChars / (float) targetChars;
-        boolean aa = ratio > AA_SPECIAL_CHAR_RATIO_THRESHOLD;
-        return new AaDebugMetrics(aa, aa ? "special-char-ratio" : "below",
-                candidateLines, targetChars, specialChars, ratio);
+        if (length >= 2) {
+            runs++;
+        }
+        return runs;
     }
 
     private static boolean isAaCandidateLine(String line) {
@@ -8557,28 +8566,6 @@ public class MainActivity extends Activity {
             case Character.SPACE_SEPARATOR:
             case Character.LINE_SEPARATOR:
             case Character.PARAGRAPH_SEPARATOR:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static boolean isAaSpecialChar(int codePoint) {
-        if (isAaSpaceChar(codePoint)) {
-            return true;
-        }
-        switch (Character.getType(codePoint)) {
-            case Character.CONNECTOR_PUNCTUATION:
-            case Character.DASH_PUNCTUATION:
-            case Character.START_PUNCTUATION:
-            case Character.END_PUNCTUATION:
-            case Character.INITIAL_QUOTE_PUNCTUATION:
-            case Character.FINAL_QUOTE_PUNCTUATION:
-            case Character.OTHER_PUNCTUATION:
-            case Character.MATH_SYMBOL:
-            case Character.CURRENCY_SYMBOL:
-            case Character.MODIFIER_SYMBOL:
-            case Character.OTHER_SYMBOL:
                 return true;
             default:
                 return false;
@@ -16284,26 +16271,24 @@ public class MainActivity extends Activity {
         final boolean aa;
         final String reason;
         final int candidateLines;
-        final int targetChars;
-        final int specialChars;
+        final int doubleSpaceRuns;
         final float ratio;
 
         AaDebugMetrics(boolean aa, String reason, int candidateLines,
-                       int targetChars, int specialChars, float ratio) {
+                       int doubleSpaceRuns, float ratio) {
             this.aa = aa;
             this.reason = reason;
             this.candidateLines = candidateLines;
-            this.targetChars = targetChars;
-            this.specialChars = specialChars;
+            this.doubleSpaceRuns = doubleSpaceRuns;
             this.ratio = ratio;
         }
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) candidate-lines=%d special-chars=%d target-chars=%d %.1f%% | threshold: candidate-lines>=3 & special-chars>%.0f%%",
+                    "AA debug: %s (%s) candidate-lines=%d double-space-runs=%d runs/line=%.2f | threshold: candidate-lines>=3 & runs/line>%.2f",
                     aa ? "YES" : "NO", reason, candidateLines,
-                    specialChars, targetChars, ratio * 100f,
-                    AA_SPECIAL_CHAR_RATIO_THRESHOLD * 100f);
+                    doubleSpaceRuns, ratio,
+                    AA_DOUBLE_SPACE_RUNS_PER_LINE_THRESHOLD);
         }
     }
 
