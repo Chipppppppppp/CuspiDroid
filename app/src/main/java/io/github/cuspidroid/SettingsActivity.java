@@ -52,6 +52,7 @@ public class SettingsActivity extends Activity {
     private CheckBox disableHistory;
     private CheckBox showBookmarksInTabOverview;
     private CheckBox showHistoryOnHome;
+    private CheckBox sync2chEnabled;
     private EditText sync2chId;
     private EditText sync2chApiPassword;
     private EditText cacheMaxMb;
@@ -401,6 +402,13 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
         root.addView(sectionTitle("Sync2ch"));
+        sync2chEnabled = new CheckBox(this);
+        sync2chEnabled.setText(MainActivity.text("Sync2ch\u3092\u4f7f\u7528", "Use Sync2ch"));
+        sync2chEnabled.setTextColor(textColor());
+        sync2chEnabled.setTextSize(16);
+        Theme.tintCompoundButton(this, sync2chEnabled);
+        root.addView(sync2chEnabled);
+
         sync2chId = new EditText(this);
         sync2chId.setSingleLine(true);
         sync2chId.setTextSize(14);
@@ -479,6 +487,7 @@ public class SettingsActivity extends Activity {
         showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
         showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
         disableHistory.setChecked(preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false));
+        sync2chEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false));
         sync2chId.setText(preferences.getString(MainActivity.PREF_SYNC2CH_ID, ""));
         sync2chApiPassword.setText(preferences.getString(MainActivity.PREF_SYNC2CH_API_PASSWORD, ""));
         cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
@@ -559,6 +568,7 @@ public class SettingsActivity extends Activity {
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         disableHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        sync2chEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         cacheEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             updateCacheDependentSettings();
             saveSettings(false);
@@ -647,6 +657,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, disableHistory.isChecked())
+                .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, sync2chEnabled.isChecked())
                 .putString(MainActivity.PREF_SYNC2CH_ID, sync2chId.getText().toString().trim())
                 .putString(MainActivity.PREF_SYNC2CH_API_PASSWORD, sync2chApiPassword.getText().toString().trim())
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, cacheEnabled.isChecked())
@@ -745,6 +756,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true)
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true)
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
+                .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false)
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, true)
                 .putInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)
                 .putString(MainActivity.PREF_BOARD_PRIORITY_WORDS, "[]")

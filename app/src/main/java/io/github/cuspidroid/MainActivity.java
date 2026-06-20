@@ -183,6 +183,7 @@ public class MainActivity extends Activity {
     static final String PREF_TABS = "saved_tabs";
     static final String PREF_SYNC2CH_ID = "sync2ch_id";
     static final String PREF_SYNC2CH_API_PASSWORD = "sync2ch_api_password";
+    static final String PREF_SYNC2CH_ENABLED = "sync2ch_enabled";
     static final String PREF_SYNC2CH_SYNC_NUMBER = "sync2ch_sync_number";
     static final String PREF_SYNC2CH_CLIENT_ID = "sync2ch_client_id";
     static final String PREF_SYNC2CH_UPDATED_AT = "sync2ch_updated_at";
@@ -1416,6 +1417,13 @@ public class MainActivity extends Activity {
             dismissPopupAnimated(popup);
             searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (sync2chEnabled()) {
+            menu.addView(horizontalDivider());
+            menu.addView(menuIconItem(R.drawable.ic_refresh, text("Sync2ch\u3067\u540c\u671f", "Sync with Sync2ch"), v -> {
+                dismissPopupAnimated(popup);
+                runSync2chNow();
+            }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_settings, text("\u8a2d\u5b9a", "Settings"), v -> {
             dismissPopupAnimated(popup);
@@ -12359,6 +12367,39 @@ public class MainActivity extends Activity {
 
     private void openSettings() {
         startActivity(new Intent(this, SettingsActivity.class));
+    }
+
+    private boolean sync2chEnabled() {
+        return preferences != null && preferences.getBoolean(PREF_SYNC2CH_ENABLED, false);
+    }
+
+    private void runSync2chNow() {
+        saveTabs(true);
+        Toast.makeText(this, text("Sync2ch\u3067\u540c\u671f\u4e2d", "Syncing with Sync2ch..."), Toast.LENGTH_SHORT).show();
+        ioExecutor.execute(() -> {
+            try {
+                Sync2chClient.Result result = Sync2chClient.sync(getApplicationContext(), preferences);
+                mainHandler.post(() -> {
+                    appliedSync2chUpdateAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
+                    if (restoreTabs() && currentIndex >= 0 && currentIndex < tabs.size()) {
+                        switchToTab(currentIndex);
+                    } else {
+                        renderTabs();
+                    }
+                    Toast.makeText(this,
+                            text("Sync2ch\u540c\u671f\u5b8c\u4e86", "Sync2ch sync complete")
+                                    + "\n" + text("\u8ffd\u52a0\u30bf\u30d6: ", "Added tabs: ")
+                                    + result.addedOpenThreads
+                                    + "  " + text("\u8ffd\u52a0\u30d6\u30c3\u30af\u30de\u30fc\u30af: ", "Added bookmarks: ")
+                                    + result.addedBookmarks,
+                            Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception error) {
+                mainHandler.post(() -> Toast.makeText(this,
+                        text("Sync2ch\u540c\u671f\u5931\u6557: ", "Sync2ch sync failed: ")
+                                + error.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        });
     }
 
     private void openCurrentThreadInWebView() {
