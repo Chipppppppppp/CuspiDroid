@@ -238,7 +238,7 @@ public class MainActivity extends Activity {
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
-    private static final float AA_DOUBLE_SPACE_RUNS_PER_LINE_THRESHOLD = 0.6f;
+    private static final int AA_SCORE_THRESHOLD = 3;
     private static final int POST_OUTER_GAP_DP = 4;
 
     private final List<CuspTab> tabs = new ArrayList<>();
@@ -8493,58 +8493,47 @@ public class MainActivity extends Activity {
 
     private static AaDebugMetrics aaDebugMetrics(String body) {
         if (body == null) {
-            return new AaDebugMetrics(false, "null", 0, 0, 0f);
+            return new AaDebugMetrics(false, "null", 0, 0, 0);
         }
         String value = body.replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = value.split("\\n", -1);
-        int candidateLines = 0;
-        int doubleSpaceRuns = 0;
+        int scoredLines = 0;
+        int leadingSpaceScore = 0;
+        int doubleSpaceScore = 0;
         for (String line : lines) {
             if (line.isEmpty()) {
                 continue;
             }
-            if (!isAaCandidateLine(line)) {
-                continue;
+            if (startsWithDotsThenSpace(line)) {
+                scoredLines++;
+                leadingSpaceScore++;
+            } else if (hasDoubleSpaceRun(line)) {
+                scoredLines++;
+                doubleSpaceScore++;
             }
-            candidateLines++;
-            doubleSpaceRuns += countDoubleSpaceRuns(line);
         }
-        if (candidateLines < 3) {
-            return new AaDebugMetrics(false, "candidate-lines<3", candidateLines,
-                    doubleSpaceRuns, 0f);
-        }
-        float ratio = doubleSpaceRuns / (float) candidateLines;
-        boolean aa = ratio > AA_DOUBLE_SPACE_RUNS_PER_LINE_THRESHOLD;
-        return new AaDebugMetrics(aa, aa ? "double-space-runs" : "below",
-                candidateLines, doubleSpaceRuns, ratio);
+        boolean aa = scoredLines >= AA_SCORE_THRESHOLD;
+        return new AaDebugMetrics(aa, aa ? "score-threshold" : "below",
+                scoredLines, leadingSpaceScore, doubleSpaceScore);
     }
 
-    private static int countDoubleSpaceRuns(String line) {
-        int runs = 0;
-        int length = 0;
+    private static boolean startsWithDotsThenSpace(String line) {
+        boolean sawSpace = false;
         for (int i = 0; i < line.length(); ) {
             int codePoint = line.codePointAt(i);
             if (isAaSpaceChar(codePoint)) {
-                length++;
-            } else {
-                if (length >= 2) {
-                    runs++;
-                }
-                length = 0;
+                sawSpace = true;
+                break;
+            }
+            if (codePoint != '.' && codePoint != '\uff0e') {
+                return false;
             }
             i += Character.charCount(codePoint);
         }
-        if (length >= 2) {
-            runs++;
-        }
-        return runs;
+        return sawSpace;
     }
 
-    private static boolean isAaCandidateLine(String line) {
-        int first = line.codePointAt(0);
-        if (isAaSpaceChar(first) || first == '.' || first == '\uff0e') {
-            return true;
-        }
+    private static boolean hasDoubleSpaceRun(String line) {
         boolean previousSpace = false;
         for (int i = 0; i < line.length(); ) {
             int codePoint = line.codePointAt(i);
@@ -16270,25 +16259,25 @@ public class MainActivity extends Activity {
     private static class AaDebugMetrics {
         final boolean aa;
         final String reason;
-        final int candidateLines;
-        final int doubleSpaceRuns;
-        final float ratio;
+        final int score;
+        final int leadingSpaceScore;
+        final int doubleSpaceScore;
 
-        AaDebugMetrics(boolean aa, String reason, int candidateLines,
-                       int doubleSpaceRuns, float ratio) {
+        AaDebugMetrics(boolean aa, String reason, int score,
+                       int leadingSpaceScore, int doubleSpaceScore) {
             this.aa = aa;
             this.reason = reason;
-            this.candidateLines = candidateLines;
-            this.doubleSpaceRuns = doubleSpaceRuns;
-            this.ratio = ratio;
+            this.score = score;
+            this.leadingSpaceScore = leadingSpaceScore;
+            this.doubleSpaceScore = doubleSpaceScore;
         }
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) candidate-lines=%d double-space-runs=%d runs/line=%.2f | threshold: candidate-lines>=3 & runs/line>%.2f",
-                    aa ? "YES" : "NO", reason, candidateLines,
-                    doubleSpaceRuns, ratio,
-                    AA_DOUBLE_SPACE_RUNS_PER_LINE_THRESHOLD);
+                    "AA debug: %s (%s) score=%d leading-dot-space=%d double-space-lines=%d | threshold: score>=%d",
+                    aa ? "YES" : "NO", reason, score,
+                    leadingSpaceScore, doubleSpaceScore,
+                    AA_SCORE_THRESHOLD);
         }
     }
 
