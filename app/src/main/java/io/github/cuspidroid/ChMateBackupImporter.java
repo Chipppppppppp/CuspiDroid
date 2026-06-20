@@ -236,7 +236,7 @@ final class ChMateBackupImporter {
         JSONObject reads = jsonObject(preferences.getString(MainActivity.PREF_READ_POSTS, "{}"));
         JSONArray tabs = jsonArray(preferences.getString(MainActivity.PREF_TABS, "[]"));
 
-        Set<String> bookmarkUrls = urlSet(bookmarks);
+        Set<String> bookmarkUrls = savedIdentitySet(bookmarks);
         Set<String> historyUrls = urlSet(history);
         Set<String> tabUrls = urlSet(tabs);
         BoardLookup boards = readBoards(database);
@@ -263,13 +263,15 @@ final class ChMateBackupImporter {
                     continue;
                 }
                 String cleanTitle = isBlank(title) ? url : title;
-                if (!bookmarkUrls.contains(url)) {
+                String folder = rankFolder(flag);
+                String bookmarkIdentity = savedItemIdentity(url, folder);
+                if (!bookmarkUrls.contains(bookmarkIdentity)) {
                     JSONObject item = new JSONObject();
                     item.put("title", cleanTitle);
                     item.put("url", url);
-                    item.put("folder", "");
+                    item.put("folder", folder);
                     bookmarks.put(item);
-                    bookmarkUrls.add(url);
+                    bookmarkUrls.add(bookmarkIdentity);
                     result.addedBookmarks++;
                 }
                 int existingRead = reads.optInt(url, 0);
@@ -313,7 +315,7 @@ final class ChMateBackupImporter {
             cursor.close();
         }
         preferences.edit()
-                .putString(MainActivity.PREF_THREAD_BOOKMARKS, bookmarks.toString())
+                .putString(MainActivity.PREF_THREAD_BOOKMARKS, dedupeSavedItems(bookmarks).toString())
                 .putString(MainActivity.PREF_HISTORY, history.toString())
                 .putString(MainActivity.PREF_READ_POSTS, reads.toString())
                 .putString(MainActivity.PREF_TABS, tabs.toString())
@@ -323,6 +325,18 @@ final class ChMateBackupImporter {
 
     private static boolean shouldRestoreAsTab(int flag) {
         return (flag & 4) != 0;
+    }
+
+    private static String rankFolder(int flag) {
+        int rank = flag & 7;
+        if (rank < 1 || rank > 5) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < rank; i++) {
+            builder.append('\u2605');
+        }
+        return builder.toString();
     }
 
     private static BoardLookup readBoards(SQLiteDatabase database) {
@@ -370,6 +384,52 @@ final class ChMateBackupImporter {
         return values;
     }
 
+    private static Set<String> savedIdentitySet(JSONArray array) {
+        Set<String> values = new LinkedHashSet<>();
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject item = array.optJSONObject(i);
+            if (item != null) {
+                String url = item.optString("url", "");
+                if (!isBlank(url)) {
+                    values.add(savedItemIdentity(url, item.optString("folder", "")));
+                }
+            }
+        }
+        return values;
+    }
+
+    private static JSONArray dedupeSavedItems(JSONArray array) {
+        JSONArray next = new JSONArray();
+        Set<String> seen = new LinkedHashSet<>();
+        try {
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String url = item.optString("url", "").trim();
+                String folder = normalizeFolder(item.optString("folder", ""));
+                String title = item.optString("title", "").trim();
+                String identity = savedItemIdentity(url, folder);
+                if (isBlank(url) || seen.contains(identity)) {
+                    continue;
+                }
+                JSONObject copy = new JSONObject();
+                copy.put("title", isBlank(title) ? url : title);
+                copy.put("url", url);
+                copy.put("folder", folder);
+                next.put(copy);
+                seen.add(identity);
+            }
+        } catch (Exception ignored) {
+        }
+        return next;
+    }
+
+    private static String savedItemIdentity(String url, String folder) {
+        return normalizeFolder(folder) + "\n" + (url == null ? "" : url.trim());
+    }
+
     private static String threadUrl(String board, String server, long created) {
         board = boardName(board);
         if (isBlank(board) || isBlank(server) || created <= 0) {
@@ -392,6 +452,23 @@ final class ChMateBackupImporter {
         int slash = value.lastIndexOf('/');
         if (slash >= 0 && slash + 1 < value.length()) {
             value = value.substring(slash + 1);
+        }
+        return value.trim();
+    }
+
+    private static String normalizeFolder(String folder) {
+        if (folder == null) {
+            return "";
+        }
+        String value = folder.trim().replace('\\', '/');
+        while (value.contains("//")) {
+            value = value.replace("//", "/");
+        }
+        while (value.startsWith("/")) {
+            value = value.substring(1);
+        }
+        while (value.endsWith("/")) {
+            value = value.substring(0, value.length() - 1);
         }
         return value.trim();
     }

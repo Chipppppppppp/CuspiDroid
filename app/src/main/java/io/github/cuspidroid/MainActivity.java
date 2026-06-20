@@ -14435,6 +14435,7 @@ public class MainActivity extends Activity {
 
     private List<SavedItem> readSavedItems(String key) {
         List<SavedItem> items = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
         try {
             JSONArray array = new JSONArray(preferences.getString(key, "[]"));
             for (int i = 0; i < array.length(); i++) {
@@ -14445,8 +14446,10 @@ public class MainActivity extends Activity {
                 String title = object.optString("title", "").trim();
                 String url = object.optString("url", "").trim();
                 String folder = normalizeSavedFolder(object.optString("folder", ""));
-                if (!title.isEmpty() && !url.isEmpty()) {
+                String identity = savedItemIdentity(url, folder);
+                if (!title.isEmpty() && !url.isEmpty() && !seen.contains(identity)) {
                     items.add(new SavedItem(title, url, folder));
+                    seen.add(identity);
                 }
             }
         } catch (Exception ignored) {
@@ -14495,17 +14498,31 @@ public class MainActivity extends Activity {
 
     private void writeSavedItems(String key, List<SavedItem> items) {
         JSONArray array = new JSONArray();
+        Set<String> seen = new LinkedHashSet<>();
         try {
             for (SavedItem item : items) {
+                if (item == null || item.url == null || item.url.trim().isEmpty()) {
+                    continue;
+                }
+                String folder = normalizeSavedFolder(item.folder);
+                String identity = savedItemIdentity(item.url, folder);
+                if (seen.contains(identity)) {
+                    continue;
+                }
                 JSONObject object = new JSONObject();
                 object.put("title", item.title);
-                object.put("url", item.url);
-                object.put("folder", normalizeSavedFolder(item.folder));
+                object.put("url", item.url.trim());
+                object.put("folder", folder);
                 array.put(object);
+                seen.add(identity);
             }
         } catch (Exception ignored) {
         }
         preferences.edit().putString(key, array.toString()).apply();
+    }
+
+    private String savedItemIdentity(String url, String folder) {
+        return normalizeSavedFolder(folder) + "\n" + (url == null ? "" : url.trim());
     }
 
     private List<String> readSavedFolders(String key) {

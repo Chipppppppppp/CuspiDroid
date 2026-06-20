@@ -274,7 +274,7 @@ final class Sync2chClient {
             for (int i = 0; i < array.length(); i++) {
                 JSONObject item = array.optJSONObject(i);
                 if (item != null) {
-                    urls.add(item.optString("url", ""));
+                    urls.add(savedItemIdentity(item.optString("url", ""), item.optString("folder", "")));
                 }
             }
             Set<String> folders = new LinkedHashSet<>();
@@ -286,15 +286,17 @@ final class Sync2chClient {
                 }
             }
             for (ThreadState state : remote) {
-                if (isBlank(state.url) || urls.contains(state.url)) {
+                String folder = normalizeFolder(state.folder);
+                String identity = savedItemIdentity(state.url, folder);
+                if (isBlank(state.url) || urls.contains(identity)) {
                     continue;
                 }
                 JSONObject item = new JSONObject();
                 item.put("title", fallbackTitle(state));
                 item.put("url", state.url);
-                item.put("folder", normalizeFolder(state.folder));
+                item.put("folder", folder);
                 array.put(item);
-                urls.add(state.url);
+                urls.add(identity);
                 added++;
             }
             for (ThreadState state : remote) {
@@ -309,7 +311,7 @@ final class Sync2chClient {
             for (String folder : folders) {
                 nextFolders.put(folder);
             }
-            editor.putString(MainActivity.PREF_THREAD_BOOKMARKS, array.toString());
+            editor.putString(MainActivity.PREF_THREAD_BOOKMARKS, dedupeSavedItems(array).toString());
             editor.putString(MainActivity.PREF_THREAD_BOOKMARKS + "_folders", nextFolders.toString());
         } catch (Exception ignored) {
         }
@@ -501,6 +503,38 @@ final class Sync2chClient {
             value = value.substring(0, value.length() - 1);
         }
         return value.trim();
+    }
+
+    private static JSONArray dedupeSavedItems(JSONArray array) {
+        JSONArray next = new JSONArray();
+        Set<String> seen = new LinkedHashSet<>();
+        try {
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String url = item.optString("url", "").trim();
+                String folder = normalizeFolder(item.optString("folder", ""));
+                String title = item.optString("title", "").trim();
+                String identity = savedItemIdentity(url, folder);
+                if (isBlank(url) || seen.contains(identity)) {
+                    continue;
+                }
+                JSONObject copy = new JSONObject();
+                copy.put("title", isBlank(title) ? url : title);
+                copy.put("url", url);
+                copy.put("folder", folder);
+                next.put(copy);
+                seen.add(identity);
+            }
+        } catch (Exception ignored) {
+        }
+        return next;
+    }
+
+    private static String savedItemIdentity(String url, String folder) {
+        return normalizeFolder(folder) + "\n" + (url == null ? "" : url.trim());
     }
 
     private static String valueOr(String value, String fallback) {
