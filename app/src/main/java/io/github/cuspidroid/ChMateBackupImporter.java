@@ -21,6 +21,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 final class ChMateBackupImporter {
     private static final Charset MS932 = Charset.forName("MS932");
@@ -33,8 +35,8 @@ final class ChMateBackupImporter {
         BackupFiles backupFiles = readBackupFiles(context, uri);
         if (backupFiles.database == null || !backupFiles.database.exists()) {
             throw new IllegalStateException(MainActivity.text(
-                    "databases/roidon.sqlite\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u30d5\u30a9\u30eb\u30c0\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
-                    "databases/roidon.sqlite was not found. Select the ChMate backup folder."));
+                    "databases/roidon.sqlite\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+                    "databases/roidon.sqlite was not found. Select the ChMate backup zip."));
         }
         SQLiteDatabase database = null;
         try {
@@ -55,7 +57,10 @@ final class ChMateBackupImporter {
         if (isTreeUri(uri)) {
             walkTree(context, uri, DocumentsContract.getTreeDocumentId(uri), backupFiles);
         } else {
-            backupFiles.database = copyToTempDatabase(context, uri);
+            readZipBackup(context, uri, backupFiles);
+            if (backupFiles.database == null) {
+                backupFiles.database = copyToTempDatabase(context, uri);
+            }
         }
         return backupFiles;
     }
@@ -111,6 +116,58 @@ final class ChMateBackupImporter {
         return file;
     }
 
+    private static void readZipBackup(Context context, Uri uri, BackupFiles backupFiles) {
+        try (InputStream raw = context.getContentResolver().openInputStream(uri);
+             ZipInputStream zip = raw == null ? null : new ZipInputStream(raw)) {
+            if (zip == null) {
+                return;
+            }
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (entry.isDirectory()) {
+                    zip.closeEntry();
+                    continue;
+                }
+                String name = entry.getName();
+                String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+                String displayName = name == null ? "" : name.substring(name.lastIndexOf('/') + 1);
+                if (lower.endsWith("/databases/roidon.sqlite") || lower.equals("databases/roidon.sqlite")
+                        || lower.endsWith("roidon.sqlite")) {
+                    backupFiles.database = copyZipEntryToTempDatabase(context, zip);
+                } else if (lower.contains("/dat/") && lower.endsWith(".dat") || lower.startsWith("dat/") && lower.endsWith(".dat")) {
+                    readDatHost(readZipEntryBytes(zip, 512 * 1024), displayName, backupFiles);
+                }
+                zip.closeEntry();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static File copyZipEntryToTempDatabase(Context context, InputStream input) throws Exception {
+        File file = new File(context.getCacheDir(), "chmate-restore-" + System.currentTimeMillis() + ".sqlite");
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                output.write(buffer, 0, read);
+            }
+        }
+        return file;
+    }
+
+    private static byte[] readZipEntryBytes(InputStream input, int limit) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[32 * 1024];
+        int total = 0;
+        int read;
+        while ((read = input.read(buffer)) >= 0 && total < limit) {
+            int count = Math.min(read, limit - total);
+            output.write(buffer, 0, count);
+            total += count;
+        }
+        return output.toByteArray();
+    }
+
     private static void readDatHost(Context context, Uri uri, String name, BackupFiles backupFiles) {
         try {
             String base = name.substring(0, name.length() - 4);
@@ -121,18 +178,34 @@ final class ChMateBackupImporter {
             String board = base.substring(0, sep);
             String key = base.substring(sep + 1);
             byte[] bytes = readBytes(context, uri, 512 * 1024);
-            String text = new String(bytes, MS932);
-            Matcher matcher = THREAD_URL.matcher(text);
-            while (matcher.find()) {
-                if (board.equals(matcher.group(2)) && key.equals(matcher.group(3))) {
-                    backupFiles.datHosts.put(board + "/" + key, matcher.group(1));
-                    return;
-                }
-                if (board.equals(matcher.group(2)) && !backupFiles.datHosts.has(board + "/" + key)) {
-                    backupFiles.datHosts.put(board + "/" + key, matcher.group(1));
-                }
-            }
+            readDatHost(bytes, board, key, backupFiles);
         } catch (Exception ignored) {
+        }
+    }
+
+    private static void readDatHost(byte[] bytes, String name, BackupFiles backupFiles) {
+        try {
+            String base = name.substring(0, name.length() - 4);
+            int sep = base.lastIndexOf('_');
+            if (sep <= 0 || sep + 1 >= base.length()) {
+                return;
+            }
+            readDatHost(bytes, base.substring(0, sep), base.substring(sep + 1), backupFiles);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void readDatHost(byte[] bytes, String board, String key, BackupFiles backupFiles) throws Exception {
+        String text = new String(bytes, MS932);
+        Matcher matcher = THREAD_URL.matcher(text);
+        while (matcher.find()) {
+            if (board.equals(matcher.group(2)) && key.equals(matcher.group(3))) {
+                backupFiles.datHosts.put(board + "/" + key, matcher.group(1));
+                return;
+            }
+            if (board.equals(matcher.group(2)) && !backupFiles.datHosts.has(board + "/" + key)) {
+                backupFiles.datHosts.put(board + "/" + key, matcher.group(1));
+            }
         }
     }
 
