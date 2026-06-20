@@ -329,8 +329,10 @@ final class ChMateBackupImporter {
 
     private static String rankFolder(int flag) {
         int rank = flag & 7;
-        if (rank < 1 || rank > 5) {
-            return "";
+        if (rank <= 0) {
+            rank = 1;
+        } else if (rank > 5) {
+            rank = 5;
         }
         StringBuilder builder = new StringBuilder();
         for (int i = 0; i < rank; i++) {
