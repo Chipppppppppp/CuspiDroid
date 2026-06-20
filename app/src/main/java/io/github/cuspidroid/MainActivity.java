@@ -1767,7 +1767,8 @@ public class MainActivity extends Activity {
         renderTabs();
     }
 
-    private void createBookmarkOverviewTab(String url) {
+    private void createBookmarkOverviewTab(SavedItem item) {
+        String url = item == null ? "" : item.url;
         if (url == null || url.trim().isEmpty()) {
             return;
         }
@@ -1775,6 +1776,7 @@ public class MainActivity extends Activity {
         tab.title = text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
         tab.url = "";
         tab.bookmarkOverviewTab = true;
+        tab.bookmarkOverviewFolder = item == null ? "" : normalizeSavedFolder(item.folder);
         tab.privateBrowsing = currentTabIsPrivate();
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tabs.add(tab);
@@ -1872,6 +1874,7 @@ public class MainActivity extends Activity {
                 tab.url = url;
                 tab.privateBrowsing = item.optBoolean("privateBrowsing", false);
                 tab.bookmarkOverviewTab = item.optBoolean("bookmarkOverviewTab", false);
+                tab.bookmarkOverviewFolder = normalizeSavedFolder(item.optString("bookmarkOverviewFolder", ""));
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
@@ -2036,6 +2039,7 @@ public class MainActivity extends Activity {
                 item.put("title", tab.title == null ? "Tab" : tab.title);
                 item.put("privateBrowsing", false);
                 item.put("bookmarkOverviewTab", tab.bookmarkOverviewTab);
+                item.put("bookmarkOverviewFolder", normalizeSavedFolder(tab.bookmarkOverviewFolder));
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
                 item.put("threadBottomOffset", tab.threadBottomOffset);
@@ -2653,6 +2657,9 @@ public class MainActivity extends Activity {
             return;
         }
         tab.bookmarkOverviewTab = bookmarkOverviewTab;
+        if (!bookmarkOverviewTab) {
+            tab.bookmarkOverviewFolder = "";
+        }
         if (isInternalPageUrl(url)) {
             if (addHistory) {
                 recordNavigation(tab, url);
@@ -7146,7 +7153,7 @@ public class MainActivity extends Activity {
         }
         tabOverviewScrollY = 0;
         pendingHistoryAll = false;
-        createBookmarkOverviewTab(item.url);
+        createBookmarkOverviewTab(item);
     }
 
     private View bookmarkOverviewShell(View row, int indentLevel, int height) {
@@ -7174,13 +7181,16 @@ public class MainActivity extends Activity {
         CuspTab tab = currentTab();
         return tab != null && tab.bookmarkOverviewTab
                 && item != null && item.url != null
-                && sameSavedUrl(threadUrl(tab), item.url);
+                && sameSavedUrl(threadUrl(tab), item.url)
+                && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(normalizeSavedFolder(item.folder));
     }
 
     private CuspTab bookmarkOverviewTab(SavedItem item) {
         CuspTab tab = new CuspTab();
         tab.url = item == null ? "" : item.url;
         tab.title = item == null ? "" : item.title;
+        tab.bookmarkOverviewTab = true;
+        tab.bookmarkOverviewFolder = item == null ? "" : normalizeSavedFolder(item.folder);
         tab.readerMode = true;
         tab.nativeKind = isThreadUrl(tab.url) ? NATIVE_THREAD
                 : isBoardUrl(tab.url) || isBbsDirectoryUrl(tab.url) ? NATIVE_BOARD : null;
@@ -16451,6 +16461,7 @@ public class MainActivity extends Activity {
         boolean backToNewTab;
         boolean privateBrowsing;
         boolean bookmarkOverviewTab;
+        String bookmarkOverviewFolder = "";
         boolean readerMode;
         List<String> navigationHistory = new ArrayList<>();
         int navigationIndex = -1;
