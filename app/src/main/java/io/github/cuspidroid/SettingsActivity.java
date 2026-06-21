@@ -64,6 +64,24 @@ public class SettingsActivity extends Activity {
     private RadioGroup boardSortDirectionGroup;
     private RadioButton boardSortDesc;
     private RadioButton boardSortAsc;
+    private CheckBox tabShowResponses;
+    private CheckBox tabShowVelocity;
+    private CheckBox tabShowOrder;
+    private CheckBox tabShowCreated;
+    private CheckBox tabShowUnread;
+    private CheckBox tabSortEnabled;
+    private RadioGroup tabSortGroup;
+    private RadioButton tabSortResponses;
+    private RadioButton tabSortVelocity;
+    private RadioButton tabSortOrder;
+    private RadioButton tabSortCreated;
+    private RadioButton tabSortUnread;
+    private RadioGroup tabSortDirectionGroup;
+    private RadioButton tabSortDesc;
+    private RadioButton tabSortAsc;
+    private RadioGroup tabNonThreadPositionGroup;
+    private RadioButton tabNonThreadTop;
+    private RadioButton tabNonThreadBottom;
     private CheckBox cacheEnabled;
     private CheckBox disableHistory;
     private CheckBox showBookmarksInTabOverview;
@@ -269,6 +287,63 @@ public class SettingsActivity extends Activity {
         boardSortDirectionGroup.addView(boardSortAsc, new RadioGroup.LayoutParams(0, dp(44), 1));
         boardSortDirectionGroup.addView(boardSortDesc, new RadioGroup.LayoutParams(0, dp(44), 1));
         root.addView(boardSortDirectionGroup);
+
+        root.addView(sectionTitle(MainActivity.text("\u30bf\u30d6\u4e00\u89a7", "Tab List")));
+        root.addView(helperText(MainActivity.text("\u8868\u793a\u3059\u308b\u9805\u76ee", "Displayed fields")));
+        tabShowCreated = settingCheckBox(MainActivity.text("\u4f5c\u6210\u65e5\u6642", "Created time"));
+        tabShowUnread = settingCheckBox(MainActivity.text("\u672a\u8aad\u6570", "Unread count"));
+        tabShowOrder = settingCheckBox(MainActivity.text("\u9806\u4f4d", "Rank"));
+        tabShowVelocity = settingCheckBox(MainActivity.text("\u52e2\u3044", "Speed"));
+        tabShowResponses = settingCheckBox(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
+        root.addView(tabShowCreated);
+        root.addView(tabShowUnread);
+        root.addView(tabShowOrder);
+        root.addView(tabShowVelocity);
+        root.addView(tabShowResponses);
+
+        tabSortEnabled = settingCheckBox(MainActivity.text("\u8868\u793a\u9806\u3092\u81ea\u52d5\u3067\u4e26\u3079\u66ff\u3048", "Automatically sort tab list"));
+        root.addView(tabSortEnabled);
+
+        root.addView(helperText(MainActivity.text("\u4e26\u3079\u66ff\u3048", "Sort by")));
+        tabSortGroup = new RadioGroup(this);
+        tabSortGroup.setOrientation(RadioGroup.VERTICAL);
+        tabSortCreated = radio(MainActivity.text("\u4f5c\u6210\u65e5\u6642", "Created time"));
+        tabSortUnread = radio(MainActivity.text("\u672a\u8aad\u6570", "Unread count"));
+        tabSortOrder = radio(MainActivity.text("\u9806\u4f4d", "Rank"));
+        tabSortVelocity = radio(MainActivity.text("\u52e2\u3044", "Speed"));
+        tabSortResponses = radio(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
+        tabSortCreated.setId(View.generateViewId());
+        tabSortUnread.setId(View.generateViewId());
+        tabSortOrder.setId(View.generateViewId());
+        tabSortVelocity.setId(View.generateViewId());
+        tabSortResponses.setId(View.generateViewId());
+        tabSortGroup.addView(tabSortCreated);
+        tabSortGroup.addView(tabSortUnread);
+        tabSortGroup.addView(tabSortOrder);
+        tabSortGroup.addView(tabSortVelocity);
+        tabSortGroup.addView(tabSortResponses);
+        root.addView(tabSortGroup);
+
+        tabSortDirectionGroup = new RadioGroup(this);
+        tabSortDirectionGroup.setOrientation(RadioGroup.HORIZONTAL);
+        tabSortAsc = radio(MainActivity.text("\u6607\u9806", "Ascending"));
+        tabSortDesc = radio(MainActivity.text("\u964d\u9806", "Descending"));
+        tabSortAsc.setId(View.generateViewId());
+        tabSortDesc.setId(View.generateViewId());
+        tabSortDirectionGroup.addView(tabSortAsc, new RadioGroup.LayoutParams(0, dp(44), 1));
+        tabSortDirectionGroup.addView(tabSortDesc, new RadioGroup.LayoutParams(0, dp(44), 1));
+        root.addView(tabSortDirectionGroup);
+
+        root.addView(helperText(MainActivity.text("\u30b9\u30ec\u4ee5\u5916\u306e\u30bf\u30d6", "Non-thread tabs")));
+        tabNonThreadPositionGroup = new RadioGroup(this);
+        tabNonThreadPositionGroup.setOrientation(RadioGroup.HORIZONTAL);
+        tabNonThreadTop = radio(MainActivity.text("\u4e0a\u306b\u7f6e\u304f", "Place above"));
+        tabNonThreadBottom = radio(MainActivity.text("\u4e0b\u306b\u7f6e\u304f", "Place below"));
+        tabNonThreadTop.setId(View.generateViewId());
+        tabNonThreadBottom.setId(View.generateViewId());
+        tabNonThreadPositionGroup.addView(tabNonThreadTop, new RadioGroup.LayoutParams(0, dp(44), 1));
+        tabNonThreadPositionGroup.addView(tabNonThreadBottom, new RadioGroup.LayoutParams(0, dp(44), 1));
+        root.addView(tabNonThreadPositionGroup);
 
         root.addView(managementRow(R.drawable.ic_text_fields,
                 MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words"),
@@ -585,6 +660,25 @@ public class SettingsActivity extends Activity {
         } else {
             boardSortAsc.setChecked(true);
         }
+        tabShowResponses.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_SHOW_RESPONSES, true));
+        tabShowVelocity.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_SHOW_VELOCITY, true));
+        tabShowOrder.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_SHOW_ORDER, true));
+        tabShowCreated.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_SHOW_CREATED, true));
+        tabShowUnread.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_SHOW_UNREAD, true));
+        tabSortEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_SORT_ENABLED, false));
+        setSortRadio(tabSortGroup, tabSortResponses, tabSortVelocity, tabSortOrder, tabSortCreated, tabSortUnread,
+                preferences.getString(MainActivity.PREF_TAB_SORT_KEY, MainActivity.BOARD_SORT_VELOCITY));
+        if (preferences.getBoolean(MainActivity.PREF_TAB_SORT_DESC, true)) {
+            tabSortDesc.setChecked(true);
+        } else {
+            tabSortAsc.setChecked(true);
+        }
+        if (preferences.getBoolean(MainActivity.PREF_TAB_NON_THREAD_TOP, true)) {
+            tabNonThreadTop.setChecked(true);
+        } else {
+            tabNonThreadBottom.setChecked(true);
+        }
+        updateTabSortDependentSettings();
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
         showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
         showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
@@ -673,6 +767,18 @@ public class SettingsActivity extends Activity {
         boardShowUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         boardSortGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         boardSortDirectionGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        tabShowResponses.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        tabShowVelocity.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        tabShowOrder.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        tabShowCreated.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        tabShowUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        tabSortEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            updateTabSortDependentSettings();
+            saveSettings(false);
+        });
+        tabSortGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        tabSortDirectionGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        tabNonThreadPositionGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         disableHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -770,6 +876,15 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BOARD_THREAD_SORT_DESC, boardSortDesc.isChecked())
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED,
                         MainActivity.BOARD_SORT_VELOCITY.equals(selectedBoardSortKey()) && boardSortDesc.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_SHOW_RESPONSES, tabShowResponses.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_SHOW_VELOCITY, tabShowVelocity.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_SHOW_ORDER, tabShowOrder.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_SHOW_CREATED, tabShowCreated.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_SHOW_UNREAD, tabShowUnread.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_SORT_ENABLED, tabSortEnabled.isChecked())
+                .putString(MainActivity.PREF_TAB_SORT_KEY, selectedTabSortKey())
+                .putBoolean(MainActivity.PREF_TAB_SORT_DESC, tabSortDesc.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_NON_THREAD_TOP, tabNonThreadTop.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, disableHistory.isChecked())
@@ -807,6 +922,38 @@ public class SettingsActivity extends Activity {
             return MainActivity.BOARD_SORT_UNREAD;
         }
         return MainActivity.BOARD_SORT_VELOCITY;
+    }
+
+    private String selectedTabSortKey() {
+        int checkedId = tabSortGroup.getCheckedRadioButtonId();
+        if (checkedId == tabSortResponses.getId()) {
+            return MainActivity.BOARD_SORT_RESPONSES;
+        }
+        if (checkedId == tabSortOrder.getId()) {
+            return MainActivity.BOARD_SORT_ORDER;
+        }
+        if (checkedId == tabSortCreated.getId()) {
+            return MainActivity.BOARD_SORT_CREATED;
+        }
+        if (checkedId == tabSortUnread.getId()) {
+            return MainActivity.BOARD_SORT_UNREAD;
+        }
+        return MainActivity.BOARD_SORT_VELOCITY;
+    }
+
+    private void setSortRadio(RadioGroup group, RadioButton responses, RadioButton velocity,
+                              RadioButton order, RadioButton created, RadioButton unread, String key) {
+        if (MainActivity.BOARD_SORT_RESPONSES.equals(key)) {
+            responses.setChecked(true);
+        } else if (MainActivity.BOARD_SORT_ORDER.equals(key)) {
+            order.setChecked(true);
+        } else if (MainActivity.BOARD_SORT_CREATED.equals(key)) {
+            created.setChecked(true);
+        } else if (MainActivity.BOARD_SORT_UNREAD.equals(key)) {
+            unread.setChecked(true);
+        } else {
+            velocity.setChecked(true);
+        }
     }
 
     private void confirmResetDefaults() {
@@ -1026,6 +1173,15 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BOARD_SHOW_UNREAD, true)
                 .putString(MainActivity.PREF_BOARD_THREAD_SORT_KEY, MainActivity.BOARD_SORT_VELOCITY)
                 .putBoolean(MainActivity.PREF_BOARD_THREAD_SORT_DESC, true)
+                .putBoolean(MainActivity.PREF_TAB_SHOW_RESPONSES, true)
+                .putBoolean(MainActivity.PREF_TAB_SHOW_VELOCITY, true)
+                .putBoolean(MainActivity.PREF_TAB_SHOW_ORDER, true)
+                .putBoolean(MainActivity.PREF_TAB_SHOW_CREATED, true)
+                .putBoolean(MainActivity.PREF_TAB_SHOW_UNREAD, true)
+                .putBoolean(MainActivity.PREF_TAB_SORT_ENABLED, false)
+                .putString(MainActivity.PREF_TAB_SORT_KEY, MainActivity.BOARD_SORT_VELOCITY)
+                .putBoolean(MainActivity.PREF_TAB_SORT_DESC, true)
+                .putBoolean(MainActivity.PREF_TAB_NON_THREAD_TOP, true)
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true)
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true)
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
@@ -1049,6 +1205,24 @@ public class SettingsActivity extends Activity {
         boolean enabled = treeView.isChecked();
         treeSkipFirstReply.setEnabled(enabled);
         treeSkipFirstReply.setAlpha(enabled ? 1f : 0.45f);
+    }
+
+    private void updateTabSortDependentSettings() {
+        boolean enabled = tabSortEnabled != null && tabSortEnabled.isChecked();
+        setGroupEnabled(tabSortGroup, enabled);
+        setGroupEnabled(tabSortDirectionGroup, enabled);
+        setGroupEnabled(tabNonThreadPositionGroup, enabled);
+    }
+
+    private void setGroupEnabled(ViewGroup group, boolean enabled) {
+        if (group == null) {
+            return;
+        }
+        group.setEnabled(enabled);
+        group.setAlpha(enabled ? 1f : 0.45f);
+        for (int i = 0; i < group.getChildCount(); i++) {
+            group.getChildAt(i).setEnabled(enabled);
+        }
     }
 
     private void updateMediaDependentSettings() {

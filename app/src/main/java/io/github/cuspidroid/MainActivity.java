@@ -164,7 +164,15 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_SHOW_CREATED = "board_show_created";
     static final String PREF_BOARD_SHOW_UNREAD = "board_show_unread";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
-    static final String PREF_BOARD_DISPLAY_NAMES = "board_display_names";
+    static final String PREF_TAB_SHOW_RESPONSES = "tab_show_responses";
+    static final String PREF_TAB_SHOW_VELOCITY = "tab_show_velocity";
+    static final String PREF_TAB_SHOW_ORDER = "tab_show_order";
+    static final String PREF_TAB_SHOW_CREATED = "tab_show_created";
+    static final String PREF_TAB_SHOW_UNREAD = "tab_show_unread";
+    static final String PREF_TAB_SORT_ENABLED = "tab_sort_enabled";
+    static final String PREF_TAB_SORT_KEY = "tab_sort_key";
+    static final String PREF_TAB_SORT_DESC = "tab_sort_desc";
+    static final String PREF_TAB_NON_THREAD_TOP = "tab_non_thread_top";
     static final String PREF_WRITE_NAME_HISTORY = "write_name_history";
     static final String PREF_WRITE_MAIL_HISTORY = "write_mail_history";
     static final String PREF_DISABLE_HISTORY = "disable_history";
@@ -4728,7 +4736,7 @@ public class MainActivity extends Activity {
         row.addView(resultTitle);
 
         if (result != null && result.boardName != null && !result.boardName.isEmpty()) {
-            row.addView(boardThreadMetaView(result));
+            row.addView(boardThreadMetaView(result, false));
         } else {
             TextView meta = new TextView(this);
             meta.setText(styledResultMeta(result == null ? "" : result.meta));
@@ -4745,41 +4753,49 @@ public class MainActivity extends Activity {
     }
 
     private View boardThreadMetaView(SearchResult result) {
+        return boardThreadMetaView(result, false);
+    }
+
+    private View boardThreadMetaView(SearchResult result, boolean tabOverview) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.BOTTOM | Gravity.END);
         row.setPadding(0, dp(1), 0, 0);
 
-        if (preferences.getBoolean(PREF_BOARD_SHOW_CREATED, true)) {
+        if (showMetaField(PREF_BOARD_SHOW_CREATED, PREF_TAB_SHOW_CREATED, tabOverview)) {
             row.addView(boardThreadDateMetaItem(boardCreatedText(result.createdAt)),
                     new LinearLayout.LayoutParams(0, dp(30), 1));
         } else {
             View spacer = new View(this);
             row.addView(spacer, new LinearLayout.LayoutParams(0, dp(30), 1));
         }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true)) {
+        if (showMetaField(PREF_BOARD_SHOW_UNREAD, PREF_TAB_SHOW_UNREAD, tabOverview)) {
             row.addView(boardThreadUnreadMetaItem(result.hasReadHistory ? Math.max(0, result.unread) : -1),
                     boardThreadMetaItemParams(dp(30)));
         }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_ORDER, true)) {
+        if (showMetaField(PREF_BOARD_SHOW_ORDER, PREF_TAB_SHOW_ORDER, tabOverview)) {
             row.addView(boardThreadMetaItem(text("\u9806\u4f4d", "Rank"),
                     result.boardOrder > 0 ? String.valueOf(result.boardOrder) : "-", Gravity.END,
                     metaBlue(Math.max(0, result.boardOrder), false), true),
                     boardThreadMetaItemParams(dp(31)));
         }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_VELOCITY, true)) {
+        if (showMetaField(PREF_BOARD_SHOW_VELOCITY, PREF_TAB_SHOW_VELOCITY, tabOverview)) {
             row.addView(boardThreadMetaItem(text("\u52e2\u3044", "Speed"),
                     result.velocity > 0 ? String.format(Locale.ROOT, "%.1f", result.velocity) : "-", Gravity.END,
                     metaBlue(Math.max(0d, result.velocity), true), true),
                     boardThreadMetaItemParams(dp(42)));
         }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
+        if (showMetaField(PREF_BOARD_SHOW_RESPONSES, PREF_TAB_SHOW_RESPONSES, tabOverview)) {
             row.addView(boardThreadMetaItem(text("\u30ec\u30b9", "Posts"),
                     result.responses > 0 ? String.valueOf(result.responses) : "-", Gravity.END,
                     metaBlue(Math.max(0, result.responses), false), true),
                     boardThreadMetaItemParams(dp(36)));
         }
         return row;
+    }
+
+    private boolean showMetaField(String boardPref, String tabPref, boolean tabOverview) {
+        return preferences.getBoolean(tabOverview ? tabPref : boardPref, true);
     }
 
     private LinearLayout.LayoutParams boardThreadMetaItemParams(int width) {
@@ -6073,12 +6089,10 @@ public class MainActivity extends Activity {
 
     private void addTabOverviewSection(LinearLayout list, boolean privateSection) {
         boolean any = false;
-        for (int i = 0; i < tabs.size(); i++) {
-            CuspTab tab = tabs.get(i);
-            if (tab.privateBrowsing == privateSection && !tab.bookmarkOverviewTab) {
-                list.addView(tabOverviewRow(tab, i));
-                any = true;
-            }
+        for (int index : tabOverviewIndices(privateSection)) {
+            CuspTab tab = tabs.get(index);
+            list.addView(tabOverviewRow(tab, index));
+            any = true;
         }
         if (!any) {
             TextView empty = helperLine(privateSection
@@ -6096,6 +6110,42 @@ public class MainActivity extends Activity {
             });
             list.addView(empty);
         }
+    }
+
+    private List<Integer> tabOverviewIndices(boolean privateSection) {
+        List<Integer> indices = new ArrayList<>();
+        for (int i = 0; i < tabs.size(); i++) {
+            CuspTab tab = tabs.get(i);
+            if (tab.privateBrowsing == privateSection && !tab.bookmarkOverviewTab) {
+                indices.add(i);
+            }
+        }
+        if (!preferences.getBoolean(PREF_TAB_SORT_ENABLED, false)) {
+            return indices;
+        }
+        final String key = preferences.getString(PREF_TAB_SORT_KEY, BOARD_SORT_VELOCITY);
+        final boolean desc = preferences.getBoolean(PREF_TAB_SORT_DESC, true);
+        final boolean nonThreadTop = preferences.getBoolean(PREF_TAB_NON_THREAD_TOP, true);
+        Collections.sort(indices, (leftIndex, rightIndex) -> {
+            CuspTab leftTab = tabs.get(leftIndex);
+            CuspTab rightTab = tabs.get(rightIndex);
+            SearchResult left = searchResultForTabOverview(leftTab);
+            SearchResult right = searchResultForTabOverview(rightTab);
+            boolean leftThread = left != null;
+            boolean rightThread = right != null;
+            if (leftThread != rightThread) {
+                return leftThread ? (nonThreadTop ? 1 : -1) : (nonThreadTop ? -1 : 1);
+            }
+            if (!leftThread) {
+                return Integer.compare(leftIndex, rightIndex);
+            }
+            int compared = compareBoardSortValue(left, right, key);
+            if (compared != 0) {
+                return desc ? -compared : compared;
+            }
+            return Integer.compare(leftIndex, rightIndex);
+        });
+        return indices;
     }
 
     private boolean moveBookmarkToTabsFromPayload(DragPayload payload, int index) {
@@ -6318,7 +6368,7 @@ public class MainActivity extends Activity {
             empty.setIncludeFontPadding(false);
             return empty;
         }
-        return boardThreadMetaView(result);
+        return boardThreadMetaView(result, true);
     }
 
     private SearchResult searchResultForTabOverview(CuspTab tab) {
@@ -14274,7 +14324,6 @@ public class MainActivity extends Activity {
             if (!seen.add(boardUrl)) {
                 continue;
             }
-            saveBoardDisplayName(boardUrl, label);
             SearchResult result = new SearchResult();
             result.title = label == null || label.isEmpty() ? board : label;
             result.url = boardUrl;
@@ -16424,7 +16473,7 @@ public class MainActivity extends Activity {
     }
 
     private String displayBoardTitle(String url) {
-        String display = boardDisplayNameFromUrl(url);
+        String display = boardDisplayNameFromRegisteredLinks(url);
         if (display != null && !display.trim().isEmpty()) {
             return display.trim();
         }
@@ -16432,49 +16481,31 @@ public class MainActivity extends Activity {
         return board == null ? hostTitle(url) : board;
     }
 
-    private String boardDisplayNameFromUrl(String url) {
-        String boardUrl = boardUrlForDisplayName(url);
-        if (boardUrl == null || boardUrl.trim().isEmpty()) {
-            return null;
-        }
+    private String boardDisplayNameFromRegisteredLinks(String url) {
         try {
-            JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
-            return object.optString(boardUrl, "");
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private void saveBoardDisplayName(String boardUrl, String name) {
-        String key = boardUrlForDisplayName(boardUrl);
-        String value = name == null ? "" : cleanText(name).trim();
-        if (key == null || key.isEmpty() || value.isEmpty()) {
-            return;
-        }
-        try {
-            JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
-            object.put(key, value);
-            preferences.edit().putString(PREF_BOARD_DISPLAY_NAMES, object.toString()).apply();
-        } catch (Exception ignored) {
-        }
-    }
-
-    private String boardUrlForDisplayName(String url) {
-        String board = boardNameFromUrl(url);
-        if (board == null || board.trim().isEmpty()) {
-            return null;
-        }
-        try {
-            Uri uri = Uri.parse(normalizeUrl(url));
-            String host = uri.getHost();
-            if (host == null || host.trim().isEmpty()) {
+            Uri target = Uri.parse(normalizeUrl(url));
+            String targetHost = target.getHost();
+            String targetBoard = boardNameFromUrl(url);
+            if (targetHost == null || targetBoard == null) {
                 return null;
             }
-            String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
-            return normalizeHistoryUrl(scheme + "://" + host + "/" + board + "/");
+            for (BbsLink link : readBbsLinks(preferences)) {
+                if (isBbsMenuUrl(link.url)) {
+                    continue;
+                }
+                Uri base = Uri.parse(normalizeUrl(link.url));
+                String baseHost = base.getHost();
+                String baseBoard = boardNameFromUrl(link.url);
+                if (baseHost != null && baseBoard != null
+                        && isSameBbsHostFamily(baseHost, targetHost)
+                        && baseBoard.equalsIgnoreCase(targetBoard)
+                        && link.name != null && !link.name.trim().isEmpty()) {
+                    return link.name.trim();
+                }
+            }
         } catch (Exception ignored) {
-            return null;
         }
+        return null;
     }
 
     private String registeredMenuBoardName(String url) {
