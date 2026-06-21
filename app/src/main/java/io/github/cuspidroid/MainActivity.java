@@ -164,6 +164,7 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_SHOW_CREATED = "board_show_created";
     static final String PREF_BOARD_SHOW_UNREAD = "board_show_unread";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
+    static final String PREF_BOARD_DISPLAY_NAMES = "board_display_names";
     static final String PREF_WRITE_NAME_HISTORY = "write_name_history";
     static final String PREF_WRITE_MAIL_HISTORY = "write_mail_history";
     static final String PREF_DISABLE_HISTORY = "disable_history";
@@ -2588,7 +2589,7 @@ public class MainActivity extends Activity {
             bottomBookmarkButton.setVisibility(View.GONE);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else if (tab != null) {
-            String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : tab.title;
+            String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : displayTitleForTab(tab);
             if (tab.threadPage != null) {
                 setThreadTitleText(bottomThreadTitle, tab.threadPage, title);
             } else {
@@ -2604,6 +2605,17 @@ public class MainActivity extends Activity {
         } else {
             bottomThreadBar.setVisibility(View.GONE);
         }
+    }
+
+    private String displayTitleForTab(CuspTab tab) {
+        if (tab == null) {
+            return text("\u30bf\u30d6", "Tab");
+        }
+        if (NATIVE_BOARD.equals(tab.nativeKind) && tab.url != null && !tab.url.trim().isEmpty()) {
+            return displayBoardTitle(tab.url);
+        }
+        String title = tab.title;
+        return title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title;
     }
 
     private String pendingNewTabTitle() {
@@ -6234,7 +6246,7 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
-        row.setMinimumHeight(dp(78));
+        row.setMinimumHeight(dp(86));
         row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
         row.setOnClickListener(clickListener);
         row.setOnDragListener(dragListener);
@@ -6246,7 +6258,7 @@ public class MainActivity extends Activity {
         textBox.setOrientation(LinearLayout.VERTICAL);
         textBox.setOnDragListener(dragListener);
         TextView title = new TextView(this);
-        String rowTitle = tab.title == null || tab.title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : tab.title;
+        String rowTitle = displayTitleForTab(tab);
         if (tab.threadPage != null) {
             setThreadTitleText(title, tab.threadPage, rowTitle);
         } else if (tab.knownThreadArchived) {
@@ -6265,32 +6277,13 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             title.setAutoSizeTextTypeUniformWithConfiguration(11, 14, 1, TypedValue.COMPLEX_UNIT_SP);
         }
-        TextView url = new TextView(this);
-        url.setOnDragListener(dragListener);
-        url.setText(tab.url == null || tab.url.trim().isEmpty() ? text("\u65b0\u898f\u30bf\u30d6", "New tab") : tab.url);
-        url.setTextColor(mutedColor());
-        url.setTextSize(12);
-        url.setSingleLine(true);
-        url.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        url.setIncludeFontPadding(false);
         textBox.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
-        textBox.addView(url, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
-        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(56), 1));
-
-        int unread = unreadCount(tab);
-        if (unread > 0) {
-            TextView unreadBadge = new TextView(this);
-            unreadBadge.setText(String.valueOf(unread));
-            unreadBadge.setTextColor(Color.WHITE);
-            unreadBadge.setTextSize(12);
-            unreadBadge.setGravity(Gravity.CENTER);
-            unreadBadge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(12)));
-            LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(34), dp(24));
-            unreadParams.setMargins(dp(8), 0, 0, 0);
-            row.addView(unreadBadge, unreadParams);
-        }
+        View meta = tabOverviewMetaView(tab);
+        meta.setOnDragListener(dragListener);
+        textBox.addView(meta, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
+        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(68), 1));
 
         if (tab.privateBrowsing) {
             ImageView privateIcon = new ImageView(this);
@@ -6308,13 +6301,44 @@ public class MainActivity extends Activity {
         row.addView(close, closeParams);
 
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(78));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(86));
         rowParams.setMargins(0, 0, 0, dp(8));
         shell.setLayoutParams(rowParams);
         shell.addView(row, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(78)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(86)));
         swipeSetup.attach(row, deleteLeft, deleteRight, shell);
         return shell;
+    }
+
+    private View tabOverviewMetaView(CuspTab tab) {
+        SearchResult result = searchResultForTabOverview(tab);
+        if (result == null) {
+            TextView empty = new TextView(this);
+            empty.setText("");
+            empty.setIncludeFontPadding(false);
+            return empty;
+        }
+        return boardThreadMetaView(result);
+    }
+
+    private SearchResult searchResultForTabOverview(CuspTab tab) {
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty() || datAddress(tab.url) == null) {
+            return null;
+        }
+        SearchResult result = new SearchResult();
+        result.url = tab.url;
+        result.boardName = displayBoardTitle(tab.url);
+        result.responses = Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
+        if (result.responses <= 0 && tab.threadPage != null) {
+            result.responses = maxPostNumber(tab.threadPage);
+        }
+        DatAddress address = datAddress(tab.url);
+        result.createdAt = address == null ? 0L : threadCreatedAtMillis(address.key);
+        result.velocity = address == null ? 0d : threadVelocity(address.key, result.responses);
+        result.boardOrder = 0;
+        result.hasReadHistory = threadHistoryContains(tab.url) || tab.readPostNumber > 0 || result.responses > 0;
+        result.unread = unreadCount(tab);
+        return result;
     }
 
     private interface TabOverviewLongClick {
@@ -14201,7 +14225,7 @@ public class MainActivity extends Activity {
             int readNumber = readPostNumber(preferences, result.url);
             result.hasReadHistory = threadHistoryContains(result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
-            result.boardName = board;
+            result.boardName = displayBoardTitle(boardUrl);
             result.priorityMatch = matchingBoardPriorityWord(title);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
@@ -14250,6 +14274,7 @@ public class MainActivity extends Activity {
             if (!seen.add(boardUrl)) {
                 continue;
             }
+            saveBoardDisplayName(boardUrl, label);
             SearchResult result = new SearchResult();
             result.title = label == null || label.isEmpty() ? board : label;
             result.url = boardUrl;
@@ -16398,6 +16423,60 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private String displayBoardTitle(String url) {
+        String display = boardDisplayNameFromUrl(url);
+        if (display != null && !display.trim().isEmpty()) {
+            return display.trim();
+        }
+        String board = boardNameFromUrl(url);
+        return board == null ? hostTitle(url) : board;
+    }
+
+    private String boardDisplayNameFromUrl(String url) {
+        String boardUrl = boardUrlForDisplayName(url);
+        if (boardUrl == null || boardUrl.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
+            return object.optString(boardUrl, "");
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void saveBoardDisplayName(String boardUrl, String name) {
+        String key = boardUrlForDisplayName(boardUrl);
+        String value = name == null ? "" : cleanText(name).trim();
+        if (key == null || key.isEmpty() || value.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
+            object.put(key, value);
+            preferences.edit().putString(PREF_BOARD_DISPLAY_NAMES, object.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String boardUrlForDisplayName(String url) {
+        String board = boardNameFromUrl(url);
+        if (board == null || board.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            if (host == null || host.trim().isEmpty()) {
+                return null;
+            }
+            String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+            return normalizeHistoryUrl(scheme + "://" + host + "/" + board + "/");
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private String registeredMenuBoardName(String url) {
         try {
             Uri target = Uri.parse(normalizeUrl(url));
@@ -16456,8 +16535,7 @@ public class MainActivity extends Activity {
     }
 
     private String boardTitle(String url) {
-        String board = boardNameFromUrl(url);
-        return board == null ? hostTitle(url) : board;
+        return displayBoardTitle(url);
     }
 
     private boolean is5chUrl(String url) {

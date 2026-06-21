@@ -229,45 +229,45 @@ public class SettingsActivity extends Activity {
 
         root.addView(sectionTitle(MainActivity.text("\u677f\u30b9\u30ec\u4e00\u89a7", "Board Thread List")));
         root.addView(helperText(MainActivity.text("\u8868\u793a\u3059\u308b\u9805\u76ee", "Displayed fields")));
-        boardShowResponses = settingCheckBox(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
-        boardShowVelocity = settingCheckBox(MainActivity.text("\u52e2\u3044", "Speed"));
-        boardShowOrder = settingCheckBox(MainActivity.text("\u9806\u4f4d", "Rank"));
         boardShowCreated = settingCheckBox(MainActivity.text("\u4f5c\u6210\u65e5\u6642", "Created time"));
         boardShowUnread = settingCheckBox(MainActivity.text("\u672a\u8aad\u6570", "Unread count"));
-        root.addView(boardShowResponses);
-        root.addView(boardShowVelocity);
-        root.addView(boardShowOrder);
+        boardShowOrder = settingCheckBox(MainActivity.text("\u9806\u4f4d", "Rank"));
+        boardShowVelocity = settingCheckBox(MainActivity.text("\u52e2\u3044", "Speed"));
+        boardShowResponses = settingCheckBox(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
         root.addView(boardShowCreated);
         root.addView(boardShowUnread);
+        root.addView(boardShowOrder);
+        root.addView(boardShowVelocity);
+        root.addView(boardShowResponses);
 
         root.addView(helperText(MainActivity.text("\u4e26\u3079\u66ff\u3048", "Sort by")));
         boardSortGroup = new RadioGroup(this);
         boardSortGroup.setOrientation(RadioGroup.VERTICAL);
-        boardSortResponses = radio(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
-        boardSortVelocity = radio(MainActivity.text("\u52e2\u3044", "Speed"));
-        boardSortOrder = radio(MainActivity.text("\u9806\u4f4d", "Rank"));
         boardSortCreated = radio(MainActivity.text("\u4f5c\u6210\u65e5\u6642", "Created time"));
         boardSortUnread = radio(MainActivity.text("\u672a\u8aad\u6570", "Unread count"));
-        boardSortResponses.setId(View.generateViewId());
-        boardSortVelocity.setId(View.generateViewId());
-        boardSortOrder.setId(View.generateViewId());
+        boardSortOrder = radio(MainActivity.text("\u9806\u4f4d", "Rank"));
+        boardSortVelocity = radio(MainActivity.text("\u52e2\u3044", "Speed"));
+        boardSortResponses = radio(MainActivity.text("\u30ec\u30b9\u6570", "Post count"));
         boardSortCreated.setId(View.generateViewId());
         boardSortUnread.setId(View.generateViewId());
-        boardSortGroup.addView(boardSortResponses);
-        boardSortGroup.addView(boardSortVelocity);
-        boardSortGroup.addView(boardSortOrder);
+        boardSortOrder.setId(View.generateViewId());
+        boardSortVelocity.setId(View.generateViewId());
+        boardSortResponses.setId(View.generateViewId());
         boardSortGroup.addView(boardSortCreated);
         boardSortGroup.addView(boardSortUnread);
+        boardSortGroup.addView(boardSortOrder);
+        boardSortGroup.addView(boardSortVelocity);
+        boardSortGroup.addView(boardSortResponses);
         root.addView(boardSortGroup);
 
         boardSortDirectionGroup = new RadioGroup(this);
         boardSortDirectionGroup.setOrientation(RadioGroup.HORIZONTAL);
-        boardSortDesc = radio(MainActivity.text("\u964d\u9806", "Descending"));
         boardSortAsc = radio(MainActivity.text("\u6607\u9806", "Ascending"));
-        boardSortDesc.setId(View.generateViewId());
+        boardSortDesc = radio(MainActivity.text("\u964d\u9806", "Descending"));
         boardSortAsc.setId(View.generateViewId());
-        boardSortDirectionGroup.addView(boardSortDesc, new RadioGroup.LayoutParams(0, dp(44), 1));
+        boardSortDesc.setId(View.generateViewId());
         boardSortDirectionGroup.addView(boardSortAsc, new RadioGroup.LayoutParams(0, dp(44), 1));
+        boardSortDirectionGroup.addView(boardSortDesc, new RadioGroup.LayoutParams(0, dp(44), 1));
         root.addView(boardSortDirectionGroup);
 
         root.addView(managementRow(R.drawable.ic_text_fields,
