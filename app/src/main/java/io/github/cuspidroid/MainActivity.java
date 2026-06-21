@@ -4735,12 +4735,15 @@ public class MainActivity extends Activity {
     private View boardThreadMetaView(SearchResult result) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.BOTTOM);
+        row.setGravity(Gravity.BOTTOM | Gravity.END);
         row.setPadding(0, dp(1), 0, 0);
 
         if (preferences.getBoolean(PREF_BOARD_SHOW_CREATED, true)) {
             row.addView(boardThreadDateMetaItem(boardCreatedText(result.createdAt)),
                     new LinearLayout.LayoutParams(0, dp(30), 1));
+        } else {
+            View spacer = new View(this);
+            row.addView(spacer, new LinearLayout.LayoutParams(0, dp(30), 1));
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true)) {
             row.addView(boardThreadUnreadMetaItem(result.hasReadHistory ? Math.max(0, result.unread) : -1),
