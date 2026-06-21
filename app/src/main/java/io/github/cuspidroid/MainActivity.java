@@ -265,7 +265,8 @@ public class MainActivity extends Activity {
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
     private static final float AA_SCORE_PER_LINE_THRESHOLD = 0.5f;
     private static final int AA_SCORE_MIN = 5;
-    private static final Pattern AA_LEADING_DOT_SPACE_PATTERN = Pattern.compile("^[.\\uFF0E]*[\\s\\p{Zs}\\u2028\\u2029]+");
+    private static final Pattern AA_LEADING_DOT_SPACE_PATTERN = Pattern.compile(
+            "^(?:[.\\uFF0E]+[\\s\\p{Zs}\\u2028\\u2029]+|[\\s\\p{Zs}\\u2028\\u2029]{2,})");
     private static final Pattern AA_DOUBLE_SPACE_PATTERN = Pattern.compile("[\\s\\p{Zs}\\u2028\\u2029]{2,}");
     private static final int POST_OUTER_GAP_DP = 4;
 
