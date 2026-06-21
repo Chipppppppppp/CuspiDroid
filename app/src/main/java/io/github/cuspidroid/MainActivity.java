@@ -11626,16 +11626,14 @@ public class MainActivity extends Activity {
         root.addView(pendingImgbbWatermarkCustom);
 
         pendingImgbbWatermarkInput = new EditText(this);
-        pendingImgbbWatermarkInput.setSingleLine(false);
-        pendingImgbbWatermarkInput.setMinLines(2);
-        pendingImgbbWatermarkInput.setMaxLines(3);
+        pendingImgbbWatermarkInput.setSingleLine(true);
         pendingImgbbWatermarkInput.setHint(text("\u753b\u50cf\u306b\u57cb\u3081\u8fbc\u3080\u30c6\u30ad\u30b9\u30c8", "Text to embed in the image"));
         pendingImgbbWatermarkInput.setTextColor(textColor());
         pendingImgbbWatermarkInput.setHintTextColor(mutedColor());
         pendingImgbbWatermarkInput.setBackground(addressBarBackground());
-        pendingImgbbWatermarkInput.setPadding(dp(12), dp(8), dp(12), dp(8));
+        pendingImgbbWatermarkInput.setPadding(dp(10), 0, dp(10), 0);
         root.addView(pendingImgbbWatermarkInput, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(74)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
 
         pendingImgbbMediaBox = new LinearLayout(this);
         pendingImgbbMediaBox.setOrientation(LinearLayout.VERTICAL);
@@ -12055,16 +12053,21 @@ public class MainActivity extends Activity {
         Canvas canvas = new Canvas(bitmap);
         int width = bitmap.getWidth();
         int height = bitmap.getHeight();
-        float textSize = Math.max(22f, Math.min(56f, Math.min(width, height) * 0.04f));
-        float padding = Math.max(14f, textSize * 0.45f);
-        float margin = Math.max(16f, textSize * 0.55f);
-        float maxTextWidth = Math.max(textSize * 8f, width - margin * 2f - padding * 2f);
+        float textSize = Math.max(14f, Math.min(34f, Math.min(width, height) * 0.026f));
+        float margin = Math.max(10f, textSize * 0.55f);
+        float maxTextWidth = Math.max(textSize * 8f, width - margin * 2f);
 
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(Color.WHITE);
         textPaint.setTextSize(textSize);
         textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        textPaint.setShadowLayer(Math.max(2f, textSize * 0.08f), 0f, 0f, Color.argb(180, 0, 0, 0));
+        textPaint.setStyle(Paint.Style.FILL);
+
+        Paint outlinePaint = new Paint(textPaint);
+        outlinePaint.setColor(Color.argb(230, 0, 0, 0));
+        outlinePaint.setStyle(Paint.Style.STROKE);
+        outlinePaint.setStrokeWidth(Math.max(2f, textSize * 0.14f));
+        outlinePaint.setStrokeJoin(Paint.Join.ROUND);
 
         List<String> lines = wrapWatermarkLines(watermarkText, textPaint, maxTextWidth);
         if (lines.isEmpty()) {
@@ -12072,23 +12075,15 @@ public class MainActivity extends Activity {
         }
         Paint.FontMetrics metrics = textPaint.getFontMetrics();
         float lineHeight = (metrics.descent - metrics.ascent) * 1.12f;
-        float blockWidth = 0f;
-        for (String line : lines) {
-            blockWidth = Math.max(blockWidth, textPaint.measureText(line));
-        }
         float blockHeight = lineHeight * lines.size();
         float left = margin;
         float bottom = height - margin;
-        float top = Math.max(margin, bottom - blockHeight - padding * 2f);
-        RectF background = new RectF(left, top, Math.min(width - margin, left + blockWidth + padding * 2f), bottom);
+        float top = Math.max(margin, bottom - blockHeight);
 
-        Paint backgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        backgroundPaint.setColor(Color.argb(155, 0, 0, 0));
-        canvas.drawRoundRect(background, padding * 0.55f, padding * 0.55f, backgroundPaint);
-
-        float baseline = top + padding - metrics.ascent;
+        float baseline = top - metrics.ascent;
         for (String line : lines) {
-            canvas.drawText(line, left + padding, baseline, textPaint);
+            canvas.drawText(line, left, baseline, outlinePaint);
+            canvas.drawText(line, left, baseline, textPaint);
             baseline += lineHeight;
         }
     }
