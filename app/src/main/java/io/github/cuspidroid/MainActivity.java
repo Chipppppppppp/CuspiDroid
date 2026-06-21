@@ -11632,6 +11632,22 @@ public class MainActivity extends Activity {
         pendingImgbbWatermarkInput.setHintTextColor(mutedColor());
         pendingImgbbWatermarkInput.setBackground(addressBarBackground());
         pendingImgbbWatermarkInput.setPadding(dp(10), 0, dp(10), 0);
+        pendingImgbbWatermarkInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (pendingImgbbWatermarkCustom != null && s != null && s.toString().trim().length() > 0) {
+                    pendingImgbbWatermarkCustom.setChecked(true);
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
         root.addView(pendingImgbbWatermarkInput, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
 
@@ -11785,15 +11801,29 @@ public class MainActivity extends Activity {
 
     private void openImgbbImagePicker(EditText message) {
         pendingImgbbUploadMessage = message;
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("image/*");
-        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent = new Intent(MediaStore.ACTION_PICK_IMAGES);
+            intent.setType("image/*");
+            intent.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, MediaStore.getPickImagesMaxLimit());
+        } else {
+            intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+            intent.setType("image/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
         try {
             startActivityForResult(Intent.createChooser(intent,
                     text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3059\u308b\u753b\u50cf", "Select images to upload")), REQUEST_IMGBB_IMAGE);
         } catch (Exception exception) {
-            Toast.makeText(this, text("\u753b\u50cf\u9078\u629e\u3092\u958b\u3051\u307e\u305b\u3093", "Cannot open image picker."), Toast.LENGTH_LONG).show();
+            Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+            fallback.setType("image/*");
+            fallback.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            try {
+                startActivityForResult(Intent.createChooser(fallback,
+                        text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3059\u308b\u753b\u50cf", "Select images to upload")), REQUEST_IMGBB_IMAGE);
+            } catch (Exception ignored) {
+                Toast.makeText(this, text("\u753b\u50cf\u9078\u629e\u3092\u958b\u3051\u307e\u305b\u3093", "Cannot open image picker."), Toast.LENGTH_LONG).show();
+            }
         }
     }
 
