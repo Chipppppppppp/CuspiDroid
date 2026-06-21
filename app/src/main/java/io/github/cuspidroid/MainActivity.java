@@ -164,6 +164,7 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_SHOW_CREATED = "board_show_created";
     static final String PREF_BOARD_SHOW_UNREAD = "board_show_unread";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
+    static final String PREF_BOARD_DISPLAY_NAMES = "board_display_names";
     static final String PREF_TAB_SHOW_RESPONSES = "tab_show_responses";
     static final String PREF_TAB_SHOW_VELOCITY = "tab_show_velocity";
     static final String PREF_TAB_SHOW_ORDER = "tab_show_order";
@@ -1928,6 +1929,7 @@ public class MainActivity extends Activity {
                 tab.hasSavedThreadScroll = item.optBoolean("hasSavedThreadScroll", false);
                 tab.knownMaxPostNumber = item.optInt("knownMaxPostNumber", 0);
                 tab.knownPostCount = item.optInt("knownPostCount", 0);
+                tab.knownBoardOrder = item.optInt("knownBoardOrder", 0);
                 tab.cachedUnreadCount = item.optInt("cachedUnreadCount", 0);
                 tab.hasThreadStats = item.optBoolean("hasThreadStats", tab.knownMaxPostNumber > 0);
                 tab.knownThreadArchived = item.optBoolean("knownThreadArchived", false);
@@ -2092,6 +2094,7 @@ public class MainActivity extends Activity {
                 item.put("hasSavedThreadScroll", tab.hasSavedThreadScroll);
                 item.put("knownMaxPostNumber", tab.knownMaxPostNumber);
                 item.put("knownPostCount", tab.knownPostCount);
+                item.put("knownBoardOrder", tab.knownBoardOrder);
                 item.put("cachedUnreadCount", tab.cachedUnreadCount);
                 item.put("hasThreadStats", tab.hasThreadStats);
                 item.put("knownThreadArchived", tab.knownThreadArchived);
@@ -4808,7 +4811,7 @@ public class MainActivity extends Activity {
     private View boardThreadDateMetaItem(String valueText) {
         TextView value = new TextView(this);
         value.setText(valueText);
-        value.setTextColor(textColor());
+        value.setTextColor(mutedColor());
         value.setTextSize(12);
         value.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         value.setSingleLine(true);
@@ -6385,7 +6388,7 @@ public class MainActivity extends Activity {
         DatAddress address = datAddress(tab.url);
         result.createdAt = address == null ? 0L : threadCreatedAtMillis(address.key);
         result.velocity = address == null ? 0d : threadVelocity(address.key, result.responses);
-        result.boardOrder = 0;
+        result.boardOrder = Math.max(0, tab.knownBoardOrder);
         result.hasReadHistory = threadHistoryContains(tab.url) || tab.readPostNumber > 0 || result.responses > 0;
         result.unread = unreadCount(tab);
         return result;
@@ -7448,6 +7451,7 @@ public class MainActivity extends Activity {
                 tab.title = status.title.trim();
             }
             tab.knownThreadArchived = status.archived;
+            tab.knownBoardOrder = Math.max(0, status.boardOrder);
             if (status.responseCount > 0) {
                 tab.knownMaxPostNumber = status.responseCount;
                 tab.knownPostCount = status.responseCount;
@@ -7661,6 +7665,7 @@ public class MainActivity extends Activity {
             status.url = url;
             status.title = title;
             status.responseCount = Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
+            status.boardOrder = Math.max(0, tab.knownBoardOrder);
             status.archived = tab.knownThreadArchived || (tab.threadPage != null && tab.threadPage.archived);
             saveBookmarkOverviewStatus(url, status);
         }
@@ -13689,6 +13694,7 @@ public class MainActivity extends Activity {
     private ThreadOverviewStatus threadOverviewStatusFromSubject(String url, String key, String body) {
         ThreadOverviewStatus status = new ThreadOverviewStatus();
         status.url = url;
+        int order = 1;
         for (String line : (body == null ? "" : body).split("\\r?\\n")) {
             int sep = line.indexOf("<>");
             int sepLength = 2;
@@ -13705,11 +13711,13 @@ public class MainActivity extends Activity {
             }
             String lineKey = dat.substring(0, dat.length() - 4);
             if (!key.equals(lineKey)) {
+                order++;
                 continue;
             }
             String subjectTitle = cleanText(line.substring(sep + sepLength));
             status.title = stripThreadResponseCount(subjectTitle);
             status.responseCount = threadResponseCount(subjectTitle);
+            status.boardOrder = order;
             status.archived = false;
             return status;
         }
@@ -13732,6 +13740,7 @@ public class MainActivity extends Activity {
         }
         tab.title = title;
         tab.knownThreadArchived = archived;
+        tab.knownBoardOrder = Math.max(0, status.boardOrder);
         tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, status.url));
         if (tab.threadPage != null) {
             tab.threadPage.title = title;
@@ -13759,6 +13768,7 @@ public class MainActivity extends Activity {
             JSONObject item = new JSONObject();
             item.put("title", status.title == null ? "" : status.title);
             item.put("responseCount", status.responseCount);
+            item.put("boardOrder", status.boardOrder);
             item.put("archived", status.archived);
             item.put("updatedAt", System.currentTimeMillis());
             root.put(bookmarkOverviewStatusKey(url), item);
@@ -13780,6 +13790,7 @@ public class MainActivity extends Activity {
             BookmarkOverviewStatus status = new BookmarkOverviewStatus();
             status.title = item.optString("title", "");
             status.responseCount = item.optInt("responseCount", 0);
+            status.boardOrder = item.optInt("boardOrder", 0);
             status.archived = item.optBoolean("archived", false);
             return status;
         } catch (Exception ignored) {
@@ -14324,6 +14335,7 @@ public class MainActivity extends Activity {
             if (!seen.add(boardUrl)) {
                 continue;
             }
+            saveBoardDisplayName(boardUrl, label);
             SearchResult result = new SearchResult();
             result.title = label == null || label.isEmpty() ? board : label;
             result.url = boardUrl;
@@ -16473,12 +16485,60 @@ public class MainActivity extends Activity {
     }
 
     private String displayBoardTitle(String url) {
-        String display = boardDisplayNameFromRegisteredLinks(url);
+        String display = boardDisplayNameFromUrl(url);
         if (display != null && !display.trim().isEmpty()) {
             return display.trim();
         }
         String board = boardNameFromUrl(url);
         return board == null ? hostTitle(url) : board;
+    }
+
+    private String boardDisplayNameFromUrl(String url) {
+        String boardUrl = boardUrlForDisplayName(url);
+        if (boardUrl == null || boardUrl.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
+            String saved = object.optString(boardUrl, "");
+            if (saved != null && !saved.trim().isEmpty()) {
+                return saved;
+            }
+        } catch (Exception ignored) {
+        }
+        return boardDisplayNameFromRegisteredLinks(url);
+    }
+
+    private void saveBoardDisplayName(String boardUrl, String name) {
+        String key = boardUrlForDisplayName(boardUrl);
+        String value = name == null ? "" : cleanText(name).trim();
+        if (key == null || key.isEmpty() || value.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
+            object.put(key, value);
+            preferences.edit().putString(PREF_BOARD_DISPLAY_NAMES, object.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String boardUrlForDisplayName(String url) {
+        String board = boardNameFromUrl(url);
+        if (board == null || board.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            if (host == null || host.trim().isEmpty()) {
+                return null;
+            }
+            String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+            return normalizeHistoryUrl(scheme + "://" + host + "/" + board + "/");
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String boardDisplayNameFromRegisteredLinks(String url) {
@@ -17039,6 +17099,7 @@ public class MainActivity extends Activity {
         int readPostNumber;
         int knownMaxPostNumber;
         int knownPostCount;
+        int knownBoardOrder;
         int cachedUnreadCount;
         boolean hasThreadStats;
         boolean knownThreadArchived;
@@ -17294,12 +17355,14 @@ public class MainActivity extends Activity {
         String url;
         String title;
         int responseCount;
+        int boardOrder;
         boolean archived;
     }
 
     private static class BookmarkOverviewStatus {
         String title;
         int responseCount;
+        int boardOrder;
         boolean archived;
     }
 
