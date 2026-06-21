@@ -2390,6 +2390,7 @@ public class MainActivity extends Activity {
             item.put("boardOrder", result.boardOrder);
             item.put("createdAt", result.createdAt);
             item.put("unread", result.unread);
+            item.put("hasReadHistory", result.hasReadHistory);
             item.put("boardName", result.boardName == null ? "" : result.boardName);
             if (result.priorityMatch != null) {
                 JSONObject priority = new JSONObject();
@@ -2427,6 +2428,7 @@ public class MainActivity extends Activity {
                 result.boardOrder = item.optInt("boardOrder", i);
                 result.createdAt = item.optLong("createdAt", 0L);
                 result.unread = item.optInt("unread", 0);
+                result.hasReadHistory = item.optBoolean("hasReadHistory", result.unread > 0);
                 result.boardName = item.optString("boardName", "");
                 Object priority = item.opt("priorityMatch");
                 if (priority instanceof JSONObject) {
@@ -4717,11 +4719,21 @@ public class MainActivity extends Activity {
         meta.setTextSize(12);
         row.addView(meta);
         shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (shouldShowBoardUnreadBadge(result)) {
+            addUnreadBadgeIfNeeded(shell, result.unread);
+        }
         ImageButton save = saveToggleButtonForResult(result);
         if (save != null) {
             shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
         }
         return shell;
+    }
+
+    private boolean shouldShowBoardUnreadBadge(SearchResult result) {
+        return result != null
+                && result.hasReadHistory
+                && preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true)
+                && result.unread > 0;
     }
 
     private View buildBbsCategoryIndexView(SearchPage page) {
@@ -5748,6 +5760,10 @@ public class MainActivity extends Activity {
                 copy.responses = result.responses;
                 copy.velocity = result.velocity;
                 copy.boardOrder = result.boardOrder;
+                copy.createdAt = result.createdAt;
+                copy.unread = result.unread;
+                copy.hasReadHistory = result.hasReadHistory;
+                copy.boardName = result.boardName;
                 copy.priorityMatch = result.priorityMatch;
                 copy.category = "";
                 page.results.add(copy);
@@ -14071,7 +14087,9 @@ public class MainActivity extends Activity {
             result.velocity = threadVelocity(key, responses);
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
-            result.unread = Math.max(0, responses - readPostNumber(preferences, result.url));
+            int readNumber = readPostNumber(preferences, result.url);
+            result.hasReadHistory = readNumber > 0;
+            result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = board;
             result.priorityMatch = matchingBoardPriorityWord(title);
             result.meta = boardThreadMeta(result);
@@ -14476,9 +14494,6 @@ public class MainActivity extends Activity {
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_CREATED, true)) {
             parts.add(text("\u4f5c\u6210: ", "Created: ") + boardCreatedText(result.createdAt));
-        }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true)) {
-            parts.add(text("\u672a\u8aad: ", "Unread: ") + Math.max(0, result.unread));
         }
         return TextUtils.join("  ", parts);
     }
@@ -17086,6 +17101,7 @@ public class MainActivity extends Activity {
         int boardOrder;
         long createdAt;
         int unread;
+        boolean hasReadHistory;
         String boardName;
         BoardPriorityMatch priorityMatch;
     }
