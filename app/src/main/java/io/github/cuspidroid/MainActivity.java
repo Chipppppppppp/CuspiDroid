@@ -4823,13 +4823,13 @@ public class MainActivity extends Activity {
         boolean hasBoard = boardName != null && !boardName.trim().isEmpty();
         boolean hasCreated = createdText != null && !createdText.trim().isEmpty();
         if (hasBoard && hasCreated) {
-            column.addView(leftMetaText(boardName, textColor(), 12), new LinearLayout.LayoutParams(
+            column.addView(leftMetaText(boardName, mutedColor(), 12), new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(15)));
             column.addView(leftMetaText(createdText, mutedColor(), 11), new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(15)));
         } else {
             String value = hasBoard ? boardName : createdText;
-            int color = hasBoard ? textColor() : mutedColor();
+            int color = mutedColor();
             column.addView(leftMetaText(value, color, 12), new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
         }
@@ -16537,9 +16537,48 @@ public class MainActivity extends Activity {
             if (saved != null && !saved.trim().isEmpty()) {
                 return saved;
             }
+            String related = relatedSavedBoardDisplayName(object, url);
+            if (related != null && !related.trim().isEmpty()) {
+                return related;
+            }
         } catch (Exception ignored) {
         }
         return boardDisplayNameFromRegisteredLinks(url);
+    }
+
+    private String relatedSavedBoardDisplayName(JSONObject object, String url) {
+        if (object == null || url == null) {
+            return null;
+        }
+        try {
+            Uri target = Uri.parse(normalizeUrl(url));
+            String targetHost = target.getHost();
+            String targetBoard = boardNameFromUrl(url);
+            if (targetHost == null || targetBoard == null) {
+                return null;
+            }
+            JSONArray names = object.names();
+            if (names == null) {
+                return null;
+            }
+            for (int i = 0; i < names.length(); i++) {
+                String key = names.optString(i, "");
+                String value = object.optString(key, "");
+                if (value == null || value.trim().isEmpty()) {
+                    continue;
+                }
+                Uri saved = Uri.parse(normalizeUrl(key));
+                String savedHost = saved.getHost();
+                String savedBoard = boardNameFromUrl(key);
+                if (savedHost != null && savedBoard != null
+                        && targetBoard.equalsIgnoreCase(savedBoard)
+                        && isSameBbsHostFamily(savedHost, targetHost)) {
+                    return value;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private void saveBoardDisplayName(String boardUrl, String name) {
