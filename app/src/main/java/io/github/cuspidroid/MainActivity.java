@@ -158,6 +158,7 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_SORT_BY_SPEED = "board_sort_by_speed";
     static final String PREF_BOARD_THREAD_SORT_KEY = "board_thread_sort_key";
     static final String PREF_BOARD_THREAD_SORT_DESC = "board_thread_sort_desc";
+    static final String PREF_BOARD_SHOW_BOARD_NAME = "board_show_board_name";
     static final String PREF_BOARD_SHOW_RESPONSES = "board_show_responses";
     static final String PREF_BOARD_SHOW_VELOCITY = "board_show_velocity";
     static final String PREF_BOARD_SHOW_ORDER = "board_show_order";
@@ -165,6 +166,7 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_SHOW_UNREAD = "board_show_unread";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
     static final String PREF_BOARD_DISPLAY_NAMES = "board_display_names";
+    static final String PREF_TAB_SHOW_BOARD_NAME = "tab_show_board_name";
     static final String PREF_TAB_SHOW_RESPONSES = "tab_show_responses";
     static final String PREF_TAB_SHOW_VELOCITY = "tab_show_velocity";
     static final String PREF_TAB_SHOW_ORDER = "tab_show_order";
@@ -216,6 +218,7 @@ public class MainActivity extends Activity {
     static final String BOARD_SORT_ORDER = "order";
     static final String BOARD_SORT_CREATED = "created";
     static final String BOARD_SORT_UNREAD = "unread";
+    static final String BOARD_SORT_BOARD_NAME = "board_name";
     private static final String HOME_BOOKMARK_SECTION_TAG = "home_bookmark_section";
     private static final String CLOSED_TAB_UNDO_TAG = "closed_tab_undo";
     static final String PREF_HISTORY = "thread_history";
@@ -4766,8 +4769,12 @@ public class MainActivity extends Activity {
         row.setGravity(Gravity.BOTTOM | Gravity.END);
         row.setPadding(0, dp(1), 0, 0);
 
-        if (showMetaField(PREF_BOARD_SHOW_CREATED, PREF_TAB_SHOW_CREATED, tabOverview)) {
-            row.addView(boardThreadDateMetaItem(boardCreatedText(result.createdAt)),
+        boolean showBoardName = showMetaField(PREF_BOARD_SHOW_BOARD_NAME, PREF_TAB_SHOW_BOARD_NAME, tabOverview);
+        boolean showCreated = showMetaField(PREF_BOARD_SHOW_CREATED, PREF_TAB_SHOW_CREATED, tabOverview);
+        if (showBoardName || showCreated) {
+            row.addView(boardThreadLeftMetaItem(
+                            showBoardName ? result.boardName : "",
+                            showCreated ? boardCreatedText(result.createdAt) : ""),
                     new LinearLayout.LayoutParams(0, dp(30), 1));
         } else {
             View spacer = new View(this);
@@ -4809,11 +4816,31 @@ public class MainActivity extends Activity {
         return params;
     }
 
-    private View boardThreadDateMetaItem(String valueText) {
+    private View boardThreadLeftMetaItem(String boardName, String createdText) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        boolean hasBoard = boardName != null && !boardName.trim().isEmpty();
+        boolean hasCreated = createdText != null && !createdText.trim().isEmpty();
+        if (hasBoard && hasCreated) {
+            column.addView(leftMetaText(boardName, textColor(), 12), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(15)));
+            column.addView(leftMetaText(createdText, mutedColor(), 11), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(15)));
+        } else {
+            String value = hasBoard ? boardName : createdText;
+            int color = hasBoard ? textColor() : mutedColor();
+            column.addView(leftMetaText(value, color, 12), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
+        }
+        return column;
+    }
+
+    private TextView leftMetaText(String valueText, int color, int textSizeSp) {
         TextView value = new TextView(this);
-        value.setText(valueText);
-        value.setTextColor(mutedColor());
-        value.setTextSize(12);
+        value.setText(valueText == null ? "" : valueText);
+        value.setTextColor(color);
+        value.setTextSize(textSizeSp);
         value.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         value.setSingleLine(true);
         value.setEllipsize(TextUtils.TruncateAt.END);
@@ -14618,6 +14645,11 @@ public class MainActivity extends Activity {
     }
 
     private int compareBoardSortValue(SearchResult left, SearchResult right, String sortKey) {
+        if (BOARD_SORT_BOARD_NAME.equals(sortKey)) {
+            return String.CASE_INSENSITIVE_ORDER.compare(
+                    left.boardName == null ? "" : left.boardName,
+                    right.boardName == null ? "" : right.boardName);
+        }
         if (BOARD_SORT_RESPONSES.equals(sortKey)) {
             return Integer.compare(left.responses, right.responses);
         }
@@ -14674,7 +14706,7 @@ public class MainActivity extends Activity {
     private String boardThreadMeta(SearchResult result) {
         List<String> parts = new ArrayList<>();
         String board = result == null || result.boardName == null ? "" : result.boardName;
-        if (!board.isEmpty()) {
+        if (!board.isEmpty() && preferences.getBoolean(PREF_BOARD_SHOW_BOARD_NAME, true)) {
             parts.add(board);
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
