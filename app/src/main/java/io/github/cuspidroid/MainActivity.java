@@ -11677,14 +11677,6 @@ public class MainActivity extends Activity {
     private String pendingImgbbWatermarkText() {
         List<String> lines = new ArrayList<>();
         CuspTab tab = currentTab();
-        if (pendingImgbbWatermarkTitle != null && pendingImgbbWatermarkTitle.isChecked()
-                && tab != null && tab.title != null && !tab.title.trim().isEmpty()) {
-            lines.add(tab.title.trim());
-        }
-        if (pendingImgbbWatermarkUrl != null && pendingImgbbWatermarkUrl.isChecked()
-                && tab != null && tab.url != null && !tab.url.trim().isEmpty()) {
-            lines.add(tab.url.trim());
-        }
         if (pendingImgbbWatermarkCustom != null && pendingImgbbWatermarkCustom.isChecked()
                 && pendingImgbbWatermarkInput != null) {
             String custom = pendingImgbbWatermarkInput.getText().toString().trim();
@@ -11696,6 +11688,14 @@ public class MainActivity extends Activity {
                     }
                 }
             }
+        }
+        if (pendingImgbbWatermarkTitle != null && pendingImgbbWatermarkTitle.isChecked()
+                && tab != null && tab.title != null && !tab.title.trim().isEmpty()) {
+            lines.add(tab.title.trim());
+        }
+        if (pendingImgbbWatermarkUrl != null && pendingImgbbWatermarkUrl.isChecked()
+                && tab != null && tab.url != null && !tab.url.trim().isEmpty()) {
+            lines.add(tab.url.trim());
         }
         return TextUtils.join("\n", lines);
     }
@@ -12053,7 +12053,7 @@ public class MainActivity extends Activity {
         Canvas canvas = new Canvas(bitmap);
         int width = bitmap.getWidth();
         int height = bitmap.getHeight();
-        float textSize = Math.max(14f, Math.min(34f, Math.min(width, height) * 0.026f));
+        float textSize = Math.max(10f, Math.min(24f, Math.min(width, height) * 0.018f));
         float margin = Math.max(10f, textSize * 0.55f);
         float maxTextWidth = Math.max(textSize * 8f, width - margin * 2f);
 
