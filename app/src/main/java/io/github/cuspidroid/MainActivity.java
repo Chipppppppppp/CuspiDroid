@@ -4711,17 +4711,16 @@ public class MainActivity extends Activity {
         resultTitle.setPadding(0, 0, 0, dp(4));
         row.addView(resultTitle);
 
-        TextView meta = new TextView(this);
-        String metaValue = result != null && result.boardName != null && !result.boardName.isEmpty()
-                ? boardThreadMeta(result) : result.meta;
-        meta.setText(styledResultMeta(metaValue));
-        meta.setTextColor(mutedColor());
-        meta.setTextSize(12);
-        row.addView(meta);
-        shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        if (shouldShowBoardUnreadBadge(result)) {
-            addUnreadBadgeIfNeeded(shell, result.unread);
+        if (result != null && result.boardName != null && !result.boardName.isEmpty()) {
+            row.addView(boardThreadMetaView(result));
+        } else {
+            TextView meta = new TextView(this);
+            meta.setText(styledResultMeta(result == null ? "" : result.meta));
+            meta.setTextColor(mutedColor());
+            meta.setTextSize(12);
+            row.addView(meta);
         }
+        shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         ImageButton save = saveToggleButtonForResult(result);
         if (save != null) {
             shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
@@ -4729,11 +4728,73 @@ public class MainActivity extends Activity {
         return shell;
     }
 
-    private boolean shouldShowBoardUnreadBadge(SearchResult result) {
-        return result != null
-                && result.hasReadHistory
-                && preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true)
-                && result.unread > 0;
+    private View boardThreadMetaView(SearchResult result) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.BOTTOM);
+        row.setPadding(0, dp(1), 0, 0);
+
+        if (preferences.getBoolean(PREF_BOARD_SHOW_CREATED, true)) {
+            row.addView(boardThreadMetaItem(text("\u4f5c\u6210\u65e5", "Created"),
+                    boardCreatedText(result.createdAt), Gravity.START),
+                    new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.25f));
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
+            row.addView(boardThreadMetaItem(text("\u30ec\u30b9", "Posts"),
+                    result.responses > 0 ? String.valueOf(result.responses) : "-", Gravity.END),
+                    boardThreadMetaItemParams());
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_VELOCITY, true)) {
+            row.addView(boardThreadMetaItem(text("\u52e2\u3044", "Speed"),
+                    result.velocity > 0 ? String.format(Locale.ROOT, "%.1f", result.velocity) : "-", Gravity.END),
+                    boardThreadMetaItemParams());
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_ORDER, true)) {
+            row.addView(boardThreadMetaItem(text("\u9806\u4f4d", "Rank"),
+                    result.boardOrder > 0 ? String.valueOf(result.boardOrder) : "-", Gravity.END),
+                    boardThreadMetaItemParams());
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true) && result.hasReadHistory) {
+            row.addView(boardThreadMetaItem(text("\u672a\u8aad", "Unread"),
+                    String.valueOf(Math.max(0, result.unread)), Gravity.END),
+                    boardThreadMetaItemParams());
+        }
+        return row;
+    }
+
+    private LinearLayout.LayoutParams boardThreadMetaItemParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.72f);
+        params.setMargins(dp(8), 0, 0, 0);
+        return params;
+    }
+
+    private View boardThreadMetaItem(String labelText, String valueText, int horizontalGravity) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(horizontalGravity);
+
+        TextView label = new TextView(this);
+        label.setText(labelText);
+        label.setTextColor(mutedColor());
+        label.setTextSize(10);
+        label.setGravity(horizontalGravity);
+        label.setSingleLine(true);
+        label.setIncludeFontPadding(false);
+        column.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(13)));
+
+        TextView value = new TextView(this);
+        value.setText(valueText);
+        value.setTextColor(textColor());
+        value.setTextSize(12);
+        value.setGravity(horizontalGravity);
+        value.setSingleLine(true);
+        value.setEllipsize(TextUtils.TruncateAt.END);
+        value.setIncludeFontPadding(false);
+        column.addView(value, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(17)));
+        return column;
     }
 
     private View buildBbsCategoryIndexView(SearchPage page) {
