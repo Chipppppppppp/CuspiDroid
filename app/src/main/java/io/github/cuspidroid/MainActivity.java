@@ -66,6 +66,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
 import android.content.Intent;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
@@ -284,6 +285,10 @@ public class MainActivity extends Activity {
     private AlertDialog pendingImgbbUploadDialog;
     private LinearLayout pendingImgbbMediaBox;
     private EditText pendingImgbbExpirationInput;
+    private CheckBox pendingImgbbWatermarkTitle;
+    private CheckBox pendingImgbbWatermarkUrl;
+    private CheckBox pendingImgbbWatermarkCustom;
+    private EditText pendingImgbbWatermarkInput;
     private List<Uri> pendingImgbbUploadUris = new ArrayList<>();
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
@@ -11339,6 +11344,10 @@ public class MainActivity extends Activity {
         pendingImgbbUploadMessage = message;
         pendingImgbbUploadUris = new ArrayList<>();
         pendingImgbbExpirationSeconds = 0;
+        pendingImgbbWatermarkTitle = null;
+        pendingImgbbWatermarkUrl = null;
+        pendingImgbbWatermarkCustom = null;
+        pendingImgbbWatermarkInput = null;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -11374,6 +11383,26 @@ public class MainActivity extends Activity {
         root.addView(pendingImgbbExpirationInput, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
+        root.addView(helperLine(text("\u30a6\u30a9\u30fc\u30bf\u30fc\u30de\u30fc\u30af\uff08\u5de6\u4e0b\u306b\u57cb\u3081\u8fbc\u307f\uff09", "Watermark (embedded at bottom-left)")));
+        pendingImgbbWatermarkTitle = uploadOptionCheckBox(text("\u30b9\u30ec\u30bf\u30a4", "Thread title"));
+        pendingImgbbWatermarkUrl = uploadOptionCheckBox(text("\u30b9\u30ecURL", "Thread URL"));
+        pendingImgbbWatermarkCustom = uploadOptionCheckBox(text("\u6307\u5b9a\u30c6\u30ad\u30b9\u30c8", "Custom text"));
+        root.addView(pendingImgbbWatermarkTitle);
+        root.addView(pendingImgbbWatermarkUrl);
+        root.addView(pendingImgbbWatermarkCustom);
+
+        pendingImgbbWatermarkInput = new EditText(this);
+        pendingImgbbWatermarkInput.setSingleLine(false);
+        pendingImgbbWatermarkInput.setMinLines(2);
+        pendingImgbbWatermarkInput.setMaxLines(3);
+        pendingImgbbWatermarkInput.setHint(text("\u753b\u50cf\u306b\u57cb\u3081\u8fbc\u3080\u30c6\u30ad\u30b9\u30c8", "Text to embed in the image"));
+        pendingImgbbWatermarkInput.setTextColor(textColor());
+        pendingImgbbWatermarkInput.setHintTextColor(mutedColor());
+        pendingImgbbWatermarkInput.setBackground(addressBarBackground());
+        pendingImgbbWatermarkInput.setPadding(dp(12), dp(8), dp(12), dp(8));
+        root.addView(pendingImgbbWatermarkInput, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(74)));
+
         pendingImgbbMediaBox = new LinearLayout(this);
         pendingImgbbMediaBox.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams mediaParams = new LinearLayout.LayoutParams(
@@ -11396,11 +11425,47 @@ public class MainActivity extends Activity {
                     return;
                 }
                 pendingImgbbExpirationSeconds = parseImgbbExpiration(pendingImgbbExpirationInput.getText().toString());
-                uploadSelectedImagesToImgbb(new ArrayList<>(pendingImgbbUploadUris), pendingImgbbUploadMessage);
+                String watermark = pendingImgbbWatermarkText();
+                uploadSelectedImagesToImgbb(new ArrayList<>(pendingImgbbUploadUris), pendingImgbbUploadMessage, watermark);
                 pendingImgbbUploadDialog.dismiss();
             });
         });
         pendingImgbbUploadDialog.show();
+    }
+
+    private CheckBox uploadOptionCheckBox(String value) {
+        CheckBox box = new CheckBox(this);
+        box.setText(value);
+        box.setTextSize(14);
+        box.setTextColor(textColor());
+        Theme.tintCompoundButton(this, box);
+        return box;
+    }
+
+    private String pendingImgbbWatermarkText() {
+        List<String> lines = new ArrayList<>();
+        CuspTab tab = currentTab();
+        if (pendingImgbbWatermarkTitle != null && pendingImgbbWatermarkTitle.isChecked()
+                && tab != null && tab.title != null && !tab.title.trim().isEmpty()) {
+            lines.add(tab.title.trim());
+        }
+        if (pendingImgbbWatermarkUrl != null && pendingImgbbWatermarkUrl.isChecked()
+                && tab != null && tab.url != null && !tab.url.trim().isEmpty()) {
+            lines.add(tab.url.trim());
+        }
+        if (pendingImgbbWatermarkCustom != null && pendingImgbbWatermarkCustom.isChecked()
+                && pendingImgbbWatermarkInput != null) {
+            String custom = pendingImgbbWatermarkInput.getText().toString().trim();
+            if (!custom.isEmpty()) {
+                for (String line : custom.split("\\r?\\n")) {
+                    String trimmed = line.trim();
+                    if (!trimmed.isEmpty()) {
+                        lines.add(trimmed);
+                    }
+                }
+            }
+        }
+        return TextUtils.join("\n", lines);
     }
 
     private void renderPendingImgbbMedia() {
@@ -11578,10 +11643,10 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
-    private void uploadSelectedImagesToImgbb(List<Uri> uris, EditText message) {
+    private void uploadSelectedImagesToImgbb(List<Uri> uris, EditText message, String watermarkText) {
         String apiKey = imgbbApiKey();
         if (apiKey.isEmpty()) {
-            showImgbbApiKeyDialog(() -> uploadSelectedImagesToImgbb(uris, message));
+            showImgbbApiKeyDialog(() -> uploadSelectedImagesToImgbb(uris, message, watermarkText));
             return;
         }
         Toast.makeText(this, text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e2d", "Uploading to ImgBB..."), Toast.LENGTH_SHORT).show();
@@ -11591,7 +11656,8 @@ public class MainActivity extends Activity {
         for (Uri uri : uris) {
             uploadExecutor.execute(() -> {
                 try {
-                    ImgbbUploadResult result = uploadImageToImgbb(uri, apiKey, pendingImgbbExpirationSeconds);
+                    ImgbbUploadResult result = uploadImageToImgbb(uri, apiKey,
+                            pendingImgbbExpirationSeconds, watermarkText);
                     saveImgbbUpload(result);
                     runOnUiThread(() -> {
                         appendUploadUrl(message, result.link);
@@ -11612,12 +11678,21 @@ public class MainActivity extends Activity {
         }
     }
 
-    private ImgbbUploadResult uploadImageToImgbb(Uri uri, String apiKey, int expirationSeconds) throws Exception {
+    private ImgbbUploadResult uploadImageToImgbb(Uri uri, String apiKey,
+                                                int expirationSeconds, String watermarkText) throws Exception {
         String mime = getContentResolver().getType(uri);
         if (mime == null || !mime.startsWith("image/")) {
             throw new IllegalStateException(text("\u753b\u50cf\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", "Choose an image."));
         }
         String name = displayNameForUri(uri);
+        byte[] watermarked = null;
+        String uploadMime = mime;
+        String uploadName = name;
+        if (watermarkText != null && !watermarkText.trim().isEmpty() && supportsWatermarkMime(mime)) {
+            watermarked = watermarkedImageBytes(uri, watermarkText.trim());
+            uploadMime = "image/jpeg";
+            uploadName = watermarkedFileName(name);
+        }
         String endpoint = "https://api.imgbb.com/1/upload?key="
                 + URLEncoder.encode(apiKey, POST_CHARSET.name());
         if (expirationSeconds >= 60 && expirationSeconds <= 15552000) {
@@ -11633,7 +11708,11 @@ public class MainActivity extends Activity {
         connection.setChunkedStreamingMode(0);
         connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
         try (OutputStream output = connection.getOutputStream()) {
-            writeMultipartFile(output, boundary, "image", name, mime, uri);
+            if (watermarked != null) {
+                writeMultipartBytes(output, boundary, "image", uploadName, uploadMime, watermarked);
+            } else {
+                writeMultipartFile(output, boundary, "image", uploadName, uploadMime, uri);
+            }
             output.write(("--" + boundary + "--\r\n").getBytes(POST_CHARSET));
         }
         int code = connection.getResponseCode();
@@ -11651,7 +11730,7 @@ public class MainActivity extends Activity {
         if (link.isEmpty()) {
             throw new IllegalStateException(text("ImgBB URL\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093", "Could not read ImgBB URL."));
         }
-        return new ImgbbUploadResult(name, mime, link, data.optString("delete_url", ""),
+        return new ImgbbUploadResult(uploadName, uploadMime, link, data.optString("delete_url", ""),
                 expirationSeconds >= 60 && expirationSeconds <= 15552000 ? expirationSeconds : 0,
                 System.currentTimeMillis());
     }
@@ -11679,6 +11758,136 @@ public class MainActivity extends Activity {
             }
         }
         output.write("\r\n".getBytes(POST_CHARSET));
+    }
+
+    private void writeMultipartBytes(OutputStream output, String boundary, String fieldName,
+                                     String fileName, String mime, byte[] bytes) throws Exception {
+        output.write(("--" + boundary + "\r\n").getBytes(POST_CHARSET));
+        output.write(("Content-Disposition: form-data; name=\"" + fieldName + "\"; filename=\"" + sanitizeMultipartName(fileName) + "\"\r\n").getBytes(POST_CHARSET));
+        output.write(("Content-Type: " + mime + "\r\n\r\n").getBytes(POST_CHARSET));
+        output.write(bytes);
+        output.write("\r\n".getBytes(POST_CHARSET));
+    }
+
+    private boolean supportsWatermarkMime(String mime) {
+        if (mime == null) {
+            return false;
+        }
+        String normalized = mime.toLowerCase(Locale.ROOT);
+        return normalized.equals("image/jpeg") || normalized.equals("image/jpg")
+                || normalized.equals("image/png") || normalized.equals("image/webp");
+    }
+
+    private byte[] watermarkedImageBytes(Uri uri, String watermarkText) throws Exception {
+        Bitmap source = decodeUploadBitmap(uri);
+        if (source == null) {
+            throw new IllegalStateException(text("\u753b\u50cf\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093", "Cannot read image."));
+        }
+        Bitmap bitmap = source.getConfig() == Bitmap.Config.ARGB_8888 && source.isMutable()
+                ? source : source.copy(Bitmap.Config.ARGB_8888, true);
+        if (bitmap != source) {
+            source.recycle();
+        }
+        drawWatermark(bitmap, watermarkText);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output);
+        bitmap.recycle();
+        return output.toByteArray();
+    }
+
+    private Bitmap decodeUploadBitmap(Uri uri) throws Exception {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            BitmapFactory.decodeStream(input, null, bounds);
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return null;
+        }
+        int maxSide = 4096;
+        int sample = 1;
+        while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > maxSide) {
+            sample *= 2;
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            return BitmapFactory.decodeStream(input, null, options);
+        }
+    }
+
+    private void drawWatermark(Bitmap bitmap, String watermarkText) {
+        Canvas canvas = new Canvas(bitmap);
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        float textSize = Math.max(22f, Math.min(56f, Math.min(width, height) * 0.04f));
+        float padding = Math.max(14f, textSize * 0.45f);
+        float margin = Math.max(16f, textSize * 0.55f);
+        float maxTextWidth = Math.max(textSize * 8f, width - margin * 2f - padding * 2f);
+
+        Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setColor(Color.WHITE);
+        textPaint.setTextSize(textSize);
+        textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        textPaint.setShadowLayer(Math.max(2f, textSize * 0.08f), 0f, 0f, Color.argb(180, 0, 0, 0));
+
+        List<String> lines = wrapWatermarkLines(watermarkText, textPaint, maxTextWidth);
+        if (lines.isEmpty()) {
+            return;
+        }
+        Paint.FontMetrics metrics = textPaint.getFontMetrics();
+        float lineHeight = (metrics.descent - metrics.ascent) * 1.12f;
+        float blockWidth = 0f;
+        for (String line : lines) {
+            blockWidth = Math.max(blockWidth, textPaint.measureText(line));
+        }
+        float blockHeight = lineHeight * lines.size();
+        float left = margin;
+        float bottom = height - margin;
+        float top = Math.max(margin, bottom - blockHeight - padding * 2f);
+        RectF background = new RectF(left, top, Math.min(width - margin, left + blockWidth + padding * 2f), bottom);
+
+        Paint backgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        backgroundPaint.setColor(Color.argb(155, 0, 0, 0));
+        canvas.drawRoundRect(background, padding * 0.55f, padding * 0.55f, backgroundPaint);
+
+        float baseline = top + padding - metrics.ascent;
+        for (String line : lines) {
+            canvas.drawText(line, left + padding, baseline, textPaint);
+            baseline += lineHeight;
+        }
+    }
+
+    private List<String> wrapWatermarkLines(String watermarkText, Paint paint, float maxWidth) {
+        List<String> lines = new ArrayList<>();
+        if (watermarkText == null) {
+            return lines;
+        }
+        for (String rawLine : watermarkText.split("\\r?\\n")) {
+            String remaining = rawLine.trim();
+            while (!remaining.isEmpty()) {
+                int count = paint.breakText(remaining, true, maxWidth, null);
+                if (count <= 0 || count >= remaining.length()) {
+                    lines.add(remaining);
+                    break;
+                }
+                int split = remaining.lastIndexOf(' ', count);
+                if (split <= 0) {
+                    split = count;
+                }
+                lines.add(remaining.substring(0, split).trim());
+                remaining = remaining.substring(split).trim();
+            }
+        }
+        return lines;
+    }
+
+    private String watermarkedFileName(String name) {
+        String safe = sanitizeMultipartName(name);
+        int dot = safe.lastIndexOf('.');
+        String base = dot > 0 ? safe.substring(0, dot) : safe;
+        return base + "-watermarked.jpg";
     }
 
     private String sanitizeMultipartName(String value) {
