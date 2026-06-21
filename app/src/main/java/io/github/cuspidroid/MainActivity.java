@@ -14338,6 +14338,7 @@ public class MainActivity extends Activity {
         Matcher matcher = anchorPattern.matcher(html);
         int lastEnd = 0;
         String currentCategory = "";
+        Map<String, String> boardNames = new LinkedHashMap<>();
         while (matcher.find()) {
             currentCategory = lastBbsMenuCategory(html.substring(lastEnd, matcher.start()), currentCategory);
             lastEnd = matcher.end();
@@ -14363,7 +14364,7 @@ public class MainActivity extends Activity {
             if (!seen.add(boardUrl)) {
                 continue;
             }
-            saveBoardDisplayName(boardUrl, label);
+            boardNames.put(boardUrl, label);
             SearchResult result = new SearchResult();
             result.title = label == null || label.isEmpty() ? board : label;
             result.url = boardUrl;
@@ -14371,6 +14372,7 @@ public class MainActivity extends Activity {
             result.category = currentCategory;
             page.results.add(result);
         }
+        saveBoardDisplayNames(boardNames);
         if (page.results.isEmpty()) {
             throw new IllegalStateException(text("\u677f\u30ea\u30f3\u30af\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board links found."));
         }
@@ -16506,6 +16508,10 @@ public class MainActivity extends Activity {
                     && "read.cgi".equals(parts[i + 1]) && !parts[i + 2].isEmpty()) {
                 return parts[i + 2];
             }
+            if ("test".equals(part) && i + 2 < parts.length
+                    && "read.cgi".equals(parts[i + 1]) && !parts[i + 2].isEmpty()) {
+                return parts[i + 2];
+            }
             if ("test".equals(part) || "read.cgi".equals(part) || "dat".equals(part)) {
                 if ("read.cgi".equals(part) && i + 1 < parts.length && !parts[i + 1].isEmpty()) {
                     return parts[i + 1];
@@ -16590,6 +16596,24 @@ public class MainActivity extends Activity {
         try {
             JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
             object.put(key, value);
+            preferences.edit().putString(PREF_BOARD_DISPLAY_NAMES, object.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void saveBoardDisplayNames(Map<String, String> names) {
+        if (names == null || names.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
+            for (Map.Entry<String, String> entry : names.entrySet()) {
+                String key = boardUrlForDisplayName(entry.getKey());
+                String value = entry.getValue() == null ? "" : cleanText(entry.getValue()).trim();
+                if (key != null && !key.isEmpty() && !value.isEmpty()) {
+                    object.put(key, value);
+                }
+            }
             preferences.edit().putString(PREF_BOARD_DISPLAY_NAMES, object.toString()).apply();
         } catch (Exception ignored) {
         }
