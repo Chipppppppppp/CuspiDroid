@@ -2428,8 +2428,12 @@ public class MainActivity extends Activity {
                 result.boardOrder = item.optInt("boardOrder", i);
                 result.createdAt = item.optLong("createdAt", 0L);
                 result.unread = item.optInt("unread", 0);
-                result.hasReadHistory = item.optBoolean("hasReadHistory", result.unread > 0);
+                result.hasReadHistory = threadHistoryContains(result.url)
+                        || item.optBoolean("hasReadHistory", result.unread > 0);
                 result.boardName = item.optString("boardName", "");
+                if (result.hasReadHistory && !result.boardName.isEmpty() && result.responses > 0) {
+                    result.unread = Math.max(0, result.responses - readPostNumber(preferences, result.url));
+                }
                 Object priority = item.opt("priorityMatch");
                 if (priority instanceof JSONObject) {
                     JSONObject priorityObject = (JSONObject) priority;
@@ -4739,24 +4743,25 @@ public class MainActivity extends Activity {
                     boardCreatedText(result.createdAt), Gravity.START),
                     new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.25f));
         }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
-            row.addView(boardThreadMetaItem(text("\u30ec\u30b9", "Posts"),
-                    result.responses > 0 ? String.valueOf(result.responses) : "-", Gravity.END),
+        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true) && result.hasReadHistory) {
+            row.addView(boardThreadUnreadMetaItem(Math.max(0, result.unread)), boardThreadMetaItemParams());
+        }
+        if (preferences.getBoolean(PREF_BOARD_SHOW_ORDER, true)) {
+            row.addView(boardThreadMetaItem(text("\u9806\u4f4d", "Rank"),
+                    result.boardOrder > 0 ? String.valueOf(result.boardOrder) : "-", Gravity.END,
+                    metaBlue(Math.max(0, result.boardOrder), false), true),
                     boardThreadMetaItemParams());
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_VELOCITY, true)) {
             row.addView(boardThreadMetaItem(text("\u52e2\u3044", "Speed"),
-                    result.velocity > 0 ? String.format(Locale.ROOT, "%.1f", result.velocity) : "-", Gravity.END),
+                    result.velocity > 0 ? String.format(Locale.ROOT, "%.1f", result.velocity) : "-", Gravity.END,
+                    metaBlue(Math.max(0d, result.velocity), true), true),
                     boardThreadMetaItemParams());
         }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_ORDER, true)) {
-            row.addView(boardThreadMetaItem(text("\u9806\u4f4d", "Rank"),
-                    result.boardOrder > 0 ? String.valueOf(result.boardOrder) : "-", Gravity.END),
-                    boardThreadMetaItemParams());
-        }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true) && result.hasReadHistory) {
-            row.addView(boardThreadMetaItem(text("\u672a\u8aad", "Unread"),
-                    String.valueOf(Math.max(0, result.unread)), Gravity.END),
+        if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
+            row.addView(boardThreadMetaItem(text("\u30ec\u30b9", "Posts"),
+                    result.responses > 0 ? String.valueOf(result.responses) : "-", Gravity.END,
+                    metaBlue(Math.max(0, result.responses), false), true),
                     boardThreadMetaItemParams());
         }
         return row;
@@ -4764,12 +4769,17 @@ public class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams boardThreadMetaItemParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.72f);
-        params.setMargins(dp(8), 0, 0, 0);
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.56f);
+        params.setMargins(dp(5), 0, 0, 0);
         return params;
     }
 
     private View boardThreadMetaItem(String labelText, String valueText, int horizontalGravity) {
+        return boardThreadMetaItem(labelText, valueText, horizontalGravity, textColor(), false);
+    }
+
+    private View boardThreadMetaItem(String labelText, String valueText, int horizontalGravity,
+                                     int valueColor, boolean boldValue) {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(horizontalGravity);
@@ -4786,14 +4796,46 @@ public class MainActivity extends Activity {
 
         TextView value = new TextView(this);
         value.setText(valueText);
-        value.setTextColor(textColor());
+        value.setTextColor(valueColor);
         value.setTextSize(12);
+        if (boldValue) {
+            value.setTypeface(Typeface.DEFAULT_BOLD);
+        }
         value.setGravity(horizontalGravity);
         value.setSingleLine(true);
         value.setEllipsize(TextUtils.TruncateAt.END);
         value.setIncludeFontPadding(false);
         column.addView(value, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(17)));
+        return column;
+    }
+
+    private View boardThreadUnreadMetaItem(int unread) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.END);
+
+        TextView label = new TextView(this);
+        label.setText(text("\u672a\u8aad", "Unread"));
+        label.setTextColor(mutedColor());
+        label.setTextSize(10);
+        label.setGravity(Gravity.END);
+        label.setSingleLine(true);
+        label.setIncludeFontPadding(false);
+        column.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(13)));
+
+        TextView badge = new TextView(this);
+        badge.setText(String.valueOf(unread));
+        badge.setTextColor(Color.WHITE);
+        badge.setTextSize(11);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setGravity(Gravity.CENTER);
+        badge.setIncludeFontPadding(false);
+        badge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(10)));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(34), dp(19));
+        badgeParams.gravity = Gravity.END;
+        column.addView(badge, badgeParams);
         return column;
     }
 
@@ -14149,7 +14191,7 @@ public class MainActivity extends Activity {
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
             int readNumber = readPostNumber(preferences, result.url);
-            result.hasReadHistory = readNumber > 0;
+            result.hasReadHistory = threadHistoryContains(result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = board;
             result.priorityMatch = matchingBoardPriorityWord(title);
@@ -14884,6 +14926,27 @@ public class MainActivity extends Activity {
 
     private List<ThreadHistoryItem> threadHistory() {
         return readThreadHistory(preferences);
+    }
+
+    private boolean threadHistoryContains(String url) {
+        String target = normalizeHistoryUrl(url);
+        if (target.isEmpty()) {
+            return false;
+        }
+        for (ThreadHistoryItem item : threadHistory()) {
+            if (target.equals(normalizeHistoryUrl(item.url))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeHistoryUrl(String url) {
+        String value = normalizeUrl(url == null ? "" : url.trim());
+        while (value.endsWith("/") && value.length() > "https://x".length()) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return value;
     }
 
     private List<SavedItem> readSavedItems(String key) {
