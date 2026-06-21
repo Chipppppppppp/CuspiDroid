@@ -4739,39 +4739,51 @@ public class MainActivity extends Activity {
         row.setPadding(0, dp(1), 0, 0);
 
         if (preferences.getBoolean(PREF_BOARD_SHOW_CREATED, true)) {
-            row.addView(boardThreadMetaItem(text("\u4f5c\u6210\u65e5", "Created"),
-                    boardCreatedText(result.createdAt), Gravity.START),
-                    new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.25f));
+            row.addView(boardThreadDateMetaItem(boardCreatedText(result.createdAt)),
+                    new LinearLayout.LayoutParams(0, dp(30), 1));
         }
-        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true) && result.hasReadHistory) {
-            row.addView(boardThreadUnreadMetaItem(Math.max(0, result.unread)), boardThreadMetaItemParams());
+        if (preferences.getBoolean(PREF_BOARD_SHOW_UNREAD, true)) {
+            row.addView(boardThreadUnreadMetaItem(result.hasReadHistory ? Math.max(0, result.unread) : -1),
+                    boardThreadMetaItemParams(dp(30)));
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_ORDER, true)) {
             row.addView(boardThreadMetaItem(text("\u9806\u4f4d", "Rank"),
                     result.boardOrder > 0 ? String.valueOf(result.boardOrder) : "-", Gravity.END,
                     metaBlue(Math.max(0, result.boardOrder), false), true),
-                    boardThreadMetaItemParams());
+                    boardThreadMetaItemParams(dp(31)));
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_VELOCITY, true)) {
             row.addView(boardThreadMetaItem(text("\u52e2\u3044", "Speed"),
                     result.velocity > 0 ? String.format(Locale.ROOT, "%.1f", result.velocity) : "-", Gravity.END,
                     metaBlue(Math.max(0d, result.velocity), true), true),
-                    boardThreadMetaItemParams());
+                    boardThreadMetaItemParams(dp(42)));
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
             row.addView(boardThreadMetaItem(text("\u30ec\u30b9", "Posts"),
                     result.responses > 0 ? String.valueOf(result.responses) : "-", Gravity.END,
                     metaBlue(Math.max(0, result.responses), false), true),
-                    boardThreadMetaItemParams());
+                    boardThreadMetaItemParams(dp(36)));
         }
         return row;
     }
 
-    private LinearLayout.LayoutParams boardThreadMetaItemParams() {
+    private LinearLayout.LayoutParams boardThreadMetaItemParams(int width) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.42f);
-        params.setMargins(dp(2), 0, 0, 0);
+                width, dp(30));
+        params.setMargins(dp(1), 0, 0, 0);
         return params;
+    }
+
+    private View boardThreadDateMetaItem(String valueText) {
+        TextView value = new TextView(this);
+        value.setText(valueText);
+        value.setTextColor(textColor());
+        value.setTextSize(12);
+        value.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        value.setSingleLine(true);
+        value.setEllipsize(TextUtils.TruncateAt.END);
+        value.setIncludeFontPadding(false);
+        return value;
     }
 
     private View boardThreadMetaItem(String labelText, String valueText, int horizontalGravity) {
@@ -4813,8 +4825,10 @@ public class MainActivity extends Activity {
     private View boardThreadUnreadMetaItem(int unread) {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.setGravity(Gravity.BOTTOM | Gravity.END);
-        column.setPadding(0, dp(13), 0, 0);
+        column.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        if (unread < 0) {
+            return column;
+        }
 
         TextView badge = new TextView(this);
         badge.setText(String.valueOf(unread));
@@ -4824,7 +4838,7 @@ public class MainActivity extends Activity {
         badge.setGravity(Gravity.CENTER);
         badge.setIncludeFontPadding(false);
         badge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(10)));
-        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(30), dp(19));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(28), dp(18));
         badgeParams.gravity = Gravity.END;
         column.addView(badge, badgeParams);
         return column;
