@@ -4769,8 +4769,8 @@ public class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams boardThreadMetaItemParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.56f);
-        params.setMargins(dp(5), 0, 0, 0);
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.42f);
+        params.setMargins(dp(2), 0, 0, 0);
         return params;
     }
 
@@ -4813,17 +4813,8 @@ public class MainActivity extends Activity {
     private View boardThreadUnreadMetaItem(int unread) {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.setGravity(Gravity.END);
-
-        TextView label = new TextView(this);
-        label.setText(text("\u672a\u8aad", "Unread"));
-        label.setTextColor(mutedColor());
-        label.setTextSize(10);
-        label.setGravity(Gravity.END);
-        label.setSingleLine(true);
-        label.setIncludeFontPadding(false);
-        column.addView(label, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(13)));
+        column.setGravity(Gravity.BOTTOM | Gravity.END);
+        column.setPadding(0, dp(13), 0, 0);
 
         TextView badge = new TextView(this);
         badge.setText(String.valueOf(unread));
@@ -4833,7 +4824,7 @@ public class MainActivity extends Activity {
         badge.setGravity(Gravity.CENTER);
         badge.setIncludeFontPadding(false);
         badge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(10)));
-        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(34), dp(19));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(30), dp(19));
         badgeParams.gravity = Gravity.END;
         column.addView(badge, badgeParams);
         return column;
