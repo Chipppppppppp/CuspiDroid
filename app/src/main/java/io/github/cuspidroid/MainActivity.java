@@ -3511,7 +3511,7 @@ public class MainActivity extends Activity {
         }
         mainHandler.postDelayed(() -> finishFullTextSearchIfPending(tab, loadUrl, webView,
                 SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002", "Full-text search timed out.")),
-                append), 16000);
+                append), 30000);
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String loadedUrl) {
@@ -3546,16 +3546,27 @@ public class MainActivity extends Activity {
                 + "var currentNode=document.querySelector('.gsc-cursor-current-page');"
                 + "var current=currentNode?parseInt((currentNode.innerText||currentNode.textContent||'1').trim(),10):1;"
                 + "if(!current||current<1)current=1;"
-                + "var rows=[];"
                 + "var nodes=document.querySelectorAll('.gsc-webResult.gsc-result,.gsc-results .gsc-result');"
-                + "if(target>1&&current!==target&&nodes.length>0){"
                 + "var pages=document.querySelectorAll('.gsc-cursor-page');"
+                + "var maxPage=current;"
+                + "for(var p=0;p<pages.length;p++){"
+                + "var pn=parseInt((pages[p].innerText||pages[p].textContent||'').trim(),10);"
+                + "if(pn&&pn>maxPage)maxPage=pn;"
+                + "}"
+                + "if(target>1&&current!==target&&nodes.length>0){"
+                + "if(pages.length>0&&target>maxPage){"
+                + "return JSON.stringify({ready:true,results:[],currentPage:maxPage,maxPage:maxPage,hasMore:false});"
+                + "}"
+                + "var nextNode=null;var nextPage=999999;"
                 + "for(var p=0;p<pages.length;p++){"
                 + "var n=parseInt((pages[p].innerText||pages[p].textContent||'').trim(),10);"
                 + "if(n===target){pages[p].click();return JSON.stringify({ready:false,clicked:true});}"
+                + "if(n>current&&n<nextPage){nextPage=n;nextNode=pages[p];}"
                 + "}"
-                + "if(pages.length>0)return JSON.stringify({ready:false,waitingTarget:true,currentPage:current});"
+                + "if(nextNode){nextNode.click();return JSON.stringify({ready:false,clicked:true});}"
+                + "if(pages.length>0)return JSON.stringify({ready:true,results:[],currentPage:maxPage,maxPage:maxPage,hasMore:false});"
                 + "}"
+                + "var rows=[];"
                 + "var seen={};"
                 + "var anchors=document.querySelectorAll('.gsc-results a.gs-title,.gsc-webResult a.gs-title');"
                 + "for(var i=0;i<anchors.length;i++){"
@@ -3574,23 +3585,22 @@ public class MainActivity extends Activity {
                 + "if(snip&&(snip.innerText||snip.textContent))meta.push((snip.innerText||snip.textContent).trim());"
                 + "if(title&&url)rows.push({title:title,url:url,meta:meta.join('\\n')});"
                 + "}"
-                + "var cursorPages=document.querySelectorAll('.gsc-cursor-page');"
-                + "var maxPage=current;"
-                + "for(var j=0;j<cursorPages.length;j++){"
-                + "var pageNum=parseInt((cursorPages[j].innerText||cursorPages[j].textContent||'').trim(),10);"
-                + "if(pageNum&&pageNum>maxPage)maxPage=pageNum;"
-                + "}"
                 + "var empty=document.querySelector('.gs-no-results-result,.gs-error-result');"
-                + "var hasMore=maxPage>current||rows.length>=10;"
+                + "var hasMore=pages.length>0?maxPage>current:rows.length>=10;"
                 + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows,currentPage:current,maxPage:maxPage,hasMore:hasMore});"
                 + "})()";
         webView.evaluateJavascript(script, value -> {
             if (value != null && value.contains("\\\"clicked\\\":true")) {
                 mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView,
-                        attempt + 1, pageNumber, append, true), 800);
+                        attempt + 1, pageNumber, append, true), 1100);
                 return;
             }
             SearchPage page = parseFullTextSearchSnapshot(loadUrl, value);
+            if (append && pageNumber > 1 && page != null && page.results.isEmpty()
+                    && !page.fullTextHasMore) {
+                finishFullTextSearchIfPending(tab, loadUrl, webView, page, true);
+                return;
+            }
             if (append && pageNumber > 1 && page != null && !page.results.isEmpty()
                     && page.fullTextPage < pageNumber) {
                 int newCount = countNewSearchResults(tab == null ? null : tab.searchPage, page);
@@ -3650,17 +3660,21 @@ public class MainActivity extends Activity {
         if (existingPage != null && existingPage.results != null) {
             for (SearchResult result : existingPage.results) {
                 if (result.url != null) {
-                    existing.add(result.url);
+                    existing.add(searchResultDedupeKey(result.url));
                 }
             }
         }
         int count = 0;
         for (SearchResult result : candidatePage.results) {
-            if (result.url == null || !existing.contains(result.url)) {
+            if (result.url == null || !existing.contains(searchResultDedupeKey(result.url))) {
                 count++;
             }
         }
         return count;
+    }
+
+    private String searchResultDedupeKey(String url) {
+        return normalizeSearch2chResultUrl(url == null ? "" : url).trim();
     }
 
     private SearchPage parseFullTextSearchSnapshot(String url, String rawValue) {
@@ -3696,7 +3710,8 @@ public class MainActivity extends Activity {
                 }
             }
             page.fullTextPage = Math.max(1, object.optInt("currentPage", 1));
-            page.fullTextHasMore = object.optBoolean("hasMore", false) || !page.results.isEmpty();
+            page.fullTextHasMore = object.optBoolean("hasMore", false);
+            page.fullTextReachedEnd = !page.fullTextHasMore;
             return object.optBoolean("ready", false) || !page.results.isEmpty() ? page : null;
         } catch (Exception ignored) {
             return null;
@@ -3777,13 +3792,13 @@ public class MainActivity extends Activity {
         Set<String> existing = new LinkedHashSet<>();
         for (SearchResult result : target.results) {
             if (result.url != null) {
-                existing.add(result.url);
+                existing.add(searchResultDedupeKey(result.url));
             }
         }
         int previousPage = Math.max(1, target.fullTextPage);
         int added = 0;
         for (SearchResult result : source.results) {
-            if (result.url == null || existing.add(result.url)) {
+            if (result.url == null || existing.add(searchResultDedupeKey(result.url))) {
                 target.results.add(result);
                 added++;
             }
@@ -3791,8 +3806,8 @@ public class MainActivity extends Activity {
         target.fullTextPage = added > 0 && source.fullTextPage <= previousPage
                 ? previousPage + 1
                 : Math.max(previousPage, source.fullTextPage);
-        target.fullTextHasMore = source.fullTextHasMore || added > 0 || !target.results.isEmpty();
-        target.fullTextReachedEnd = false;
+        target.fullTextHasMore = source.fullTextHasMore;
+        target.fullTextReachedEnd = !source.fullTextHasMore;
         target.error = null;
     }
 
