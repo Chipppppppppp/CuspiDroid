@@ -7,10 +7,15 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -107,6 +112,13 @@ public class WriteIdentityHistoryActivity extends Activity {
         texts.addView(mail);
         row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
+        ImageButton edit = iconButton(R.drawable.ic_edit,
+                MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u7de8\u96c6", "Edit name/mail history"));
+        edit.setOnClickListener(v -> showEditDialog(item, index));
+        LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(dp(42), dp(40));
+        editParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(edit, editParams);
+
         ImageButton delete = iconButton(R.drawable.ic_close,
                 MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history item"));
         delete.setOnClickListener(v -> confirmDelete(index));
@@ -126,6 +138,48 @@ public class WriteIdentityHistoryActivity extends Activity {
         });
 
         return row;
+    }
+
+    private void showEditDialog(IdentityItem item, int index) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18), dp(8), dp(18), 0);
+        form.setBackgroundColor(Theme.surface(this));
+
+        EditText name = editField(MainActivity.text("\u540d\u524d", "Name"), item.name, EditorInfo.IME_ACTION_NEXT);
+        EditText mail = editField(MainActivity.text("\u30e1\u30fc\u30eb", "Mail"), item.mail, EditorInfo.IME_ACTION_DONE);
+        form.addView(name, fieldParams());
+        form.addView(mail, fieldParams());
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u7de8\u96c6", "Edit name/mail history"))
+                .setView(form)
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u66f4\u65b0", "Update"), null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String newName = name.getText().toString().trim();
+                String newMail = mail.getText().toString().trim();
+                if (newName.isEmpty() && newMail.isEmpty()) {
+                    Toast.makeText(this, MainActivity.text("\u540d\u524d\u304b\u30e1\u30fc\u30eb\u3092\u5165\u529b", "Enter a name or mail."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                updateHistory(index, newName, newMail);
+                dialog.dismiss();
+            });
+            name.requestFocus();
+            name.selectAll();
+            name.postDelayed(() -> {
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (manager != null) {
+                    manager.showSoftInput(name, InputMethodManager.SHOW_IMPLICIT);
+                }
+            }, 120);
+        });
+        dialog.show();
+        Theme.styleDialog(dialog, this);
     }
 
     private void confirmDelete(int index) {
@@ -167,6 +221,26 @@ public class WriteIdentityHistoryActivity extends Activity {
             return;
         }
         items.remove(index);
+        saveHistory(items);
+        renderHistory();
+    }
+
+    private void updateHistory(int index, String name, String mail) {
+        List<IdentityItem> items = readHistory();
+        if (index < 0 || index >= items.size()) {
+            return;
+        }
+        items.set(index, new IdentityItem(name, mail));
+        List<IdentityItem> deduped = new ArrayList<>();
+        for (IdentityItem item : items) {
+            addUnique(deduped, item.name, item.mail);
+        }
+        saveHistory(deduped);
+        renderHistory();
+        Toast.makeText(this, MainActivity.text("\u5c65\u6b74\u3092\u66f4\u65b0", "History updated."), Toast.LENGTH_SHORT).show();
+    }
+
+    private void saveHistory(List<IdentityItem> items) {
         JSONArray array = new JSONArray();
         try {
             for (IdentityItem item : items) {
@@ -182,7 +256,6 @@ public class WriteIdentityHistoryActivity extends Activity {
                 .remove(MainActivity.PREF_WRITE_NAME_HISTORY)
                 .remove(MainActivity.PREF_WRITE_MAIL_HISTORY)
                 .apply();
-        renderHistory();
     }
 
     private List<IdentityItem> readHistory() {
@@ -260,6 +333,28 @@ public class WriteIdentityHistoryActivity extends Activity {
         return view;
     }
 
+    private EditText editField(String hint, String value, int imeAction) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(value == null ? "" : value);
+        input.setHint(hint);
+        input.setTextColor(Theme.text(this));
+        input.setHintTextColor(Theme.muted(this));
+        input.setTextSize(16);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setImeOptions(imeAction);
+        input.setBackground(fieldBackground());
+        input.setPadding(dp(12), 0, dp(12), 0);
+        return input;
+    }
+
+    private LinearLayout.LayoutParams fieldParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        params.setMargins(0, 0, 0, dp(10));
+        return params;
+    }
+
     private ImageButton iconButton(int icon, String description) {
         ImageButton button = new ImageButton(this);
         button.setImageResource(icon);
@@ -281,6 +376,14 @@ public class WriteIdentityHistoryActivity extends Activity {
     private GradientDrawable rowBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Theme.surface(this));
+        drawable.setStroke(dp(1), Theme.border(this));
+        drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable fieldBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.field(this));
         drawable.setStroke(dp(1), Theme.border(this));
         drawable.setCornerRadius(dp(8));
         return drawable;

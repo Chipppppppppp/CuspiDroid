@@ -82,6 +82,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 import android.webkit.CookieManager;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -2765,6 +2768,13 @@ public class MainActivity extends Activity {
             loadThread(tab, url);
             return;
         }
+        if (isFullTextSearchUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
+            loadFullTextSearchResults(tab, url);
+            return;
+        }
         if (isFindSearchUrl(url)) {
             if (addHistory) {
                 recordNavigation(tab, url);
@@ -3291,6 +3301,178 @@ public class MainActivity extends Activity {
                 renderTabs();
             });
         });
+    }
+
+    private void loadFullTextSearchResults(CuspTab tab, String url) {
+        final String loadUrl = url;
+        prepareChromeForLoading();
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_SEARCH;
+        tab.url = loadUrl;
+        tab.title = searchTitle(loadUrl);
+        tab.readerView = loadingView("");
+        tab.threadPage = null;
+        tab.searchPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        switchToTab(tabs.indexOf(tab));
+        progressBar.setVisibility(View.VISIBLE);
+
+        WebView webView = new WebView(this);
+        webView.setAlpha(0f);
+        webView.setBackgroundColor(Color.TRANSPARENT);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setUserAgentString(settings.getUserAgentString() + " CuspiDroid");
+        if (tab == currentTab() && !tabOverviewVisible) {
+            contentFrame.addView(webView, new FrameLayout.LayoutParams(dp(1), dp(1), Gravity.BOTTOM | Gravity.RIGHT));
+        }
+        mainHandler.postDelayed(() -> finishFullTextSearchIfPending(tab, loadUrl, webView,
+                SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002", "Full-text search timed out."))), 16000);
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String loadedUrl) {
+                extractFullTextSearchResults(tab, loadUrl, view, 0);
+            }
+        });
+        webView.loadUrl(loadUrl);
+    }
+
+    private void extractFullTextSearchResults(CuspTab tab, String loadUrl, WebView webView, int attempt) {
+        if (tab == null || webView == null || !loadUrl.equals(tab.url)) {
+            cleanupHiddenSearchWebView(webView);
+            return;
+        }
+        String script = "(function(){"
+                + "var rows=[];"
+                + "var nodes=document.querySelectorAll('.gsc-webResult.gsc-result');"
+                + "for(var i=0;i<nodes.length;i++){"
+                + "var e=nodes[i];"
+                + "if(e.className.indexOf('gs-no-results-result')>=0||e.className.indexOf('gs-error-result')>=0)continue;"
+                + "var a=e.querySelector('a.gs-title');"
+                + "var title=a?(a.innerText||a.textContent||'').trim():'';"
+                + "var url=a?(a.getAttribute('data-ctorig')||a.href||'').trim():'';"
+                + "var vis=e.querySelector('.gs-visibleUrl-long,.gs-visibleUrl');"
+                + "var snip=e.querySelector('.gs-snippet');"
+                + "var meta=[];"
+                + "if(vis&&(vis.innerText||vis.textContent))meta.push((vis.innerText||vis.textContent).trim());"
+                + "if(snip&&(snip.innerText||snip.textContent))meta.push((snip.innerText||snip.textContent).trim());"
+                + "if(title&&url)rows.push({title:title,url:url,meta:meta.join('\\n')});"
+                + "}"
+                + "var empty=document.querySelector('.gs-no-results-result,.gs-error-result');"
+                + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows});"
+                + "})()";
+        webView.evaluateJavascript(script, value -> {
+            SearchPage page = parseFullTextSearchSnapshot(loadUrl, value);
+            if (page != null && (!page.results.isEmpty() || attempt >= 8)) {
+                finishFullTextSearchIfPending(tab, loadUrl, webView, page);
+                return;
+            }
+            if (attempt >= 8) {
+                SearchPage empty = new SearchPage();
+                empty.url = loadUrl;
+                empty.title = searchTitle(loadUrl);
+                finishFullTextSearchIfPending(tab, loadUrl, webView, empty);
+                return;
+            }
+            mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView, attempt + 1), 700);
+        });
+    }
+
+    private SearchPage parseFullTextSearchSnapshot(String url, String rawValue) {
+        try {
+            String json = rawValue == null ? "" : rawValue;
+            if (json.startsWith("\"") && json.endsWith("\"")) {
+                json = new JSONArray("[" + json + "]").optString(0, "");
+            }
+            if (json.trim().isEmpty() || "null".equals(json)) {
+                return null;
+            }
+            JSONObject object = new JSONObject(json);
+            SearchPage page = new SearchPage();
+            page.url = url;
+            page.title = searchTitle(url);
+            JSONArray results = object.optJSONArray("results");
+            if (results != null) {
+                for (int i = 0; i < results.length(); i++) {
+                    JSONObject item = results.optJSONObject(i);
+                    if (item == null) {
+                        continue;
+                    }
+                    String resultUrl = item.optString("url", "").trim();
+                    String title = item.optString("title", "").trim();
+                    if (resultUrl.isEmpty() || title.isEmpty()) {
+                        continue;
+                    }
+                    SearchResult result = new SearchResult();
+                    result.url = normalizeSearch2chResultUrl(resultUrl);
+                    result.title = title;
+                    result.meta = item.optString("meta", "").trim();
+                    page.results.add(result);
+                }
+            }
+            return object.optBoolean("ready", false) || !page.results.isEmpty() ? page : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String normalizeSearch2chResultUrl(String url) {
+        if (url == null) {
+            return "";
+        }
+        String value = url.trim();
+        try {
+            Uri uri = Uri.parse(value);
+            String q = uri.getQueryParameter("q");
+            if (q != null && looksLikeUrl(q)) {
+                return normalizeUrl(q);
+            }
+            String target = uri.getQueryParameter("url");
+            if (target != null && looksLikeUrl(target)) {
+                return normalizeUrl(target);
+            }
+        } catch (Exception ignored) {
+        }
+        return value;
+    }
+
+    private void finishFullTextSearchIfPending(CuspTab tab, String loadUrl, WebView webView, SearchPage page) {
+        if (webView.getTag() != null) {
+            return;
+        }
+        webView.setTag(Boolean.TRUE);
+        cleanupHiddenSearchWebView(webView);
+        if (tab == null || !loadUrl.equals(tab.url)) {
+            if (tab == currentTab()) {
+                progressBar.setVisibility(View.GONE);
+            }
+            return;
+        }
+        tab.title = page.title;
+        tab.searchPage = page;
+        tab.readerView = buildSearchView(page);
+        progressBar.setVisibility(View.GONE);
+        if (tab == currentTab() && !tabOverviewVisible) {
+            switchToTab(currentIndex);
+        }
+        renderTabs();
+    }
+
+    private void cleanupHiddenSearchWebView(WebView webView) {
+        try {
+            ViewParent parent = webView.getParent();
+            if (parent instanceof ViewGroup) {
+                ((ViewGroup) parent).removeView(webView);
+            }
+            webView.stopLoading();
+            webView.loadUrl("about:blank");
+            webView.destroy();
+        } catch (Exception ignored) {
+        }
     }
 
     private String friendlyThreadLoadError(String detail) {
@@ -4487,7 +4669,7 @@ public class MainActivity extends Activity {
                         manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
                     } catch (Exception ignored) {
                     }
-                    openInCurrentTab(searchUrl(value));
+                    openInCurrentTab(isFullTextSearchUrl(page.url) ? fullTextSearchUrl(value) : searchUrl(value));
                 }
                 return true;
             }
@@ -16641,6 +16823,20 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isFullTextSearchUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            if (host == null) {
+                return false;
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            return lowerHost.equals("search2ch.info") || lowerHost.endsWith(".search2ch.info");
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
     private boolean isFindHomeUrl(String url) {
         try {
             Uri uri = Uri.parse(url);
@@ -17061,9 +17257,11 @@ public class MainActivity extends Activity {
 
     private void openFullTextSearch(String query) {
         String url = fullTextSearchUrl(query);
-        Intent intent = new Intent(this, AuthActivity.class);
-        intent.putExtra(AuthActivity.EXTRA_URL, url);
-        startActivity(intent);
+        if (pendingNewTab) {
+            openPendingNewTabUrl(url);
+            return;
+        }
+        openInCurrentTab(url);
     }
 
     private String hostTitle(String url) {
@@ -17079,7 +17277,13 @@ public class MainActivity extends Activity {
     private String searchTitle(String url) {
         String query = searchQueryFromUrl(url);
         if (query == null || query.trim().isEmpty()) {
+            if (isFullTextSearchUrl(url)) {
+                return text("\u5168\u6587\u691c\u7d22", "Full-text Search");
+            }
             return text("5ch\u691c\u7d22", "5ch Search");
+        }
+        if (isFullTextSearchUrl(url)) {
+            return text("\u5168\u6587\u691c\u7d22: ", "Full-text: ") + query.trim();
         }
         return text("\u691c\u7d22: ", "Search: ") + query.trim();
     }

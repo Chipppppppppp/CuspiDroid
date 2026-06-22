@@ -151,29 +151,35 @@ public class ReadPostsActivity extends Activity {
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(MainActivity.text("\u66f4\u65b0", "Update"), null)
                 .create();
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            try {
-                saveReadPost(item.url, Math.max(0, Integer.parseInt(input.getText().toString().trim())));
-                renderReadPosts();
-                dialog.dismiss();
-            } catch (Exception ignored) {
-                Toast.makeText(this, MainActivity.text("\u6570\u5024\u3092\u5165\u529b", "Enter a number."), Toast.LENGTH_SHORT).show();
-            }
-        }));
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                try {
+                    saveReadPost(item.url, Math.max(0, Integer.parseInt(input.getText().toString().trim())));
+                    renderReadPosts();
+                    dialog.dismiss();
+                } catch (Exception ignored) {
+                    Toast.makeText(this, MainActivity.text("\u6570\u5024\u3092\u5165\u529b", "Enter a number."), Toast.LENGTH_SHORT).show();
+                }
+            });
+        });
         dialog.show();
+        Theme.styleDialog(dialog, this);
     }
 
     private void confirmClear() {
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear read history"))
                 .setMessage(MainActivity.text("\u3059\u3079\u3066\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Clear all read history?"))
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
-                .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (dialog, which) -> {
+                .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (d, which) -> {
                     preferences.edit().remove(MainActivity.PREF_READ_POSTS).apply();
                     renderReadPosts();
                     Toast.makeText(this, MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u524a\u9664", "Read history cleared."), Toast.LENGTH_SHORT).show();
                 })
-                .show();
+                .create();
+        dialog.show();
+        Theme.styleDialog(dialog, this);
     }
 
     private List<ReadItem> readItems() {
