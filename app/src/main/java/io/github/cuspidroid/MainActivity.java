@@ -923,7 +923,8 @@ public class MainActivity extends Activity {
         bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
         bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
-        bottomBookmarkButton = iconButton(R.drawable.ic_star_border, text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), null);
+        bottomBookmarkButton = iconButton(R.drawable.ic_more_vert, text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"), null);
+        bottomThreadBar.addView(bottomBookmarkButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
 
         bottomToolbar = new LinearLayout(this);
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
@@ -1476,17 +1477,6 @@ public class MainActivity extends Activity {
             menu.getChildAt(0).setAlpha(0.45f);
         }
         menu.addView(horizontalDivider());
-        String boardUrl = currentThreadBoardUrl(tab);
-        View openBoard = menuIconItem(R.drawable.ic_arrow_up, text("\u677f\u3078", "Go to board"), v -> {
-            dismissPopupAnimated(popup);
-            openInCurrentTab(boardUrl);
-        });
-        if (boardUrl == null) {
-            openBoard.setEnabled(false);
-            openBoard.setAlpha(0.45f);
-        }
-        menu.addView(openBoard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
         boolean bookmarked = tab != null && savedItemExists(PREF_THREAD_BOOKMARKS, tab.url);
         View bookmark = menuIconItem(savedIcon(PREF_THREAD_BOOKMARKS, tab == null ? "" : tab.url),
                 bookmarked ? text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u5916\u3059", "Remove bookmark")
@@ -1503,11 +1493,6 @@ public class MainActivity extends Activity {
         menu.addView(menuIconItem(R.drawable.ic_search, text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page"), v -> {
             dismissPopupAnimated(popup);
             showThreadSearchDialog();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_search_next, text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread"), v -> {
-            dismissPopupAnimated(popup);
-            searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (sync2chEnabled()) {
             menu.addView(horizontalDivider());
@@ -1547,6 +1532,48 @@ public class MainActivity extends Activity {
             return;
         }
         openInCurrentTab(boardUrl);
+    }
+
+    private void showThreadTitleMenu(View anchor) {
+        CuspTab tab = currentTab();
+        if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || tab.threadPage == null || tab.threadPage.error != null) {
+            return;
+        }
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+
+        String boardUrl = currentThreadBoardUrl(tab);
+        View openBoard = menuIconItem(R.drawable.ic_arrow_up, text("\u677f\u3078", "Go to board"), v -> {
+            dismissPopupAnimated(popup);
+            openInCurrentTab(boardUrl);
+        });
+        if (boardUrl == null) {
+            openBoard.setEnabled(false);
+            openBoard.setAlpha(0.45f);
+        }
+        menu.addView(openBoard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_search_next, text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread"), v -> {
+            dismissPopupAnimated(popup);
+            searchNextThread();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_download, text("\u30e1\u30c7\u30a3\u30a2", "Media"), v -> {
+            dismissPopupAnimated(popup);
+            showThreadExtractList(true);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30ea\u30f3\u30af", "Links"), v -> {
+            dismissPopupAnimated(popup);
+            showThreadExtractList(false);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        showMenuWithinScreen(popup, menu, anchor);
     }
 
     private LinearLayout menuNavigationRow(PopupWindow popup) {
@@ -2657,9 +2684,11 @@ public class MainActivity extends Activity {
         } else if (pendingNewTab) {
             bottomThreadTitle.setText(pendingNewTabTitle());
             bottomThreadTitle.setOnClickListener(null);
+            bottomThreadTitle.setOnLongClickListener(null);
             bottomThreadTitle.setClickable(false);
             bottomWriteButton.setVisibility(View.GONE);
             bottomBookmarkButton.setVisibility(View.GONE);
+            bottomBookmarkButton.setOnClickListener(null);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else if (tab != null) {
             String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : displayTitleForTab(tab);
@@ -2670,10 +2699,16 @@ public class MainActivity extends Activity {
             }
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
             bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
+            bottomThreadTitle.setOnLongClickListener(canWrite ? v -> {
+                showThreadTitleMenu(v);
+                return true;
+            } : null);
             bottomThreadTitle.setClickable(canWrite);
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            bottomBookmarkButton.setVisibility(View.GONE);
-            bottomBookmarkButton.setOnClickListener(null);
+            bottomBookmarkButton.setImageResource(R.drawable.ic_more_vert);
+            bottomBookmarkButton.setContentDescription(text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"));
+            bottomBookmarkButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
+            bottomBookmarkButton.setOnClickListener(canWrite ? v -> showThreadTitleMenu(v) : null);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
@@ -8798,6 +8833,146 @@ public class MainActivity extends Activity {
             post.cachedImgurLinks = imgurLinks(post.body);
         }
         return post.cachedImgurLinks;
+    }
+
+    private List<ImgurLink> threadMediaLinks(Post post) {
+        List<ImgurLink> links = new ArrayList<>();
+        if (post == null || post.body == null || post.body.isEmpty()) {
+            return links;
+        }
+        Matcher matcher = URL_TEXT_PATTERN.matcher(post.body);
+        Set<String> added = new LinkedHashSet<>();
+        while (matcher.find()) {
+            String cleanUrl = stripTrailingUrlPunctuation(matcher.group());
+            ImgurLink media = previewMediaLink(cleanUrl);
+            if (media != null && added.add(media.imageUrl)) {
+                links.add(media);
+            }
+        }
+        return links;
+    }
+
+    private List<ThreadExtractItem> threadExtractItems(boolean mediaOnly) {
+        List<ThreadExtractItem> items = new ArrayList<>();
+        CuspTab tab = currentTab();
+        ThreadPage page = tab == null ? null : tab.threadPage;
+        if (page == null || page.posts == null) {
+            return items;
+        }
+        for (Post post : page.posts) {
+            if (post == null || post.body == null) {
+                continue;
+            }
+            if (mediaOnly) {
+                for (ImgurLink link : threadMediaLinks(post)) {
+                    items.add(new ThreadExtractItem(post.number, link.originalUrl, link));
+                }
+            } else {
+                Matcher matcher = URL_TEXT_PATTERN.matcher(post.body);
+                while (matcher.find()) {
+                    String cleanUrl = stripTrailingUrlPunctuation(matcher.group());
+                    if (!cleanUrl.isEmpty()) {
+                        items.add(new ThreadExtractItem(post.number, cleanUrl, null));
+                    }
+                }
+            }
+        }
+        return items;
+    }
+
+    private void showThreadExtractList(boolean mediaOnly) {
+        List<ThreadExtractItem> items = threadExtractItems(mediaOnly);
+        if (items.isEmpty()) {
+            Toast.makeText(this, mediaOnly
+                    ? text("\u30e1\u30c7\u30a3\u30a2\u306a\u3057", "No media.")
+                    : text("\u30ea\u30f3\u30af\u306a\u3057", "No links."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(8), dp(8), dp(8), dp(8));
+        root.setBackground(menuBackground());
+
+        TextView title = helperLine((mediaOnly ? text("\u30e1\u30c7\u30a3\u30a2", "Media") : text("\u30ea\u30f3\u30af", "Links"))
+                + "  " + items.size());
+        title.setTextColor(textColor());
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setPadding(dp(8), dp(6), dp(8), dp(10));
+        root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        for (ThreadExtractItem item : items) {
+            list.addView(threadExtractRow(item, mediaOnly), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(24));
+        int height = Math.max(dp(240), (int) (getResources().getDisplayMetrics().heightPixels * 0.72f));
+        PopupWindow popup = new PopupWindow(root, width, height, true);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        root.setTag(popup);
+        prepareAnimatedPopupDismiss(popup, root);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.CENTER, 0, 0);
+        animatePopupIn(popup, true);
+    }
+
+    private View threadExtractRow(ThreadExtractItem item, boolean mediaRow) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(8), dp(6), dp(8), dp(6));
+        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        LinearLayout.LayoutParams rowMargins = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowMargins.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowMargins);
+
+        if (mediaRow && item.media != null) {
+            View preview = MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
+                    item.media.originalUrl, item.media.imageUrl, item.media.video, dp(76), null, mediaPreviewCallbacks());
+            LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(76), dp(76));
+            previewParams.setMargins(0, 0, dp(10), 0);
+            row.addView(preview, previewParams);
+        }
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView number = helperLine(">>" + item.postNumber);
+        number.setTextColor(TEAL);
+        number.setTypeface(Typeface.DEFAULT_BOLD);
+        TextView url = helperLine(item.url);
+        url.setTextColor(textColor());
+        url.setMaxLines(mediaRow ? 2 : 3);
+        url.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(number);
+        texts.addView(url);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        TextView jump = helperLine(text("\u30b8\u30e3\u30f3\u30d7", "Jump"));
+        jump.setGravity(Gravity.CENTER);
+        jump.setTextColor(TEAL);
+        jump.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(jump, new LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        row.setOnClickListener(v -> {
+            View parent = (View) v.getParent();
+            while (parent != null && !(parent.getTag() instanceof PopupWindow)) {
+                ViewParent next = parent.getParent();
+                parent = next instanceof View ? (View) next : null;
+            }
+            if (parent != null && parent.getTag() instanceof PopupWindow) {
+                dismissPopupAnimated((PopupWindow) parent.getTag());
+            }
+            jumpToPost(item.postNumber);
+        });
+        return row;
     }
 
     private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post) {
@@ -18182,6 +18357,18 @@ public class MainActivity extends Activity {
             this.originalUrl = originalUrl;
             this.imageUrl = imageUrl;
             this.video = video;
+        }
+    }
+
+    private static class ThreadExtractItem {
+        final int postNumber;
+        final String url;
+        final ImgurLink media;
+
+        ThreadExtractItem(int postNumber, String url, ImgurLink media) {
+            this.postNumber = postNumber;
+            this.url = url;
+            this.media = media;
         }
     }
 
