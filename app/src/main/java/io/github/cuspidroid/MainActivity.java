@@ -232,6 +232,7 @@ public class MainActivity extends Activity {
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
     static final String FIND_NET_TEMPLATE = "https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL";
     private static final String FIVE_CH_BBSMENU_URL = "https://menu.5ch.io/bbsmenu.html";
+    private static final String SEARCH2CH_HOME_URL = "https://search2ch.info/";
     private static final String NATIVE_THREAD = "thread";
     private static final String NATIVE_SEARCH = "search";
     private static final String NATIVE_SEARCH_HOME = "search_home";
@@ -2656,6 +2657,9 @@ public class MainActivity extends Activity {
         if ("history".equals(page)) {
             return text("\u5c65\u6b74", "History");
         }
+        if ("fulltext-search".equals(page)) {
+            return text("\u5168\u6587\u691c\u7d22", "Full-text Search");
+        }
         if (page != null && page.startsWith("saved:")) {
             SavedPage savedPage = savedPageFromToken(page.substring("saved:".length()));
             return savedListTitle(savedPage.key, savedPage.folder);
@@ -2808,6 +2812,10 @@ public class MainActivity extends Activity {
         return INTERNAL_URL_PREFIX + "history";
     }
 
+    private String fullTextSearchPageUrl() {
+        return INTERNAL_URL_PREFIX + "fulltext-search";
+    }
+
     private String newTabReturnPageUrl() {
         if (!pendingNewTab || newTabNavigationIndex < 0 || newTabNavigationIndex >= newTabNavigationHistory.size()) {
             return null;
@@ -2844,6 +2852,9 @@ public class MainActivity extends Activity {
         if (url.equals(historyPageUrl())) {
             return text("\u5c65\u6b74", "History");
         }
+        if (url.equals(fullTextSearchPageUrl())) {
+            return text("\u5168\u6587\u691c\u7d22", "Full-text Search");
+        }
         if (url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/")) {
             List<String> pages = decodeNewTabHistoryPages(url);
             int index = decodeNewTabHistoryIndex(url, pages);
@@ -2870,6 +2881,9 @@ public class MainActivity extends Activity {
         } else if (url.equals(historyPageUrl())) {
             tab.nativeKind = NATIVE_HISTORY;
             tab.readerView = buildHistoryView();
+        } else if (url.equals(fullTextSearchPageUrl())) {
+            tab.nativeKind = NATIVE_SEARCH_HOME;
+            tab.readerView = buildFullTextSearchHomeView(true);
         } else {
             tab.nativeKind = NATIVE_SEARCH_HOME;
             tab.readerView = buildSearchHomeView(true);
@@ -5719,6 +5733,9 @@ public class MainActivity extends Activity {
         TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
         fiveCh.setOnClickListener(v -> showFiveChBoardsView(true));
         list.addView(fiveCh);
+        TextView fullTextSearch = actionRow(text("\u5168\u6587\u691c\u7d22", "Full-text search"));
+        fullTextSearch.setOnClickListener(v -> showFullTextSearchHomeView(true));
+        list.addView(fullTextSearch);
 
         List<BbsLink> customLinks = readBbsLinks(preferences);
         if (!customLinks.isEmpty()) {
@@ -5744,6 +5761,110 @@ public class MainActivity extends Activity {
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         addPrivateModeOverlay(root, currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
+        return root;
+    }
+
+    private void showFullTextSearchHomeView(boolean recordHistory) {
+        if (pendingNewTab) {
+            if (recordHistory) {
+                recordNewTabPage("fulltext-search");
+            }
+            pendingHistoryAll = false;
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildFullTextSearchHomeView(false));
+            addressBar.setText("");
+            clearAddressFocus();
+            renderTabs();
+            return;
+        }
+        openInCurrentTab(fullTextSearchPageUrl());
+    }
+
+    private View buildFullTextSearchHomeView(boolean forTab) {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(bgColor());
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(bgColor());
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(12), dp(12), dp(24));
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = sectionTitleView(text("\u5168\u6587\u691c\u7d22", "Full-text Search"));
+        list.addView(title);
+
+        TextView caption = postText("search2ch.info", null);
+        caption.setTextColor(mutedColor());
+        caption.setTextSize(13);
+        LinearLayout.LayoutParams captionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        captionParams.setMargins(0, 0, 0, dp(10));
+        list.addView(caption, captionParams);
+
+        EditText query = new EditText(this);
+        query.setSingleLine(true);
+        query.setHint(text("\u5168\u6587\u691c\u7d22\u8a9e", "Full-text search query"));
+        query.setTextColor(textColor());
+        query.setHintTextColor(mutedColor());
+        query.setTextSize(18);
+        query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        query.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        query.setBackground(addressBarBackground());
+        query.setPadding(dp(12), 0, dp(12), 0);
+        Runnable submit = () -> {
+            String value = query.getText().toString().trim();
+            if (value.isEmpty()) {
+                return;
+            }
+            try {
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
+            } catch (Exception ignored) {
+            }
+            openFullTextSearch(value);
+        };
+        query.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = event != null && event.getAction() == KeyEvent.ACTION_UP
+                    && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || enter) {
+                submit.run();
+                return true;
+            }
+            return false;
+        });
+        LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        queryParams.setMargins(0, 0, 0, dp(10));
+        list.addView(query, queryParams);
+
+        TextView search = actionRow(text("\u5168\u6587\u691c\u7d22", "Full-text search"));
+        search.setOnClickListener(v -> submit.run());
+        list.addView(search);
+
+        TextView normal = actionRow(text("\u901a\u5e38\u306e5ch\u691c\u7d22", "Normal 5ch search"));
+        normal.setOnClickListener(v -> {
+            if (pendingNewTab) {
+                renderNewTabPage("home", true);
+            } else {
+                openInCurrentTab(HOME_URL);
+            }
+        });
+        list.addView(normal);
+
+        root.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        addPrivateModeOverlay(root, currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
+        query.postDelayed(() -> {
+            if (!forTab && pendingNewTab || forTab) {
+                query.requestFocus();
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (manager != null) {
+                    manager.showSoftInput(query, InputMethodManager.SHOW_IMPLICIT);
+                }
+            }
+        }, 120);
         return root;
     }
 
@@ -6719,6 +6840,10 @@ public class MainActivity extends Activity {
             pendingHistoryAll = true;
             contentFrame.removeAllViews();
             contentFrame.addView(buildHistoryView());
+        } else if ("fulltext-search".equals(page)) {
+            pendingHistoryAll = false;
+            contentFrame.removeAllViews();
+            contentFrame.addView(buildFullTextSearchHomeView(false));
         } else if ("5ch".equals(page)) {
             showFiveChBoardsView(record);
         } else if (page != null && page.startsWith("5ch-category:")) {
@@ -16924,6 +17049,21 @@ public class MainActivity extends Activity {
         } catch (Exception error) {
             return HOME_URL;
         }
+    }
+
+    private String fullTextSearchUrl(String query) {
+        try {
+            return SEARCH2CH_HOME_URL + "?q=" + URLEncoder.encode(query, "UTF-8");
+        } catch (Exception error) {
+            return SEARCH2CH_HOME_URL;
+        }
+    }
+
+    private void openFullTextSearch(String query) {
+        String url = fullTextSearchUrl(query);
+        Intent intent = new Intent(this, AuthActivity.class);
+        intent.putExtra(AuthActivity.EXTRA_URL, url);
+        startActivity(intent);
     }
 
     private String hostTitle(String url) {
