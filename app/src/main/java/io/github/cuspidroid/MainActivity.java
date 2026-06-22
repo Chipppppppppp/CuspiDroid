@@ -268,6 +268,12 @@ public class MainActivity extends Activity {
     private static final int SEARCH_VISIBLE_RENDER_BUDGET = 24;
     private static final int SEARCH_SCROLL_RENDER_BUDGET = 48;
     private static final int SEARCH_IDLE_RENDER_BUDGET = 96;
+    private static final int EXTRACT_VISIBLE_RENDER_BUDGET = 8;
+    private static final int EXTRACT_SCROLL_RENDER_BUDGET = 12;
+    private static final int EXTRACT_IDLE_RENDER_BUDGET = 24;
+    private static final int TAB_OVERVIEW_VISIBLE_RENDER_BUDGET = 10;
+    private static final int TAB_OVERVIEW_SCROLL_RENDER_BUDGET = 16;
+    private static final int TAB_OVERVIEW_IDLE_RENDER_BUDGET = 32;
     private static final long TAB_UNLOAD_INTERVAL_MS = 15_000L;
     private static final long TAB_UNLOAD_AFTER_MS = 60_000L;
     private static final long TAB_UNLOAD_AFTER_MANY_TABS_MS = 15_000L;
@@ -6492,7 +6498,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        populateTabOverviewList(list);
+        populateTabOverviewList(scroll, list);
 
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
@@ -6516,7 +6522,7 @@ public class MainActivity extends Activity {
         return root;
     }
 
-    private void populateTabOverviewList(LinearLayout list) {
+    private void populateTabOverviewList(ScrollView scroll, LinearLayout list) {
         list.removeAllViews();
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -6530,7 +6536,7 @@ public class MainActivity extends Activity {
         if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
             addBookmarkOverviewSection(list);
         }
-        addTabOverviewSection(list, tabOverviewPrivateMode);
+        addTabOverviewSection(scroll, list, tabOverviewPrivateMode);
     }
 
     private ImageButton privateModeButton(boolean active, View.OnClickListener listener) {
@@ -6574,11 +6580,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void addTabOverviewSection(LinearLayout list, boolean privateSection) {
+    private void addTabOverviewSection(ScrollView scroll, LinearLayout list, boolean privateSection) {
         boolean any = false;
         for (int index : tabOverviewIndices(privateSection)) {
-            CuspTab tab = tabs.get(index);
-            list.addView(tabOverviewRow(tab, index));
+            addVirtualTabOverviewSlot(list, new VirtualTabOverviewSlot(index));
             any = true;
         }
         if (!any) {
@@ -6596,7 +6601,198 @@ public class MainActivity extends Activity {
                 return true;
             });
             list.addView(empty);
+        } else {
+            setupVirtualTabOverviewRefresh(scroll, list);
         }
+    }
+
+    private void addVirtualTabOverviewSlot(LinearLayout list, VirtualTabOverviewSlot slot) {
+        FrameLayout holder = new FrameLayout(this);
+        holder.setTag(slot);
+        holder.setOnDragListener(tabOverviewDropListener(slot.index));
+        holder.addView(tabOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        list.addView(holder, params);
+    }
+
+    private View.OnDragListener tabOverviewDropListener(int index) {
+        return (v, event) -> {
+            autoScrollDuringDrag(v, event);
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    DragPayload payload = (DragPayload) local;
+                    if ("tabs".equals(payload.key)) {
+                        moveTabInOverview(payload, index);
+                        return true;
+                    }
+                    if (moveBookmarkToTabsFromPayload(payload, index)) {
+                        return true;
+                    }
+                }
+            }
+            return true;
+        };
+    }
+
+    private void setupVirtualTabOverviewRefresh(ScrollView scroll, LinearLayout list) {
+        VirtualTabOverviewState state = new VirtualTabOverviewState();
+        list.setTag(state);
+        state.refreshTask = () -> {
+            state.refreshPending = false;
+            refreshTabOverviewSlots(scroll, list);
+        };
+        scroll.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            if (list.getTag() instanceof VirtualTabOverviewState) {
+                ((VirtualTabOverviewState) list.getTag()).lastScrollAt = android.os.SystemClock.uptimeMillis();
+            }
+            scheduleTabOverviewSlotRefresh(list);
+        });
+        scheduleTabOverviewSlotRefresh(list);
+    }
+
+    private void scheduleTabOverviewSlotRefresh(LinearLayout list) {
+        if (list == null || !(list.getTag() instanceof VirtualTabOverviewState)) {
+            return;
+        }
+        VirtualTabOverviewState state = (VirtualTabOverviewState) list.getTag();
+        if (state.refreshTask == null || state.refreshPending) {
+            return;
+        }
+        state.refreshPending = true;
+        list.post(state.refreshTask);
+    }
+
+    private void refreshTabOverviewSlots(ScrollView scroll, LinearLayout list) {
+        if (scroll == null || list == null) {
+            return;
+        }
+        int scrollY = scroll.getScrollY();
+        int height = scroll.getHeight();
+        if (height <= 0) {
+            return;
+        }
+        VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
+                ? (VirtualTabOverviewState) list.getTag() : null;
+        boolean scrolling = state != null
+                && android.os.SystemClock.uptimeMillis() - state.lastScrollAt < 180;
+        int renderTop = Math.max(0, scrollY - (scrolling ? height / 2 : height));
+        int renderBottom = scrollY + height + (scrolling ? height : height * 2);
+        int keepTop = Math.max(0, scrollY - (scrolling ? height : height * 2));
+        int keepBottom = scrollY + height + (scrolling ? height * 2 : height * 3);
+        int visibleStart = firstChildWithBottomAtLeast(list, scrollY);
+        int visibleEnd = lastChildWithTopAtMost(list, scrollY + height);
+        int start = firstChildWithBottomAtLeast(list, renderTop);
+        int end = lastChildWithTopAtMost(list, renderBottom);
+        int keepStart = firstChildWithBottomAtLeast(list, keepTop);
+        int keepEnd = lastChildWithTopAtMost(list, keepBottom);
+        Set<FrameLayout> keep = new LinkedHashSet<>();
+        collectTabOverviewSlotsInRange(list, keepStart, keepEnd, keep);
+        int[] rendered = {0};
+        boolean[] budgetReached = {false};
+        renderTabOverviewSlotsInRange(list, visibleStart, visibleEnd, TAB_OVERVIEW_VISIBLE_RENDER_BUDGET,
+                rendered, budgetReached, keep);
+        int budget = scrolling ? TAB_OVERVIEW_SCROLL_RENDER_BUDGET : TAB_OVERVIEW_IDLE_RENDER_BUDGET;
+        renderTabOverviewSlotsInRange(list, start, end, budget, rendered, budgetReached, keep);
+        if (budgetReached[0]) {
+            scheduleTabOverviewSlotRefresh(list);
+        }
+        if (!scrolling && state != null && !state.renderedSlots.isEmpty()) {
+            for (FrameLayout holder : new ArrayList<>(state.renderedSlots)) {
+                if (keep.contains(holder)) {
+                    continue;
+                }
+                Object tag = holder.getTag();
+                if (tag instanceof VirtualTabOverviewSlot) {
+                    recycleTabOverviewSlot(holder, (VirtualTabOverviewSlot) tag);
+                }
+            }
+        }
+    }
+
+    private void collectTabOverviewSlotsInRange(ViewGroup list, int start, int end, Set<FrameLayout> keep) {
+        if (list == null || keep == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualTabOverviewSlot) {
+                keep.add((FrameLayout) child);
+            }
+        }
+    }
+
+    private void renderTabOverviewSlotsInRange(ViewGroup list, int start, int end, int budget,
+                                               int[] rendered, boolean[] budgetReached,
+                                               Set<FrameLayout> keep) {
+        if (list == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualTabOverviewSlot)) {
+                continue;
+            }
+            FrameLayout holder = (FrameLayout) child;
+            VirtualTabOverviewSlot slot = (VirtualTabOverviewSlot) tag;
+            if (keep != null) {
+                keep.add(holder);
+            }
+            if (slot.rendered) {
+                continue;
+            }
+            if (rendered[0] >= budget) {
+                budgetReached[0] = true;
+                return;
+            }
+            renderTabOverviewSlot(holder, slot);
+            rendered[0]++;
+        }
+    }
+
+    private void renderTabOverviewSlot(FrameLayout holder, VirtualTabOverviewSlot slot) {
+        if (holder == null || slot == null || slot.rendered
+                || slot.index < 0 || slot.index >= tabs.size()) {
+            return;
+        }
+        holder.removeAllViews();
+        holder.addView(tabOverviewRow(tabs.get(slot.index), slot.index), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        slot.rendered = true;
+        if (holder.getParent() instanceof View) {
+            View parent = (View) holder.getParent();
+            if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualTabOverviewState) {
+                ((VirtualTabOverviewState) parent.getTag()).renderedSlots.add(holder);
+            }
+        }
+    }
+
+    private void recycleTabOverviewSlot(FrameLayout holder, VirtualTabOverviewSlot slot) {
+        if (holder == null || slot == null || !slot.rendered) {
+            return;
+        }
+        holder.removeAllViews();
+        holder.addView(tabOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        slot.rendered = false;
+        if (holder.getParent() instanceof View) {
+            View parent = (View) holder.getParent();
+            if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualTabOverviewState) {
+                ((VirtualTabOverviewState) parent.getTag()).renderedSlots.remove(holder);
+            }
+        }
+    }
+
+    private View tabOverviewSlotSpacer(int height) {
+        View spacer = new View(this);
+        spacer.setMinimumHeight(Math.max(dp(86), height));
+        return spacer;
     }
 
     private List<Integer> tabOverviewIndices(boolean privateSection) {
@@ -8328,7 +8524,7 @@ public class MainActivity extends Activity {
             return;
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
-        populateTabOverviewList(list);
+        populateTabOverviewList(scroll, list);
         syncClosedTabUndoBar();
     }
 
@@ -8971,12 +9167,7 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         root.setTag(popup);
         prepareAnimatedPopupDismiss(popup, root);
-        for (ThreadExtractGroup group : threadExtractGroups(items)) {
-            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            rowParams.setMargins(0, 0, 0, dp(8));
-            list.addView(threadExtractRow(group, mediaOnly, popup), rowParams);
-        }
+        renderThreadExtractSlots(scroll, list, threadExtractGroups(items), mediaOnly, popup);
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
@@ -8995,6 +9186,197 @@ public class MainActivity extends Activity {
             current.items.add(item);
         }
         return groups;
+    }
+
+    private void renderThreadExtractSlots(ScrollView scroll, LinearLayout list,
+                                          List<ThreadExtractGroup> groups,
+                                          boolean mediaOnly, PopupWindow popup) {
+        VirtualExtractState state = new VirtualExtractState();
+        list.setTag(state);
+        for (ThreadExtractGroup group : groups) {
+            addVirtualExtractSlot(list, new VirtualExtractSlot(group, mediaOnly, estimateExtractGroupHeight(group, mediaOnly)));
+        }
+        state.refreshTask = () -> {
+            state.refreshPending = false;
+            refreshExtractSlots(scroll, list, popup);
+        };
+        scroll.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            if (list.getTag() instanceof VirtualExtractState) {
+                ((VirtualExtractState) list.getTag()).lastScrollAt = android.os.SystemClock.uptimeMillis();
+            }
+            scheduleExtractSlotRefresh(list);
+        });
+        scheduleExtractSlotRefresh(list);
+    }
+
+    private void addVirtualExtractSlot(LinearLayout list, VirtualExtractSlot slot) {
+        FrameLayout holder = new FrameLayout(this);
+        holder.setTag(slot);
+        holder.addView(extractSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, 0, 0, dp(8));
+        list.addView(holder, rowParams);
+    }
+
+    private void scheduleExtractSlotRefresh(LinearLayout list) {
+        if (list == null || !(list.getTag() instanceof VirtualExtractState)) {
+            return;
+        }
+        VirtualExtractState state = (VirtualExtractState) list.getTag();
+        if (state.refreshTask == null || state.refreshPending) {
+            return;
+        }
+        state.refreshPending = true;
+        list.post(state.refreshTask);
+    }
+
+    private void refreshExtractSlots(ScrollView scroll, LinearLayout list, PopupWindow popup) {
+        if (scroll == null || list == null) {
+            return;
+        }
+        int scrollY = scroll.getScrollY();
+        int height = scroll.getHeight();
+        if (height <= 0) {
+            return;
+        }
+        VirtualExtractState state = list.getTag() instanceof VirtualExtractState
+                ? (VirtualExtractState) list.getTag() : null;
+        boolean scrolling = state != null
+                && android.os.SystemClock.uptimeMillis() - state.lastScrollAt < 180;
+        int renderTop = Math.max(0, scrollY - (scrolling ? height / 2 : height));
+        int renderBottom = scrollY + height + (scrolling ? height : height * 2);
+        int keepTop = Math.max(0, scrollY - (scrolling ? height : height * 2));
+        int keepBottom = scrollY + height + (scrolling ? height * 2 : height * 3);
+        int visibleStart = firstChildWithBottomAtLeast(list, scrollY);
+        int visibleEnd = lastChildWithTopAtMost(list, scrollY + height);
+        int start = firstChildWithBottomAtLeast(list, renderTop);
+        int end = lastChildWithTopAtMost(list, renderBottom);
+        int keepStart = firstChildWithBottomAtLeast(list, keepTop);
+        int keepEnd = lastChildWithTopAtMost(list, keepBottom);
+        Set<FrameLayout> keep = new LinkedHashSet<>();
+        collectExtractSlotsInRange(list, keepStart, keepEnd, keep);
+        int[] rendered = {0};
+        boolean[] budgetReached = {false};
+        renderExtractSlotsInRange(list, visibleStart, visibleEnd, EXTRACT_VISIBLE_RENDER_BUDGET,
+                rendered, budgetReached, keep, popup);
+        int budget = scrolling ? EXTRACT_SCROLL_RENDER_BUDGET : EXTRACT_IDLE_RENDER_BUDGET;
+        renderExtractSlotsInRange(list, start, end, budget, rendered, budgetReached, keep, popup);
+        if (budgetReached[0]) {
+            scheduleExtractSlotRefresh(list);
+        }
+        if (!scrolling && state != null && !state.renderedSlots.isEmpty()) {
+            for (FrameLayout holder : new ArrayList<>(state.renderedSlots)) {
+                if (keep.contains(holder)) {
+                    continue;
+                }
+                Object tag = holder.getTag();
+                if (tag instanceof VirtualExtractSlot) {
+                    recycleExtractSlot(holder, (VirtualExtractSlot) tag);
+                }
+            }
+        }
+    }
+
+    private void collectExtractSlotsInRange(ViewGroup list, int start, int end, Set<FrameLayout> keep) {
+        if (list == null || keep == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualExtractSlot) {
+                keep.add((FrameLayout) child);
+            }
+        }
+    }
+
+    private void renderExtractSlotsInRange(ViewGroup list, int start, int end, int budget,
+                                           int[] rendered, boolean[] budgetReached,
+                                           Set<FrameLayout> keep, PopupWindow popup) {
+        if (list == null || start > end || end < 0) {
+            return;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualExtractSlot)) {
+                continue;
+            }
+            FrameLayout holder = (FrameLayout) child;
+            VirtualExtractSlot slot = (VirtualExtractSlot) tag;
+            if (keep != null) {
+                keep.add(holder);
+            }
+            if (slot.rendered) {
+                continue;
+            }
+            if (rendered[0] >= budget) {
+                budgetReached[0] = true;
+                return;
+            }
+            renderExtractSlot(holder, slot, popup);
+            rendered[0]++;
+        }
+    }
+
+    private void renderExtractSlot(FrameLayout holder, VirtualExtractSlot slot, PopupWindow popup) {
+        if (holder == null || slot == null || slot.rendered) {
+            return;
+        }
+        holder.removeAllViews();
+        View view = threadExtractRow(slot.group, slot.mediaOnly, popup);
+        holder.addView(view, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        slot.rendered = true;
+        if (holder.getParent() instanceof View) {
+            View parent = (View) holder.getParent();
+            if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualExtractState) {
+                ((VirtualExtractState) parent.getTag()).renderedSlots.add(holder);
+            }
+        }
+        holder.post(() -> {
+            int measured = renderedSlotContentHeight(holder);
+            if (measured > 0) {
+                slot.height = measured;
+            }
+        });
+    }
+
+    private void recycleExtractSlot(FrameLayout holder, VirtualExtractSlot slot) {
+        if (holder == null || slot == null || !slot.rendered) {
+            return;
+        }
+        int measured = holder.getHeight();
+        if (measured > 0) {
+            slot.height = measured;
+        }
+        holder.removeAllViews();
+        holder.addView(extractSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        slot.rendered = false;
+        if (holder.getParent() instanceof View) {
+            View parent = (View) holder.getParent();
+            if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualExtractState) {
+                ((VirtualExtractState) parent.getTag()).renderedSlots.remove(holder);
+            }
+        }
+    }
+
+    private View extractSlotSpacer(int height) {
+        View spacer = new View(this);
+        spacer.setMinimumHeight(Math.max(dp(42), height));
+        return spacer;
+    }
+
+    private int estimateExtractGroupHeight(ThreadExtractGroup group, boolean mediaOnly) {
+        int count = group == null ? 1 : Math.max(1, group.items.size());
+        if (mediaOnly) {
+            return dp(28 + 82 * count);
+        }
+        return dp(32 + 32 * count);
     }
 
     private View threadExtractRow(ThreadExtractGroup group, boolean mediaRow, PopupWindow popup) {
@@ -18103,6 +18485,43 @@ public class MainActivity extends Activity {
     }
 
     private static class VirtualSearchState {
+        final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
+        Runnable refreshTask;
+        boolean refreshPending;
+        long lastScrollAt;
+    }
+
+    private static class VirtualExtractSlot {
+        final ThreadExtractGroup group;
+        final boolean mediaOnly;
+        int height;
+        boolean rendered;
+
+        VirtualExtractSlot(ThreadExtractGroup group, boolean mediaOnly, int height) {
+            this.group = group;
+            this.mediaOnly = mediaOnly;
+            this.height = height;
+        }
+    }
+
+    private static class VirtualExtractState {
+        final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
+        Runnable refreshTask;
+        boolean refreshPending;
+        long lastScrollAt;
+    }
+
+    private class VirtualTabOverviewSlot {
+        final int index;
+        final int height = dp(86);
+        boolean rendered;
+
+        VirtualTabOverviewSlot(int index) {
+            this.index = index;
+        }
+    }
+
+    private static class VirtualTabOverviewState {
         final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
         Runnable refreshTask;
         boolean refreshPending;
