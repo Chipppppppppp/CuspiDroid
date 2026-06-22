@@ -231,6 +231,7 @@ public class MainActivity extends Activity {
     private static final String HOME_BOOKMARK_SECTION_TAG = "home_bookmark_section";
     private static final String CLOSED_TAB_UNDO_TAG = "closed_tab_undo";
     private static final String FULL_TEXT_LOAD_MORE_FOOTER_TAG = "full_text_load_more_footer";
+    private static final String TAB_OVERVIEW_EMPTY_TAG = "tab_overview_empty";
     private static final String TAB_OVERVIEW_NORMAL_SCROLL_KEY = "tabOverviewNormalScrollY";
     private static final String TAB_OVERVIEW_PRIVATE_SCROLL_KEY = "tabOverviewPrivateScrollY";
     static final String PREF_HISTORY = "thread_history";
@@ -6959,13 +6960,14 @@ public class MainActivity extends Activity {
     private void addTabOverviewSection(ScrollView scroll, LinearLayout list, boolean privateSection) {
         boolean any = false;
         for (int index : tabOverviewIndices(privateSection)) {
-            addVirtualTabOverviewSlot(list, new VirtualTabOverviewSlot(index));
+            addVirtualTabOverviewSlot(list, new VirtualTabOverviewSlot(index, tabs.get(index)));
             any = true;
         }
         if (!any) {
             TextView empty = helperLine(privateSection
                     ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
                     : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs."));
+            empty.setTag(TAB_OVERVIEW_EMPTY_TAG);
             empty.setOnDragListener((v, event) -> {
                 autoScrollDuringDrag(v, event);
                 if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
@@ -6983,15 +6985,30 @@ public class MainActivity extends Activity {
     }
 
     private void addVirtualTabOverviewSlot(LinearLayout list, VirtualTabOverviewSlot slot) {
+        list.addView(createTabOverviewSlotHolder(slot), tabOverviewSlotLayoutParams());
+    }
+
+    private FrameLayout createTabOverviewSlotHolder(VirtualTabOverviewSlot slot) {
         FrameLayout holder = new FrameLayout(this);
-        holder.setTag(slot);
-        holder.setOnDragListener(tabOverviewDropListener(slot.index));
+        bindTabOverviewSlot(holder, slot);
         holder.addView(tabOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        return holder;
+    }
+
+    private LinearLayout.LayoutParams tabOverviewSlotLayoutParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, 0, dp(8));
-        list.addView(holder, params);
+        return params;
+    }
+
+    private void bindTabOverviewSlot(FrameLayout holder, VirtualTabOverviewSlot slot) {
+        if (holder == null || slot == null) {
+            return;
+        }
+        holder.setTag(slot);
+        holder.setOnDragListener(tabOverviewDropListener(slot.index));
     }
 
     private View.OnDragListener tabOverviewDropListener(int index) {
@@ -7133,12 +7150,19 @@ public class MainActivity extends Activity {
     }
 
     private void renderTabOverviewSlot(FrameLayout holder, VirtualTabOverviewSlot slot) {
-        if (holder == null || slot == null || slot.rendered
-                || slot.index < 0 || slot.index >= tabs.size()) {
+        if (holder == null || slot == null || slot.rendered) {
             return;
         }
+        CuspTab tab = slot.tab;
+        int index = tab == null ? slot.index : tabs.indexOf(tab);
+        if (index < 0 || index >= tabs.size()) {
+            return;
+        }
+        slot.index = index;
+        slot.tab = tabs.get(index);
+        bindTabOverviewSlot(holder, slot);
         holder.removeAllViews();
-        holder.addView(tabOverviewRow(tabs.get(slot.index), slot.index), new FrameLayout.LayoutParams(
+        holder.addView(tabOverviewRow(slot.tab, slot.index), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         slot.rendered = true;
         if (holder.getParent() instanceof View) {
@@ -7154,6 +7178,7 @@ public class MainActivity extends Activity {
             return;
         }
         holder.removeAllViews();
+        bindTabOverviewSlot(holder, slot);
         holder.addView(tabOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
         slot.rendered = false;
@@ -7254,7 +7279,7 @@ public class MainActivity extends Activity {
                 clearClosedTabUndoTask = null;
             }
             if (tabOverviewVisible) {
-                refreshTabOverviewListOnly();
+                syncClosedTabUndoBar();
             }
         });
         return bar;
@@ -7534,8 +7559,137 @@ public class MainActivity extends Activity {
         renderTabs();
         saveTabs(false);
         if (tabOverviewVisible) {
-            refreshTabOverviewListOnly();
+            refreshTabOverviewTabSlotsOnly();
         }
+    }
+
+    private boolean refreshTabOverviewTabSlotsOnly() {
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
+            return false;
+        }
+        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        List<FrameLayout> holders = tabOverviewSlotHolders(list);
+        if (holders.isEmpty()) {
+            return false;
+        }
+        VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
+                ? (VirtualTabOverviewState) list.getTag() : null;
+        Map<CuspTab, FrameLayout> holderByTab = new LinkedHashMap<>();
+        for (FrameLayout holder : holders) {
+            Object tag = holder.getTag();
+            if (!(tag instanceof VirtualTabOverviewSlot)) {
+                continue;
+            }
+            VirtualTabOverviewSlot slot = (VirtualTabOverviewSlot) tag;
+            CuspTab tab = slot.tab;
+            if (tab == null && slot.index >= 0 && slot.index < tabs.size()) {
+                tab = tabs.get(slot.index);
+            }
+            if (tab != null) {
+                holderByTab.put(tab, holder);
+            }
+        }
+
+        List<Integer> desiredIndices = tabOverviewIndices(tabOverviewPrivateMode);
+        int insertAt = list.indexOfChild(holders.get(0));
+        if (desiredIndices.isEmpty()) {
+            for (int i = holders.size() - 1; i >= 0; i--) {
+                FrameLayout holder = holders.get(i);
+                if (state != null) {
+                    state.renderedSlots.remove(holder);
+                }
+                list.removeView(holder);
+            }
+            addEmptyTabOverviewRow(list);
+            syncClosedTabUndoBar();
+            return true;
+        }
+
+        for (int i = 0; i < desiredIndices.size(); i++) {
+            int tabIndex = desiredIndices.get(i);
+            if (tabIndex < 0 || tabIndex >= tabs.size()) {
+                continue;
+            }
+            CuspTab tab = tabs.get(tabIndex);
+            FrameLayout holder = holderByTab.remove(tab);
+            if (holder == null) {
+                holder = createTabOverviewSlotHolder(new VirtualTabOverviewSlot(tabIndex, tab));
+            }
+            int currentChildIndex = list.indexOfChild(holder);
+            if (currentChildIndex >= 0 && currentChildIndex != insertAt) {
+                list.removeView(holder);
+                if (currentChildIndex < insertAt) {
+                    insertAt--;
+                }
+                list.addView(holder, Math.max(0, Math.min(insertAt, list.getChildCount())),
+                        holder.getLayoutParams() == null ? tabOverviewSlotLayoutParams() : holder.getLayoutParams());
+            } else if (currentChildIndex < 0) {
+                list.addView(holder, Math.max(0, Math.min(insertAt, list.getChildCount())),
+                        holder.getLayoutParams() == null ? tabOverviewSlotLayoutParams() : holder.getLayoutParams());
+            }
+            VirtualTabOverviewSlot slot = holder.getTag() instanceof VirtualTabOverviewSlot
+                    ? (VirtualTabOverviewSlot) holder.getTag()
+                    : new VirtualTabOverviewSlot(tabIndex, tab);
+            slot.index = tabIndex;
+            slot.tab = tab;
+            bindTabOverviewSlot(holder, slot);
+            if (slot.rendered) {
+                slot.rendered = false;
+                if (state != null) {
+                    state.renderedSlots.remove(holder);
+                }
+                renderTabOverviewSlot(holder, slot);
+            }
+            insertAt++;
+        }
+
+        for (FrameLayout holder : holderByTab.values()) {
+            if (state != null) {
+                state.renderedSlots.remove(holder);
+            }
+            if (holder.getParent() == list) {
+                list.removeView(holder);
+            }
+        }
+        scheduleTabOverviewSlotRefresh(list);
+        syncClosedTabUndoBar();
+        return true;
+    }
+
+    private List<FrameLayout> tabOverviewSlotHolders(LinearLayout list) {
+        List<FrameLayout> holders = new ArrayList<>();
+        if (list == null) {
+            return holders;
+        }
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualTabOverviewSlot) {
+                holders.add((FrameLayout) child);
+            }
+        }
+        return holders;
+    }
+
+    private void addEmptyTabOverviewRow(LinearLayout list) {
+        if (list == null) {
+            return;
+        }
+        TextView empty = helperLine(tabOverviewPrivateMode
+                ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
+                : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs."));
+        empty.setTag(TAB_OVERVIEW_EMPTY_TAG);
+        empty.setOnDragListener((v, event) -> {
+            autoScrollDuringDrag(v, event);
+            if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                Object local = event.getLocalState();
+                if (local instanceof DragPayload) {
+                    return moveBookmarkToTabsFromPayload((DragPayload) local, tabs.size());
+                }
+            }
+            return true;
+        });
+        list.addView(empty);
     }
 
     private void autoScrollDuringDrag(View anchor, android.view.DragEvent event) {
@@ -7637,7 +7791,9 @@ public class MainActivity extends Activity {
         updateBottomThreadBar(currentTab());
         renderTabs();
         if (rowView == null || rowView.getParent() == null) {
-            refreshTabOverviewListOnly();
+            if (!refreshTabOverviewTabSlotsOnly()) {
+                refreshTabOverviewListOnly();
+            }
             return;
         }
         animateTabOverviewRowRemoval(rowView);
@@ -7663,11 +7819,24 @@ public class MainActivity extends Activity {
             @Override
             public void onAnimationEnd(android.animation.Animator animation) {
                 if (contentFrame != null && tabOverviewVisible) {
-                    refreshTabOverviewListOnly();
+                    if (isTabOverviewSlotRow(rowView)) {
+                        if (!refreshTabOverviewTabSlotsOnly()) {
+                            refreshTabOverviewListOnly();
+                        }
+                    } else {
+                        refreshTabOverview();
+                    }
                 }
             }
         });
         heightAnimator.start();
+    }
+
+    private boolean isTabOverviewSlotRow(View rowView) {
+        if (rowView == null || !(rowView.getParent() instanceof FrameLayout)) {
+            return false;
+        }
+        return ((FrameLayout) rowView.getParent()).getTag() instanceof VirtualTabOverviewSlot;
     }
 
     private void resetNewTabHistory() {
@@ -7783,7 +7952,7 @@ public class MainActivity extends Activity {
             recentlyClosedTab = null;
             clearClosedTabUndoTask = null;
             if (tabOverviewVisible && contentFrame != null) {
-                refreshTabOverviewListOnly();
+                syncClosedTabUndoBar();
             }
         };
         mainHandler.postDelayed(clearClosedTabUndoTask, 4500);
@@ -7822,7 +7991,9 @@ public class MainActivity extends Activity {
         recentlyClosedTab = null;
         requestSaveTabsSoon();
         if (tabOverviewVisible && contentFrame != null) {
-            refreshTabOverviewListOnly();
+            if (!refreshTabOverviewTabSlotsOnly()) {
+                refreshTabOverviewListOnly();
+            }
             updateBottomThreadBar(currentTab());
             renderTabs();
         }
@@ -8835,9 +9006,59 @@ public class MainActivity extends Activity {
 
     private void refreshTabOverview() {
         if (tabOverviewVisible && contentFrame != null) {
-            refreshTabOverviewListOnly();
+            boolean updatedBookmarks = refreshTabOverviewBookmarkSectionOnly();
+            boolean updatedTabs = refreshTabOverviewTabSlotsOnly();
+            if (!updatedBookmarks && !updatedTabs) {
+                refreshTabOverviewListOnly();
+            }
             renderTabs();
         }
+    }
+
+    private boolean refreshTabOverviewBookmarkSectionOnly() {
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
+            return false;
+        }
+        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        int sectionStart = 1;
+        int tabSectionStart = tabOverviewTabSectionStart(list);
+        if (tabSectionStart < sectionStart) {
+            return false;
+        }
+        for (int i = tabSectionStart - 1; i >= sectionStart; i--) {
+            list.removeViewAt(i);
+        }
+        if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
+            LinearLayout temp = new LinearLayout(this);
+            temp.setOrientation(LinearLayout.VERTICAL);
+            addBookmarkOverviewSection(temp);
+            int insert = sectionStart;
+            while (temp.getChildCount() > 0) {
+                View child = temp.getChildAt(0);
+                temp.removeViewAt(0);
+                list.addView(child, insert++);
+            }
+        }
+        scheduleTabOverviewSlotRefresh(list);
+        syncClosedTabUndoBar();
+        return true;
+    }
+
+    private int tabOverviewTabSectionStart(LinearLayout list) {
+        if (list == null) {
+            return -1;
+        }
+        for (int i = 1; i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualTabOverviewSlot) {
+                return i;
+            }
+            if (TAB_OVERVIEW_EMPTY_TAG.equals(child.getTag())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void addUnreadBadgeIfNeeded(LinearLayout row, int unread) {
@@ -18888,12 +19109,14 @@ public class MainActivity extends Activity {
     }
 
     private class VirtualTabOverviewSlot {
-        final int index;
+        int index;
+        CuspTab tab;
         final int height = dp(86);
         boolean rendered;
 
-        VirtualTabOverviewSlot(int index) {
+        VirtualTabOverviewSlot(int index, CuspTab tab) {
             this.index = index;
+            this.tab = tab;
         }
     }
 
