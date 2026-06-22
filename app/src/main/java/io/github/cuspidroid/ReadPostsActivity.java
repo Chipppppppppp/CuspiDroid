@@ -10,6 +10,8 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -137,17 +139,26 @@ public class ReadPostsActivity extends Activity {
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setText(String.valueOf(item.number));
+        input.setHint(MainActivity.text("\u65e2\u8aad\u756a\u53f7", "Read number"));
         input.setSelectAllOnFocus(true);
         input.setTextSize(16);
         input.setTextColor(textColor());
+        input.setHintTextColor(mutedColor());
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        input.setBackground(rowBackground());
+        input.setBackground(fieldBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18), dp(8), dp(18), 0);
+        form.setBackgroundColor(surfaceColor());
+        form.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("\u65e2\u8aad\u756a\u53f7\u3092\u7de8\u96c6", "Edit read number"))
-                .setView(input)
+                .setView(form)
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(MainActivity.text("\u66f4\u65b0", "Update"), null)
                 .create();
@@ -162,6 +173,13 @@ public class ReadPostsActivity extends Activity {
                     Toast.makeText(this, MainActivity.text("\u6570\u5024\u3092\u5165\u529b", "Enter a number."), Toast.LENGTH_SHORT).show();
                 }
             });
+            input.requestFocus();
+            input.postDelayed(() -> {
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (manager != null) {
+                    manager.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+                }
+            }, 120);
         });
         dialog.show();
         Theme.styleDialog(dialog, this);
@@ -265,6 +283,14 @@ public class ReadPostsActivity extends Activity {
     private GradientDrawable rowBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(surfaceColor());
+        drawable.setStroke(dp(1), borderColor());
+        drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable fieldBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.field(this));
         drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(8));
         return drawable;

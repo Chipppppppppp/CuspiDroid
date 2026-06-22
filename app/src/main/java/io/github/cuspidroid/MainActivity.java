@@ -525,7 +525,7 @@ public class MainActivity extends Activity {
 
     private int bgColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(1, 12, 31) : Color.rgb(219, 234, 254);
+            return Theme.dark(this) ? Color.rgb(0, 18, 12) : Color.rgb(220, 252, 231);
         }
         return Theme.background(this);
     }
@@ -556,7 +556,7 @@ public class MainActivity extends Activity {
 
     private int barColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(2, 23, 53) : Color.rgb(199, 220, 252);
+            return Theme.dark(this) ? Color.rgb(2, 44, 34) : Color.rgb(187, 247, 208);
         }
         return Theme.topBar(this);
     }
@@ -566,26 +566,26 @@ public class MainActivity extends Activity {
     }
 
     private int privateBlue() {
-        return Theme.dark(this) ? Color.rgb(59, 130, 246) : Color.rgb(29, 78, 216);
+        return Theme.dark(this) ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
     }
 
     private int privateButtonFill(boolean active) {
         if (!active) {
             return Theme.dark(this) ? Color.rgb(17, 24, 39) : menuColor();
         }
-        return Theme.dark(this) ? Color.rgb(8, 47, 99) : Color.rgb(191, 219, 254);
+        return Theme.dark(this) ? Color.rgb(6, 78, 59) : Color.rgb(187, 247, 208);
     }
 
     private int privateButtonStroke(boolean active) {
         if (!active) {
             return Theme.dark(this) ? Color.rgb(51, 65, 85) : borderColor();
         }
-        return Theme.dark(this) ? Color.rgb(37, 99, 235) : Color.rgb(29, 78, 216);
+        return Theme.dark(this) ? Color.rgb(16, 185, 129) : Color.rgb(21, 128, 61);
     }
 
     private int privateButtonIcon(boolean active) {
         if (!active && Theme.dark(this)) {
-            return Color.rgb(147, 197, 253);
+            return Color.rgb(110, 231, 183);
         }
         return privateBlue();
     }
@@ -6021,19 +6021,9 @@ public class MainActivity extends Activity {
         queryParams.setMargins(0, 0, 0, dp(10));
         list.addView(query, queryParams);
 
-        TextView search = actionRow(text("\u5168\u6587\u691c\u7d22", "Full-text search"));
+        TextView search = actionRow(text("\u691c\u7d22", "Search"));
         search.setOnClickListener(v -> submit.run());
         list.addView(search);
-
-        TextView normal = actionRow(text("\u901a\u5e38\u306e5ch\u691c\u7d22", "Normal 5ch search"));
-        normal.setOnClickListener(v -> {
-            if (pendingNewTab) {
-                renderNewTabPage("home", true);
-            } else {
-                openInCurrentTab(HOME_URL);
-            }
-        });
-        list.addView(normal);
 
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
