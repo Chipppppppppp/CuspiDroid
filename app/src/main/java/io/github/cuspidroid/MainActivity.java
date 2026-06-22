@@ -3542,6 +3542,7 @@ public class MainActivity extends Activity {
                 + "var n=parseInt((pages[p].innerText||pages[p].textContent||'').trim(),10);"
                 + "if(n===target){pages[p].click();return JSON.stringify({ready:false,clicked:true});}"
                 + "}"
+                + "if(pages.length>0)return JSON.stringify({ready:false,waitingTarget:true,currentPage:current});"
                 + "}"
                 + "for(var i=0;i<nodes.length;i++){"
                 + "var e=nodes[i];"
@@ -3573,20 +3574,61 @@ public class MainActivity extends Activity {
                 return;
             }
             SearchPage page = parseFullTextSearchSnapshot(loadUrl, value);
+            if (append && pageNumber > 1 && page != null && !page.results.isEmpty()
+                    && page.fullTextPage < pageNumber) {
+                if (hasNewSearchResult(tab == null ? null : tab.searchPage, page)) {
+                    page.fullTextPage = pageNumber;
+                    finishFullTextSearchIfPending(tab, loadUrl, webView, page, true);
+                    return;
+                }
+                if (attempt < 12) {
+                    mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView,
+                            attempt + 1, pageNumber, true, pageClicked), 900);
+                    return;
+                }
+                finishFullTextSearchIfPending(tab, loadUrl, webView,
+                        SearchPage.error(loadUrl, text("\u8ffd\u52a0\u306e\u691c\u7d22\u7d50\u679c\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f", "Could not load more search results.")),
+                        true);
+                return;
+            }
             if (page != null && (!page.results.isEmpty() || attempt >= 8)) {
                 finishFullTextSearchIfPending(tab, loadUrl, webView, page, append);
                 return;
             }
             if (attempt >= 8) {
-                SearchPage empty = new SearchPage();
-                empty.url = loadUrl;
-                empty.title = searchTitle(loadUrl);
+                SearchPage empty = append
+                        ? SearchPage.error(loadUrl, text("\u8ffd\u52a0\u306e\u691c\u7d22\u7d50\u679c\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f", "Could not load more search results."))
+                        : new SearchPage();
+                if (!append) {
+                    empty.url = loadUrl;
+                    empty.title = searchTitle(loadUrl);
+                }
                 finishFullTextSearchIfPending(tab, loadUrl, webView, empty, append);
                 return;
             }
             mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView,
                     attempt + 1, pageNumber, append, pageClicked), 700);
         });
+    }
+
+    private boolean hasNewSearchResult(SearchPage existingPage, SearchPage candidatePage) {
+        if (candidatePage == null || candidatePage.results == null || candidatePage.results.isEmpty()) {
+            return false;
+        }
+        Set<String> existing = new LinkedHashSet<>();
+        if (existingPage != null && existingPage.results != null) {
+            for (SearchResult result : existingPage.results) {
+                if (result.url != null) {
+                    existing.add(result.url);
+                }
+            }
+        }
+        for (SearchResult result : candidatePage.results) {
+            if (result.url == null || !existing.contains(result.url)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private SearchPage parseFullTextSearchSnapshot(String url, String rawValue) {
@@ -3717,8 +3759,8 @@ public class MainActivity extends Activity {
         target.fullTextPage = added > 0 && source.fullTextPage <= previousPage
                 ? previousPage + 1
                 : Math.max(previousPage, source.fullTextPage);
-        target.fullTextHasMore = source.fullTextHasMore || added > 0;
-        target.fullTextReachedEnd = added == 0;
+        target.fullTextHasMore = source.fullTextHasMore || added > 0 || !target.results.isEmpty();
+        target.fullTextReachedEnd = false;
         target.error = null;
     }
 
