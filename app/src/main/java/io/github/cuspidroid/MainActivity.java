@@ -2539,6 +2539,8 @@ public class MainActivity extends Activity {
             results.put(item);
         }
         object.put("results", results);
+        object.put("fullTextPage", page.fullTextPage);
+        object.put("fullTextHasMore", page.fullTextHasMore);
         return object;
     }
 
@@ -2549,6 +2551,8 @@ public class MainActivity extends Activity {
         SearchPage page = new SearchPage();
         page.url = object.optString("url", "");
         page.title = object.optString("title", searchTitle(page.url));
+        page.fullTextPage = Math.max(1, object.optInt("fullTextPage", 1));
+        page.fullTextHasMore = object.optBoolean("fullTextHasMore", false);
         JSONArray results = object.optJSONArray("results");
         if (results != null) {
             for (int i = 0; i < results.length(); i++) {
@@ -3462,6 +3466,13 @@ public class MainActivity extends Activity {
         switchToTab(tabs.indexOf(tab));
         progressBar.setVisibility(View.VISIBLE);
 
+        loadFullTextSearchResultsPage(tab, loadUrl, 1, false);
+    }
+
+    private void loadFullTextSearchResultsPage(CuspTab tab, String loadUrl, int pageNumber, boolean append) {
+        if (tab == null || loadUrl == null) {
+            return;
+        }
         WebView webView = new WebView(this);
         webView.setAlpha(0f);
         webView.setBackgroundColor(Color.TRANSPARENT);
@@ -3475,22 +3486,36 @@ public class MainActivity extends Activity {
             contentFrame.addView(webView, new FrameLayout.LayoutParams(dp(1), dp(1), Gravity.BOTTOM | Gravity.RIGHT));
         }
         mainHandler.postDelayed(() -> finishFullTextSearchIfPending(tab, loadUrl, webView,
-                SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002", "Full-text search timed out."))), 16000);
+                SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002", "Full-text search timed out.")),
+                append), 16000);
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String loadedUrl) {
-                extractFullTextSearchResults(tab, loadUrl, view, 0);
+                extractFullTextSearchResults(tab, loadUrl, view, 0, pageNumber, append, false);
             }
         });
         webView.loadUrl(loadUrl);
     }
 
-    private void extractFullTextSearchResults(CuspTab tab, String loadUrl, WebView webView, int attempt) {
+    private void extractFullTextSearchResults(CuspTab tab, String loadUrl, WebView webView,
+                                              int attempt, int pageNumber, boolean append,
+                                              boolean pageClicked) {
         if (tab == null || webView == null || !loadUrl.equals(tab.url)) {
             cleanupHiddenSearchWebView(webView);
             return;
         }
         String script = "(function(){"
+                + "var target=" + Math.max(1, pageNumber) + ";"
+                + "var currentNode=document.querySelector('.gsc-cursor-current-page');"
+                + "var current=currentNode?parseInt((currentNode.innerText||currentNode.textContent||'1').trim(),10):1;"
+                + "if(!current||current<1)current=1;"
+                + "if(target>1&&current!==target){"
+                + "var pages=document.querySelectorAll('.gsc-cursor-page');"
+                + "for(var p=0;p<pages.length;p++){"
+                + "var n=parseInt((pages[p].innerText||pages[p].textContent||'').trim(),10);"
+                + "if(n===target){pages[p].click();return JSON.stringify({ready:false,clicked:true});}"
+                + "}"
+                + "}"
                 + "var rows=[];"
                 + "var nodes=document.querySelectorAll('.gsc-webResult.gsc-result');"
                 + "for(var i=0;i<nodes.length;i++){"
@@ -3506,23 +3531,35 @@ public class MainActivity extends Activity {
                 + "if(snip&&(snip.innerText||snip.textContent))meta.push((snip.innerText||snip.textContent).trim());"
                 + "if(title&&url)rows.push({title:title,url:url,meta:meta.join('\\n')});"
                 + "}"
+                + "var cursorPages=document.querySelectorAll('.gsc-cursor-page');"
+                + "var maxPage=current;"
+                + "for(var j=0;j<cursorPages.length;j++){"
+                + "var pageNum=parseInt((cursorPages[j].innerText||cursorPages[j].textContent||'').trim(),10);"
+                + "if(pageNum&&pageNum>maxPage)maxPage=pageNum;"
+                + "}"
                 + "var empty=document.querySelector('.gs-no-results-result,.gs-error-result');"
-                + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows});"
+                + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows,currentPage:current,maxPage:maxPage,hasMore:maxPage>current});"
                 + "})()";
         webView.evaluateJavascript(script, value -> {
+            if (value != null && value.contains("\\\"clicked\\\":true")) {
+                mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView,
+                        attempt + 1, pageNumber, append, true), 800);
+                return;
+            }
             SearchPage page = parseFullTextSearchSnapshot(loadUrl, value);
             if (page != null && (!page.results.isEmpty() || attempt >= 8)) {
-                finishFullTextSearchIfPending(tab, loadUrl, webView, page);
+                finishFullTextSearchIfPending(tab, loadUrl, webView, page, append);
                 return;
             }
             if (attempt >= 8) {
                 SearchPage empty = new SearchPage();
                 empty.url = loadUrl;
                 empty.title = searchTitle(loadUrl);
-                finishFullTextSearchIfPending(tab, loadUrl, webView, empty);
+                finishFullTextSearchIfPending(tab, loadUrl, webView, empty, append);
                 return;
             }
-            mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView, attempt + 1), 700);
+            mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView,
+                    attempt + 1, pageNumber, append, pageClicked), 700);
         });
     }
 
@@ -3558,6 +3595,8 @@ public class MainActivity extends Activity {
                     page.results.add(result);
                 }
             }
+            page.fullTextPage = Math.max(1, object.optInt("currentPage", 1));
+            page.fullTextHasMore = object.optBoolean("hasMore", false);
             return object.optBoolean("ready", false) || !page.results.isEmpty() ? page : null;
         } catch (Exception ignored) {
             return null;
@@ -3585,6 +3624,10 @@ public class MainActivity extends Activity {
     }
 
     private void finishFullTextSearchIfPending(CuspTab tab, String loadUrl, WebView webView, SearchPage page) {
+        finishFullTextSearchIfPending(tab, loadUrl, webView, page, false);
+    }
+
+    private void finishFullTextSearchIfPending(CuspTab tab, String loadUrl, WebView webView, SearchPage page, boolean append) {
         if (webView.getTag() != null) {
             return;
         }
@@ -3596,14 +3639,54 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        tab.title = page.title;
-        tab.searchPage = page;
+        int restoreScrollY = 0;
+        ScrollView currentScroll = append ? findScrollView(contentFrame) : null;
+        if (currentScroll != null) {
+            restoreScrollY = currentScroll.getScrollY();
+        }
+        if (append && tab.searchPage != null && tab.searchPage.error == null && page.error == null) {
+            appendSearchPageResults(tab.searchPage, page);
+            page = tab.searchPage;
+        } else if (append && tab.searchPage != null) {
+            tab.searchPage.fullTextLoadingMore = false;
+            Toast.makeText(this, text("\u8ffd\u52a0\u306e\u691c\u7d22\u7d50\u679c\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f", "Could not load more search results."), Toast.LENGTH_SHORT).show();
+            progressBar.setVisibility(View.GONE);
+            return;
+        } else {
+            tab.title = page.title;
+            tab.searchPage = page;
+        }
+        page.fullTextLoadingMore = false;
         tab.readerView = buildSearchView(page);
         progressBar.setVisibility(View.GONE);
         if (tab == currentTab() && !tabOverviewVisible) {
             switchToTab(currentIndex);
+            if (append && restoreScrollY > 0) {
+                int finalRestoreScrollY = restoreScrollY;
+                ScrollView nextScroll = findScrollView(contentFrame);
+                if (nextScroll != null) {
+                    nextScroll.post(() -> nextScroll.scrollTo(0, finalRestoreScrollY));
+                }
+            }
         }
         renderTabs();
+    }
+
+    private void appendSearchPageResults(SearchPage target, SearchPage source) {
+        Set<String> existing = new LinkedHashSet<>();
+        for (SearchResult result : target.results) {
+            if (result.url != null) {
+                existing.add(result.url);
+            }
+        }
+        for (SearchResult result : source.results) {
+            if (result.url == null || existing.add(result.url)) {
+                target.results.add(result);
+            }
+        }
+        target.fullTextPage = Math.max(target.fullTextPage, source.fullTextPage);
+        target.fullTextHasMore = source.fullTextHasMore;
+        target.error = null;
     }
 
     private void cleanupHiddenSearchWebView(WebView webView) {
@@ -4832,11 +4915,36 @@ public class MainActivity extends Activity {
         }
 
         renderSearchSlots(scroll, list, page);
+        if (isFullTextSearchUrl(page.url)) {
+            scroll.getViewTreeObserver().addOnScrollChangedListener(() -> maybeLoadMoreFullTextResults(page, scroll));
+            scroll.post(() -> maybeLoadMoreFullTextResults(page, scroll));
+        }
 
         if (page.results.isEmpty()) {
             list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
         }
         return withScrollScrubber(scroll);
+    }
+
+    private void maybeLoadMoreFullTextResults(SearchPage page, ScrollView scroll) {
+        if (page == null || scroll == null || !isFullTextSearchUrl(page.url)
+                || !page.fullTextHasMore || page.fullTextLoadingMore) {
+            return;
+        }
+        if (scroll.getChildCount() == 0) {
+            return;
+        }
+        int range = scroll.getChildAt(0).getHeight() - scroll.getHeight();
+        if (range <= 0 || scroll.getScrollY() < range - dp(320)) {
+            return;
+        }
+        CuspTab tab = currentTab();
+        if (tab == null || tab.searchPage != page || !page.url.equals(tab.url)) {
+            return;
+        }
+        page.fullTextLoadingMore = true;
+        progressBar.setVisibility(View.VISIBLE);
+        loadFullTextSearchResultsPage(tab, page.url, Math.max(2, page.fullTextPage + 1), true);
     }
 
     private void renderSearchSlots(ScrollView scroll, LinearLayout list, SearchPage page) {
@@ -18675,6 +18783,9 @@ public class MainActivity extends Activity {
         String title;
         String error;
         List<SearchResult> results = new ArrayList<>();
+        int fullTextPage = 1;
+        boolean fullTextHasMore;
+        boolean fullTextLoadingMore;
 
         static SearchPage error(String url, String message) {
             SearchPage page = new SearchPage();
