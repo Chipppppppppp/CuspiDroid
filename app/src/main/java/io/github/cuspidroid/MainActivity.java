@@ -1543,7 +1543,7 @@ public class MainActivity extends Activity {
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(176), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        PopupWindow popup = new PopupWindow(menu, dp(164), ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
@@ -1566,20 +1566,33 @@ public class MainActivity extends Activity {
         menu.addView(horizontalDivider());
         int mediaCount = threadExtractItems(true).size();
         int linkCount = threadExtractItems(false).size();
-        menu.addView(menuIconItem(R.drawable.ic_image, text("\u30e1\u30c7\u30a3\u30a2", "Media") + " " + mediaCount, v -> {
+        menu.addView(menuIconItem(R.drawable.ic_image, menuCountLabel(text("\u30e1\u30c7\u30a3\u30a2", "Media"), mediaCount), v -> {
             dismissPopupAnimated(popup);
             showThreadExtractList(true);
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_link, text("\u30ea\u30f3\u30af", "Links") + " " + linkCount, v -> {
+        menu.addView(menuIconItem(R.drawable.ic_link, menuCountLabel(text("\u30ea\u30f3\u30af", "Links"), linkCount), v -> {
             dismissPopupAnimated(popup);
             showThreadExtractList(false);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30b3\u30d4\u30fc", "Copy"), v -> {
+            dismissPopupAnimated(popup);
+            copyVisibleTitle();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         showThreadTitleMenuWithinScreen(popup, menu);
     }
 
+    private CharSequence menuCountLabel(String label, int count) {
+        String countText = " " + count;
+        SpannableStringBuilder builder = new SpannableStringBuilder(label).append(countText);
+        builder.setSpan(new ForegroundColorSpan(mutedColor()),
+                builder.length() - countText.length(), builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return builder;
+    }
+
     private void showThreadTitleMenuWithinScreen(PopupWindow popup, View menu) {
-        int width = dp(176);
+        int width = dp(164);
         menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int height = menu.getMeasuredHeight();
@@ -1587,7 +1600,7 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
         int[] titleLocation = new int[2];
         bottomThreadBar.getLocationOnScreen(titleLocation);
-        int x = frame.right - width - dp(6);
+        int x = frame.right - width;
         int y = Math.max(frame.top, titleLocation[1] - height);
         popup.setClippingEnabled(true);
         popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
@@ -1710,21 +1723,21 @@ public class MainActivity extends Activity {
         return button;
     }
 
-    private LinearLayout menuIconItem(int iconRes, String text, View.OnClickListener listener) {
+    private LinearLayout menuIconItem(int iconRes, CharSequence text, View.OnClickListener listener) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setPadding(dp(10), dp(10), dp(10), dp(10));
         row.setOnClickListener(listener);
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
         icon.setColorFilter(textColor());
-        row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(21), dp(21)));
         TextView label = new TextView(this);
         label.setText(text);
         label.setTextColor(textColor());
         label.setTextSize(14);
-        label.setPadding(dp(12), 0, 0, 0);
+        label.setPadding(dp(10), 0, 0, 0);
         row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         return row;
     }
@@ -2702,7 +2715,10 @@ public class MainActivity extends Activity {
         } else if (pendingNewTab) {
             bottomThreadTitle.setText(pendingNewTabTitle());
             bottomThreadTitle.setOnClickListener(null);
-            bottomThreadTitle.setOnLongClickListener(null);
+            bottomThreadTitle.setOnLongClickListener(v -> {
+                copyVisibleTitle();
+                return true;
+            });
             bottomThreadTitle.setClickable(false);
             bottomWriteButton.setVisibility(View.GONE);
             bottomBookmarkButton.setVisibility(View.GONE);
@@ -2717,10 +2733,14 @@ public class MainActivity extends Activity {
             }
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
             bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
-            bottomThreadTitle.setOnLongClickListener(canWrite ? v -> {
-                showThreadTitleMenu(v);
+            bottomThreadTitle.setOnLongClickListener(v -> {
+                if (canWrite) {
+                    showThreadTitleMenu(v);
+                } else {
+                    copyVisibleTitle();
+                }
                 return true;
-            } : null);
+            });
             bottomThreadTitle.setClickable(canWrite);
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
             bottomBookmarkButton.setImageResource(R.drawable.ic_more_vert);
@@ -2730,6 +2750,27 @@ public class MainActivity extends Activity {
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
+        }
+    }
+
+    private void copyVisibleTitle() {
+        CharSequence title = bottomThreadTitle == null ? null : bottomThreadTitle.getText();
+        String value = title == null ? "" : title.toString().replace(text(" DAT\u843d\u3061", " DAT dropped"), "").trim();
+        if (value.isEmpty()) {
+            CuspTab tab = currentTab();
+            value = tab == null ? "" : displayTitleForTab(tab);
+        }
+        copyTextToClipboard("CuspiDroid title", value, text("\u30bf\u30a4\u30c8\u30eb\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Title copied."));
+    }
+
+    private void copyTextToClipboard(String label, String value, String toast) {
+        if (value == null || value.trim().isEmpty()) {
+            return;
+        }
+        ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (manager != null) {
+            manager.setPrimaryClip(ClipData.newPlainText(label, value.trim()));
+            Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -8931,8 +8972,10 @@ public class MainActivity extends Activity {
         root.setTag(popup);
         prepareAnimatedPopupDismiss(popup, root);
         for (ThreadExtractItem item : items) {
-            list.addView(threadExtractRow(item, mediaOnly, popup), new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rowParams.setMargins(0, 0, 0, dp(8));
+            list.addView(threadExtractRow(item, mediaOnly, popup), rowParams);
         }
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -8944,13 +8987,9 @@ public class MainActivity extends Activity {
     private View threadExtractRow(ThreadExtractItem item, boolean mediaRow, PopupWindow popup) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), dp(6), dp(8), dp(6));
+        row.setGravity(Gravity.TOP);
+        row.setPadding(dp(8), dp(5), dp(8), dp(6));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
-        LinearLayout.LayoutParams rowMargins = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowMargins.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowMargins);
 
         if (mediaRow && item.media != null) {
             View preview = MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
@@ -8966,6 +9005,7 @@ public class MainActivity extends Activity {
         TextView number = helperLine(">>" + item.postNumber);
         number.setTextColor(TEAL);
         number.setTypeface(Typeface.DEFAULT_BOLD);
+        number.setIncludeFontPadding(false);
         number.setOnClickListener(v -> {
             dismissPopupAnimated(popup);
             jumpToPost(item.postNumber);
