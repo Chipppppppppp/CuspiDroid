@@ -42,12 +42,14 @@ final class CuspiDroidBackup {
             writeRawPreferenceJson(zip, "read_posts.json", preferences, MainActivity.PREF_READ_POSTS, "{}");
             writeRawPreferenceJson(zip, "tabs.json", preferences, MainActivity.PREF_TABS, "");
             writeRawPreferenceJson(zip, "upload_history.json", preferences, MainActivity.PREF_IMGBB_UPLOADS, "[]");
+            writeRawPreferenceJson(zip, "write_identity_history.json", preferences, MainActivity.PREF_WRITE_IDENTITY_HISTORY, "[]");
             writeJson(zip, "prefs/cuspidroid_settings.json", prefs);
             writeRawPreferenceJson(zip, "files/bookmarks.json", preferences, MainActivity.PREF_THREAD_BOOKMARKS, "[]");
             writeRawPreferenceJson(zip, "files/history.json", preferences, MainActivity.PREF_HISTORY, "[]");
             writeRawPreferenceJson(zip, "files/readPosts.json", preferences, MainActivity.PREF_READ_POSTS, "{}");
             writeRawPreferenceJson(zip, "files/tabs.json", preferences, MainActivity.PREF_TABS, "");
             writeRawPreferenceJson(zip, "files/uploadHistory.json", preferences, MainActivity.PREF_IMGBB_UPLOADS, "[]");
+            writeRawPreferenceJson(zip, "files/writeIdentityHistory.json", preferences, MainActivity.PREF_WRITE_IDENTITY_HISTORY, "[]");
             writeRawPreferenceJson(zip, "files/myPosts.json", preferences, MainActivity.PREF_MY_POSTS, "{}");
             writePostDataList(zip, preferences);
         }

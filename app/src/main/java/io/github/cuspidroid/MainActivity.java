@@ -178,6 +178,9 @@ public class MainActivity extends Activity {
     static final String PREF_TAB_NON_THREAD_TOP = "tab_non_thread_top";
     static final String PREF_WRITE_NAME_HISTORY = "write_name_history";
     static final String PREF_WRITE_MAIL_HISTORY = "write_mail_history";
+    static final String PREF_WRITE_IDENTITY_HISTORY = "write_identity_history";
+    static final String PREF_SAVE_WRITE_IDENTITY_HISTORY = "save_write_identity_history";
+    static final String PREF_SAVE_UPLOAD_HISTORY = "save_upload_history";
     static final String PREF_DISABLE_HISTORY = "disable_history";
     static final String PREF_GESTURES_ENABLED = "gestures_enabled";
     static final String PREF_GESTURE_SENSITIVITY = "gesture_sensitivity";
@@ -243,6 +246,7 @@ public class MainActivity extends Activity {
     private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2015\\u2212\\uff0d~\\uff5e]\\s*(\\d{1,5}))?");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
     private static final int REQUEST_IMGBB_IMAGE = 42;
+    private static final int REQUEST_WRITE_IDENTITY_HISTORY = 43;
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
     private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
@@ -304,6 +308,8 @@ public class MainActivity extends Activity {
     private CheckBox pendingImgbbWatermarkCustom;
     private EditText pendingImgbbWatermarkInput;
     private List<Uri> pendingImgbbUploadUris = new ArrayList<>();
+    private EditText pendingWriteNameInput;
+    private EditText pendingWriteMailInput;
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
     private ScrollView visibleThreadScroll;
@@ -11304,7 +11310,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showWriteActionMenu(View anchor, CuspTab tab, EditText message,
+    private void showWriteActionMenu(View anchor, CuspTab tab, EditText name, EditText mail, EditText message,
                                      boolean[] writeAaMode, TextView[] aaToggleLabel) {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
@@ -11329,6 +11335,16 @@ public class MainActivity extends Activity {
             dismissPopupAnimated(popup);
             chooseImgbbUploadImage(message);
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(android.R.drawable.ic_menu_recent_history,
+                text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74", "Name/Mail history"), v -> {
+                    dismissPopupAnimated(popup);
+                    pendingWriteNameInput = name;
+                    pendingWriteMailInput = mail;
+                    Intent intent = new Intent(this, WriteIdentityHistoryActivity.class);
+                    intent.putExtra(WriteIdentityHistoryActivity.EXTRA_PICK_MODE, true);
+                    startActivityForResult(intent, REQUEST_WRITE_IDENTITY_HISTORY);
+                }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74", "Upload history"), v -> {
             dismissPopupAnimated(popup);
@@ -11366,76 +11382,36 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private View writeHistoryField(EditText input, String prefKey, String tooltip) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(input, new LinearLayout.LayoutParams(0, dp(48), 1));
-        ImageButton history = iconButton(R.drawable.ic_more_vert, tooltip,
-                v -> showWriteFieldHistory(v, input, prefKey));
-        history.setColorFilter(mutedColor());
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(dp(44), dp(44));
-        buttonParams.setMargins(dp(6), 0, 0, 0);
-        row.addView(history, buttonParams);
-        return row;
-    }
-
-    private void showWriteFieldHistory(View anchor, EditText input, String prefKey) {
-        List<String> values = readWriteFieldHistory(prefKey);
-        if (values.isEmpty()) {
-            Toast.makeText(this, text("\u5c65\u6b74\u306a\u3057", "No history."), Toast.LENGTH_SHORT).show();
+    private void saveWriteIdentityHistory(String name, String mail) {
+        if (!preferences.getBoolean(PREF_SAVE_WRITE_IDENTITY_HISTORY, true)) {
             return;
         }
-        LinearLayout menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setBackground(menuBackground());
-        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(240), ViewGroup.LayoutParams.WRAP_CONTENT, false);
-        popup.setOutsideTouchable(true);
-        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        prepareAnimatedPopupDismiss(popup, menu);
-        for (String value : values) {
-            LinearLayout item = menuIconItem(R.drawable.ic_text_fields, value, v -> {
-                dismissPopupAnimated(popup);
-                input.setText(value);
-                input.setSelection(input.getText().length());
-                input.requestFocus();
-            });
-            menu.addView(item, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        name = name == null ? "" : name.trim();
+        mail = mail == null ? "" : mail.trim();
+        if (name.isEmpty() && mail.isEmpty()) {
+            return;
         }
-        showPopupAttachedToAnchor(popup, menu, anchor);
-    }
-
-    private List<String> readWriteFieldHistory(String prefKey) {
-        List<String> values = new ArrayList<>();
         try {
-            JSONArray array = new JSONArray(preferences.getString(prefKey, "[]"));
-            for (int i = 0; i < array.length(); i++) {
-                String value = array.optString(i, "").trim();
-                if (!value.isEmpty() && !values.contains(value)) {
-                    values.add(value);
+            JSONArray old = new JSONArray(preferences.getString(PREF_WRITE_IDENTITY_HISTORY, "[]"));
+            JSONArray next = new JSONArray();
+            JSONObject first = new JSONObject();
+            first.put("name", name);
+            first.put("mail", mail);
+            next.put(first);
+            for (int i = 0; i < old.length() && next.length() < 30; i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String oldName = item.optString("name", "").trim();
+                String oldMail = item.optString("mail", "").trim();
+                if (!name.equals(oldName) || !mail.equals(oldMail)) {
+                    next.put(item);
                 }
             }
+            preferences.edit().putString(PREF_WRITE_IDENTITY_HISTORY, next.toString()).apply();
         } catch (Exception ignored) {
         }
-        return values;
-    }
-
-    private void saveWriteFieldHistory(String prefKey, String value) {
-        value = value == null ? "" : value.trim();
-        if (value.isEmpty()) {
-            return;
-        }
-        List<String> old = readWriteFieldHistory(prefKey);
-        JSONArray next = new JSONArray();
-        next.put(value);
-        for (String item : old) {
-            if (!value.equals(item) && next.length() < 20) {
-                next.put(item);
-            }
-        }
-        preferences.edit().putString(prefKey, next.toString()).apply();
     }
 
     private void showWriteDialog(String initialMessage) {
@@ -11461,8 +11437,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         nameParams.setMargins(0, 0, 0, dp(8));
-        form.addView(writeHistoryField(name, PREF_WRITE_NAME_HISTORY,
-                text("\u540d\u524d\u5c65\u6b74", "Name history")), nameParams);
+        form.addView(name, nameParams);
 
         EditText mail = new EditText(this);
         mail.setSingleLine(true);
@@ -11474,8 +11449,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams mailParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         mailParams.setMargins(0, 0, 0, dp(10));
-        form.addView(writeHistoryField(mail, PREF_WRITE_MAIL_HISTORY,
-                text("\u30e1\u30fc\u30eb\u5c65\u6b74", "Mail history")), mailParams);
+        form.addView(mail, mailParams);
 
         EditText message = new EditText(this);
         message.setMinLines(9);
@@ -11492,7 +11466,7 @@ public class MainActivity extends Activity {
         boolean[] writeAaMode = new boolean[]{false};
         TextView[] aaToggleLabel = new TextView[1];
         ImageButton writeMenu = iconButton(R.drawable.ic_more_vert, text("\u66f8\u304d\u8fbc\u307f\u30e1\u30cb\u30e5\u30fc", "Write menu"),
-                v -> showWriteActionMenu(v, tab, message, writeAaMode, aaToggleLabel));
+                v -> showWriteActionMenu(v, tab, name, mail, message, writeAaMode, aaToggleLabel));
         writeMenu.setColorFilter(textColor());
 
         message.addTextChangedListener(new TextWatcher() {
@@ -11534,8 +11508,7 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             String nameValue = name.getText().toString();
             String mailValue = mail.getText().toString();
-            saveWriteFieldHistory(PREF_WRITE_NAME_HISTORY, nameValue);
-            saveWriteFieldHistory(PREF_WRITE_MAIL_HISTORY, mailValue);
+            saveWriteIdentityHistory(nameValue, mailValue);
             submitPost(tab, nameValue, mailValue, body);
             });
         });
@@ -11562,6 +11535,17 @@ public class MainActivity extends Activity {
             }
             addPendingImgbbUploadUris(uris);
             renderPendingImgbbMedia();
+        } else if (requestCode == REQUEST_WRITE_IDENTITY_HISTORY && resultCode == RESULT_OK && data != null) {
+            String name = data.getStringExtra(WriteIdentityHistoryActivity.EXTRA_NAME);
+            String mail = data.getStringExtra(WriteIdentityHistoryActivity.EXTRA_MAIL);
+            if (pendingWriteNameInput != null) {
+                pendingWriteNameInput.setText(name == null ? "" : name);
+                pendingWriteNameInput.setSelection(pendingWriteNameInput.getText().length());
+            }
+            if (pendingWriteMailInput != null) {
+                pendingWriteMailInput.setText(mail == null ? "" : mail);
+                pendingWriteMailInput.setSelection(pendingWriteMailInput.getText().length());
+            }
         }
     }
 
@@ -12189,6 +12173,9 @@ public class MainActivity extends Activity {
     }
 
     private synchronized void saveImgbbUpload(ImgbbUploadResult result) {
+        if (!preferences.getBoolean(PREF_SAVE_UPLOAD_HISTORY, true)) {
+            return;
+        }
         try {
             JSONArray array = new JSONArray(preferences.getString(PREF_IMGBB_UPLOADS, "[]"));
             JSONArray next = new JSONArray();

@@ -88,6 +88,8 @@ public class SettingsActivity extends Activity {
     private RadioButton tabNonThreadBottom;
     private CheckBox cacheEnabled;
     private CheckBox disableHistory;
+    private CheckBox saveWriteIdentityHistory;
+    private CheckBox saveUploadHistory;
     private CheckBox showBookmarksInTabOverview;
     private CheckBox showHistoryOnHome;
     private CheckBox sync2chEnabled;
@@ -471,6 +473,13 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u7528\u306eAPI key\u3092\u53d6\u5f97\u3059\u308b\u624b\u9806", "Steps for getting an API key for image uploads"),
                 v -> showImgbbApiKeyHelp()));
 
+        saveUploadHistory = new CheckBox(this);
+        saveUploadHistory.setText(MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092\u4fdd\u5b58", "Save upload history"));
+        saveUploadHistory.setTextColor(textColor());
+        saveUploadHistory.setTextSize(16);
+        Theme.tintCompoundButton(this, saveUploadHistory);
+        root.addView(saveUploadHistory);
+
         root.addView(managementRow(R.drawable.ic_copy,
                 MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092\u7ba1\u7406", "Manage upload history"),
                 MainActivity.text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u305f\u753b\u50cf\u3068URL\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete images and URLs uploaded to ImgBB"),
@@ -530,6 +539,18 @@ public class SettingsActivity extends Activity {
         disableHistory.setTextSize(16);
         Theme.tintCompoundButton(this, disableHistory);
         root.addView(disableHistory);
+
+        saveWriteIdentityHistory = new CheckBox(this);
+        saveWriteIdentityHistory.setText(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u4fdd\u5b58", "Save name/mail history"));
+        saveWriteIdentityHistory.setTextColor(textColor());
+        saveWriteIdentityHistory.setTextSize(16);
+        Theme.tintCompoundButton(this, saveWriteIdentityHistory);
+        root.addView(saveWriteIdentityHistory);
+
+        root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
+                MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u7ba1\u7406", "Manage name/mail history"),
+                MainActivity.text("\u66f8\u304d\u8fbc\u307f\u306b\u4f7f\u3063\u305f\u540d\u524d\u3068\u30e1\u30fc\u30eb\u306e\u7d44\u307f\u5408\u308f\u305b\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved name/mail pairs"),
+                v -> startActivity(new Intent(this, WriteIdentityHistoryActivity.class))));
 
         root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
                 MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
@@ -638,6 +659,7 @@ public class SettingsActivity extends Activity {
         blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
         autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false));
         imgbbApiKey.setText(preferences.getString(MainActivity.PREF_IMGBB_API_KEY, ""));
+        saveUploadHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, true));
         updateMediaDependentSettings();
         if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
             addressBarTop.setChecked(true);
@@ -701,6 +723,7 @@ public class SettingsActivity extends Activity {
         showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
         showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
         disableHistory.setChecked(preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false));
+        saveWriteIdentityHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true));
         sync2chEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false));
         sync2chId.setText(preferences.getString(MainActivity.PREF_SYNC2CH_ID, ""));
         sync2chApiPassword.setText(preferences.getString(MainActivity.PREF_SYNC2CH_API_PASSWORD, ""));
@@ -802,6 +825,8 @@ public class SettingsActivity extends Activity {
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         disableHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        saveWriteIdentityHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        saveUploadHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         sync2chEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         cacheEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             updateCacheDependentSettings();
@@ -910,6 +935,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, disableHistory.isChecked())
+                .putBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, saveWriteIdentityHistory.isChecked())
+                .putBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, saveUploadHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, sync2chEnabled.isChecked())
                 .putString(MainActivity.PREF_SYNC2CH_ID, sync2chId.getText().toString().trim())
                 .putString(MainActivity.PREF_SYNC2CH_API_PASSWORD, sync2chApiPassword.getText().toString().trim())
@@ -1217,6 +1244,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true)
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true)
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
+                .putBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true)
+                .putBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false)
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, true)
                 .putInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)
