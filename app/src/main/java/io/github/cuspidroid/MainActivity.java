@@ -11973,7 +11973,7 @@ public class MainActivity extends Activity {
             chooseImgbbUploadImage(message);
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74", "Upload history"), v -> {
+        menu.addView(menuIconItem(R.drawable.ic_image, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74", "Upload history"), v -> {
             dismissPopupAnimated(popup);
             startActivity(new Intent(this, UploadHistoryActivity.class));
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

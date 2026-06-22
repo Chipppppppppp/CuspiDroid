@@ -103,6 +103,10 @@ public class ListDisplaySettingsActivity extends Activity {
         }
 
         root.addView(sectionTitle(MainActivity.text("並べ替え", "Sort")));
+        if (tabMode) {
+            root.removeView(tabSortEnabled);
+            root.addView(tabSortEnabled);
+        }
         sortGroup = new RadioGroup(this);
         sortGroup.setOrientation(RadioGroup.VERTICAL);
         sortBoardName = radio(MainActivity.text("板名", "Board name"));
