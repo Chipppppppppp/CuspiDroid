@@ -1543,7 +1543,7 @@ public class MainActivity extends Activity {
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        PopupWindow popup = new PopupWindow(menu, dp(176), ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
@@ -1564,16 +1564,34 @@ public class MainActivity extends Activity {
             searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_download, text("\u30e1\u30c7\u30a3\u30a2", "Media"), v -> {
+        int mediaCount = threadExtractItems(true).size();
+        int linkCount = threadExtractItems(false).size();
+        menu.addView(menuIconItem(R.drawable.ic_image, text("\u30e1\u30c7\u30a3\u30a2", "Media") + " " + mediaCount, v -> {
             dismissPopupAnimated(popup);
             showThreadExtractList(true);
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30ea\u30f3\u30af", "Links"), v -> {
+        menu.addView(menuIconItem(R.drawable.ic_link, text("\u30ea\u30f3\u30af", "Links") + " " + linkCount, v -> {
             dismissPopupAnimated(popup);
             showThreadExtractList(false);
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        showMenuWithinScreen(popup, menu, anchor);
+        showThreadTitleMenuWithinScreen(popup, menu);
+    }
+
+    private void showThreadTitleMenuWithinScreen(PopupWindow popup, View menu) {
+        int width = dp(176);
+        menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = menu.getMeasuredHeight();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int[] titleLocation = new int[2];
+        bottomThreadBar.getLocationOnScreen(titleLocation);
+        int x = frame.right - width - dp(6);
+        int y = Math.max(frame.top, titleLocation[1] - height);
+        popup.setClippingEnabled(true);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, true);
     }
 
     private LinearLayout menuNavigationRow(PopupWindow popup) {
@@ -8905,13 +8923,6 @@ public class MainActivity extends Activity {
         list.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        for (ThreadExtractItem item : items) {
-            list.addView(threadExtractRow(item, mediaOnly), new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        root.addView(scroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(24));
         int height = Math.max(dp(240), (int) (getResources().getDisplayMetrics().heightPixels * 0.72f));
         PopupWindow popup = new PopupWindow(root, width, height, true);
@@ -8919,11 +8930,18 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         root.setTag(popup);
         prepareAnimatedPopupDismiss(popup, root);
+        for (ThreadExtractItem item : items) {
+            list.addView(threadExtractRow(item, mediaOnly, popup), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
         popup.showAtLocation(getWindow().getDecorView(), Gravity.CENTER, 0, 0);
         animatePopupIn(popup, true);
     }
 
-    private View threadExtractRow(ThreadExtractItem item, boolean mediaRow) {
+    private View threadExtractRow(ThreadExtractItem item, boolean mediaRow, PopupWindow popup) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -8936,7 +8954,8 @@ public class MainActivity extends Activity {
 
         if (mediaRow && item.media != null) {
             View preview = MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
-                    item.media.originalUrl, item.media.imageUrl, item.media.video, dp(76), null, mediaPreviewCallbacks());
+                    item.media.originalUrl, item.media.imageUrl, item.media.video, dp(76), null,
+                    extractMediaPreviewCallbacks(popup));
             LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(76), dp(76));
             previewParams.setMargins(0, 0, dp(10), 0);
             row.addView(preview, previewParams);
@@ -8947,32 +8966,40 @@ public class MainActivity extends Activity {
         TextView number = helperLine(">>" + item.postNumber);
         number.setTextColor(TEAL);
         number.setTypeface(Typeface.DEFAULT_BOLD);
-        TextView url = helperLine(item.url);
-        url.setTextColor(textColor());
+        number.setOnClickListener(v -> {
+            dismissPopupAnimated(popup);
+            jumpToPost(item.postNumber);
+        });
+        TextView url = postText(item.url, currentTab() == null ? null : currentTab().threadPage);
         url.setMaxLines(mediaRow ? 2 : 3);
         url.setEllipsize(TextUtils.TruncateAt.END);
         texts.addView(number);
         texts.addView(url);
         row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-        TextView jump = helperLine(text("\u30b8\u30e3\u30f3\u30d7", "Jump"));
-        jump.setGravity(Gravity.CENTER);
-        jump.setTextColor(TEAL);
-        jump.setTypeface(Typeface.DEFAULT_BOLD);
-        row.addView(jump, new LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        row.setOnClickListener(v -> {
-            View parent = (View) v.getParent();
-            while (parent != null && !(parent.getTag() instanceof PopupWindow)) {
-                ViewParent next = parent.getParent();
-                parent = next instanceof View ? (View) next : null;
-            }
-            if (parent != null && parent.getTag() instanceof PopupWindow) {
-                dismissPopupAnimated((PopupWindow) parent.getTag());
-            }
-            jumpToPost(item.postNumber);
-        });
         return row;
+    }
+
+    private MediaPreviewHelper.Callback extractMediaPreviewCallbacks(PopupWindow popup) {
+        MediaPreviewHelper.Callback base = mediaPreviewCallbacks();
+        return new MediaPreviewHelper.Callback() {
+            @Override
+            public void openImage(String originalUrl, String mediaUrl) {
+                dismissPopupAnimated(popup);
+                base.openImage(originalUrl, mediaUrl);
+            }
+
+            @Override
+            public void openVideo(String originalUrl, String mediaUrl) {
+                dismissPopupAnimated(popup);
+                base.openVideo(originalUrl, mediaUrl);
+            }
+
+            @Override
+            public void openExternal(String url) {
+                dismissPopupAnimated(popup);
+                base.openExternal(url);
+            }
+        };
     }
 
     private View postBodyView(LinearLayout card, ThreadPage page, CuspTab tab, Post post) {
