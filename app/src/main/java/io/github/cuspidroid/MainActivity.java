@@ -230,6 +230,7 @@ public class MainActivity extends Activity {
     static final String BOARD_SORT_BOARD_NAME = "board_name";
     private static final String HOME_BOOKMARK_SECTION_TAG = "home_bookmark_section";
     private static final String CLOSED_TAB_UNDO_TAG = "closed_tab_undo";
+    private static final String FULL_TEXT_LOAD_MORE_FOOTER_TAG = "full_text_load_more_footer";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -2541,6 +2542,7 @@ public class MainActivity extends Activity {
         object.put("results", results);
         object.put("fullTextPage", page.fullTextPage);
         object.put("fullTextHasMore", page.fullTextHasMore);
+        object.put("fullTextReachedEnd", page.fullTextReachedEnd);
         return object;
     }
 
@@ -2553,6 +2555,7 @@ public class MainActivity extends Activity {
         page.title = object.optString("title", searchTitle(page.url));
         page.fullTextPage = Math.max(1, object.optInt("fullTextPage", 1));
         page.fullTextHasMore = object.optBoolean("fullTextHasMore", false);
+        page.fullTextReachedEnd = object.optBoolean("fullTextReachedEnd", false);
         JSONArray results = object.optJSONArray("results");
         if (results != null) {
             for (int i = 0; i < results.length(); i++) {
@@ -3611,7 +3614,7 @@ public class MainActivity extends Activity {
                 }
             }
             page.fullTextPage = Math.max(1, object.optInt("currentPage", 1));
-            page.fullTextHasMore = object.optBoolean("hasMore", false);
+            page.fullTextHasMore = object.optBoolean("hasMore", false) || !page.results.isEmpty();
             return object.optBoolean("ready", false) || !page.results.isEmpty() ? page : null;
         } catch (Exception ignored) {
             return null;
@@ -3664,6 +3667,7 @@ public class MainActivity extends Activity {
             page = tab.searchPage;
         } else if (append && tab.searchPage != null) {
             tab.searchPage.fullTextLoadingMore = false;
+            updateFullTextLoadMoreFooter(findScrollView(contentFrame), tab.searchPage);
             Toast.makeText(this, text("\u8ffd\u52a0\u306e\u691c\u7d22\u7d50\u679c\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f", "Could not load more search results."), Toast.LENGTH_SHORT).show();
             progressBar.setVisibility(View.GONE);
             return;
@@ -3694,13 +3698,19 @@ public class MainActivity extends Activity {
                 existing.add(result.url);
             }
         }
+        int previousPage = Math.max(1, target.fullTextPage);
+        int added = 0;
         for (SearchResult result : source.results) {
             if (result.url == null || existing.add(result.url)) {
                 target.results.add(result);
+                added++;
             }
         }
-        target.fullTextPage = Math.max(target.fullTextPage, source.fullTextPage);
-        target.fullTextHasMore = source.fullTextHasMore;
+        target.fullTextPage = added > 0 && source.fullTextPage <= previousPage
+                ? previousPage + 1
+                : Math.max(previousPage, source.fullTextPage);
+        target.fullTextHasMore = source.fullTextHasMore || added > 0;
+        target.fullTextReachedEnd = added == 0;
         target.error = null;
     }
 
@@ -4930,31 +4940,24 @@ public class MainActivity extends Activity {
         }
 
         renderSearchSlots(scroll, list, page);
-        if (isFullTextSearchUrl(page.url)) {
-            scroll.getViewTreeObserver().addOnScrollChangedListener(() -> maybeLoadMoreFullTextResults(page, scroll));
-            scroll.post(() -> maybeLoadMoreFullTextResults(page, scroll));
-        }
 
         if (page.results.isEmpty()) {
             list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
         }
-        View wrapped = withScrollScrubber(scroll);
         if (isFullTextSearchUrl(page.url)) {
-            scroll.postDelayed(() -> maybeLoadMoreFullTextResults(page, scroll), 300);
+            attachFullTextLoadMoreSwipe(scroll, page);
+            if (!page.results.isEmpty() && (page.fullTextHasMore || !page.fullTextReachedEnd)) {
+                list.addView(fullTextLoadMoreFooter(page, scroll), new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
         }
+        View wrapped = withScrollScrubber(scroll);
         return wrapped;
     }
 
     private void maybeLoadMoreFullTextResults(SearchPage page, ScrollView scroll) {
         if (page == null || scroll == null || !isFullTextSearchUrl(page.url)
-                || !page.fullTextHasMore || page.fullTextLoadingMore) {
-            return;
-        }
-        if (scroll.getChildCount() == 0) {
-            return;
-        }
-        int range = scroll.getChildAt(0).getHeight() - scroll.getHeight();
-        if (range <= 0 || scroll.getScrollY() < range - dp(320)) {
+                || page.fullTextReachedEnd || page.fullTextLoadingMore) {
             return;
         }
         CuspTab tab = currentTab();
@@ -4962,8 +4965,88 @@ public class MainActivity extends Activity {
             return;
         }
         page.fullTextLoadingMore = true;
+        updateFullTextLoadMoreFooter(scroll, page);
         progressBar.setVisibility(View.VISIBLE);
         loadFullTextSearchResultsPage(tab, page.url, Math.max(2, page.fullTextPage + 1), true);
+    }
+
+    private void attachFullTextLoadMoreSwipe(ScrollView scroll, SearchPage page) {
+        final float[] downY = new float[1];
+        final boolean[] armed = new boolean[1];
+        scroll.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downY[0] = event.getY();
+                armed[0] = isScrollAtBottom(scroll);
+            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                if (armed[0] && downY[0] - event.getY() > dp(54)) {
+                    armed[0] = false;
+                    maybeLoadMoreFullTextResults(page, scroll);
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                armed[0] = false;
+            }
+            return false;
+        });
+    }
+
+    private boolean isScrollAtBottom(ScrollView scroll) {
+        if (scroll == null || scroll.getChildCount() == 0) {
+            return false;
+        }
+        int range = scroll.getChildAt(0).getHeight() - scroll.getHeight();
+        return range <= 0 || scroll.getScrollY() >= range - dp(4);
+    }
+
+    private View fullTextLoadMoreFooter(SearchPage page, ScrollView scroll) {
+        LinearLayout footer = new LinearLayout(this);
+        footer.setTag(FULL_TEXT_LOAD_MORE_FOOTER_TAG);
+        footer.setGravity(Gravity.CENTER);
+        footer.setOrientation(LinearLayout.VERTICAL);
+        footer.setPadding(0, dp(10), 0, dp(10));
+        footer.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        updateFullTextLoadMoreFooterContent(footer, page, scroll);
+        return footer;
+    }
+
+    private void updateFullTextLoadMoreFooter(ScrollView scroll, SearchPage page) {
+        LinearLayout footer = findFullTextLoadMoreFooter(scroll);
+        if (footer != null) {
+            updateFullTextLoadMoreFooterContent(footer, page, scroll);
+        }
+    }
+
+    private LinearLayout findFullTextLoadMoreFooter(ScrollView scroll) {
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof ViewGroup)) {
+            return null;
+        }
+        ViewGroup group = (ViewGroup) scroll.getChildAt(0);
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof LinearLayout && FULL_TEXT_LOAD_MORE_FOOTER_TAG.equals(child.getTag())) {
+                return (LinearLayout) child;
+            }
+        }
+        return null;
+    }
+
+    private void updateFullTextLoadMoreFooterContent(LinearLayout footer, SearchPage page, ScrollView scroll) {
+        footer.removeAllViews();
+        footer.setOnClickListener(null);
+        if (page.fullTextLoadingMore) {
+            ProgressBar spinner = new ProgressBar(this);
+            spinner.setIndeterminate(true);
+            footer.addView(spinner, new LinearLayout.LayoutParams(dp(34), dp(34)));
+            return;
+        }
+        TextView label = new TextView(this);
+        label.setText(text("\u3055\u3089\u306b\u8aad\u307f\u8fbc\u3080", "Load more"));
+        label.setTextColor(TEAL);
+        label.setTextSize(15);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setGravity(Gravity.CENTER);
+        footer.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        footer.setOnClickListener(v -> maybeLoadMoreFullTextResults(page, scroll));
     }
 
     private void renderSearchSlots(ScrollView scroll, LinearLayout list, SearchPage page) {
@@ -18805,6 +18888,7 @@ public class MainActivity extends Activity {
         int fullTextPage = 1;
         boolean fullTextHasMore;
         boolean fullTextLoadingMore;
+        boolean fullTextReachedEnd;
 
         static SearchPage error(String url, String message) {
             SearchPage page = new SearchPage();
