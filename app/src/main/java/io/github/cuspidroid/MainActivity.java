@@ -8930,7 +8930,7 @@ public class MainActivity extends Activity {
                 Matcher matcher = URL_TEXT_PATTERN.matcher(post.body);
                 while (matcher.find()) {
                     String cleanUrl = stripTrailingUrlPunctuation(matcher.group());
-                    if (!cleanUrl.isEmpty()) {
+                    if (!cleanUrl.isEmpty() && previewMediaLink(cleanUrl) == null) {
                         items.add(new ThreadExtractItem(post.number, cleanUrl, null));
                     }
                 }
@@ -9008,6 +9008,7 @@ public class MainActivity extends Activity {
         number.setTextColor(TEAL);
         number.setTypeface(Typeface.DEFAULT_BOLD);
         number.setIncludeFontPadding(false);
+        number.setPadding(0, 0, 0, 0);
         number.setOnClickListener(v -> {
             dismissPopupAnimated(popup);
             jumpToPost(group.postNumber);
@@ -9022,7 +9023,7 @@ public class MainActivity extends Activity {
             line.setGravity(Gravity.TOP);
             LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lineParams.setMargins(0, dp(3), 0, 0);
+            lineParams.setMargins(0, dp(1), 0, 0);
             row.addView(line, lineParams);
 
             if (mediaRow && item.media != null) {
