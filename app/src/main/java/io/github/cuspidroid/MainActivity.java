@@ -3473,6 +3473,7 @@ public class MainActivity extends Activity {
         if (tab == null || loadUrl == null) {
             return;
         }
+        String requestUrl = pageNumber <= 1 ? loadUrl : fullTextSearchPageRequestUrl(loadUrl, pageNumber);
         WebView webView = new WebView(this);
         webView.setAlpha(0f);
         webView.setBackgroundColor(Color.TRANSPARENT);
@@ -3494,7 +3495,20 @@ public class MainActivity extends Activity {
                 extractFullTextSearchResults(tab, loadUrl, view, 0, pageNumber, append, false);
             }
         });
-        webView.loadUrl(loadUrl);
+        webView.loadUrl(requestUrl);
+    }
+
+    private String fullTextSearchPageRequestUrl(String loadUrl, int pageNumber) {
+        String query = searchQueryFromUrl(loadUrl);
+        if (query.isEmpty() || pageNumber <= 1) {
+            return loadUrl;
+        }
+        try {
+            String encoded = URLEncoder.encode(query, "UTF-8");
+            return fullTextSearchUrl(query) + "#gsc.tab=0&gsc.q=" + encoded + "&gsc.page=" + pageNumber;
+        } catch (Exception error) {
+            return loadUrl;
+        }
     }
 
     private void extractFullTextSearchResults(CuspTab tab, String loadUrl, WebView webView,
@@ -3509,15 +3523,15 @@ public class MainActivity extends Activity {
                 + "var currentNode=document.querySelector('.gsc-cursor-current-page');"
                 + "var current=currentNode?parseInt((currentNode.innerText||currentNode.textContent||'1').trim(),10):1;"
                 + "if(!current||current<1)current=1;"
-                + "if(target>1&&current!==target){"
+                + "var rows=[];"
+                + "var nodes=document.querySelectorAll('.gsc-webResult.gsc-result');"
+                + "if(target>1&&current!==target&&nodes.length>0){"
                 + "var pages=document.querySelectorAll('.gsc-cursor-page');"
                 + "for(var p=0;p<pages.length;p++){"
                 + "var n=parseInt((pages[p].innerText||pages[p].textContent||'').trim(),10);"
                 + "if(n===target){pages[p].click();return JSON.stringify({ready:false,clicked:true});}"
                 + "}"
                 + "}"
-                + "var rows=[];"
-                + "var nodes=document.querySelectorAll('.gsc-webResult.gsc-result');"
                 + "for(var i=0;i<nodes.length;i++){"
                 + "var e=nodes[i];"
                 + "if(e.className.indexOf('gs-no-results-result')>=0||e.className.indexOf('gs-error-result')>=0)continue;"
@@ -3538,7 +3552,8 @@ public class MainActivity extends Activity {
                 + "if(pageNum&&pageNum>maxPage)maxPage=pageNum;"
                 + "}"
                 + "var empty=document.querySelector('.gs-no-results-result,.gs-error-result');"
-                + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows,currentPage:current,maxPage:maxPage,hasMore:maxPage>current});"
+                + "var hasMore=maxPage>current||rows.length>=10;"
+                + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows,currentPage:current,maxPage:maxPage,hasMore:hasMore});"
                 + "})()";
         webView.evaluateJavascript(script, value -> {
             if (value != null && value.contains("\\\"clicked\\\":true")) {
@@ -4923,7 +4938,11 @@ public class MainActivity extends Activity {
         if (page.results.isEmpty()) {
             list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
         }
-        return withScrollScrubber(scroll);
+        View wrapped = withScrollScrubber(scroll);
+        if (isFullTextSearchUrl(page.url)) {
+            scroll.postDelayed(() -> maybeLoadMoreFullTextResults(page, scroll), 300);
+        }
+        return wrapped;
     }
 
     private void maybeLoadMoreFullTextResults(SearchPage page, ScrollView scroll) {
@@ -9270,8 +9289,8 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(24));
         int height = Math.max(dp(240), (int) (getResources().getDisplayMetrics().heightPixels * 0.72f));
-        PopupWindow popup = new PopupWindow(root, width, height, true);
-        popup.setOutsideTouchable(true);
+        PopupWindow popup = new PopupWindow(root, width, height, false);
+        popup.setOutsideTouchable(false);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         root.setTag(popup);
         prepareAnimatedPopupDismiss(popup, root);
@@ -9513,7 +9532,7 @@ public class MainActivity extends Activity {
             line.setGravity(Gravity.TOP);
             LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lineParams.setMargins(0, dp(1), 0, 0);
+            lineParams.setMargins(0, dp(3), 0, 0);
             row.addView(line, lineParams);
 
             if (mediaRow && item.media != null) {
