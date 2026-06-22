@@ -82,9 +82,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 import android.webkit.CookieManager;
-import android.webkit.WebSettings;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -240,6 +238,9 @@ public class MainActivity extends Activity {
     static final String FIND_NET_TEMPLATE = "https://find.5ch.net/search?STR=%s&TYPE=TITLE&BBS=ALL";
     private static final String FIVE_CH_BBSMENU_URL = "https://menu.5ch.io/bbsmenu.html";
     private static final String SEARCH2CH_HOME_URL = "https://search2ch.info/";
+    private static final String SEARCH2CH_CSE_CX = "004544759908666169405:3czkqop1xuq";
+    private static final String FULL_TEXT_SEARCH_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     private static final String NATIVE_THREAD = "thread";
     private static final String NATIVE_SEARCH = "search";
     private static final String NATIVE_SEARCH_HOME = "search_home";
@@ -3493,51 +3494,203 @@ public class MainActivity extends Activity {
         if (tab == null || loadUrl == null) {
             return;
         }
-        String requestUrl = fullTextSearchPageRequestUrl(loadUrl, pageNumber);
-        WebView webView = new WebView(this);
-        webView.setAlpha(0f);
-        webView.setEnabled(false);
-        webView.setClickable(false);
-        webView.setFocusable(false);
-        webView.setBackgroundColor(Color.TRANSPARENT);
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setUserAgentString(fullTextSearchUserAgent(settings.getUserAgentString()));
-        if (tab == currentTab() && !tabOverviewVisible) {
-            contentFrame.addView(webView, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        }
-        mainHandler.postDelayed(() -> finishFullTextSearchIfPending(tab, loadUrl, webView,
-                SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002", "Full-text search timed out.")),
-                append), 30000);
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageFinished(WebView view, String loadedUrl) {
-                extractFullTextSearchResults(tab, loadUrl, view, 0, pageNumber, append, false);
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                page = downloadFullTextSearchPage(loadUrl, pageNumber);
+            } catch (Exception error) {
+                page = SearchPage.error(loadUrl, error.getMessage());
             }
+            SearchPage result = page;
+            runOnUiThread(() -> finishFullTextSearchResult(tab, loadUrl, result, append));
         });
-        webView.loadUrl(requestUrl);
     }
 
-    private String fullTextSearchPageRequestUrl(String loadUrl, int pageNumber) {
+    private SearchPage downloadFullTextSearchPage(String loadUrl, int pageNumber) throws Exception {
         String query = searchQueryFromUrl(loadUrl);
         if (query.isEmpty()) {
-            return loadUrl;
+            SearchPage page = new SearchPage();
+            page.url = loadUrl;
+            page.title = searchTitle(loadUrl);
+            page.fullTextReachedEnd = true;
+            return page;
         }
-        return fullTextSearchUrl(query, Math.max(1, pageNumber));
+        String cseScript = downloadFullTextSearchText(
+                "https://cse.google.com/cse.js?cx=" + URLEncoder.encode(SEARCH2CH_CSE_CX, "UTF-8"));
+        String token = cseConfigString(cseScript, "cse_token");
+        String libraryVersion = cseConfigString(cseScript, "cselibVersion");
+        if (token.isEmpty() || libraryVersion.isEmpty()) {
+            throw new IllegalStateException(text(
+                    "\u5168\u6587\u691c\u7d22\u306e\u8a2d\u5b9a\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002",
+                    "Could not load full-text search settings."));
+        }
+        int safePage = Math.max(1, pageNumber);
+        StringBuilder url = new StringBuilder("https://cse.google.com/cse/element/v1");
+        url.append("?rsz=filtered_cse");
+        url.append("&num=10");
+        url.append("&hl=ja");
+        url.append("&source=gcsc");
+        url.append("&cselibv=").append(URLEncoder.encode(libraryVersion, "UTF-8"));
+        url.append("&cx=").append(URLEncoder.encode(SEARCH2CH_CSE_CX, "UTF-8"));
+        url.append("&q=").append(URLEncoder.encode(query, "UTF-8"));
+        url.append("&safe=off");
+        url.append("&cse_tok=").append(URLEncoder.encode(token, "UTF-8"));
+        url.append("&lr=&cr=&gl=");
+        url.append("&filter=0");
+        url.append("&sort=");
+        url.append("&as_oq=");
+        url.append("&as_sitesearch=");
+        String exp = cseConfigArrayParameter(cseScript, "exp");
+        if (!exp.isEmpty()) {
+            url.append("&exp=").append(exp);
+        }
+        String fexp = cseConfigArrayParameter(cseScript, "fexp");
+        if (!fexp.isEmpty()) {
+            url.append("&fexp=").append(fexp);
+        }
+        url.append("&callback=__cuspidroidCseCallback");
+        url.append("&rurl=").append(URLEncoder.encode(fullTextSearchUrl(query, safePage), "UTF-8"));
+        if (safePage > 1) {
+            url.append("&start=").append((safePage - 1) * 10);
+        }
+        String jsonp = downloadFullTextSearchText(url.toString());
+        return parseFullTextSearchJsonp(loadUrl, jsonp, safePage);
     }
 
-    private String fullTextSearchUserAgent(String defaultUserAgent) {
-        String userAgent = defaultUserAgent == null ? "" : defaultUserAgent.trim();
-        if (userAgent.isEmpty()) {
-            return "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+    private String downloadFullTextSearchText(String url) throws Exception {
+        HttpURLConnection connection = null;
+        try {
+            Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Accept", "application/javascript, text/javascript, */*");
+            connection = openConnectionFollowingRedirects(url, FULL_TEXT_SEARCH_USER_AGENT, headers);
+            int code = connection.getResponseCode();
+            InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (stream == null) {
+                throw new IllegalStateException("HTTP " + code);
+            }
+            String body = readText(stream, Charset.forName("UTF-8"));
+            if (code >= 400) {
+                throw new IllegalStateException("HTTP " + code + ": " + body);
+            }
+            return body;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
-        userAgent = userAgent.replace("; wv", "");
-        userAgent = userAgent.replaceAll("\\s+Version/\\d+(?:\\.\\d+)*", "");
-        return userAgent.trim();
+    }
+
+    private String cseConfigString(String script, String key) {
+        if (script == null || key == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]*)\"")
+                .matcher(script);
+        return matcher.find() ? matcher.group(1).replace("\\u003d", "=").trim() : "";
+    }
+
+    private String cseConfigArrayParameter(String script, String key) throws Exception {
+        if (script == null || key == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\\[(.*?)\\]",
+                Pattern.DOTALL).matcher(script);
+        if (!matcher.find()) {
+            return "";
+        }
+        String[] values = matcher.group(1).split(",");
+        List<String> encoded = new ArrayList<>();
+        for (String value : values) {
+            String item = value.trim();
+            if (item.startsWith("\"") && item.endsWith("\"") && item.length() >= 2) {
+                item = item.substring(1, item.length() - 1);
+            }
+            item = item.trim();
+            if (!item.isEmpty()) {
+                encoded.add(URLEncoder.encode(item, "UTF-8"));
+            }
+        }
+        return String.join("%2C", encoded);
+    }
+
+    private SearchPage parseFullTextSearchJsonp(String loadUrl, String jsonp, int pageNumber) throws Exception {
+        String body = jsonp == null ? "" : jsonp.trim();
+        int start = body.indexOf('(');
+        int end = body.lastIndexOf(')');
+        if (start < 0 || end <= start) {
+            throw new IllegalStateException(text(
+                    "\u5168\u6587\u691c\u7d22\u306e\u5fdc\u7b54\u3092\u8aad\u307f\u53d6\u308c\u307e\u305b\u3093\u3067\u3057\u305f\u3002",
+                    "Could not read full-text search response."));
+        }
+        JSONObject object = new JSONObject(body.substring(start + 1, end));
+        JSONObject error = object.optJSONObject("error");
+        if (error != null) {
+            String message = error.optString("message", "").trim();
+            if (message.isEmpty()) {
+                message = "HTTP " + error.optInt("code", 0);
+            }
+            return SearchPage.error(loadUrl, message);
+        }
+        SearchPage page = new SearchPage();
+        page.url = loadUrl;
+        page.title = searchTitle(loadUrl);
+        JSONArray results = object.optJSONArray("results");
+        if (results != null) {
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject item = results.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String title = plainHtmlText(item.optString("titleNoFormatting",
+                        item.optString("title", ""))).trim();
+                String resultUrl = item.optString("unescapedUrl", item.optString("url", "")).trim();
+                if ((resultUrl.isEmpty() || resultUrl.contains("google.com/url"))
+                        && !item.optString("clicktrackUrl", "").isEmpty()) {
+                    resultUrl = searchQueryFromUrl(item.optString("clicktrackUrl", ""));
+                }
+                if (title.isEmpty() || resultUrl.isEmpty()) {
+                    continue;
+                }
+                SearchResult result = new SearchResult();
+                result.title = title;
+                result.url = normalizeSearch2chResultUrl(resultUrl);
+                result.meta = plainHtmlText(item.optString("contentNoFormatting",
+                        item.optString("content", ""))).trim();
+                page.results.add(result);
+            }
+        }
+        JSONObject cursor = object.optJSONObject("cursor");
+        page.fullTextPage = Math.max(1, pageNumber);
+        page.fullTextHasMore = false;
+        if (cursor != null) {
+            int estimated = parsePositiveInt(cursor.optString("estimatedResultCount", ""), 0);
+            page.fullTextHasMore = estimated > page.fullTextPage * 10;
+            JSONArray pages = cursor.optJSONArray("pages");
+            if (pages != null) {
+                for (int i = 0; i < pages.length(); i++) {
+                    JSONObject cursorPage = pages.optJSONObject(i);
+                    if (cursorPage != null && parsePositiveInt(cursorPage.optString("label", ""), 0) > page.fullTextPage) {
+                        page.fullTextHasMore = true;
+                    }
+                }
+            }
+        }
+        page.fullTextReachedEnd = !page.fullTextHasMore;
+        return page;
+    }
+
+    private String plainHtmlText(String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                return Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString();
+            }
+            return Html.fromHtml(value).toString();
+        } catch (Exception error) {
+            return value;
+        }
     }
 
     private void extractFullTextSearchResults(CuspTab tab, String loadUrl, WebView webView,
@@ -3895,6 +4048,13 @@ public class MainActivity extends Activity {
         }
         webView.setTag(Boolean.TRUE);
         cleanupHiddenSearchWebView(webView);
+        finishFullTextSearchResult(tab, loadUrl, page, append);
+    }
+
+    private void finishFullTextSearchResult(CuspTab tab, String loadUrl, SearchPage page, boolean append) {
+        if (page == null) {
+            page = SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002", "Could not load full-text search."));
+        }
         if (tab == null || !loadUrl.equals(tab.url)) {
             if (tab == currentTab()) {
                 progressBar.setVisibility(View.GONE);
