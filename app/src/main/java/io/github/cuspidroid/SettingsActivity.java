@@ -342,7 +342,7 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, saveUploadHistory);
         root.addView(saveUploadHistory);
 
-        root.addView(managementRow(R.drawable.ic_copy,
+        root.addView(managementRow(R.drawable.ic_image,
                 MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092\u7ba1\u7406", "Manage upload history"),
                 MainActivity.text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u305f\u753b\u50cf\u3068URL\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete images and URLs uploaded to ImgBB"),
                 v -> startActivity(new Intent(this, UploadHistoryActivity.class))));
