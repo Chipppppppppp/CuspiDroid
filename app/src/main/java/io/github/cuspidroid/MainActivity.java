@@ -3493,7 +3493,7 @@ public class MainActivity extends Activity {
         if (tab == null || loadUrl == null) {
             return;
         }
-        String requestUrl = pageNumber <= 1 ? loadUrl : fullTextSearchPageRequestUrl(loadUrl, pageNumber);
+        String requestUrl = fullTextSearchPageRequestUrl(loadUrl, pageNumber);
         WebView webView = new WebView(this);
         webView.setAlpha(0f);
         webView.setEnabled(false);
@@ -3505,7 +3505,7 @@ public class MainActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
-        settings.setUserAgentString(settings.getUserAgentString() + " CuspiDroid");
+        settings.setUserAgentString(fullTextSearchUserAgent(settings.getUserAgentString()));
         if (tab == currentTab() && !tabOverviewVisible) {
             contentFrame.addView(webView, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -3524,15 +3524,20 @@ public class MainActivity extends Activity {
 
     private String fullTextSearchPageRequestUrl(String loadUrl, int pageNumber) {
         String query = searchQueryFromUrl(loadUrl);
-        if (query.isEmpty() || pageNumber <= 1) {
+        if (query.isEmpty()) {
             return loadUrl;
         }
-        try {
-            String encoded = URLEncoder.encode(query, "UTF-8");
-            return fullTextSearchUrl(query) + "#gsc.tab=0&gsc.q=" + encoded + "&gsc.page=" + pageNumber;
-        } catch (Exception error) {
-            return loadUrl;
+        return fullTextSearchUrl(query, Math.max(1, pageNumber));
+    }
+
+    private String fullTextSearchUserAgent(String defaultUserAgent) {
+        String userAgent = defaultUserAgent == null ? "" : defaultUserAgent.trim();
+        if (userAgent.isEmpty()) {
+            return "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
         }
+        userAgent = userAgent.replace("; wv", "");
+        userAgent = userAgent.replaceAll("\\s+Version/\\d+(?:\\.\\d+)*", "");
+        return userAgent.trim();
     }
 
     private void extractFullTextSearchResults(CuspTab tab, String loadUrl, WebView webView,
@@ -3545,6 +3550,8 @@ public class MainActivity extends Activity {
         String script = "(function(){"
                 + "var target=" + Math.max(1, pageNumber) + ";"
                 + "var attempt=" + Math.max(0, attempt) + ";"
+                + "var query=" + JSONObject.quote(searchQueryFromUrl(loadUrl)) + ";"
+                + "var clickedBefore=" + (pageClicked ? "true" : "false") + ";"
                 + "function pageNumber(text,fallback){"
                 + "var m=String(text||'').match(/\\d+/);"
                 + "var n=m?parseInt(m[0],10):fallback;"
@@ -3561,6 +3568,85 @@ public class MainActivity extends Activity {
                 + "if(n.getAttribute('tabindex')!=='-1')return n;"
                 + "}"
                 + "return fallback;"
+                + "}"
+                + "function submitSearch(){"
+                + "if(!query||clickedBefore)return false;"
+                + "var input=document.querySelector('input.gsc-input,.gsc-input-box input,input[name=\"search\"],input[type=\"text\"]');"
+                + "if(!input)return false;"
+                + "input.focus();"
+                + "input.value=query;"
+                + "input.dispatchEvent(new Event('input',{bubbles:true}));"
+                + "input.dispatchEvent(new Event('change',{bubbles:true}));"
+                + "var button=document.querySelector('.gsc-search-button-v2,input.gsc-search-button,button.gsc-search-button,button[type=\"submit\"],input[type=\"submit\"]');"
+                + "if(button){button.click();return true;}"
+                + "input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',keyCode:13,which:13,bubbles:true}));"
+                + "input.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',keyCode:13,which:13,bubbles:true}));"
+                + "return true;"
+                + "}"
+                + "function decodeHtml(text){"
+                + "var e=document.createElement('textarea');"
+                + "e.innerHTML=String(text||'');"
+                + "return e.value;"
+                + "}"
+                + "function apiSnapshot(){"
+                + "var state=window.__cuspidroidCseState;"
+                + "if(!state||state.query!==query||state.page!==target||!state.data)return null;"
+                + "var data=state.data;"
+                + "var apiResults=data.results||[];"
+                + "var rows=[];var seen={};"
+                + "for(var i=0;i<apiResults.length;i++){"
+                + "var item=apiResults[i]||{};"
+                + "var title=decodeHtml(item.titleNoFormatting||item.title||'').trim();"
+                + "var url=String(item.unescapedUrl||item.url||'').trim();"
+                + "if((!url||url.indexOf('google.com/url')>=0)&&item.clicktrackUrl){"
+                + "var m=String(item.clicktrackUrl).match(/[?&]q=([^&]+)/);"
+                + "if(m){try{url=decodeURIComponent(m[1].replace(/\\+/g,' '));}catch(ex){url=m[1];}}"
+                + "}"
+                + "if(!title||!url||seen[url])continue;"
+                + "seen[url]=true;"
+                + "rows.push({title:title,url:url,meta:decodeHtml(item.contentNoFormatting||item.content||'').trim()});"
+                + "}"
+                + "var cursor=data.cursor||{};"
+                + "var current=(parseInt(cursor.currentPageIndex,10)||0)+1;"
+                + "var estimated=parseInt(String(cursor.estimatedResultCount||'0').replace(/\\D/g,''),10)||0;"
+                + "var hasMore=estimated>Math.max(current,target)*10;"
+                + "if(cursor.pages&&cursor.pages.length){"
+                + "for(var p=0;p<cursor.pages.length;p++){"
+                + "var label=parseInt(cursor.pages[p].label,10);"
+                + "if(label>current)hasMore=true;"
+                + "}"
+                + "}"
+                + "return {ready:true,results:rows,currentPage:Math.max(current,target),maxPage:Math.max(current,target),hasMore:hasMore};"
+                + "}"
+                + "function startApiFetch(){"
+                + "if(!query||window.__cuspidroidCseLoading)return false;"
+                + "var entries=(performance&&performance.getEntriesByType)?performance.getEntriesByType('resource'):[];"
+                + "var base='';"
+                + "for(var i=entries.length-1;i>=0;i--){"
+                + "var name=entries[i].name||'';"
+                + "if(name.indexOf('cse.google.com/cse/element/v1')>=0){base=name;break;}"
+                + "}"
+                + "if(!base)return false;"
+                + "try{"
+                + "var u=new URL(base,location.href);"
+                + "u.searchParams.set('q',query);"
+                + "u.searchParams.set('num','10');"
+                + "u.searchParams.set('callback','__cuspidroidCseCallback');"
+                + "if(target>1)u.searchParams.set('start',String((target-1)*10));"
+                + "else u.searchParams.delete('start');"
+                + "u.searchParams.set('rurl',location.href);"
+                + "window.__cuspidroidCseLoading=true;"
+                + "window.__cuspidroidCseState={query:query,page:target,data:null};"
+                + "window.__cuspidroidCseCallback=function(data){"
+                + "window.__cuspidroidCseLoading=false;"
+                + "window.__cuspidroidCseState={query:query,page:target,data:data||{}};"
+                + "};"
+                + "var script=document.createElement('script');"
+                + "script.src=u.toString();"
+                + "script.onerror=function(){window.__cuspidroidCseLoading=false;};"
+                + "document.documentElement.appendChild(script);"
+                + "return true;"
+                + "}catch(ex){window.__cuspidroidCseLoading=false;return false;}"
                 + "}"
                 + "var currentNode=document.querySelector('.gsc-cursor-current-page,.gsc-cursor-numbered-page');"
                 + "var current=currentNode?pageNumber((currentNode.innerText||currentNode.textContent||'1').trim(),1):1;"
@@ -3612,12 +3698,23 @@ public class MainActivity extends Activity {
                 + "if(snip&&(snip.innerText||snip.textContent))meta.push((snip.innerText||snip.textContent).trim());"
                 + "if(title&&url)rows.push({title:title,url:url,meta:meta.join('\\n')});"
                 + "}"
-                + "var empty=document.querySelector('.gs-no-results-result,.gs-error-result');"
+                + "var noResults=document.querySelector('.gs-no-results-result');"
+                + "var errorResult=document.querySelector('.gs-error-result');"
+                + "var empty=noResults||errorResult;"
+                + "var errorText=errorResult?(errorResult.innerText||errorResult.textContent||'').trim():'';"
                 + "var hasMore=pages.length>0?maxPage>current:!!nextNodeControl;"
+                + "var api=rows.length===0?apiSnapshot():null;"
+                + "if(api&&api.results&&api.results.length>0)return JSON.stringify(api);"
+                + "if(target<=1&&rows.length===0&&!noResults&&attempt>=2&&submitSearch()){"
+                + "return JSON.stringify({ready:false,clicked:true});"
+                + "}"
+                + "if(rows.length===0&&!noResults&&attempt>=3&&startApiFetch()){"
+                + "return JSON.stringify({ready:false,results:[],currentPage:current,maxPage:maxPage,hasMore:false});"
+                + "}"
                 + "if(rows.length>=10&&!hasMore&&!document.querySelector('.gsc-cursor-box')&&attempt<5){"
                 + "return JSON.stringify({ready:false,results:[],currentPage:current,maxPage:maxPage,hasMore:false});"
                 + "}"
-                + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows,currentPage:current,maxPage:maxPage,hasMore:hasMore});"
+                + "return JSON.stringify({ready:rows.length>0||!!empty,results:rows,currentPage:current,maxPage:maxPage,hasMore:hasMore,error:errorText});"
                 + "})()";
         webView.evaluateJavascript(script, value -> {
             if (value != null && value.contains("\\\"clicked\\\":true")) {
@@ -3672,7 +3769,7 @@ public class MainActivity extends Activity {
                     return;
                 }
             }
-            if (page != null && (!page.results.isEmpty() || attempt >= 18)) {
+            if (page != null && ((page.error != null && attempt >= 6) || !page.results.isEmpty() || attempt >= 18)) {
                 finishFullTextSearchIfPending(tab, loadUrl, webView, page, append);
                 return;
             }
@@ -3753,6 +3850,11 @@ public class MainActivity extends Activity {
                     result.meta = item.optString("meta", "").trim();
                     page.results.add(result);
                 }
+            }
+            String error = object.optString("error", "").trim();
+            if (!error.isEmpty() && page.results.isEmpty()) {
+                page.error = error;
+                page.title = text("\u691c\u7d22\u5931\u6557", "Search failed");
             }
             page.fullTextPage = Math.max(1, object.optInt("currentPage", 1));
             page.fullTextHasMore = object.optBoolean("hasMore", false);
@@ -18683,8 +18785,15 @@ public class MainActivity extends Activity {
     }
 
     private String fullTextSearchUrl(String query) {
+        return fullTextSearchUrl(query, 1);
+    }
+
+    private String fullTextSearchUrl(String query, int pageNumber) {
         try {
-            return SEARCH2CH_HOME_URL + "?q=" + URLEncoder.encode(query, "UTF-8");
+            String encoded = URLEncoder.encode(query, "UTF-8");
+            int safePage = Math.max(1, pageNumber);
+            return SEARCH2CH_HOME_URL + "?q=" + encoded
+                    + "#gsc.tab=0&gsc.q=" + encoded + "&gsc.page=" + safePage;
         } catch (Exception error) {
             return SEARCH2CH_HOME_URL;
         }
@@ -18728,10 +18837,19 @@ public class MainActivity extends Activity {
         try {
             Uri uri = Uri.parse(url);
             query = uri.getQueryParameter("q");
-            if (query == null) {
+            if (query == null || query.isEmpty()) {
                 query = uri.getQueryParameter("STR");
             }
-            if (query == null) {
+            if (query == null || query.isEmpty()) {
+                String fragment = uri.getFragment();
+                if (fragment != null) {
+                    Matcher fragmentMatcher = Pattern.compile("(?:^|&)(?:gsc\\.q|q|STR)=([^&]+)").matcher(fragment);
+                    if (fragmentMatcher.find()) {
+                        query = URLDecoder.decode(fragmentMatcher.group(1), "UTF-8");
+                    }
+                }
+            }
+            if (query == null || query.isEmpty()) {
                 Matcher matcher = Pattern.compile("[?&](?:q|STR)=([^&]+)").matcher(url);
                 if (matcher.find()) {
                     query = URLDecoder.decode(matcher.group(1), "UTF-8");
