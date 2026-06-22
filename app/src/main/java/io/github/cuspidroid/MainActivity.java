@@ -360,6 +360,10 @@ public class MainActivity extends Activity {
     private Runnable dragAutoScrollTask;
     private int dragAutoScrollDelta;
     private int tabOverviewScrollY;
+    private int tabOverviewNormalScrollY;
+    private int tabOverviewPrivateScrollY;
+    private View tabOverviewNormalView;
+    private View tabOverviewPrivateView;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private boolean addressTouchInProgress;
@@ -1945,6 +1949,7 @@ public class MainActivity extends Activity {
         if (url == null || url.trim().isEmpty()) {
             return;
         }
+        rememberTabOverviewScroll();
         CuspTab tab = new CuspTab();
         tab.title = text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
         tab.url = "";
@@ -1975,6 +1980,7 @@ public class MainActivity extends Activity {
     }
 
     private void showPendingNewTab(boolean privateBrowsing) {
+        rememberTabOverviewScroll();
         CuspTab previous = currentTab();
         if (previous != null) {
             rememberThreadScroll(previous);
@@ -2005,6 +2011,7 @@ public class MainActivity extends Activity {
             showPendingNewTab();
             return;
         }
+        rememberTabOverviewScroll();
         pendingHistoryAll = fullHistory;
         recordNewTabPage(fullHistory ? "history" : "home");
         tabOverviewVisible = false;
@@ -2620,6 +2627,7 @@ public class MainActivity extends Activity {
         if (index < 0 || index >= tabs.size()) {
             return;
         }
+        rememberTabOverviewScroll();
         tabOverviewVisible = false;
         pendingNewTab = false;
         pendingHistoryAll = false;
@@ -6675,16 +6683,82 @@ public class MainActivity extends Activity {
         pendingNewTab = false;
         pendingHistoryAll = false;
         tabOverviewVisible = true;
-        tabOverviewScrollY = 0;
         contentFrame.removeAllViews();
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
         trimBackgroundTabViews();
         trimBackgroundPageData();
-        contentFrame.addView(buildTabOverviewView());
+        attachTabOverviewView();
         updateBottomThreadBar(currentTab());
         renderTabs();
+    }
+
+    private void attachTabOverviewView() {
+        View view = cachedTabOverviewView();
+        if (view == null) {
+            view = buildTabOverviewView();
+            setCachedTabOverviewView(view);
+        } else if (view.getParent() instanceof ViewGroup) {
+            ((ViewGroup) view.getParent()).removeView(view);
+        }
+        contentFrame.addView(view);
+        restoreCachedTabOverviewScroll(view);
+        syncClosedTabUndoBar();
+    }
+
+    private View cachedTabOverviewView() {
+        return tabOverviewPrivateMode ? tabOverviewPrivateView : tabOverviewNormalView;
+    }
+
+    private void setCachedTabOverviewView(View view) {
+        if (tabOverviewPrivateMode) {
+            tabOverviewPrivateView = view;
+        } else {
+            tabOverviewNormalView = view;
+        }
+    }
+
+    private int currentTabOverviewScrollY() {
+        return tabOverviewPrivateMode ? tabOverviewPrivateScrollY : tabOverviewNormalScrollY;
+    }
+
+    private void setCurrentTabOverviewScrollY(int scrollY) {
+        int value = Math.max(0, scrollY);
+        tabOverviewScrollY = value;
+        if (tabOverviewPrivateMode) {
+            tabOverviewPrivateScrollY = value;
+        } else {
+            tabOverviewNormalScrollY = value;
+        }
+    }
+
+    private void rememberTabOverviewScroll() {
+        if (!tabOverviewVisible || contentFrame == null) {
+            return;
+        }
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll != null) {
+            setCurrentTabOverviewScrollY(scroll.getScrollY());
+        }
+    }
+
+    private void restoreCachedTabOverviewScroll(View view) {
+        ScrollView scroll = findScrollView(view);
+        if (scroll == null) {
+            return;
+        }
+        int restoreY = currentTabOverviewScrollY();
+        scroll.post(() -> {
+            if (restoreY > 0 && scroll.getChildCount() > 0) {
+                int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+                scroll.scrollTo(0, Math.min(restoreY, range));
+            }
+            View child = scroll.getChildCount() == 0 ? null : scroll.getChildAt(0);
+            if (child instanceof LinearLayout) {
+                scheduleTabOverviewSlotRefresh((LinearLayout) child);
+            }
+        });
     }
 
     private View buildTabOverviewView() {
@@ -6695,7 +6769,7 @@ public class MainActivity extends Activity {
         scroll.setBackgroundColor(bgColor());
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-            tabOverviewScrollY = scrollY;
+            setCurrentTabOverviewScrollY(scrollY);
         });
         scroll.setOnDragListener((v, event) -> {
             autoScrollDuringDrag(scroll, event);
@@ -6725,9 +6799,6 @@ public class MainActivity extends Activity {
         root.addView(add, addParams);
         if (recentlyClosedTab != null) {
             root.addView(closedTabUndoBar(), closedTabUndoParams());
-        }
-        if (tabOverviewScrollY > 0) {
-            scroll.post(() -> scroll.scrollTo(0, tabOverviewScrollY));
         }
         return root;
     }
@@ -6781,11 +6852,12 @@ public class MainActivity extends Activity {
     }
 
     private void toggleTabOverviewPrivateMode() {
+        rememberTabOverviewScroll();
         tabOverviewPrivateMode = !tabOverviewPrivateMode;
         if (tabOverviewVisible && contentFrame != null) {
             contentFrame.removeAllViews();
             contentFrame.setBackgroundColor(bgColor());
-            contentFrame.addView(buildTabOverviewView());
+            attachTabOverviewView();
             renderTabs();
         }
     }
@@ -7344,8 +7416,8 @@ public class MainActivity extends Activity {
         if (index < 0 || index >= tabs.size()) {
             return;
         }
+        rememberTabOverviewScroll();
         tabOverviewVisible = false;
-        tabOverviewScrollY = 0;
         pendingNewTab = false;
         pendingHistoryAll = false;
         contentFrame.removeAllViews();
@@ -8296,7 +8368,7 @@ public class MainActivity extends Activity {
         if (item == null || item.url == null || item.url.trim().isEmpty()) {
             return;
         }
-        tabOverviewScrollY = 0;
+        rememberTabOverviewScroll();
         pendingHistoryAll = false;
         createBookmarkOverviewTab(item);
     }
@@ -8729,7 +8801,7 @@ public class MainActivity extends Activity {
         if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
             if (contentFrame != null) {
                 contentFrame.removeAllViews();
-                contentFrame.addView(buildTabOverviewView());
+                attachTabOverviewView();
             }
             return;
         }
