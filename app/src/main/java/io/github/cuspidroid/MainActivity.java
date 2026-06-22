@@ -920,7 +920,7 @@ public class MainActivity extends Activity {
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
         bottomToolbar.setGravity(Gravity.CENTER_VERTICAL);
         bottomToolbar.setPadding(dp(6), dp(5), dp(6), dp(5));
-        bottomToolbar.setBackgroundColor(barColor());
+        bottomToolbar.setBackground(bottomBarBackground());
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
@@ -1396,7 +1396,24 @@ public class MainActivity extends Activity {
     }
 
     private void applySystemBarTheme() {
-        Theme.applySystemBars(this);
+        getWindow().setStatusBarColor(bgColor());
+        getWindow().setNavigationBarColor(barColor());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            int flags = getWindow().getDecorView().getSystemUiVisibility();
+            if (Theme.dark(this) || privateUiActive()) {
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            } else {
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (Theme.dark(this) || privateUiActive()) {
+                    flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                } else {
+                    flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                }
+            }
+            getWindow().getDecorView().setSystemUiVisibility(flags);
+        }
     }
 
     private void showAddressMenuAtToolbarEdge(PopupWindow popup, View menu, boolean alignLeft) {
@@ -1781,11 +1798,12 @@ public class MainActivity extends Activity {
     }
 
     private void updatePrivateChrome() {
+        applySystemBarTheme();
         if (contentFrame != null) {
             contentFrame.setBackgroundColor(bgColor());
         }
         if (bottomToolbar != null) {
-            bottomToolbar.setBackgroundColor(barColor());
+            bottomToolbar.setBackground(bottomBarBackground());
         }
         if (bottomThreadBar != null) {
             bottomThreadBar.setBackground(bottomBarBackground());
@@ -6420,15 +6438,18 @@ public class MainActivity extends Activity {
         pendingPrivateNewTab = !pendingPrivateNewTab;
         contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
-        contentFrame.addView(pendingHistoryAll ? buildHistoryView() : buildSearchHomeView(false));
+        String page = newTabNavigationIndex >= 0 && newTabNavigationIndex < newTabNavigationHistory.size()
+                ? newTabNavigationHistory.get(newTabNavigationIndex) : (pendingHistoryAll ? "history" : "home");
+        renderNewTabPage(page, false);
         renderTabs();
     }
 
     private void toggleTabOverviewPrivateMode() {
         tabOverviewPrivateMode = !tabOverviewPrivateMode;
         if (tabOverviewVisible && contentFrame != null) {
+            contentFrame.removeAllViews();
             contentFrame.setBackgroundColor(bgColor());
-            refreshTabOverviewListOnly();
+            contentFrame.addView(buildTabOverviewView());
             renderTabs();
         }
     }
