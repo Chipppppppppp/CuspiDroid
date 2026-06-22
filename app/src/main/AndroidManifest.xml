@@ -43,6 +43,9 @@
             android:name=".WriteIdentityHistoryActivity"
             android:exported="false" />
         <activity
+            android:name=".ListDisplaySettingsActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:exported="true"

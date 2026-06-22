@@ -110,6 +110,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -179,6 +180,8 @@ public class MainActivity extends Activity {
     static final String PREF_WRITE_NAME_HISTORY = "write_name_history";
     static final String PREF_WRITE_MAIL_HISTORY = "write_mail_history";
     static final String PREF_WRITE_IDENTITY_HISTORY = "write_identity_history";
+    static final String PREF_SAVE_BROWSING_HISTORY = "save_browsing_history";
+    static final String PREF_SAVE_READ_HISTORY = "save_read_history";
     static final String PREF_SAVE_WRITE_IDENTITY_HISTORY = "save_write_identity_history";
     static final String PREF_SAVE_UPLOAD_HISTORY = "save_upload_history";
     static final String PREF_DISABLE_HISTORY = "disable_history";
@@ -310,6 +313,7 @@ public class MainActivity extends Activity {
     private List<Uri> pendingImgbbUploadUris = new ArrayList<>();
     private EditText pendingWriteNameInput;
     private EditText pendingWriteMailInput;
+    private final Map<String, SearchResult> pendingThreadMetadata = new LinkedHashMap<>();
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
     private ScrollView visibleThreadScroll;
@@ -2454,7 +2458,7 @@ public class MainActivity extends Activity {
                         || item.optBoolean("hasReadHistory", result.unread > 0);
                 result.boardName = item.optString("boardName", "");
                 if (result.hasReadHistory && !result.boardName.isEmpty() && result.responses > 0) {
-                    result.unread = Math.max(0, result.responses - readPostNumber(preferences, result.url));
+                    result.unread = Math.max(0, result.responses - visibleReadPostNumber(result.url));
                 }
                 Object priority = item.opt("priorityMatch");
                 if (priority instanceof JSONObject) {
@@ -2932,6 +2936,7 @@ public class MainActivity extends Activity {
         tab.nativeKind = NATIVE_THREAD;
         tab.url = loadUrl;
         tab.title = hostTitle(loadUrl);
+        applyPendingThreadMetadata(tab, loadUrl);
         tab.searchPage = null;
         if (showFullLoading || tab.readerView == null) {
             tab.readerView = loadingView("");
@@ -4739,7 +4744,7 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(10), dp(9), dp(10), dp(9));
-        row.setOnClickListener(v -> routeLink(result.url, currentTab()));
+        row.setOnClickListener(v -> routeSearchResult(result));
 
         TextView resultTitle = new TextView(this);
         resultTitle.setText(styledResultTitle(result));
@@ -4812,7 +4817,18 @@ public class MainActivity extends Activity {
     }
 
     private boolean showMetaField(String boardPref, String tabPref, boolean tabOverview) {
-        return preferences.getBoolean(tabOverview ? tabPref : boardPref, true);
+        String key = tabOverview ? tabPref : boardPref;
+        return preferences.getBoolean(key, defaultMetaFieldVisible(key));
+    }
+
+    private boolean defaultMetaFieldVisible(String key) {
+        if (PREF_BOARD_SHOW_BOARD_NAME.equals(key)) {
+            return false;
+        }
+        if (PREF_TAB_SHOW_ORDER.equals(key) || PREF_TAB_SHOW_CREATED.equals(key)) {
+            return false;
+        }
+        return true;
     }
 
     private LinearLayout.LayoutParams boardThreadMetaItemParams(int width) {
@@ -5953,7 +5969,7 @@ public class MainActivity extends Activity {
         List<ThreadHistoryItem> history = threadHistory();
         int limit = fullHistory ? history.size() : Math.min(history.size(), 8);
         if (history.isEmpty()) {
-            list.addView(helperLine(text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history.")));
+            list.addView(helperLine(text("\u95b2\u89a7\u5c65\u6b74\u306a\u3057", "No browsing history.")));
             return;
         }
         for (int i = 0; i < limit; i++) {
@@ -5989,7 +6005,7 @@ public class MainActivity extends Activity {
         list.addView(sectionTitleView(text("\u5c65\u6b74", "History")));
         List<ThreadHistoryItem> history = threadHistory();
         if (history.isEmpty()) {
-            list.addView(helperLine(text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history.")));
+            list.addView(helperLine(text("\u95b2\u89a7\u5c65\u6b74\u306a\u3057", "No browsing history.")));
         } else {
             for (ThreadHistoryItem item : history) {
                 list.addView(historyRow(item, true));
@@ -7489,7 +7505,7 @@ public class MainActivity extends Activity {
             if (status.responseCount > 0) {
                 tab.knownMaxPostNumber = status.responseCount;
                 tab.knownPostCount = status.responseCount;
-                tab.readPostNumber = readPostNumber(preferences, item.url);
+                tab.readPostNumber = visibleReadPostNumber(item.url);
                 tab.cachedUnreadCount = Math.max(0, status.responseCount - tab.readPostNumber);
                 tab.hasThreadStats = true;
             }
@@ -7504,7 +7520,7 @@ public class MainActivity extends Activity {
             if (!tab.hasThreadStats && openTab.hasThreadStats) {
                 tab.knownMaxPostNumber = openTab.knownMaxPostNumber;
                 tab.knownPostCount = openTab.knownPostCount;
-                tab.readPostNumber = readPostNumber(preferences, tab.url);
+                tab.readPostNumber = visibleReadPostNumber(tab.url);
                 tab.cachedUnreadCount = Math.max(0, tab.knownMaxPostNumber - tab.readPostNumber);
                 tab.hasThreadStats = true;
             }
@@ -12716,6 +12732,72 @@ public class MainActivity extends Activity {
         return tab.postSlots == null ? null : tab.postSlots.get(postNumber);
     }
 
+    private void routeSearchResult(SearchResult result) {
+        if (result == null || result.url == null) {
+            return;
+        }
+        rememberPendingThreadMetadata(result);
+        routeLink(result.url, currentTab());
+    }
+
+    private void rememberPendingThreadMetadata(SearchResult result) {
+        if (result == null || result.url == null || !isThreadUrl(result.url)) {
+            return;
+        }
+        String key = threadMetadataKey(result.url);
+        if (key.isEmpty()) {
+            return;
+        }
+        SearchResult copy = new SearchResult();
+        copy.url = result.url;
+        copy.title = result.title;
+        copy.responses = result.responses;
+        copy.velocity = result.velocity;
+        copy.boardOrder = result.boardOrder;
+        copy.createdAt = result.createdAt;
+        copy.unread = result.unread;
+        copy.hasReadHistory = result.hasReadHistory;
+        copy.boardName = result.boardName;
+        pendingThreadMetadata.put(key, copy);
+        while (pendingThreadMetadata.size() > 40) {
+            Iterator<String> iterator = pendingThreadMetadata.keySet().iterator();
+            if (iterator.hasNext()) {
+                iterator.next();
+                iterator.remove();
+            } else {
+                break;
+            }
+        }
+    }
+
+    private String threadMetadataKey(String url) {
+        try {
+            return normalizeHistoryUrl(normalizeUrl(url));
+        } catch (Exception ignored) {
+            return url == null ? "" : url.trim();
+        }
+    }
+
+    private void applyPendingThreadMetadata(CuspTab tab, String url) {
+        if (tab == null) {
+            return;
+        }
+        SearchResult result = pendingThreadMetadata.remove(threadMetadataKey(url));
+        if (result == null) {
+            return;
+        }
+        if (result.boardOrder > 0) {
+            tab.knownBoardOrder = result.boardOrder;
+        }
+        if (result.responses > 0) {
+            tab.knownPostCount = Math.max(tab.knownPostCount, result.responses);
+            tab.knownMaxPostNumber = Math.max(tab.knownMaxPostNumber, result.responses);
+        }
+        if (result.title != null && !result.title.trim().isEmpty()) {
+            tab.title = result.title.trim();
+        }
+    }
+
     private boolean routeLink(String rawUrl, CuspTab sourceTab) {
         String url = normalizeUrl(rawUrl);
         if (pendingNewTab) {
@@ -13850,7 +13932,7 @@ public class MainActivity extends Activity {
         if (status == null || status.responseCount <= 0) {
             return 0;
         }
-        return Math.max(0, status.responseCount - readPostNumber(preferences, item.url));
+        return Math.max(0, status.responseCount - visibleReadPostNumber(item.url));
     }
 
     private int bookmarkOverviewUnreadSum(List<SavedItem> bookmarks, String folder) {
@@ -14323,7 +14405,7 @@ public class MainActivity extends Activity {
             result.velocity = threadVelocity(key, responses);
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
-            int readNumber = readPostNumber(preferences, result.url);
+            int readNumber = visibleReadPostNumber(result.url);
             result.hasReadHistory = threadHistoryContains(result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = displayBoardTitle(boardUrl);
@@ -14720,7 +14802,7 @@ public class MainActivity extends Activity {
     private String boardThreadMeta(SearchResult result) {
         List<String> parts = new ArrayList<>();
         String board = result == null || result.boardName == null ? "" : result.boardName;
-        if (!board.isEmpty() && preferences.getBoolean(PREF_BOARD_SHOW_BOARD_NAME, true)) {
+        if (!board.isEmpty() && preferences.getBoolean(PREF_BOARD_SHOW_BOARD_NAME, false)) {
             parts.add(board);
         }
         if (preferences.getBoolean(PREF_BOARD_SHOW_RESPONSES, true)) {
@@ -15031,7 +15113,7 @@ public class MainActivity extends Activity {
     }
 
     private void addThreadHistory(CuspTab tab, String url, String title) {
-        if (isPrivateTab(tab) || historyDisabled()) {
+        if (isPrivateTab(tab) || !browsingHistoryEnabled()) {
             return;
         }
         addThreadHistory(url, title);
@@ -15943,7 +16025,11 @@ public class MainActivity extends Activity {
     }
 
     private int readPostNumberForTab(CuspTab tab, String url) {
-        return isPrivateTab(tab) || historyDisabled() ? 0 : readPostNumber(preferences, url);
+        return isPrivateTab(tab) || !readHistoryEnabled() ? 0 : readPostNumber(preferences, url);
+    }
+
+    private int visibleReadPostNumber(String url) {
+        return readHistoryEnabled() ? readPostNumber(preferences, url) : 0;
     }
 
     private static void saveReadPostNumber(SharedPreferences preferences, String url, int number) {
@@ -15959,14 +16045,26 @@ public class MainActivity extends Activity {
     }
 
     private void saveReadPostNumber(CuspTab tab, String url, int number) {
-        if (isPrivateTab(tab) || historyDisabled()) {
+        if (isPrivateTab(tab) || !readHistoryEnabled()) {
             return;
         }
         saveReadPostNumber(preferences, url, number);
     }
 
-    private boolean historyDisabled() {
-        return preferences != null && preferences.getBoolean(PREF_DISABLE_HISTORY, false);
+    private boolean browsingHistoryEnabled() {
+        return historySettingEnabled(PREF_SAVE_BROWSING_HISTORY);
+    }
+
+    private boolean readHistoryEnabled() {
+        return historySettingEnabled(PREF_SAVE_READ_HISTORY);
+    }
+
+    private boolean historySettingEnabled(String key) {
+        if (preferences == null) {
+            return true;
+        }
+        return !preferences.getBoolean(PREF_DISABLE_HISTORY, false)
+                && preferences.getBoolean(key, true);
     }
 
     private boolean showBookmarksInTabOverview() {
@@ -16220,7 +16318,10 @@ public class MainActivity extends Activity {
     }
 
     static void clearThreadHistory(SharedPreferences preferences) {
-        preferences.edit().remove(PREF_HISTORY).apply();
+        preferences.edit()
+                .remove(PREF_HISTORY)
+                .remove(PREF_READ_POSTS)
+                .apply();
     }
 
     static void removeThreadHistory(SharedPreferences preferences, String url) {
@@ -16239,7 +16340,21 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {
         }
-        preferences.edit().putString(PREF_HISTORY, array.toString()).apply();
+        SharedPreferences.Editor editor = preferences.edit().putString(PREF_HISTORY, array.toString());
+        removeReadPostNumber(editor, preferences, url);
+        editor.apply();
+    }
+
+    private static void removeReadPostNumber(SharedPreferences.Editor editor, SharedPreferences preferences, String url) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject object = new JSONObject(preferences.getString(PREF_READ_POSTS, "{}"));
+            object.remove(url);
+            editor.putString(PREF_READ_POSTS, object.toString());
+        } catch (Exception ignored) {
+        }
     }
 
     static List<BbsLink> readBbsLinks(SharedPreferences preferences) {
