@@ -1205,7 +1205,7 @@ public class MainActivity extends Activity {
             int count = 0;
             for (ThreadHistoryItem history : threadHistory()) {
                 if (history.title.toLowerCase(Locale.ROOT).contains(query)) {
-                    TextView item = suggestionItem(text("\u30b9\u30ec\u5c65\u6b74", "Thread history"), history.title);
+                    TextView item = suggestionItem(text("\u95b2\u89a7\u5c65\u6b74", "Browsing history"), history.title);
                     item.setOnClickListener(v -> {
                         addressBar.setText(history.url);
                         addressBar.setSelection(addressBar.getText().length());

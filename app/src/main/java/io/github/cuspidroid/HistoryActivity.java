@@ -74,21 +74,22 @@ public class HistoryActivity extends Activity {
         topBar.setPadding(dp(18), 0, dp(10), 0);
         topBar.setBackground(topBarBackground());
         TextView title = new TextView(this);
-        title.setText(MainActivity.text("\u30b9\u30ec\u5c65\u6b74", "Thread History"));
+        title.setText(MainActivity.text("\u95b2\u89a7\u5c65\u6b74", "Browsing History"));
         title.setTextColor(textColor());
         title.setTextSize(22);
+        title.setGravity(Gravity.CENTER_VERTICAL);
         topBar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
         ImageButton clear = iconButton(R.drawable.ic_delete, MainActivity.text("\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear history"));
         clear.setOnClickListener(v -> {
             new AlertDialog.Builder(this)
-                    .setTitle(MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear thread history"))
-                    .setMessage(MainActivity.text("\u3059\u3079\u3066\u306e\u30b9\u30ec\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Clear all thread history?"))
+                    .setTitle(MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear browsing history"))
+                    .setMessage(MainActivity.text("\u3059\u3079\u3066\u306e\u95b2\u89a7\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Clear all browsing history?"))
                     .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                     .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (dialog, which) -> {
                         MainActivity.clearThreadHistory(preferences);
                         renderHistory();
-                        Toast.makeText(this, MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u524a\u9664", "Thread history cleared."), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u3092\u524a\u9664", "Browsing history cleared."), Toast.LENGTH_SHORT).show();
                     })
                     .show();
         });
@@ -101,7 +102,7 @@ public class HistoryActivity extends Activity {
         list.removeAllViews();
         List<MainActivity.ThreadHistoryItem> history = MainActivity.readThreadHistory(preferences);
         if (history.isEmpty()) {
-            TextView empty = helperText(MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u306a\u3057", "No thread history."));
+            TextView empty = helperText(MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u306a\u3057", "No browsing history."));
             list.addView(empty);
             return;
         }

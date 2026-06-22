@@ -46,57 +46,49 @@ public class WriteIdentityHistoryActivity extends Activity {
         Theme.applySystemBars(this);
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Theme.background(this));
-
-        LinearLayout column = new LinearLayout(this);
-        column.setOrientation(LinearLayout.VERTICAL);
-        root.addView(column, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        titleRow.setPadding(dp(10), dp(10), dp(10), dp(6));
-        column.addView(titleRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        ImageButton back = iconButton(android.R.drawable.ic_menu_revert, MainActivity.text("戻る", "Back"));
-        back.setOnClickListener(v -> finish());
-        titleRow.addView(back, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-        TextView title = new TextView(this);
-        title.setText(MainActivity.text("名前・メール履歴", "Name/Mail History"));
-        title.setTextColor(Theme.text(this));
-        title.setTextSize(20);
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        titleRow.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-        ImageButton clear = iconButton(android.R.drawable.ic_menu_delete, MainActivity.text("履歴を全削除", "Clear history"));
-        clear.setOnClickListener(v -> confirmClearHistory());
-        titleRow.addView(clear, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        setContentView(root);
 
         ScrollView scroll = new ScrollView(this);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(12), dp(6), dp(12), dp(14));
+        list.setPadding(dp(18), dp(72), dp(18), dp(24));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        column.addView(scroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        setContentView(root);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.setPadding(dp(18), 0, dp(10), 0);
+        titleRow.setBackground(topBarBackground());
+
+        TextView title = new TextView(this);
+        title.setText(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74", "Name/Mail History"));
+        title.setTextColor(Theme.text(this));
+        title.setTextSize(22);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+
+        ImageButton clear = iconButton(R.drawable.ic_delete, MainActivity.text("\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear history"));
+        clear.setOnClickListener(v -> confirmClearHistory());
+        titleRow.addView(clear, new LinearLayout.LayoutParams(dp(46), dp(44)));
+        root.addView(titleRow, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56), Gravity.TOP));
     }
 
     private void renderHistory() {
         list.removeAllViews();
         List<IdentityItem> items = readHistory();
         if (items.isEmpty()) {
-            TextView empty = helperText(MainActivity.text("名前・メール履歴なし", "No name/mail history."));
-            list.addView(empty, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            TextView empty = helperText(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u306a\u3057", "No name/mail history."));
+            list.addView(empty);
             return;
         }
         for (int i = 0; i < items.size(); i++) {
-            list.addView(historyRow(items.get(i), i), new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rowParams.setMargins(0, 0, 0, dp(8));
+            list.addView(historyRow(items.get(i), i), rowParams);
         }
     }
 
@@ -104,21 +96,23 @@ public class WriteIdentityHistoryActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(9), dp(8), dp(9));
+        row.setPadding(dp(10), dp(8), dp(8), dp(8));
         row.setBackground(rowBackground());
 
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
-        TextView name = rowText(item.name.isEmpty() ? MainActivity.text("(名前なし)", "(No name)") : item.name, 16, true);
-        TextView mail = rowText(item.mail.isEmpty() ? MainActivity.text("(メールなし)", "(No mail)") : item.mail, 13, false);
+        TextView name = rowText(item.name.isEmpty() ? MainActivity.text("(\u540d\u524d\u306a\u3057)", "(No name)") : item.name, 16, true);
+        TextView mail = rowText(item.mail.isEmpty() ? MainActivity.text("(\u30e1\u30fc\u30eb\u306a\u3057)", "(No mail)") : item.mail, 13, false);
         texts.addView(name);
         texts.addView(mail);
         row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-        ImageButton delete = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
-                MainActivity.text("履歴を削除", "Delete history item"));
+        ImageButton delete = iconButton(R.drawable.ic_close,
+                MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history item"));
         delete.setOnClickListener(v -> confirmDelete(index));
-        row.addView(delete, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(42), dp(40));
+        deleteParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(delete, deleteParams);
 
         row.setOnClickListener(v -> {
             if (!pickMode) {
@@ -131,25 +125,17 @@ public class WriteIdentityHistoryActivity extends Activity {
             finish();
         });
 
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-        wrapper.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
-        TextView spacer = new TextView(this);
-        wrapper.addView(spacer, space);
-        return wrapper;
+        return row;
     }
 
     private void confirmDelete(int index) {
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("履歴を削除", "Delete history"))
-                .setMessage(MainActivity.text("この名前・メール履歴を削除しますか？", "Delete this name/mail history item?"))
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("OK", (d, which) -> {
+                .setTitle(MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history"))
+                .setMessage(MainActivity.text("\u3053\u306e\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Delete this name/mail history item?"))
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (d, which) -> {
                     deleteHistory(index);
-                    Toast.makeText(this, MainActivity.text("履歴を削除", "History deleted."), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "History deleted."), Toast.LENGTH_SHORT).show();
                 })
                 .create();
         dialog.show();
@@ -158,17 +144,17 @@ public class WriteIdentityHistoryActivity extends Activity {
 
     private void confirmClearHistory() {
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("履歴を全削除", "Clear history"))
-                .setMessage(MainActivity.text("すべての名前・メール履歴を削除しますか？", "Clear all name/mail history?"))
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("OK", (d, which) -> {
+                .setTitle(MainActivity.text("\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear history"))
+                .setMessage(MainActivity.text("\u3059\u3079\u3066\u306e\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Clear all name/mail history?"))
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (d, which) -> {
                     preferences.edit()
                             .remove(MainActivity.PREF_WRITE_IDENTITY_HISTORY)
                             .remove(MainActivity.PREF_WRITE_NAME_HISTORY)
                             .remove(MainActivity.PREF_WRITE_MAIL_HISTORY)
                             .apply();
                     renderHistory();
-                    Toast.makeText(this, MainActivity.text("履歴を削除", "History cleared."), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "History cleared."), Toast.LENGTH_SHORT).show();
                 })
                 .create();
         dialog.show();
@@ -270,8 +256,7 @@ public class WriteIdentityHistoryActivity extends Activity {
         view.setText(value);
         view.setTextColor(Theme.muted(this));
         view.setTextSize(14);
-        view.setGravity(Gravity.CENTER);
-        view.setPadding(dp(10), dp(32), dp(10), dp(32));
+        view.setPadding(0, dp(4), 0, dp(4));
         return view;
     }
 
@@ -279,16 +264,31 @@ public class WriteIdentityHistoryActivity extends Activity {
         ImageButton button = new ImageButton(this);
         button.setImageResource(icon);
         button.setContentDescription(description);
-        button.setBackgroundColor(Color.TRANSPARENT);
-        button.setColorFilter(Theme.muted(this));
-        button.setPadding(dp(9), dp(9), dp(9), dp(9));
+        button.setColorFilter(Theme.text(this));
+        button.setBackground(iconButtonBackground());
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setScaleType(ImageButton.ScaleType.CENTER);
         return button;
+    }
+
+    private GradientDrawable topBarBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.background(this));
+        drawable.setStroke(dp(1), Theme.border(this));
+        return drawable;
     }
 
     private GradientDrawable rowBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Theme.surface(this));
         drawable.setStroke(dp(1), Theme.border(this));
+        drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable iconButtonBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.TRANSPARENT);
         drawable.setCornerRadius(dp(8));
         return drawable;
     }

@@ -531,7 +531,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664", "Delete cached threads and media"),
                 v -> confirmClearCache()));
 
-        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u65e2\u8aad", "History & Read State")));
+        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u65e2\u8aad\u5c65\u6b74", "History & Read History")));
 
         disableHistory = new CheckBox(this);
         disableHistory.setText(MainActivity.text("\u5c65\u6b74\u30fb\u65e2\u8aad\u5c65\u6b74\u3092\u8a18\u9332\u3057\u306a\u3044", "Do not record history or read positions"));
@@ -553,13 +553,13 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, WriteIdentityHistoryActivity.class))));
 
         root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
-                MainActivity.text("\u30b9\u30ec\u5c65\u6b74\u3092\u7ba1\u7406", "Manage thread history"),
-                MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u30b9\u30ec\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved thread history"),
+                MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u3092\u7ba1\u7406", "Manage browsing history"),
+                MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u95b2\u89a7\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved browsing history"),
                 v -> startActivity(new Intent(this, HistoryActivity.class))));
 
         root.addView(managementRow(R.drawable.ic_check,
-                MainActivity.text("\u65e2\u8aad\u3092\u7ba1\u7406", "Manage read positions"),
-                MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u4f4d\u7f6e\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read positions by thread"),
+                MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u7ba1\u7406", "Manage read history"),
+                MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read history by thread"),
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
         root.addView(sectionTitle("Sync2ch"));

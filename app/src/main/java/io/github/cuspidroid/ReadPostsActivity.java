@@ -83,12 +83,13 @@ public class ReadPostsActivity extends Activity {
         topBar.setPadding(dp(18), 0, dp(10), 0);
         topBar.setBackground(topBarBackground());
         TextView title = new TextView(this);
-        title.setText(MainActivity.text("\u65e2\u8aad", "Read Positions"));
+        title.setText(MainActivity.text("\u65e2\u8aad\u5c65\u6b74", "Read History"));
         title.setTextColor(textColor());
         title.setTextSize(22);
+        title.setGravity(Gravity.CENTER_VERTICAL);
         topBar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
-        ImageButton clear = iconButton(R.drawable.ic_delete, MainActivity.text("\u65e2\u8aad\u3092\u5168\u524a\u9664", "Clear read positions"));
+        ImageButton clear = iconButton(R.drawable.ic_delete, MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear read history"));
         clear.setOnClickListener(v -> confirmClear());
         topBar.addView(clear, new LinearLayout.LayoutParams(dp(46), dp(44)));
         root.addView(topBar, new FrameLayout.LayoutParams(
@@ -99,7 +100,7 @@ public class ReadPostsActivity extends Activity {
         list.removeAllViews();
         List<ReadItem> items = readItems();
         if (items.isEmpty()) {
-            list.addView(helperText(MainActivity.text("\u65e2\u8aad\u306a\u3057", "No read positions.")));
+            list.addView(helperText(MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u306a\u3057", "No read history.")));
             return;
         }
         for (ReadItem item : items) {
@@ -164,13 +165,13 @@ public class ReadPostsActivity extends Activity {
 
     private void confirmClear() {
         new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("\u65e2\u8aad\u3092\u5168\u524a\u9664", "Clear read positions"))
-                .setMessage(MainActivity.text("\u3059\u3079\u3066\u306e\u65e2\u8aad\u60c5\u5831\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Clear all read positions?"))
+                .setTitle(MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u5168\u524a\u9664", "Clear read history"))
+                .setMessage(MainActivity.text("\u3059\u3079\u3066\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f", "Clear all read history?"))
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (dialog, which) -> {
                     preferences.edit().remove(MainActivity.PREF_READ_POSTS).apply();
                     renderReadPosts();
-                    Toast.makeText(this, MainActivity.text("\u65e2\u8aad\u3092\u524a\u9664", "Read positions cleared."), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u524a\u9664", "Read history cleared."), Toast.LENGTH_SHORT).show();
                 })
                 .show();
     }
