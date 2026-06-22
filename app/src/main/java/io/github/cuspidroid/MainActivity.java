@@ -8971,11 +8971,11 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         root.setTag(popup);
         prepareAnimatedPopupDismiss(popup, root);
-        for (ThreadExtractItem item : items) {
+        for (ThreadExtractGroup group : threadExtractGroups(items)) {
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             rowParams.setMargins(0, 0, 0, dp(8));
-            list.addView(threadExtractRow(item, mediaOnly, popup), rowParams);
+            list.addView(threadExtractRow(group, mediaOnly, popup), rowParams);
         }
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -8984,38 +8984,62 @@ public class MainActivity extends Activity {
         animatePopupIn(popup, true);
     }
 
-    private View threadExtractRow(ThreadExtractItem item, boolean mediaRow, PopupWindow popup) {
+    private List<ThreadExtractGroup> threadExtractGroups(List<ThreadExtractItem> items) {
+        List<ThreadExtractGroup> groups = new ArrayList<>();
+        ThreadExtractGroup current = null;
+        for (ThreadExtractItem item : items) {
+            if (current == null || current.postNumber != item.postNumber) {
+                current = new ThreadExtractGroup(item.postNumber);
+                groups.add(current);
+            }
+            current.items.add(item);
+        }
+        return groups;
+    }
+
+    private View threadExtractRow(ThreadExtractGroup group, boolean mediaRow, PopupWindow popup) {
         LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setOrientation(LinearLayout.VERTICAL);
         row.setGravity(Gravity.TOP);
         row.setPadding(dp(8), dp(5), dp(8), dp(6));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
 
-        if (mediaRow && item.media != null) {
-            View preview = MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
-                    item.media.originalUrl, item.media.imageUrl, item.media.video, dp(76), null,
-                    extractMediaPreviewCallbacks(popup));
-            LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(76), dp(76));
-            previewParams.setMargins(0, 0, dp(10), 0);
-            row.addView(preview, previewParams);
-        }
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView number = helperLine(">>" + item.postNumber);
+        TextView number = helperLine(">>" + group.postNumber);
         number.setTextColor(TEAL);
         number.setTypeface(Typeface.DEFAULT_BOLD);
         number.setIncludeFontPadding(false);
         number.setOnClickListener(v -> {
             dismissPopupAnimated(popup);
-            jumpToPost(item.postNumber);
+            jumpToPost(group.postNumber);
         });
-        TextView url = postText(item.url, currentTab() == null ? null : currentTab().threadPage);
-        url.setMaxLines(mediaRow ? 2 : 3);
-        url.setEllipsize(TextUtils.TruncateAt.END);
-        texts.addView(number);
-        texts.addView(url);
-        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(number, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        ThreadPage page = currentTab() == null ? null : currentTab().threadPage;
+        for (ThreadExtractItem item : group.items) {
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            line.setGravity(Gravity.TOP);
+            LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lineParams.setMargins(0, dp(3), 0, 0);
+            row.addView(line, lineParams);
+
+            if (mediaRow && item.media != null) {
+                View preview = MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
+                        item.media.originalUrl, item.media.imageUrl, item.media.video, dp(76), null,
+                        extractMediaPreviewCallbacks(popup));
+                LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(76), dp(76));
+                previewParams.setMargins(0, 0, dp(10), 0);
+                line.addView(preview, previewParams);
+            }
+
+            TextView url = postText(item.url, page);
+            url.setMaxLines(mediaRow ? 2 : 3);
+            url.setEllipsize(TextUtils.TruncateAt.END);
+            line.addView(url, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
         return row;
     }
 
@@ -18436,6 +18460,15 @@ public class MainActivity extends Activity {
             this.postNumber = postNumber;
             this.url = url;
             this.media = media;
+        }
+    }
+
+    private static class ThreadExtractGroup {
+        final int postNumber;
+        final List<ThreadExtractItem> items = new ArrayList<>();
+
+        ThreadExtractGroup(int postNumber) {
+            this.postNumber = postNumber;
         }
     }
 
