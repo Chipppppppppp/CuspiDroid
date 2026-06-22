@@ -231,6 +231,8 @@ public class MainActivity extends Activity {
     private static final String HOME_BOOKMARK_SECTION_TAG = "home_bookmark_section";
     private static final String CLOSED_TAB_UNDO_TAG = "closed_tab_undo";
     private static final String FULL_TEXT_LOAD_MORE_FOOTER_TAG = "full_text_load_more_footer";
+    private static final String TAB_OVERVIEW_NORMAL_SCROLL_KEY = "tabOverviewNormalScrollY";
+    private static final String TAB_OVERVIEW_PRIVATE_SCROLL_KEY = "tabOverviewPrivateScrollY";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -2045,6 +2047,9 @@ public class MainActivity extends Activity {
             if (array == null || array.length() == 0) {
                 return false;
             }
+            tabOverviewNormalScrollY = Math.max(0, root.optInt(TAB_OVERVIEW_NORMAL_SCROLL_KEY, 0));
+            tabOverviewPrivateScrollY = Math.max(0, root.optInt(TAB_OVERVIEW_PRIVATE_SCROLL_KEY, 0));
+            tabOverviewScrollY = currentTabIsPrivate() ? tabOverviewPrivateScrollY : tabOverviewNormalScrollY;
             int selected = Math.max(0, Math.min(root.optInt("current", 0), array.length() - 1));
             for (int i = 0; i < array.length(); i++) {
                 JSONObject item = array.getJSONObject(i);
@@ -2208,6 +2213,7 @@ public class MainActivity extends Activity {
             if (current != null) {
                 rememberThreadScroll(current);
             }
+            rememberTabOverviewScroll();
             JSONArray array = new JSONArray();
             int savedCurrent = 0;
             int savedIndex = 0;
@@ -2252,6 +2258,8 @@ public class MainActivity extends Activity {
             }
             JSONObject root = new JSONObject();
             root.put("current", Math.max(0, savedCurrent));
+            root.put(TAB_OVERVIEW_NORMAL_SCROLL_KEY, tabOverviewNormalScrollY);
+            root.put(TAB_OVERVIEW_PRIVATE_SCROLL_KEY, tabOverviewPrivateScrollY);
             root.put("tabs", array);
             SharedPreferences.Editor editor = preferences.edit().putString(PREF_TABS, root.toString());
             if (synchronous) {
@@ -3487,6 +3495,9 @@ public class MainActivity extends Activity {
         String requestUrl = pageNumber <= 1 ? loadUrl : fullTextSearchPageRequestUrl(loadUrl, pageNumber);
         WebView webView = new WebView(this);
         webView.setAlpha(0f);
+        webView.setEnabled(false);
+        webView.setClickable(false);
+        webView.setFocusable(false);
         webView.setBackgroundColor(Color.TRANSPARENT);
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -3495,7 +3506,8 @@ public class MainActivity extends Activity {
         settings.setUseWideViewPort(true);
         settings.setUserAgentString(settings.getUserAgentString() + " CuspiDroid");
         if (tab == currentTab() && !tabOverviewVisible) {
-            contentFrame.addView(webView, new FrameLayout.LayoutParams(dp(1), dp(1), Gravity.BOTTOM | Gravity.RIGHT));
+            contentFrame.addView(webView, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         mainHandler.postDelayed(() -> finishFullTextSearchIfPending(tab, loadUrl, webView,
                 SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002", "Full-text search timed out.")),
@@ -3535,7 +3547,7 @@ public class MainActivity extends Activity {
                 + "var current=currentNode?parseInt((currentNode.innerText||currentNode.textContent||'1').trim(),10):1;"
                 + "if(!current||current<1)current=1;"
                 + "var rows=[];"
-                + "var nodes=document.querySelectorAll('.gsc-webResult.gsc-result');"
+                + "var nodes=document.querySelectorAll('.gsc-webResult.gsc-result,.gsc-results .gsc-result');"
                 + "if(target>1&&current!==target&&nodes.length>0){"
                 + "var pages=document.querySelectorAll('.gsc-cursor-page');"
                 + "for(var p=0;p<pages.length;p++){"
@@ -3544,14 +3556,19 @@ public class MainActivity extends Activity {
                 + "}"
                 + "if(pages.length>0)return JSON.stringify({ready:false,waitingTarget:true,currentPage:current});"
                 + "}"
-                + "for(var i=0;i<nodes.length;i++){"
-                + "var e=nodes[i];"
-                + "if(e.className.indexOf('gs-no-results-result')>=0||e.className.indexOf('gs-error-result')>=0)continue;"
-                + "var a=e.querySelector('a.gs-title');"
+                + "var seen={};"
+                + "var anchors=document.querySelectorAll('.gsc-results a.gs-title,.gsc-webResult a.gs-title');"
+                + "for(var i=0;i<anchors.length;i++){"
+                + "var a=anchors[i];"
+                + "var e=a.closest?a.closest('.gsc-result'):null;"
+                + "if(!e)e=a.parentNode;"
+                + "if(e&&e.className&&(e.className.indexOf('gs-no-results-result')>=0||e.className.indexOf('gs-error-result')>=0))continue;"
                 + "var title=a?(a.innerText||a.textContent||'').trim():'';"
                 + "var url=a?(a.getAttribute('data-ctorig')||a.href||'').trim():'';"
-                + "var vis=e.querySelector('.gs-visibleUrl-long,.gs-visibleUrl');"
-                + "var snip=e.querySelector('.gs-snippet');"
+                + "if(!url||seen[url])continue;"
+                + "seen[url]=true;"
+                + "var vis=e&&e.querySelector?e.querySelector('.gs-visibleUrl-long,.gs-visibleUrl'):null;"
+                + "var snip=e&&e.querySelector?e.querySelector('.gs-snippet'):null;"
                 + "var meta=[];"
                 + "if(vis&&(vis.innerText||vis.textContent))meta.push((vis.innerText||vis.textContent).trim());"
                 + "if(snip&&(snip.innerText||snip.textContent))meta.push((snip.innerText||snip.textContent).trim());"
@@ -3576,20 +3593,29 @@ public class MainActivity extends Activity {
             SearchPage page = parseFullTextSearchSnapshot(loadUrl, value);
             if (append && pageNumber > 1 && page != null && !page.results.isEmpty()
                     && page.fullTextPage < pageNumber) {
-                if (hasNewSearchResult(tab == null ? null : tab.searchPage, page)) {
+                int newCount = countNewSearchResults(tab == null ? null : tab.searchPage, page);
+                if (newCount > 0 && fullTextSearchPageReady(page, newCount, attempt)) {
                     page.fullTextPage = pageNumber;
                     finishFullTextSearchIfPending(tab, loadUrl, webView, page, true);
                     return;
                 }
-                if (attempt < 12) {
+                if (attempt < 18) {
                     mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView,
-                            attempt + 1, pageNumber, true, pageClicked), 900);
+                            attempt + 1, pageNumber, true, pageClicked), 800);
                     return;
                 }
                 finishFullTextSearchIfPending(tab, loadUrl, webView,
                         SearchPage.error(loadUrl, text("\u8ffd\u52a0\u306e\u691c\u7d22\u7d50\u679c\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f", "Could not load more search results.")),
                         true);
                 return;
+            }
+            if (append && pageNumber > 1 && page != null && !page.results.isEmpty()) {
+                int newCount = countNewSearchResults(tab == null ? null : tab.searchPage, page);
+                if (newCount > 0 && !fullTextSearchPageReady(page, newCount, attempt) && attempt < 18) {
+                    mainHandler.postDelayed(() -> extractFullTextSearchResults(tab, loadUrl, webView,
+                            attempt + 1, pageNumber, true, pageClicked), 800);
+                    return;
+                }
             }
             if (page != null && (!page.results.isEmpty() || attempt >= 8)) {
                 finishFullTextSearchIfPending(tab, loadUrl, webView, page, append);
@@ -3611,9 +3637,14 @@ public class MainActivity extends Activity {
         });
     }
 
-    private boolean hasNewSearchResult(SearchPage existingPage, SearchPage candidatePage) {
+    private boolean fullTextSearchPageReady(SearchPage page, int newCount, int attempt) {
+        int resultCount = page == null || page.results == null ? 0 : page.results.size();
+        return resultCount >= 8 || newCount >= 6 || attempt >= 8;
+    }
+
+    private int countNewSearchResults(SearchPage existingPage, SearchPage candidatePage) {
         if (candidatePage == null || candidatePage.results == null || candidatePage.results.isEmpty()) {
-            return false;
+            return 0;
         }
         Set<String> existing = new LinkedHashSet<>();
         if (existingPage != null && existingPage.results != null) {
@@ -3623,12 +3654,13 @@ public class MainActivity extends Activity {
                 }
             }
         }
+        int count = 0;
         for (SearchResult result : candidatePage.results) {
             if (result.url == null || !existing.contains(result.url)) {
-                return true;
+                count++;
             }
         }
-        return false;
+        return count;
     }
 
     private SearchPage parseFullTextSearchSnapshot(String url, String rawValue) {
@@ -6767,12 +6799,17 @@ public class MainActivity extends Activity {
 
     private void setCurrentTabOverviewScrollY(int scrollY) {
         int value = Math.max(0, scrollY);
+        if (value == tabOverviewScrollY
+                && value == (tabOverviewPrivateMode ? tabOverviewPrivateScrollY : tabOverviewNormalScrollY)) {
+            return;
+        }
         tabOverviewScrollY = value;
         if (tabOverviewPrivateMode) {
             tabOverviewPrivateScrollY = value;
         } else {
             tabOverviewNormalScrollY = value;
         }
+        requestSaveTabsSoon();
     }
 
     private void rememberTabOverviewScroll() {
