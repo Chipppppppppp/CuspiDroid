@@ -359,6 +359,11 @@ public class MainActivity extends Activity {
     private boolean addressKeyboardVisible;
     private View imageOverlay;
     private View highlightedPostView;
+    private int appliedChromeBgColor = Integer.MIN_VALUE;
+    private int appliedChromeBarColor = Integer.MIN_VALUE;
+    private int appliedChromeStrokeColor = Integer.MIN_VALUE;
+    private boolean appliedChromePrivate;
+    private boolean appliedChromeDark;
     private final List<String> newTabNavigationHistory = new ArrayList<>();
     private int newTabNavigationIndex = -1;
     private Interpreter graphicViolenceInterpreter;
@@ -569,6 +574,10 @@ public class MainActivity extends Activity {
         return Theme.dark(this) ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
     }
 
+    private int privateStrokeColor() {
+        return Theme.dark(this) ? Color.rgb(5, 120, 89) : Color.rgb(22, 101, 52);
+    }
+
     private int privateButtonFill(boolean active) {
         if (!active) {
             return Theme.dark(this) ? Color.rgb(17, 24, 39) : menuColor();
@@ -580,7 +589,7 @@ public class MainActivity extends Activity {
         if (!active) {
             return Theme.dark(this) ? Color.rgb(51, 65, 85) : borderColor();
         }
-        return Theme.dark(this) ? Color.rgb(16, 185, 129) : Color.rgb(21, 128, 61);
+        return privateStrokeColor();
     }
 
     private int privateButtonIcon(boolean active) {
@@ -1793,14 +1802,31 @@ public class MainActivity extends Activity {
     private GradientDrawable bottomBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(barColor());
-        drawable.setStroke(dp(1), privateUiActive() ? privateBlue() : borderColor());
+        drawable.setStroke(dp(1), privateUiActive() ? privateStrokeColor() : borderColor());
         return drawable;
     }
 
     private void updatePrivateChrome() {
+        int bg = bgColor();
+        int bar = barColor();
+        int stroke = privateUiActive() ? privateStrokeColor() : borderColor();
+        boolean privateActive = privateUiActive();
+        boolean dark = Theme.dark(this);
+        if (bg == appliedChromeBgColor
+                && bar == appliedChromeBarColor
+                && stroke == appliedChromeStrokeColor
+                && privateActive == appliedChromePrivate
+                && dark == appliedChromeDark) {
+            return;
+        }
+        appliedChromeBgColor = bg;
+        appliedChromeBarColor = bar;
+        appliedChromeStrokeColor = stroke;
+        appliedChromePrivate = privateActive;
+        appliedChromeDark = dark;
         applySystemBarTheme();
         if (contentFrame != null) {
-            contentFrame.setBackgroundColor(bgColor());
+            contentFrame.setBackgroundColor(bg);
         }
         if (bottomToolbar != null) {
             bottomToolbar.setBackground(bottomBarBackground());
