@@ -393,7 +393,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664", "Delete cached threads and media"),
                 v -> confirmClearCache()));
 
-        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74\u3068\u65e2\u8aad\u5c65\u6b74", "History & Read History")));
+        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74", "History")));
 
         saveBrowsingHistory = new CheckBox(this);
         saveBrowsingHistory.setText(MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u3092\u4fdd\u5b58", "Save browsing history"));
@@ -402,12 +402,22 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, saveBrowsingHistory);
         root.addView(saveBrowsingHistory);
 
+        root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
+                MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u3092\u7ba1\u7406", "Manage browsing history"),
+                MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u95b2\u89a7\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved browsing history"),
+                v -> startActivity(new Intent(this, HistoryActivity.class))));
+
         saveReadHistory = new CheckBox(this);
         saveReadHistory.setText(MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u4fdd\u5b58", "Save read history"));
         saveReadHistory.setTextColor(textColor());
         saveReadHistory.setTextSize(16);
         Theme.tintCompoundButton(this, saveReadHistory);
         root.addView(saveReadHistory);
+
+        root.addView(managementRow(R.drawable.ic_check,
+                MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u7ba1\u7406", "Manage read history"),
+                MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read history by thread"),
+                v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
         saveWriteIdentityHistory = new CheckBox(this);
         saveWriteIdentityHistory.setText(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u4fdd\u5b58", "Save name/mail history"));
@@ -420,16 +430,6 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u7ba1\u7406", "Manage name/mail history"),
                 MainActivity.text("\u66f8\u304d\u8fbc\u307f\u306b\u4f7f\u3063\u305f\u540d\u524d\u3068\u30e1\u30fc\u30eb\u306e\u7d44\u307f\u5408\u308f\u305b\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved name/mail pairs"),
                 v -> startActivity(new Intent(this, WriteIdentityHistoryActivity.class))));
-
-        root.addView(managementRow(android.R.drawable.ic_menu_recent_history,
-                MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u3092\u7ba1\u7406", "Manage browsing history"),
-                MainActivity.text("\u4fdd\u5b58\u3055\u308c\u305f\u95b2\u89a7\u5c65\u6b74\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved browsing history"),
-                v -> startActivity(new Intent(this, HistoryActivity.class))));
-
-        root.addView(managementRow(R.drawable.ic_check,
-                MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u7ba1\u7406", "Manage read history"),
-                MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read history by thread"),
-                v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
         root.addView(sectionTitle("Sync2ch"));
         sync2chEnabled = new CheckBox(this);

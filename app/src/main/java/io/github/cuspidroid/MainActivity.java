@@ -11347,11 +11347,6 @@ public class MainActivity extends Activity {
                     message.setSelection(message.getText().length());
                 }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_add, text("ImgBB\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Upload to ImgBB"), v -> {
-            dismissPopupAnimated(popup);
-            chooseImgbbUploadImage(message);
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
         menu.addView(menuIconItem(android.R.drawable.ic_menu_recent_history,
                 text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74", "Name/Mail history"), v -> {
                     dismissPopupAnimated(popup);
@@ -11361,6 +11356,11 @@ public class MainActivity extends Activity {
                     intent.putExtra(WriteIdentityHistoryActivity.EXTRA_PICK_MODE, true);
                     startActivityForResult(intent, REQUEST_WRITE_IDENTITY_HISTORY);
                 }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_add, text("ImgBB\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Upload to ImgBB"), v -> {
+            dismissPopupAnimated(popup);
+            chooseImgbbUploadImage(message);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74", "Upload history"), v -> {
             dismissPopupAnimated(popup);
