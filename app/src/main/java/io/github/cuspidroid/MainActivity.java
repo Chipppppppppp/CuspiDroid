@@ -5027,8 +5027,28 @@ public class MainActivity extends Activity {
         });
         LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        queryParams.setMargins(0, 0, 0, dp(10));
+        queryParams.setMargins(0, 0, 0, dp(8));
         list.addView(query, queryParams);
+
+        TextView switchSearch = actionRow(isFullTextSearchUrl(page.url)
+                ? text("\u30b9\u30ec\u30bf\u30a4\u691c\u7d22", "Thread-title search")
+                : text("\u5168\u6587\u691c\u7d22", "Full-text search"));
+        switchSearch.setOnClickListener(v -> {
+            String value = query.getText().toString().trim();
+            if (value.isEmpty()) {
+                return;
+            }
+            try {
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
+            } catch (Exception ignored) {
+            }
+            openInCurrentTab(isFullTextSearchUrl(page.url) ? searchUrl(value) : fullTextSearchUrl(value));
+        });
+        LinearLayout.LayoutParams switchParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        switchParams.setMargins(0, 0, 0, dp(10));
+        list.addView(switchSearch, switchParams);
 
         if (page.error != null) {
             TextView error = postText(page.error, null);
@@ -6470,12 +6490,23 @@ public class MainActivity extends Activity {
         });
         LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        queryParams.setMargins(0, 0, 0, dp(10));
+        queryParams.setMargins(0, 0, 0, dp(8));
         list.addView(query, queryParams);
 
-        TextView search = actionRow(text("\u691c\u7d22", "Search"));
-        search.setOnClickListener(v -> submit.run());
-        list.addView(search);
+        TextView titleSearch = actionRow(text("\u30b9\u30ec\u30bf\u30a4\u691c\u7d22", "Thread-title search"));
+        titleSearch.setOnClickListener(v -> {
+            String value = query.getText().toString().trim();
+            if (value.isEmpty()) {
+                return;
+            }
+            try {
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
+            } catch (Exception ignored) {
+            }
+            openInCurrentTab(searchUrl(value));
+        });
+        list.addView(titleSearch);
 
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -6872,7 +6903,7 @@ public class MainActivity extends Activity {
         });
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(12), dp(12), dp(12), dp(84));
+        setTabOverviewListPadding(list);
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
@@ -6900,6 +6931,7 @@ public class MainActivity extends Activity {
 
     private void populateTabOverviewList(ScrollView scroll, LinearLayout list) {
         list.removeAllViews();
+        setTabOverviewListPadding(list);
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -6913,6 +6945,14 @@ public class MainActivity extends Activity {
             addBookmarkOverviewSection(list);
         }
         addTabOverviewSection(scroll, list, tabOverviewPrivateMode);
+    }
+
+    private void setTabOverviewListPadding(LinearLayout list) {
+        if (list == null) {
+            return;
+        }
+        int bottom = dp(84) + (recentlyClosedTab == null ? 0 : dp(48));
+        list.setPadding(dp(12), dp(12), dp(12), bottom);
     }
 
     private ImageButton privateModeButton(boolean active, View.OnClickListener listener) {
@@ -7569,6 +7609,7 @@ public class MainActivity extends Activity {
             return false;
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        setTabOverviewListPadding(list);
         List<FrameLayout> holders = tabOverviewSlotHolders(list);
         if (holders.isEmpty()) {
             return false;
@@ -9021,6 +9062,7 @@ public class MainActivity extends Activity {
             return false;
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        setTabOverviewListPadding(list);
         int sectionStart = 1;
         int tabSectionStart = tabOverviewTabSectionStart(list);
         if (tabSectionStart < sectionStart) {
@@ -9131,6 +9173,10 @@ public class MainActivity extends Activity {
             return;
         }
         FrameLayout root = (FrameLayout) contentFrame.getChildAt(0);
+        ScrollView scroll = findScrollView(root);
+        if (scroll != null && scroll.getChildCount() > 0 && scroll.getChildAt(0) instanceof LinearLayout) {
+            setTabOverviewListPadding((LinearLayout) scroll.getChildAt(0));
+        }
         for (int i = root.getChildCount() - 1; i >= 0; i--) {
             View child = root.getChildAt(i);
             if (CLOSED_TAB_UNDO_TAG.equals(child.getTag())) {
