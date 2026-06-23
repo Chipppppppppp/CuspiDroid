@@ -313,9 +313,13 @@ public class SettingsActivity extends Activity {
         root.addView(autoplayGifs);
 
         root.addView(managementRow(R.drawable.ic_close,
-                MainActivity.text("NG\u8a2d\u5b9a\u3092\u7ba1\u7406", "Manage NG rules"),
-                MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit NGWord, NGName, NGID, and related rules"),
+                MainActivity.text("\u3059\u3079\u3066\u306e\u30b9\u30ec\u306eNG\u7ba1\u7406", "NG rules for all threads"),
+                MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u3059\u3079\u3066\u306e\u30b9\u30ec\u306b\u9069\u7528", "Apply NGWord, NGName, NGID, and related rules to every thread"),
                 v -> startActivity(new Intent(this, NgRulesActivity.class))));
+        root.addView(managementRow(R.drawable.ic_text_fields,
+                MainActivity.text("\u3059\u3079\u3066\u306e\u677f\u306e\u512a\u5148\u30ef\u30fc\u30c9", "Priority words for all boards"),
+                MainActivity.text("\u3059\u3079\u3066\u306e\u677f\u306b\u9069\u7528\u3059\u308b\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words applied to every board"),
+                v -> startActivity(new Intent(this, BoardPriorityRulesActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Uploads")));
         imgbbApiKey = new EditText(this);

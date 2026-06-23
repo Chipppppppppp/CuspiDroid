@@ -2,6 +2,7 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -13,7 +14,6 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -21,81 +21,97 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONObject;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class NgRulesActivity extends Activity {
-    private static final int TEXT = Color.rgb(31, 41, 55);
-    private static final int MUTED = Color.rgb(79, 91, 103);
-    private static final int SURFACE = Color.rgb(247, 248, 250);
-    private static final int ACTIVE = Color.rgb(224, 242, 241);
-    private static final int BORDER = Color.rgb(215, 221, 226);
     private static final String[] CATEGORIES = {"NGWord", "NGName", "NGID", "NGBe", "NGThread"};
 
     private SharedPreferences preferences;
-    private final Map<String, List<NgRule>> rules = new LinkedHashMap<>();
+    private final List<MainActivity.ScopedNgRule> allRules = new ArrayList<>();
+    private final List<MainActivity.ScopedNgRule> pageRules = new ArrayList<>();
     private final Map<String, Button> categoryButtons = new LinkedHashMap<>();
     private LinearLayout list;
+    private EditText targetInput;
+    private String targetUrl = "";
+    private String targetTitle = "";
     private String currentCategory = CATEGORIES[0];
-
-    private int bgColor() {
-        return Theme.background(this);
-    }
-
-    private int surfaceColor() {
-        return Theme.surface(this);
-    }
-
-    private int textColor() {
-        return Theme.text(this);
-    }
-
-    private int mutedColor() {
-        return Theme.muted(this);
-    }
-
-    private int borderColor() {
-        return Theme.border(this);
-    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
-        loadRules();
+        allRules.addAll(MainActivity.readNgRules(preferences));
+        Intent intent = getIntent();
+        if (intent != null) {
+            targetUrl = MainActivity.normalizeNgTargetUrl(intent.getStringExtra(MainActivity.EXTRA_NG_TARGET_URL));
+            targetTitle = intent.getStringExtra(MainActivity.EXTRA_NG_TARGET_TITLE);
+        }
+        if (targetTitle == null) {
+            targetTitle = "";
+        }
+        loadPageRules();
         buildLayout();
         renderRules();
+    }
+
+    @Override
+    protected void onPause() {
+        saveRules();
+        super.onPause();
+    }
+
+    private void loadPageRules() {
+        pageRules.clear();
+        for (MainActivity.ScopedNgRule rule : allRules) {
+            if (rule.targetUrl.equals(targetUrl)) {
+                pageRules.add(rule);
+            }
+        }
     }
 
     private void buildLayout() {
         Theme.applySystemBars(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(bgColor());
+        root.setPadding(dp(14), dp(16), dp(14), 0);
+        root.setBackgroundColor(Theme.background(this));
         setContentView(root);
 
-        TextView title = new TextView(this);
-        title.setText(MainActivity.text("NG\u8a2d\u5b9a", "NG Rules"));
-        title.setTextColor(textColor());
-        title.setTextSize(24);
-        title.setPadding(dp(18), dp(18), dp(18), dp(10));
-        root.addView(title);
+        root.addView(textView(targetUrl.isEmpty()
+                ? MainActivity.text("\u3059\u3079\u3066\u306e\u30b9\u30ec\u306eNG\u7ba1\u7406", "NG rules for all threads")
+                : MainActivity.text("\u30b9\u30ec\u3054\u3068\u306eNG\u7ba1\u7406", "Thread NG rules"), 24, Theme.text(this)));
+
+        if (!targetUrl.isEmpty()) {
+            TextView threadName = textView(targetTitle.trim().isEmpty()
+                    ? MainActivity.text("\u30b9\u30ec", "Thread") : targetTitle.trim(), 16, Theme.text(this));
+            threadName.setMaxLines(2);
+            threadName.setPadding(dp(4), dp(10), dp(4), dp(4));
+            root.addView(threadName);
+            targetInput = field(MainActivity.text("\u30b9\u30ecURL", "Thread URL"));
+            targetInput.setText(targetUrl);
+            root.addView(targetInput, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        } else {
+            TextView description = textView(
+                    MainActivity.text("\u3053\u3053\u306eNG\u30eb\u30fc\u30eb\u306f\u3059\u3079\u3066\u306e\u30b9\u30ec\u306b\u9069\u7528\u3055\u308c\u307e\u3059",
+                            "Rules on this page apply to every thread."), 13, Theme.muted(this));
+            description.setPadding(dp(4), dp(8), dp(4), dp(8));
+            root.addView(description);
+        }
 
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setPadding(dp(12), 0, dp(12), dp(8));
-        root.addView(tabs, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+        tabs.setPadding(0, dp(8), 0, dp(6));
         for (String category : CATEGORIES) {
             Button button = new Button(this);
             button.setAllCaps(false);
             button.setText(category);
-            button.setTextSize(12);
-            button.setTextColor(textColor());
+            button.setTextSize(11);
+            button.setTextColor(Theme.text(this));
             button.setOnClickListener(v -> {
                 currentCategory = category;
                 renderRules();
@@ -105,21 +121,20 @@ public class NgRulesActivity extends Activity {
             params.setMargins(dp(2), 0, dp(2), 0);
             tabs.addView(button, params);
         }
+        root.addView(tabs);
 
-        ViewGroup add = addRow(MainActivity.text("\u30eb\u30fc\u30eb\u3092\u8ffd\u52a0", "Add rule"),
-                MainActivity.text("\u9078\u629e\u4e2d\u306e\u7a2e\u985e\u306b\u6587\u5b57\u5217\u307e\u305f\u306f\u6b63\u898f\u8868\u73fe\u3092\u8ffd\u52a0", "Add text or regex to the selected category"));
+        TextView add = actionRow(MainActivity.text("NG\u30eb\u30fc\u30eb\u3092\u8ffd\u52a0", "Add NG rule"));
         add.setOnClickListener(v -> showRuleDialog(null, -1));
         LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
-        addParams.setMargins(dp(18), 0, dp(18), dp(8));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        addParams.setMargins(dp(4), 0, dp(4), dp(8));
         root.addView(add, addParams);
 
         ScrollView scroll = new ScrollView(this);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(18), 0, dp(18), dp(24));
-        scroll.addView(list, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        list.setPadding(dp(4), 0, dp(4), dp(24));
+        scroll.addView(list);
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
     }
@@ -131,90 +146,64 @@ public class NgRulesActivity extends Activity {
             entry.getValue().setBackground(tabBackground(selected));
         }
         list.removeAllViews();
-        List<NgRule> items = rules.get(currentCategory);
-        if (items == null || items.isEmpty()) {
-            list.addView(helperText(MainActivity.text("\u30eb\u30fc\u30eb\u306a\u3057", "No rules.")));
+        List<Integer> indexes = categoryIndexes();
+        if (indexes.isEmpty()) {
+            list.addView(textView(MainActivity.text("\u30eb\u30fc\u30eb\u306a\u3057", "No rules."), 14, Theme.muted(this)));
             return;
         }
-        for (int i = 0; i < items.size(); i++) {
-            NgRule rule = items.get(i);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(10), dp(8), dp(8), dp(8));
-            row.setBackground(rowBackground());
-
-            TextView text = helperText((rule.regex
+        for (int pageIndex : indexes) {
+            MainActivity.ScopedNgRule rule = pageRules.get(pageIndex);
+            LinearLayout row = ruleRow((rule.regex
                     ? MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex")
                     : MainActivity.text("\u6587\u5b57\u5217", "Text")) + "\n" + rule.value);
-            text.setTextColor(textColor());
-            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-            int index = i;
             ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
-            edit.setOnClickListener(v -> showRuleDialog(rule, index));
+            edit.setOnClickListener(v -> showRuleDialog(rule, pageIndex));
             row.addView(edit, iconParams());
-
             ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u524a\u9664", "Delete"));
             delete.setOnClickListener(v -> {
-                items.remove(index);
+                pageRules.remove(pageIndex);
                 saveRules();
                 renderRules();
             });
             row.addView(delete, iconParams());
-
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.setMargins(0, 0, 0, dp(8));
-            list.addView(row, params);
+            list.addView(row, rowParams());
         }
     }
 
-    private void showRuleDialog(NgRule existing, int index) {
+    private List<Integer> categoryIndexes() {
+        List<Integer> indexes = new ArrayList<>();
+        for (int i = 0; i < pageRules.size(); i++) {
+            if (currentCategory.equals(pageRules.get(i).category)) {
+                indexes.add(i);
+            }
+        }
+        return indexes;
+    }
+
+    private void showRuleDialog(MainActivity.ScopedNgRule existing, int pageIndex) {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(12), dp(4), dp(12), 0);
-        content.setBackgroundColor(surfaceColor());
-
+        content.setBackgroundColor(Theme.surface(this));
         RadioGroup group = new RadioGroup(this);
         group.setOrientation(RadioGroup.HORIZONTAL);
-        RadioButton textType = new RadioButton(this);
-        textType.setText(MainActivity.text("\u6587\u5b57\u5217", "Text"));
-        textType.setTextColor(textColor());
-        Theme.tintCompoundButton(this, textType);
-        RadioButton regexType = new RadioButton(this);
-        regexType.setText(MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex"));
-        regexType.setTextColor(textColor());
-        Theme.tintCompoundButton(this, regexType);
+        RadioButton textType = radio(MainActivity.text("\u6587\u5b57\u5217", "Text"));
+        RadioButton regexType = radio(MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex"));
         group.addView(textType);
         group.addView(regexType);
         content.addView(group);
-
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setTextSize(15);
-        input.setTextColor(textColor());
-        input.setHintTextColor(mutedColor());
-        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        input.setBackground(fieldBackground());
-        input.setPadding(dp(12), 0, dp(12), 0);
+        EditText input = field(MainActivity.text("NG\u30eb\u30fc\u30eb", "NG rule"));
         content.addView(input, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
-
-        if (existing == null || !existing.regex) {
-            textType.setChecked(true);
-        } else {
-            regexType.setChecked(true);
-        }
+        (existing != null && existing.regex ? regexType : textType).setChecked(true);
         if (existing != null) {
             input.setText(existing.value);
             input.setSelection(input.length());
         }
-
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(existing == null
-                        ? MainActivity.text("\u30eb\u30fc\u30eb\u3092\u8ffd\u52a0", "Add rule")
-                        : MainActivity.text("\u30eb\u30fc\u30eb\u3092\u7de8\u96c6", "Edit rule"))
+                        ? MainActivity.text("NG\u30eb\u30fc\u30eb\u3092\u8ffd\u52a0", "Add NG rule")
+                        : MainActivity.text("NG\u30eb\u30fc\u30eb\u3092\u7de8\u96c6", "Edit NG rule"))
                 .setView(content)
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(existing == null
@@ -224,210 +213,141 @@ public class NgRulesActivity extends Activity {
         dialog.setOnShowListener(d -> {
             Theme.styleDialog(dialog, this);
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String value = input.getText().toString().trim();
-            if (value.isEmpty()) {
-                Toast.makeText(this, MainActivity.text("\u30eb\u30fc\u30eb\u3092\u5165\u529b", "Enter a rule."), Toast.LENGTH_SHORT).show();
-                return;
-            }
-            NgRule rule = new NgRule(value, regexType.isChecked());
-            List<NgRule> items = rules.get(currentCategory);
-            if (items == null) {
-                items = new ArrayList<>();
-                rules.put(currentCategory, items);
-            }
-            if (index >= 0 && index < items.size()) {
-                items.set(index, rule);
-            } else {
-                items.add(rule);
-            }
-            saveRules();
-            renderRules();
-            dialog.dismiss();
+                String value = input.getText().toString().trim();
+                if (value.isEmpty()) {
+                    Toast.makeText(this, MainActivity.text("\u30eb\u30fc\u30eb\u3092\u5165\u529b", "Enter a rule."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (regexType.isChecked()) {
+                    try {
+                        Pattern.compile(value);
+                    } catch (Exception error) {
+                        Toast.makeText(this, MainActivity.text("\u6b63\u898f\u8868\u73fe\u304c\u4e0d\u6b63\u3067\u3059", "Invalid regex."), Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                }
+                MainActivity.ScopedNgRule rule = new MainActivity.ScopedNgRule(
+                        currentCategory, value, regexType.isChecked(), currentTargetUrl());
+                if (pageIndex >= 0 && pageIndex < pageRules.size()) {
+                    pageRules.set(pageIndex, rule);
+                } else {
+                    pageRules.add(rule);
+                }
+                saveRules();
+                renderRules();
+                dialog.dismiss();
             });
         });
         dialog.show();
     }
 
-    private void loadRules() {
-        for (String category : CATEGORIES) {
-            rules.put(category, new ArrayList<>());
-        }
-        try {
-            JSONObject root = new JSONObject(preferences.getString(MainActivity.PREF_NG_RULES, "{}"));
-            for (String category : CATEGORIES) {
-                JSONObject item = root.optJSONObject(category);
-                if (item == null) {
-                    continue;
-                }
-                addSavedLines(category, item.optString("text", ""), false);
-                addSavedLines(category, item.optString("regex", ""), true);
-            }
-        } catch (Exception ignored) {
-        }
-        addSavedLines("NGWord", preferences.getString(MainActivity.PREF_NG_WORDS, ""), false);
-    }
-
-    private void addSavedLines(String category, String saved, boolean regex) {
-        List<NgRule> items = rules.get(category);
-        if (items == null || saved == null) {
-            return;
-        }
-        for (String line : saved.split("\\r?\\n")) {
-            String value = line.trim();
-            if (!value.isEmpty()) {
-                items.add(new NgRule(value, regex));
-            }
-        }
+    private String currentTargetUrl() {
+        return targetInput == null ? "" : MainActivity.normalizeNgTargetUrl(targetInput.getText().toString());
     }
 
     private void saveRules() {
-        JSONObject root = new JSONObject();
-        try {
-            for (String category : CATEGORIES) {
-                StringBuilder text = new StringBuilder();
-                StringBuilder regex = new StringBuilder();
-                List<NgRule> items = rules.get(category);
-                if (items != null) {
-                    for (NgRule rule : items) {
-                        StringBuilder target = rule.regex ? regex : text;
-                        if (target.length() > 0) {
-                            target.append('\n');
-                        }
-                        target.append(rule.value);
-                    }
-                }
-                JSONObject item = new JSONObject();
-                item.put("text", text.toString());
-                item.put("regex", regex.toString());
-                root.put(category, item);
+        List<MainActivity.ScopedNgRule> saved = new ArrayList<>();
+        for (MainActivity.ScopedNgRule rule : allRules) {
+            if (!rule.targetUrl.equals(targetUrl)) {
+                saved.add(rule);
             }
-        } catch (Exception ignored) {
         }
-        preferences.edit()
-                .putString(MainActivity.PREF_NG_RULES, root.toString())
-                .putString(MainActivity.PREF_NG_WORDS, "")
-                .apply();
+        String nextTarget = currentTargetUrl();
+        for (MainActivity.ScopedNgRule rule : pageRules) {
+            saved.add(new MainActivity.ScopedNgRule(rule.category, rule.value, rule.regex, nextTarget));
+        }
+        targetUrl = nextTarget;
+        allRules.clear();
+        allRules.addAll(saved);
+        MainActivity.saveNgRules(preferences, saved);
     }
 
-    private TextView helperText(String value) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextColor(mutedColor());
-        view.setTextSize(14);
-        view.setPadding(0, dp(4), 0, dp(4));
-        return view;
-    }
-
-    private ImageButton iconButton(int iconRes, String description) {
-        ImageButton button = new ImageButton(this);
-        button.setImageResource(iconRes);
-        button.setContentDescription(description);
-        button.setColorFilter(textColor());
-        button.setBackground(iconButtonBackground());
-        button.setPadding(dp(10), dp(10), dp(10), dp(10));
-        button.setScaleType(ImageButton.ScaleType.CENTER);
-        return button;
-    }
-
-    private ViewGroup addRow(String title, String subtitle) {
+    private LinearLayout ruleRow(String value) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(8), dp(12), dp(8));
-        row.setBackground(addBackground());
-        row.setClickable(true);
-        row.setFocusable(true);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.ic_add);
-        icon.setColorFilter(Color.WHITE);
-        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
-        icon.setBackground(addIconBackground());
-        row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        texts.setGravity(Gravity.CENTER_VERTICAL);
-        TextView titleView = new TextView(this);
-        titleView.setText(title);
-        titleView.setTextColor(textColor());
-        titleView.setTextSize(16);
-        texts.addView(titleView);
-        TextView subtitleView = new TextView(this);
-        subtitleView.setText(subtitle);
-        subtitleView.setTextColor(mutedColor());
-        subtitleView.setTextSize(12);
-        texts.addView(subtitleView);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        textParams.setMargins(dp(12), 0, 0, 0);
-        row.addView(texts, textParams);
+        row.setPadding(dp(10), dp(8), dp(8), dp(8));
+        row.setBackground(boxBackground());
+        row.addView(textView(value, 14, Theme.text(this)),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         return row;
+    }
+
+    private TextView actionRow(String value) {
+        TextView view = textView("+  " + value, 16, Theme.text(this));
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        view.setPadding(dp(12), 0, dp(12), 0);
+        view.setBackground(boxBackground());
+        return view;
+    }
+
+    private EditText field(String hint) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setTextColor(Theme.text(this));
+        input.setHintTextColor(Theme.muted(this));
+        input.setHint(hint);
+        input.setTextSize(14);
+        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        input.setPadding(dp(12), 0, dp(12), 0);
+        input.setBackground(boxBackground());
+        return input;
+    }
+
+    private RadioButton radio(String label) {
+        RadioButton button = new RadioButton(this);
+        button.setText(label);
+        button.setTextColor(Theme.text(this));
+        Theme.tintCompoundButton(this, button);
+        return button;
+    }
+
+    private TextView textView(String value, float size, int color) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        return view;
+    }
+
+    private ImageButton iconButton(int icon, String description) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(icon);
+        button.setContentDescription(description);
+        button.setColorFilter(Theme.text(this));
+        button.setBackgroundColor(Color.TRANSPARENT);
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        return button;
     }
 
     private LinearLayout.LayoutParams iconParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(42), dp(40));
-        params.setMargins(dp(8), 0, 0, 0);
+        params.setMargins(dp(6), 0, 0, 0);
         return params;
     }
 
-    private GradientDrawable rowBackground() {
+    private LinearLayout.LayoutParams rowParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        return params;
+    }
+
+    private GradientDrawable boxBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(surfaceColor());
-        drawable.setStroke(dp(1), borderColor());
+        drawable.setColor(Theme.surface(this));
+        drawable.setStroke(dp(1), Theme.border(this));
         drawable.setCornerRadius(dp(8));
         return drawable;
     }
 
     private GradientDrawable tabBackground(boolean selected) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(selected ? Theme.active(this) : surfaceColor());
-        drawable.setStroke(dp(1), selected ? Color.rgb(20, 184, 166) : borderColor());
-        drawable.setCornerRadius(dp(8));
-        return drawable;
-    }
-
-    private GradientDrawable fieldBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(surfaceColor());
-        drawable.setStroke(dp(1), borderColor());
-        drawable.setCornerRadius(dp(8));
-        return drawable;
-    }
-
-    private GradientDrawable iconButtonBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.TRANSPARENT);
-        drawable.setCornerRadius(dp(8));
-        return drawable;
-    }
-
-    private GradientDrawable addBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(surfaceColor());
-        drawable.setStroke(dp(1), borderColor());
-        drawable.setCornerRadius(dp(14));
-        return drawable;
-    }
-
-    private GradientDrawable addIconBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.rgb(15, 118, 110));
-        drawable.setCornerRadius(dp(13));
+        GradientDrawable drawable = boxBackground();
+        drawable.setColor(selected ? Theme.active(this) : Theme.surface(this));
         return drawable;
     }
 
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    private static class NgRule {
-        final String value;
-        final boolean regex;
-
-        NgRule(String value, boolean regex) {
-            this.value = value;
-            this.regex = regex;
-        }
     }
 }

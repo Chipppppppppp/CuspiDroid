@@ -169,7 +169,8 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
     static final String EXTRA_PRIORITY_TARGET_URL = "priority_target_url";
     static final String EXTRA_PRIORITY_TARGET_TITLE = "priority_target_title";
-    static final String EXTRA_PRIORITY_ADD = "priority_add";
+    static final String EXTRA_NG_TARGET_URL = "ng_target_url";
+    static final String EXTRA_NG_TARGET_TITLE = "ng_target_title";
     static final String PREF_BOARD_DISPLAY_NAMES = "board_display_names";
     static final String PREF_TAB_SHOW_BOARD_NAME = "tab_show_board_name";
     static final String PREF_TAB_SHOW_RESPONSES = "tab_show_responses";
@@ -1591,6 +1592,11 @@ public class MainActivity extends Activity {
             searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_close, text("NG\u7ba1\u7406", "Manage NG rules"), v -> {
+            dismissPopupAnimated(popup);
+            openThreadNgRules(tab.url, tab.title);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
         int mediaCount = threadExtractItems(true).size();
         int linkCount = threadExtractItems(false).size();
         menu.addView(menuIconItem(R.drawable.ic_image, menuCountLabel(text("\u30e1\u30c7\u30a3\u30a2", "Media"), mediaCount), v -> {
@@ -1642,8 +1648,14 @@ public class MainActivity extends Activity {
         if (targetUrl != null && !targetUrl.trim().isEmpty()) {
             intent.putExtra(EXTRA_PRIORITY_TARGET_URL, targetUrl);
             intent.putExtra(EXTRA_PRIORITY_TARGET_TITLE, targetTitle == null ? "" : targetTitle);
-            intent.putExtra(EXTRA_PRIORITY_ADD, true);
         }
+        startActivity(intent);
+    }
+
+    private void openThreadNgRules(String targetUrl, String targetTitle) {
+        Intent intent = new Intent(this, NgRulesActivity.class);
+        intent.putExtra(EXTRA_NG_TARGET_URL, normalizeNgTargetUrl(targetUrl));
+        intent.putExtra(EXTRA_NG_TARGET_TITLE, targetTitle == null ? "" : targetTitle);
         startActivity(intent);
     }
 
@@ -5312,20 +5324,28 @@ public class MainActivity extends Activity {
             return false;
         }
         NgRules rules = ngRules();
-        if (post.cachedNgRulesKey != null && post.cachedNgRulesKey.equals(cachedNgRulesKey)) {
+        String targetUrl = currentNgThreadUrl();
+        String cacheKey = cachedNgRulesKey + "\n" + targetUrl;
+        if (post.cachedNgRulesKey != null && post.cachedNgRulesKey.equals(cacheKey)) {
             return post.cachedNgMatch;
         }
-        boolean match = rules.matches("NGWord", post.body)
-                || rules.matches("NGName", post.name)
-                || rules.matches("NGID", post.id())
-                || rules.matches("NGBe", post.be());
-        post.cachedNgRulesKey = cachedNgRulesKey;
+        boolean match = rules.matches("NGWord", post.body, targetUrl)
+                || rules.matches("NGName", post.name, targetUrl)
+                || rules.matches("NGID", post.id(), targetUrl)
+                || rules.matches("NGBe", post.be(), targetUrl);
+        post.cachedNgRulesKey = cacheKey;
         post.cachedNgMatch = match;
         return match;
     }
 
     private boolean matchesNgThread(String title) {
-        return ngRules().matches("NGThread", title);
+        return ngRules().matches("NGThread", title, currentNgThreadUrl());
+    }
+
+    private String currentNgThreadUrl() {
+        CuspTab tab = currentTab();
+        return tab != null && NATIVE_THREAD.equals(tab.nativeKind)
+                ? normalizeNgTargetUrl(tab.url) : "";
     }
 
     private NgRules ngRules() {
@@ -5336,89 +5356,54 @@ public class MainActivity extends Activity {
             return cachedNgRules;
         }
         NgRules rules = new NgRules();
-        try {
-            JSONObject root = new JSONObject(rulesJson);
-            for (String category : NgRules.CATEGORIES) {
-                JSONObject item = root.optJSONObject(category);
-                if (item != null) {
-                    rules.addText(category, item.optString("text", ""));
-                    rules.addRegex(category, item.optString("regex", ""));
-                }
-            }
-        } catch (Exception ignored) {
+        for (ScopedNgRule rule : readNgRules(preferences)) {
+            rules.add(rule);
         }
-        rules.addText("NGWord", legacyWords);
         cachedNgRulesKey = key;
         cachedNgRules = rules;
         return rules;
     }
 
-    private static List<String> ruleLines(String saved) {
-        List<String> lines = new ArrayList<>();
-        if (saved == null) {
-            return lines;
-        }
-        for (String line : saved.split("\\r?\\n")) {
-            String value = line.trim();
-            if (!value.isEmpty()) {
-                lines.add(value);
-            }
-        }
-        return lines;
-    }
-
     private static class NgRules {
         static final String[] CATEGORIES = {"NGWord", "NGName", "NGID", "NGBe", "NGThread"};
-        final Map<String, List<String>> texts = new LinkedHashMap<>();
-        final Map<String, List<Pattern>> regexes = new LinkedHashMap<>();
+        final List<CompiledNgRule> rules = new ArrayList<>();
 
-        void addText(String category, String saved) {
-            List<String> values = texts.get(category);
-            if (values == null) {
-                values = new ArrayList<>();
-                texts.put(category, values);
-            }
-            for (String line : ruleLines(saved)) {
-                values.add(line.toLowerCase(Locale.ROOT));
+        void add(ScopedNgRule rule) {
+            try {
+                rules.add(new CompiledNgRule(rule,
+                        rule.regex ? Pattern.compile(rule.value, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE) : null));
+            } catch (Exception ignored) {
             }
         }
 
-        void addRegex(String category, String saved) {
-            List<Pattern> values = regexes.get(category);
-            if (values == null) {
-                values = new ArrayList<>();
-                regexes.put(category, values);
-            }
-            for (String line : ruleLines(saved)) {
-                try {
-                    values.add(Pattern.compile(line, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
-                } catch (Exception ignored) {
-                }
-            }
-        }
-
-        boolean matches(String category, String value) {
+        boolean matches(String category, String value, String targetUrl) {
             if (value == null || value.isEmpty()) {
                 return false;
             }
             String lower = value.toLowerCase(Locale.ROOT);
-            List<String> textRules = texts.get(category);
-            if (textRules != null) {
-                for (String rule : textRules) {
-                    if (!rule.isEmpty() && lower.contains(rule)) {
-                        return true;
-                    }
+            String target = normalizeNgTargetUrl(targetUrl);
+            for (CompiledNgRule compiled : rules) {
+                ScopedNgRule rule = compiled.rule;
+                if (!category.equals(rule.category)
+                        || (!rule.targetUrl.isEmpty() && !rule.targetUrl.equals(target))) {
+                    continue;
                 }
-            }
-            List<Pattern> regexRules = regexes.get(category);
-            if (regexRules != null) {
-                for (Pattern rule : regexRules) {
-                    if (rule.matcher(value).find()) {
-                        return true;
-                    }
+                if (compiled.pattern != null ? compiled.pattern.matcher(value).find()
+                        : lower.contains(rule.value.toLowerCase(Locale.ROOT))) {
+                    return true;
                 }
             }
             return false;
+        }
+    }
+
+    private static class CompiledNgRule {
+        final ScopedNgRule rule;
+        final Pattern pattern;
+
+        CompiledNgRule(ScopedNgRule rule, Pattern pattern) {
+            this.rule = rule;
+            this.pattern = pattern;
         }
     }
 
@@ -5858,16 +5843,6 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(10), dp(9), dp(10), dp(9));
         row.setOnClickListener(v -> routeSearchResult(result));
-        if (isBoardMenuResult(result)) {
-            row.setOnLongClickListener(v -> {
-                showBoardResultMenu(v, result);
-                return true;
-            });
-            shell.setOnLongClickListener(v -> {
-                showBoardResultMenu(v, result);
-                return true;
-            });
-        }
 
         TextView resultTitle = new TextView(this);
         resultTitle.setText(styledResultTitle(result));
@@ -5886,46 +5861,11 @@ public class MainActivity extends Activity {
             row.addView(meta);
         }
         shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        if (isBoardMenuResult(result)) {
-            ImageButton more = iconButton(R.drawable.ic_more_vert, text("\u677f\u30e1\u30cb\u30e5\u30fc", "Board menu"),
-                    v -> showBoardResultMenu(v, result));
-            shell.addView(more, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        }
         ImageButton save = saveToggleButtonForResult(result);
         if (save != null) {
             shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
         }
         return shell;
-    }
-
-    private boolean isBoardMenuResult(SearchResult result) {
-        return result != null && result.url != null && isBoardUrl(result.url) && !isThreadUrl(result.url);
-    }
-
-    private void showBoardResultMenu(View anchor, SearchResult result) {
-        if (!isBoardMenuResult(result)) {
-            return;
-        }
-        LinearLayout menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setBackground(menuBackground());
-        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
-        popup.setOutsideTouchable(true);
-        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        prepareAnimatedPopupDismiss(popup, menu);
-
-        menu.addView(menuIconItem(R.drawable.ic_arrow_forward, text("\u958b\u304f", "Open"), v -> {
-            dismissPopupAnimated(popup);
-            routeSearchResult(result);
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority words"), v -> {
-            dismissPopupAnimated(popup);
-            openBoardPriorityRules(result.url, result.title);
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        showPopupAttachedToAnchor(popup, menu, anchor);
     }
 
     private View boardThreadMetaView(SearchResult result) {
@@ -18758,6 +18698,91 @@ public class MainActivity extends Activity {
         preferences.edit().putString(PREF_BBS_LINKS, array.toString()).apply();
     }
 
+    static List<ScopedNgRule> readNgRules(SharedPreferences preferences) {
+        List<ScopedNgRule> rules = new ArrayList<>();
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_NG_RULES, "{}"));
+            JSONArray scoped = root.optJSONArray("scopedRules");
+            if (scoped != null) {
+                for (int i = 0; i < scoped.length(); i++) {
+                    JSONObject item = scoped.optJSONObject(i);
+                    if (item == null) {
+                        continue;
+                    }
+                    String category = item.optString("category", "");
+                    String value = item.optString("value", "").trim();
+                    if (!value.isEmpty()) {
+                        rules.add(new ScopedNgRule(category, value, item.optBoolean("regex", false),
+                                item.optString("targetUrl", "")));
+                    }
+                }
+            }
+            for (String category : NgRules.CATEGORIES) {
+                JSONObject legacy = root.optJSONObject(category);
+                if (legacy == null) {
+                    continue;
+                }
+                addLegacyNgRules(rules, category, legacy.optString("text", ""), false);
+                addLegacyNgRules(rules, category, legacy.optString("regex", ""), true);
+            }
+        } catch (Exception ignored) {
+        }
+        addLegacyNgRules(rules, "NGWord", preferences.getString(PREF_NG_WORDS, ""), false);
+        return rules;
+    }
+
+    private static void addLegacyNgRules(List<ScopedNgRule> rules, String category, String saved, boolean regex) {
+        if (saved == null) {
+            return;
+        }
+        for (String line : saved.split("\\r?\\n")) {
+            String value = line.trim();
+            if (!value.isEmpty()) {
+                rules.add(new ScopedNgRule(category, value, regex, ""));
+            }
+        }
+    }
+
+    static void saveNgRules(SharedPreferences preferences, List<ScopedNgRule> rules) {
+        JSONObject root = new JSONObject();
+        JSONArray scoped = new JSONArray();
+        try {
+            if (rules != null) {
+                for (ScopedNgRule rule : rules) {
+                    if (rule == null || rule.value.trim().isEmpty()) {
+                        continue;
+                    }
+                    JSONObject item = new JSONObject();
+                    item.put("category", rule.category);
+                    item.put("value", rule.value.trim());
+                    item.put("regex", rule.regex);
+                    if (!rule.targetUrl.isEmpty()) {
+                        item.put("targetUrl", normalizeNgTargetUrl(rule.targetUrl));
+                    }
+                    scoped.put(item);
+                }
+            }
+            root.put("scopedRules", scoped);
+        } catch (Exception ignored) {
+        }
+        preferences.edit()
+                .putString(PREF_NG_RULES, root.toString())
+                .putString(PREF_NG_WORDS, "")
+                .apply();
+    }
+
+    static String normalizeNgTargetUrl(String url) {
+        String value = url == null ? "" : url.trim();
+        if (value.isEmpty()) {
+            return "";
+        }
+        value = normalizeUrlStatic(value);
+        while (value.endsWith("/") && value.length() > "https://x".length()) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return value;
+    }
+
     static List<BoardPriorityRule> readBoardPriorityRules(SharedPreferences preferences) {
         List<BoardPriorityRule> rules = new ArrayList<>();
         if (preferences == null) {
@@ -20158,6 +20183,20 @@ public class MainActivity extends Activity {
             this.value = value;
             this.regex = regex;
             this.targetUrl = targetUrl == null ? "" : targetUrl;
+        }
+    }
+
+    static class ScopedNgRule {
+        final String category;
+        final String value;
+        final boolean regex;
+        final String targetUrl;
+
+        ScopedNgRule(String category, String value, boolean regex, String targetUrl) {
+            this.category = category == null ? "NGWord" : category;
+            this.value = value == null ? "" : value;
+            this.regex = regex;
+            this.targetUrl = normalizeNgTargetUrl(targetUrl);
         }
     }
 
