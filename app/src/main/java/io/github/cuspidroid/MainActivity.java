@@ -1609,6 +1609,33 @@ public class MainActivity extends Activity {
         showThreadTitleMenuWithinScreen(popup, menu);
     }
 
+    private void showBoardTitleMenu(View anchor) {
+        CuspTab tab = currentTab();
+        if (tab == null || !NATIVE_BOARD.equals(tab.nativeKind) || tab.url == null
+                || !isBoardUrl(tab.url) || isBbsDirectoryUrl(tab.url)) {
+            return;
+        }
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+
+        menu.addView(menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority words"), v -> {
+            dismissPopupAnimated(popup);
+            openBoardPriorityRules(tab.url, displayTitleForTab(tab));
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30b3\u30d4\u30fc", "Copy"), v -> {
+            dismissPopupAnimated(popup);
+            copyVisibleTitle();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        showThreadTitleMenuWithinScreen(popup, menu);
+    }
+
     private void openBoardPriorityRules(String targetUrl, String targetTitle) {
         Intent intent = new Intent(this, BoardPriorityRulesActivity.class);
         if (targetUrl != null && !targetUrl.trim().isEmpty()) {
@@ -2784,21 +2811,28 @@ public class MainActivity extends Activity {
                 bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title);
             }
             boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
+            boolean canManageBoard = NATIVE_BOARD.equals(tab.nativeKind) && tab.url != null
+                    && isBoardUrl(tab.url) && !isBbsDirectoryUrl(tab.url);
             bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
             bottomThreadTitle.setOnLongClickListener(v -> {
                 if (canWrite) {
                     showThreadTitleMenu(v);
+                } else if (canManageBoard) {
+                    showBoardTitleMenu(v);
                 } else {
                     copyVisibleTitle();
                 }
                 return true;
             });
-            bottomThreadTitle.setClickable(canWrite);
+            bottomThreadTitle.setClickable(canWrite || canManageBoard);
             bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
             bottomBookmarkButton.setImageResource(R.drawable.ic_more_vert);
-            bottomBookmarkButton.setContentDescription(text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"));
-            bottomBookmarkButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            bottomBookmarkButton.setOnClickListener(canWrite ? v -> showThreadTitleMenu(v) : null);
+            bottomBookmarkButton.setContentDescription(canManageBoard
+                    ? text("\u677f\u30e1\u30cb\u30e5\u30fc", "Board menu")
+                    : text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"));
+            bottomBookmarkButton.setVisibility(canWrite || canManageBoard ? View.VISIBLE : View.GONE);
+            bottomBookmarkButton.setOnClickListener(canWrite ? v -> showThreadTitleMenu(v)
+                    : canManageBoard ? v -> showBoardTitleMenu(v) : null);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
@@ -3194,11 +3228,16 @@ public class MainActivity extends Activity {
                     }
                     return;
                 }
+                if (result.error == null && result.url != null && !result.url.trim().isEmpty()) {
+                    replaceCurrentNavigationUrl(tab, loadUrl, result.url);
+                    tab.url = result.url;
+                }
                 if (cached != null && cached.error == null && result.error == null
                         && sameRenderedThread(cached, result)
                         && tab.readerView != null && tab.threadPage == cached) {
                     tab.title = result.title;
                     applyThreadPageMetadata(cached, result);
+                    cached.url = result.url;
                     tab.threadPage = cached;
                     tab.readPostNumber = readPostNumberForTab(tab, result.url);
                     updateTabThreadStats(tab, cached);
@@ -4222,15 +4261,19 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage downloadThreadPage(String url) throws Exception {
-        ThreadPage datPage = downloadDatThread(url);
+        String redirectedUrl = resolveRedirectedUrl(
+                url,
+                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+        ThreadPage datPage = downloadDatThread(redirectedUrl);
         if (datPage != null && !datPage.posts.isEmpty()) {
+            datPage.url = redirectedUrl;
             return datPage;
         }
         ThreadPage htmlPage = null;
         Exception htmlError = null;
         try {
-            String html = download(threadHtmlUrl(url), "Mozilla/5.0 CuspiDroid/0.1");
-            htmlPage = parseThread(url, html);
+            String html = download(threadHtmlUrl(redirectedUrl), "Mozilla/5.0 CuspiDroid/0.1");
+            htmlPage = parseThread(redirectedUrl, html);
             if (!htmlPage.posts.isEmpty()) {
                 return htmlPage;
             }
@@ -4303,6 +4346,10 @@ public class MainActivity extends Activity {
                     }
                     return;
                 }
+                if (result.error == null && result.url != null && !result.url.trim().isEmpty()) {
+                    replaceCurrentNavigationUrl(tab, loadUrl, result.url);
+                    tab.url = result.url;
+                }
                 tab.title = result.title;
                 tab.searchPage = result;
                 tab.readerView = buildSearchView(result);
@@ -4357,9 +4404,13 @@ public class MainActivity extends Activity {
                     }
                     return;
                 }
+                if (result.error == null && result.url != null && !result.url.trim().isEmpty()) {
+                    replaceCurrentNavigationUrl(tab, loadUrl, result.url);
+                    tab.url = result.url;
+                }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = isBbsMenuUrl(loadUrl) ? buildBbsCategoryIndexView(result) : buildSearchView(result);
+                tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result) : buildSearchView(result);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
                 }
@@ -7289,6 +7340,21 @@ public class MainActivity extends Activity {
             tabOverviewPrivateScrollY = value;
         } else {
             tabOverviewNormalScrollY = value;
+        }
+        requestSaveTabsSoon();
+    }
+
+    private void replaceCurrentNavigationUrl(CuspTab tab, String expectedUrl, String redirectedUrl) {
+        if (tab == null || redirectedUrl == null || redirectedUrl.trim().isEmpty()
+                || redirectedUrl.equals(expectedUrl)) {
+            return;
+        }
+        if (tab.navigationIndex >= 0 && tab.navigationIndex < tab.navigationHistory.size()
+                && expectedUrl.equals(tab.navigationHistory.get(tab.navigationIndex))) {
+            tab.navigationHistory.set(tab.navigationIndex, redirectedUrl);
+        }
+        if (tab == currentTab() && addressBar != null) {
+            addressBar.setText(redirectedUrl);
         }
         requestSaveTabsSoon();
     }
@@ -16115,6 +16181,15 @@ public class MainActivity extends Activity {
         return body;
     }
 
+    private String resolveRedirectedUrl(String urlText, String userAgent) throws Exception {
+        HttpURLConnection connection = openConnectionFollowingRedirects(urlText, userAgent);
+        try {
+            return connection.getURL().toString();
+        } finally {
+            connection.disconnect();
+        }
+    }
+
     private Charset responseCharset(HttpURLConnection connection, Charset fallback) {
         Charset charset = fallback;
         String contentType = connection.getContentType();
@@ -16469,18 +16544,36 @@ public class MainActivity extends Activity {
     }
 
     private SearchPage downloadBoard(String boardUrl) throws Exception {
-        Uri uri = Uri.parse(boardUrl);
+        String redirectedUrl = resolveRedirectedUrl(
+                boardUrl,
+                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+        Uri uri = Uri.parse(redirectedUrl);
         String host = uri.getHost();
-        String board = boardNameFromUrl(boardUrl);
+        String board = boardNameFromUrl(redirectedUrl);
         if (host == null || board == null) {
             throw new IllegalStateException("Unsupported board URL.");
         }
-        BoardSubject subject = downloadBoardSubject(boardUrl, host, board);
+        BoardSubject subject;
+        try {
+            subject = downloadBoardSubject(redirectedUrl, host, board);
+        } catch (Exception directError) {
+            String dataUrl = boardDataUrlFromHtml(redirectedUrl, board);
+            if (dataUrl == null || dataUrl.equals(redirectedUrl)) {
+                throw directError;
+            }
+            Uri dataUri = Uri.parse(dataUrl);
+            String dataHost = dataUri.getHost();
+            String dataBoard = boardNameFromUrl(dataUrl);
+            if (dataHost == null || dataBoard == null) {
+                throw directError;
+            }
+            subject = downloadBoardSubject(dataUrl, dataHost, dataBoard);
+        }
         String body = subject.body;
 
         SearchPage page = new SearchPage();
-        page.url = boardUrl;
-        page.title = boardTitle(boardUrl);
+        page.url = redirectedUrl;
+        page.title = boardTitle(redirectedUrl);
         int order = 1;
         for (String line : body.split("\\r?\\n")) {
             int sep = line.indexOf("<>");
@@ -16509,8 +16602,8 @@ public class MainActivity extends Activity {
             int readNumber = visibleReadPostNumber(result.url);
             result.hasReadHistory = threadHistoryContains(result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
-            result.boardName = displayBoardTitle(boardUrl);
-            result.priorityMatch = matchingBoardPriorityWord(title, boardUrl);
+            result.boardName = displayBoardTitle(redirectedUrl);
+            result.priorityMatch = matchingBoardPriorityWord(title, redirectedUrl);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
             order++;
@@ -16519,13 +16612,44 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    private String boardDataUrlFromHtml(String boardUrl, String board) {
+        try {
+            String html = download(boardUrl, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+            Matcher ref = Pattern.compile(
+                    "\\bref\\s*=\\s*['\"](https?://[^'\"]+)['\"]",
+                    Pattern.CASE_INSENSITIVE).matcher(html);
+            if (ref.find()) {
+                return normalizeUrl(ref.group(1));
+            }
+            Matcher domain = Pattern.compile(
+                    "id\\s*=\\s*['\"]board_domain['\"][^>]*value\\s*=\\s*['\"]([^'\"]+)['\"]",
+                    Pattern.CASE_INSENSITIVE).matcher(html);
+            boolean foundDomain = domain.find();
+            if (!foundDomain) {
+                domain = Pattern.compile(
+                        "value\\s*=\\s*['\"]([^'\"]+)['\"][^>]*id\\s*=\\s*['\"]board_domain['\"]",
+                        Pattern.CASE_INSENSITIVE).matcher(html);
+                foundDomain = domain.find();
+            }
+            if (foundDomain) {
+                String scheme = Uri.parse(boardUrl).getScheme();
+                return (scheme == null ? "https" : scheme) + "://" + domain.group(1) + "/" + board + "/";
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
     private SearchPage downloadBbsDirectory(String directoryUrl) throws Exception {
-        String html = download(directoryUrl);
-        Uri base = Uri.parse(normalizeUrl(directoryUrl));
+        String redirectedUrl = resolveRedirectedUrl(
+                directoryUrl,
+                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+        String html = download(redirectedUrl);
+        Uri base = Uri.parse(normalizeUrl(redirectedUrl));
         String baseHost = base.getHost();
         SearchPage page = new SearchPage();
-        page.url = directoryUrl;
-        page.title = hostTitle(directoryUrl);
+        page.url = redirectedUrl;
+        page.title = hostTitle(redirectedUrl);
         Set<String> seen = new LinkedHashSet<>();
         Pattern anchorPattern = Pattern.compile(
                 "<a\\s+[^>]*href\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))[^>]*>(.*?)</a>",
@@ -16542,10 +16666,10 @@ public class MainActivity extends Activity {
             if (href == null || href.trim().isEmpty()) {
                 continue;
             }
-            String absolute = absoluteUrl(directoryUrl, href);
+            String absolute = absoluteUrl(redirectedUrl, href);
             Uri target = Uri.parse(absolute);
             String host = target.getHost();
-            if (!isSameDirectoryFamily(directoryUrl, absolute, baseHost, host)) {
+            if (!isSameDirectoryFamily(redirectedUrl, absolute, baseHost, host)) {
                 continue;
             }
             if (!isDirectoryBoardLink(absolute)) {
@@ -16723,7 +16847,10 @@ public class MainActivity extends Activity {
                 if (code >= 400) {
                     throw new IllegalStateException("HTTP " + code + "\n" + cleanText(body));
                 }
-                return new BoardSubject(body, threadBaseFromSubjectUrl(subjectUrl, board));
+                if (!isBoardSubjectBody(body)) {
+                    throw new IllegalStateException("Invalid subject.txt response.");
+                }
+                return new BoardSubject(body, threadBaseFromSubjectUrl(connection.getURL().toString(), board));
             } catch (Exception error) {
                 lastError = error;
             } finally {
@@ -16733,6 +16860,26 @@ public class MainActivity extends Activity {
             }
         }
         throw lastError == null ? new IllegalStateException("subject.txt not found.") : lastError;
+    }
+
+    private boolean isBoardSubjectBody(String body) {
+        if (body == null || body.trim().isEmpty()) {
+            return true;
+        }
+        for (String line : body.split("\\r?\\n")) {
+            int separator = line.indexOf("<>");
+            if (separator <= 0) {
+                separator = line.indexOf(",");
+            }
+            if (separator <= 0) {
+                continue;
+            }
+            String file = line.substring(0, separator).trim().toLowerCase(Locale.ROOT);
+            if (file.endsWith(".dat") || file.endsWith(".cgi")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<String> boardSubjectCandidates(String boardUrl, String host, String board) {
@@ -18810,6 +18957,9 @@ public class MainActivity extends Activity {
             if (part.isEmpty()) {
                 continue;
             }
+            if ("subback".equals(part) && i + 1 < parts.length && !parts[i + 1].isEmpty()) {
+                return parts[i + 1];
+            }
             if ("bbs".equals(part) && i + 2 < parts.length
                     && "read.cgi".equals(parts[i + 1]) && !parts[i + 2].isEmpty()) {
                 return parts[i + 2];
@@ -19080,50 +19230,7 @@ public class MainActivity extends Activity {
         } else if (!value.startsWith("http://") && !value.startsWith("https://")) {
             value = "https://" + value;
         }
-        String threadUrl = normalizeThreadUrlStatic(value);
-        return threadUrl == null ? value : threadUrl;
-    }
-
-    private static String normalizeThreadUrlStatic(String value) {
-        try {
-            Uri uri = Uri.parse(value);
-            String host = uri.getHost();
-            if (host == null) {
-                return null;
-            }
-            String lowerHost = host.toLowerCase(Locale.ROOT);
-            if (!lowerHost.equals("5ch.io") && !lowerHost.equals("5ch.net")
-                    && !lowerHost.endsWith(".5ch.io") && !lowerHost.endsWith(".5ch.net")) {
-                return null;
-            }
-            String[] segments = uri.getPath() == null ? new String[0] : uri.getPath().split("/");
-            List<String> parts = new ArrayList<>();
-            for (String segment : segments) {
-                if (!segment.isEmpty()) {
-                    parts.add(segment);
-                }
-            }
-            int testIndex = parts.indexOf("test");
-            if (testIndex < 0) {
-                testIndex = parts.indexOf("bbs");
-            }
-            if (testIndex < 0 || testIndex + 3 >= parts.size()
-                    || !"read.cgi".equals(parts.get(testIndex + 1))) {
-                return null;
-            }
-            String server = lowerHost.split("\\.")[0];
-            if ("itest".equals(server) && testIndex > 0) {
-                server = parts.get(testIndex - 1).toLowerCase(Locale.ROOT);
-            }
-            if (server.trim().isEmpty() || "itest".equals(server)) {
-                return null;
-            }
-            String board = parts.get(testIndex + 2);
-            String key = parts.get(testIndex + 3);
-            return "https://itest.5ch.io/" + server + "/test/read.cgi/" + board + "/" + key + "/";
-        } catch (Exception error) {
-            return null;
-        }
+        return value;
     }
 
     private String searchUrl(String query) {
