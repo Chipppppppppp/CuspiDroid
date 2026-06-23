@@ -48,6 +48,7 @@ public class SettingsActivity extends Activity {
     private CheckBox treeView;
     private CheckBox treeSkipFirstReply;
     private CheckBox autoScrollUnread;
+    private CheckBox colorUnreadPosts;
     private CheckBox omitCopyPaste;
     private CheckBox autoAa;
     private CheckBox cacheEnabled;
@@ -201,6 +202,13 @@ public class SettingsActivity extends Activity {
         autoScrollUnread.setTextSize(16);
         Theme.tintCompoundButton(this, autoScrollUnread);
         root.addView(autoScrollUnread);
+
+        colorUnreadPosts = new CheckBox(this);
+        colorUnreadPosts.setText(MainActivity.text("\u672a\u8aad\u306e\u66f8\u304d\u8fbc\u307f\u3092\u5225\u306e\u8272\u306b\u3059\u308b", "Use a different color for unread posts"));
+        colorUnreadPosts.setTextColor(textColor());
+        colorUnreadPosts.setTextSize(16);
+        Theme.tintCompoundButton(this, colorUnreadPosts);
+        root.addView(colorUnreadPosts);
 
         omitCopyPaste = new CheckBox(this);
         omitCopyPaste.setText(MainActivity.text("\u30b3\u30d4\u30da\u3092\u7701\u7565\u8868\u793a", "Omit repeated copy-paste posts"));
@@ -538,6 +546,7 @@ public class SettingsActivity extends Activity {
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
         autoScrollUnread.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true));
+        colorUnreadPosts.setChecked(preferences.getBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true));
         omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
@@ -625,6 +634,7 @@ public class SettingsActivity extends Activity {
         });
         treeSkipFirstReply.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoScrollUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        colorUnreadPosts.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -716,6 +726,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
                         treeView.isChecked() && treeSkipFirstReply.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, autoScrollUnread.isChecked())
+                .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, colorUnreadPosts.isChecked())
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
@@ -948,6 +959,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true)
+                .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true)
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, false)
                 .putBoolean(MainActivity.PREF_AUTO_AA, true)
                 .putBoolean(MainActivity.PREF_AA_DEBUG, false)

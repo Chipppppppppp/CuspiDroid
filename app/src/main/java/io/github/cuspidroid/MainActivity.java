@@ -137,6 +137,7 @@ public class MainActivity extends Activity {
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
     static final String PREF_AUTO_SCROLL_UNREAD = "auto_scroll_unread_boundary";
+    static final String PREF_COLOR_UNREAD_POSTS = "color_unread_posts";
     static final String PREF_OMIT_COPYPASTE = "omit_copypaste_posts";
     static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
     static final String PREF_THEME_MODE = "theme_mode";
@@ -266,10 +267,10 @@ public class MainActivity extends Activity {
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
     private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
-    private static final int THREAD_VISIBLE_RENDER_BUDGET = 6;
-    private static final int THREAD_IDLE_RENDER_BUDGET = 12;
-    private static final int THREAD_SCROLL_RENDER_BUDGET = 6;
-    private static final int THREAD_AA_RENDER_COST = 4;
+    private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
+    private static final int THREAD_IDLE_RENDER_BUDGET = 10;
+    private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
+    private static final int THREAD_AA_RENDER_COST = 8;
     private static final int THREAD_MEDIA_RENDER_COST = 2;
     private static final int POPUP_INITIAL_RENDER_COUNT = 1;
     private static final int POPUP_RENDER_CHUNK_SIZE = 1;
@@ -1943,7 +1944,7 @@ public class MainActivity extends Activity {
     }
 
     private Drawable postBackground(boolean unread, boolean myPost) {
-        int fill = unread ? Theme.unread(this) : postColor();
+        int fill = unread && colorUnreadPosts() ? Theme.unread(this) : postColor();
         if (!myPost) {
             return roundedFill(fill, dp(12));
         }
@@ -13554,7 +13555,7 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        int fill = unread ? Theme.unread(this) : postColor();
+        int fill = unread && colorUnreadPosts() ? Theme.unread(this) : postColor();
         target.setBackground(roundedDrawable(fill, TEAL, dp(8)));
     }
 
@@ -15473,6 +15474,10 @@ public class MainActivity extends Activity {
 
     private boolean autoScrollUnreadBoundary() {
         return preferences.getBoolean(PREF_AUTO_SCROLL_UNREAD, true);
+    }
+
+    private boolean colorUnreadPosts() {
+        return preferences.getBoolean(PREF_COLOR_UNREAD_POSTS, true);
     }
 
     private boolean copyPasteOmitEnabled() {
