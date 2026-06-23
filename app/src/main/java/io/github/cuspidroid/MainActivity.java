@@ -288,7 +288,8 @@ public class MainActivity extends Activity {
     private static final long TAB_UNLOAD_AFTER_MANY_TABS_MS = 15_000L;
     private static final int MAX_BACKGROUND_TAB_VIEWS = 2;
     private static final int MAX_BACKGROUND_PAGE_DATA = 3;
-    private static final int MAX_BOARD_HISTORY_PAGES = 3;
+    private static final int MAX_BOARD_HISTORY_PAGES = 6;
+    private static final int MAX_NEW_TAB_HISTORY_PAGES = 8;
     private static final int TAB_RELOAD_PARALLELISM = 4;
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
@@ -373,6 +374,9 @@ public class MainActivity extends Activity {
     private int tabOverviewPrivateScrollY;
     private View tabOverviewNormalView;
     private View tabOverviewPrivateView;
+    private final Map<CuspTab, SearchResult> tabOverviewResultCache = new LinkedHashMap<>();
+    private final Map<String, String> tabOverviewBoardTitleCache = new LinkedHashMap<>();
+    private Set<String> tabOverviewHistoryUrlCache;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private boolean addressTouchInProgress;
@@ -385,6 +389,7 @@ public class MainActivity extends Activity {
     private boolean appliedChromePrivate;
     private boolean appliedChromeDark;
     private final List<String> newTabNavigationHistory = new ArrayList<>();
+    private final LinkedHashMap<String, NewTabHistoryPage> newTabHistoryPages = new LinkedHashMap<>();
     private int newTabNavigationIndex = -1;
     private Interpreter graphicViolenceInterpreter;
     private boolean graphicViolenceModelLoadAttempted;
@@ -639,18 +644,54 @@ public class MainActivity extends Activity {
     }
 
     private void openInitialContent() {
-        String launchUrl = null;
-        Intent intent = getIntent();
-        if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
-            launchUrl = intent.getData().toString();
+        boolean restored = restoreTabs();
+        if (handleViewIntent(getIntent())) {
+            return;
         }
-        if (launchUrl == null) {
-            if (!restoreTabs()) {
+        if (!restored) {
+            createBlankTab();
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleViewIntent(intent);
+    }
+
+    private boolean handleViewIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) {
+            return false;
+        }
+        openIncomingLink(intent.getData().toString());
+        return true;
+    }
+
+    private void openIncomingLink(String rawUrl) {
+        String url = normalizeUrl(rawUrl);
+        if (isSupportedBbsLink(url)) {
+            routeLink(url, currentTab());
+            if (tabs.isEmpty() && !pendingNewTab) {
                 createBlankTab();
             }
-        } else {
-            createTab(launchUrl, true);
+            return;
         }
+        openExternal(url);
+        if (tabs.isEmpty() && !pendingNewTab) {
+            createBlankTab();
+        }
+    }
+
+    private boolean isSupportedBbsLink(String url) {
+        return is5chUrl(url)
+                || isRegisteredBbsUrl(url)
+                || isThreadUrl(url)
+                || isBoardUrl(url)
+                || isBbsDirectoryUrl(url)
+                || isFindSearchUrl(url)
+                || isFindHomeUrl(url)
+                || isFullTextSearchUrl(url);
     }
 
     @Override
@@ -2004,7 +2045,7 @@ public class MainActivity extends Activity {
         tabs.add(tab);
         if (select) {
             switchToTab(tabs.size() - 1);
-            openInCurrentTab(normalizeUrl(url));
+            openInCurrentTab(url);
         }
         renderTabs();
     }
@@ -2468,7 +2509,6 @@ public class MainActivity extends Activity {
         tab.postViews = null;
         tab.postSlots = null;
         tab.renderedPostSlots = null;
-        tab.boardHistoryPages.clear();
     }
 
     private void unloadTabPageData(CuspTab tab) {
@@ -2979,6 +3019,11 @@ public class MainActivity extends Activity {
     }
 
     private void openInCurrentTab(String url, boolean addHistory, boolean bookmarkOverviewTab) {
+        openInCurrentTab(url, addHistory, bookmarkOverviewTab, false);
+    }
+
+    private void openInCurrentTab(String url, boolean addHistory, boolean bookmarkOverviewTab,
+                                  boolean redirectResolved) {
         if (pendingNewTab) {
             openPendingNewTabUrl(url);
             return;
@@ -2991,6 +3036,30 @@ public class MainActivity extends Activity {
         tab.bookmarkOverviewTab = bookmarkOverviewTab;
         if (!bookmarkOverviewTab) {
             tab.bookmarkOverviewFolder = "";
+        }
+        if (!redirectResolved) {
+            int redirectGeneration = ++tab.redirectGeneration;
+            String normalizedUrl = isInternalPageUrl(url) ? url : normalizeUrl(url);
+            if (shouldResolveBbsRedirectBeforeOpening(normalizedUrl)) {
+                ioExecutor.execute(() -> {
+                    String resolvedUrl = normalizedUrl;
+                    try {
+                        resolvedUrl = resolveRedirectedUrl(
+                                normalizedUrl,
+                                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+                    } catch (Exception ignored) {
+                    }
+                    String resultUrl = resolvedUrl;
+                    runOnUiThread(() -> {
+                        if (tab.redirectGeneration != redirectGeneration
+                                || tab != currentTab() || !tabs.contains(tab)) {
+                            return;
+                        }
+                        openInCurrentTab(resultUrl, addHistory, bookmarkOverviewTab, true);
+                    });
+                });
+                return;
+            }
         }
         if (isInternalPageUrl(url)) {
             if (addHistory) {
@@ -3043,6 +3112,18 @@ public class MainActivity extends Activity {
             return;
         }
         openExternal(url);
+    }
+
+    private boolean shouldResolveBbsRedirectBeforeOpening(String url) {
+        if (url == null || url.isEmpty() || is5chUrl(url) || !isRegisteredBbsUrl(url)) {
+            return false;
+        }
+        try {
+            String scheme = Uri.parse(url).getScheme();
+            return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private boolean isInternalPageUrl(String url) {
@@ -3180,7 +3261,7 @@ public class MainActivity extends Activity {
         tab.navigationIndex = 0;
         tabs.add(tab);
         switchToTab(tabs.size() - 1);
-        openInCurrentTab(normalizeUrl(url));
+        openInCurrentTab(url);
         renderTabs();
     }
 
@@ -5753,7 +5834,9 @@ public class MainActivity extends Activity {
         if (holder == null || slot == null || slot.rendered) {
             return;
         }
-        View view = slot.categoryHeader ? categoryHeader(slot.category) : searchResultRow(slot.result);
+        View view = slot.bbsCategoryRow != null
+                ? bbsCategoryRow(slot.bbsCategoryRow)
+                : slot.categoryHeader ? categoryHeader(slot.category) : searchResultRow(slot.result);
         holder.removeAllViews();
         holder.addView(view, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -6054,32 +6137,39 @@ public class MainActivity extends Activity {
             String category = result.category == null ? "" : result.category.trim();
             counts.put(category, counts.containsKey(category) ? counts.get(category) + 1 : 1);
         }
+        list.setTag(new VirtualSearchState());
         for (Map.Entry<String, Integer> entry : counts.entrySet()) {
             String category = entry.getKey();
             String label = category.isEmpty() ? text("\u305d\u306e\u4ed6", "Other") : category;
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(12), dp(12), dp(12), dp(12));
-            row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
-            TextView name = new TextView(this);
-            name.setText(label);
-            name.setTextColor(textColor());
-            name.setTextSize(16);
-            name.setTypeface(Typeface.DEFAULT_BOLD);
-            row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            TextView count = new TextView(this);
-            count.setText(String.valueOf(entry.getValue()));
-            count.setTextColor(mutedColor());
-            count.setTextSize(13);
-            row.addView(count);
-            row.setOnClickListener(v -> openBbsCategory(page.url, category));
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.setMargins(0, 0, 0, dp(8));
-            list.addView(row, params);
+            addVirtualSearchSlot(list, new VirtualSearchSlot(
+                    new BbsCategoryRow(page.url, category, label, entry.getValue())));
+        }
+        if (!counts.isEmpty()) {
+            ensureSearchSlotRefresh(scroll, list);
+            scheduleSearchSlotRefresh(list);
         }
         return scroll;
+    }
+
+    private View bbsCategoryRow(BbsCategoryRow item) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(12), dp(12), dp(12));
+        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        TextView name = new TextView(this);
+        name.setText(item.label);
+        name.setTextColor(textColor());
+        name.setTextSize(16);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView count = new TextView(this);
+        count.setText(String.valueOf(item.count));
+        count.setTextColor(mutedColor());
+        count.setTextSize(13);
+        row.addView(count);
+        row.setOnClickListener(v -> openBbsCategory(item.menuUrl, item.category));
+        return row;
     }
 
     private void openBbsCategory(String menuUrl, String category) {
@@ -6850,15 +6940,7 @@ public class MainActivity extends Activity {
 
     private void showFullTextSearchHomeView(boolean recordHistory) {
         if (pendingNewTab) {
-            if (recordHistory) {
-                recordNewTabPage("fulltext-search");
-            }
-            pendingHistoryAll = false;
-            contentFrame.removeAllViews();
-            contentFrame.addView(buildFullTextSearchHomeView(false));
-            addressBar.setText("");
-            clearAddressFocus();
-            renderTabs();
+            openPendingNewTabUrl(fullTextSearchPageUrl());
             return;
         }
         openInCurrentTab(fullTextSearchPageUrl());
@@ -7015,18 +7097,29 @@ public class MainActivity extends Activity {
     }
 
     private void showFiveChBoardsView(boolean recordHistory) {
+        String pageKey = "5ch";
+        if (pendingNewTab) {
+            openPendingNewTabUrl(FIVE_CH_BBSMENU_URL);
+            return;
+        }
         if (recordHistory) {
-            recordNewTabPage("5ch");
+            recordNewTabPage(pageKey);
+        }
+        final boolean forNewTab = pendingNewTab;
+        final CuspTab targetTab = forNewTab ? null : currentTab();
+        if (forNewTab && restoreNewTabHistoryPage(pageKey)) {
+            updateBottomThreadBar(null);
+            renderTabs();
+            return;
         }
         prepareChromeForLoading();
         View view = loadingView("");
-        if (pendingNewTab) {
+        if (forNewTab) {
             contentFrame.removeAllViews();
             contentFrame.addView(view);
-        } else {
-            CuspTab tab = currentTab();
-            if (tab != null) {
-                tab.readerView = view;
+        } else if (targetTab != null) {
+            targetTab.readerView = view;
+            if (targetTab == currentTab()) {
                 contentFrame.removeAllViews();
                 contentFrame.addView(view);
             }
@@ -7042,30 +7135,35 @@ public class MainActivity extends Activity {
             }
             SearchPage result = page;
             runOnUiThread(() -> {
-                progressBar.setVisibility(View.GONE);
                 View resultView = buildBbsCategoryIndexView(result);
-                if (pendingNewTab) {
+                if (forNewTab && result.error == null) {
+                    cacheNewTabHistoryPage(pageKey, resultView);
+                }
+                if (forNewTab) {
+                    if (!isCurrentNewTabPage(pageKey)) {
+                        return;
+                    }
+                    progressBar.setVisibility(View.GONE);
                     contentFrame.removeAllViews();
                     contentFrame.addView(resultView);
-                } else {
-                    CuspTab tab = currentTab();
-                    if (tab != null) {
-                        tab.readerMode = true;
-                        tab.nativeKind = NATIVE_BOARD;
-                        tab.url = FIVE_CH_BBSMENU_URL;
-                        tab.title = result.title;
-                        tab.searchPage = result;
-                        tab.readerView = resultView;
-                        tab.threadPage = null;
-                        tab.threadScroll = null;
-                        tab.postViews = null;
-                    }
-                    if (!tabOverviewVisible) {
+                } else if (targetTab != null && tabs.contains(targetTab)) {
+                    targetTab.readerMode = true;
+                    targetTab.nativeKind = NATIVE_BOARD;
+                    targetTab.url = FIVE_CH_BBSMENU_URL;
+                    targetTab.title = result.title;
+                    targetTab.searchPage = result;
+                    targetTab.readerView = resultView;
+                    targetTab.threadPage = null;
+                    targetTab.threadScroll = null;
+                    targetTab.postViews = null;
+                    cacheBoardHistoryPage(targetTab, result, resultView);
+                    if (targetTab == currentTab() && !tabOverviewVisible) {
+                        progressBar.setVisibility(View.GONE);
                         contentFrame.removeAllViews();
                         contentFrame.addView(resultView);
                     }
                 }
-                updateBottomThreadBar(pendingNewTab ? null : currentTab());
+                updateBottomThreadBar(forNewTab ? null : currentTab());
                 renderTabs();
             });
         });
@@ -7079,13 +7177,29 @@ public class MainActivity extends Activity {
         BbsCategoryRequest request = decodeBbsCategoryToken(token);
         String menuUrl = request.menuUrl == null || request.menuUrl.isEmpty() ? FIVE_CH_BBSMENU_URL : request.menuUrl;
         String category = request.category;
+        String pageKey = "bbs-category:" + bbsCategoryToken(menuUrl, category);
         if (record) {
-            recordNewTabPage("bbs-category:" + bbsCategoryToken(menuUrl, category));
+            recordNewTabPage(pageKey);
+        }
+        final boolean forNewTab = pendingNewTab;
+        final CuspTab targetTab = forNewTab ? null : currentTab();
+        if (forNewTab && restoreNewTabHistoryPage(pageKey)) {
+            updateBottomThreadBar(null);
+            renderTabs();
+            return;
         }
         prepareChromeForLoading();
         View view = loadingView("");
-        contentFrame.removeAllViews();
-        contentFrame.addView(view);
+        if (forNewTab) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(view);
+        } else if (targetTab != null) {
+            targetTab.readerView = view;
+            if (targetTab == currentTab()) {
+                contentFrame.removeAllViews();
+                contentFrame.addView(view);
+            }
+        }
         progressBar.setVisibility(View.VISIBLE);
         ioExecutor.execute(() -> {
             SearchPage page;
@@ -7100,33 +7214,72 @@ public class MainActivity extends Activity {
             }
             SearchPage result = page;
             runOnUiThread(() -> {
-                progressBar.setVisibility(View.GONE);
                 View resultView = buildSearchView(result);
-                if (pendingNewTab) {
+                if (forNewTab && result.error == null) {
+                    cacheNewTabHistoryPage(pageKey, resultView);
+                }
+                if (forNewTab) {
+                    if (!isCurrentNewTabPage(pageKey)) {
+                        return;
+                    }
+                    progressBar.setVisibility(View.GONE);
                     contentFrame.removeAllViews();
                     contentFrame.addView(resultView);
-                } else {
-                    CuspTab tab = currentTab();
-                    if (tab != null) {
-                        tab.readerMode = true;
-                        tab.nativeKind = NATIVE_BOARD;
-                        tab.url = result.url;
-                        tab.title = result.title;
-                        tab.searchPage = result;
-                        tab.readerView = resultView;
-                        tab.threadPage = null;
-                        tab.threadScroll = null;
-                        tab.postViews = null;
-                    }
-                    if (!tabOverviewVisible) {
+                } else if (targetTab != null && tabs.contains(targetTab)) {
+                    targetTab.readerMode = true;
+                    targetTab.nativeKind = NATIVE_BOARD;
+                    targetTab.url = result.url;
+                    targetTab.title = result.title;
+                    targetTab.searchPage = result;
+                    targetTab.readerView = resultView;
+                    targetTab.threadPage = null;
+                    targetTab.threadScroll = null;
+                    targetTab.postViews = null;
+                    cacheBoardHistoryPage(targetTab, result, resultView);
+                    if (targetTab == currentTab() && !tabOverviewVisible) {
+                        progressBar.setVisibility(View.GONE);
                         contentFrame.removeAllViews();
                         contentFrame.addView(resultView);
                     }
                 }
-                updateBottomThreadBar(pendingNewTab ? null : currentTab());
+                updateBottomThreadBar(forNewTab ? null : currentTab());
                 renderTabs();
             });
         });
+    }
+
+    private boolean restoreNewTabHistoryPage(String pageKey) {
+        NewTabHistoryPage cached = newTabHistoryPages.remove(pageKey);
+        if (cached == null || cached.view == null) {
+            return false;
+        }
+        newTabHistoryPages.put(pageKey, cached);
+        if (cached.view.getParent() instanceof ViewGroup) {
+            ((ViewGroup) cached.view.getParent()).removeView(cached.view);
+        }
+        progressBar.setVisibility(View.GONE);
+        contentFrame.removeAllViews();
+        contentFrame.addView(cached.view);
+        return true;
+    }
+
+    private void cacheNewTabHistoryPage(String pageKey, View view) {
+        if (pageKey == null || pageKey.isEmpty() || view == null) {
+            return;
+        }
+        newTabHistoryPages.remove(pageKey);
+        newTabHistoryPages.put(pageKey, new NewTabHistoryPage(view));
+        while (newTabHistoryPages.size() > MAX_NEW_TAB_HISTORY_PAGES) {
+            String oldest = newTabHistoryPages.keySet().iterator().next();
+            newTabHistoryPages.remove(oldest);
+        }
+    }
+
+    private boolean isCurrentNewTabPage(String pageKey) {
+        return pendingNewTab
+                && newTabNavigationIndex >= 0
+                && newTabNavigationIndex < newTabNavigationHistory.size()
+                && pageKey.equals(newTabNavigationHistory.get(newTabNavigationIndex));
     }
 
     private String bbsCategoryToken(String menuUrl, String category) {
@@ -7221,6 +7374,7 @@ public class MainActivity extends Activity {
     }
 
     private void showTabOverview() {
+        clearTabOverviewResultCache();
         CuspTab current = currentTab();
         if (current != null) {
             rememberThreadScroll(current);
@@ -7260,6 +7414,9 @@ public class MainActivity extends Activity {
         }
         contentFrame.addView(view);
         View attachedView = view;
+        if (!newlyBuilt && !refreshTabOverviewTabSlotsOnly()) {
+            refreshTabOverviewListOnly();
+        }
         if (newlyBuilt && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
             mainHandler.postDelayed(() -> {
                 if (tabOverviewNormalView != attachedView) {
@@ -7398,6 +7555,7 @@ public class MainActivity extends Activity {
     }
 
     private void populateTabOverviewList(ScrollView scroll, LinearLayout list, boolean includeBookmarks) {
+        clearTabOverviewResultCache();
         list.removeAllViews();
         setTabOverviewListPadding(list);
         LinearLayout header = new LinearLayout(this);
@@ -7673,6 +7831,7 @@ public class MainActivity extends Activity {
         holder.addView(tabOverviewRow(slot.tab, slot.index), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         slot.rendered = true;
+        slot.selected = !pendingNewTab && slot.index == currentIndex;
         if (holder.getParent() instanceof View) {
             View parent = (View) holder.getParent();
             if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualTabOverviewState) {
@@ -7690,6 +7849,7 @@ public class MainActivity extends Activity {
         holder.addView(tabOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
         slot.rendered = false;
+        slot.selected = false;
         if (holder.getParent() instanceof View) {
             View parent = (View) holder.getParent();
             if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualTabOverviewState) {
@@ -7718,11 +7878,14 @@ public class MainActivity extends Activity {
         final String key = preferences.getString(PREF_TAB_SORT_KEY, BOARD_SORT_VELOCITY);
         final boolean desc = preferences.getBoolean(PREF_TAB_SORT_DESC, true);
         final boolean nonThreadTop = preferences.getBoolean(PREF_TAB_NON_THREAD_TOP, true);
+        for (int index : indices) {
+            cachedSearchResultForTabOverview(tabs.get(index));
+        }
         Collections.sort(indices, (leftIndex, rightIndex) -> {
             CuspTab leftTab = tabs.get(leftIndex);
             CuspTab rightTab = tabs.get(rightIndex);
-            SearchResult left = searchResultForTabOverview(leftTab);
-            SearchResult right = searchResultForTabOverview(rightTab);
+            SearchResult left = cachedSearchResultForTabOverview(leftTab);
+            SearchResult right = cachedSearchResultForTabOverview(rightTab);
             boolean leftThread = left != null;
             boolean rightThread = right != null;
             if (leftThread != rightThread) {
@@ -7953,7 +8116,7 @@ public class MainActivity extends Activity {
     }
 
     private View tabOverviewMetaView(CuspTab tab) {
-        SearchResult result = searchResultForTabOverview(tab);
+        SearchResult result = cachedSearchResultForTabOverview(tab);
         if (result == null) {
             TextView empty = new TextView(this);
             empty.setText("");
@@ -7963,22 +8126,69 @@ public class MainActivity extends Activity {
         return boardThreadMetaView(result, true);
     }
 
+    private void clearTabOverviewResultCache() {
+        tabOverviewResultCache.clear();
+        tabOverviewBoardTitleCache.clear();
+        tabOverviewHistoryUrlCache = null;
+    }
+
+    private SearchResult cachedSearchResultForTabOverview(CuspTab tab) {
+        if (tab == null) {
+            return null;
+        }
+        if (tabOverviewResultCache.containsKey(tab)) {
+            return tabOverviewResultCache.get(tab);
+        }
+        SearchResult result = searchResultForTabOverview(tab);
+        tabOverviewResultCache.put(tab, result);
+        return result;
+    }
+
+    private String cachedBoardTitleForTabOverview(String url) {
+        String key = url == null ? "" : url.trim();
+        if (tabOverviewBoardTitleCache.containsKey(key)) {
+            return tabOverviewBoardTitleCache.get(key);
+        }
+        String title = displayBoardTitle(url);
+        tabOverviewBoardTitleCache.put(key, title);
+        return title;
+    }
+
+    private boolean cachedThreadHistoryContainsForTabOverview(String url) {
+        String target = normalizeHistoryUrl(url);
+        if (target.isEmpty()) {
+            return false;
+        }
+        if (tabOverviewHistoryUrlCache == null) {
+            tabOverviewHistoryUrlCache = new LinkedHashSet<>();
+            for (ThreadHistoryItem item : threadHistory()) {
+                String normalized = normalizeHistoryUrl(item.url);
+                if (!normalized.isEmpty()) {
+                    tabOverviewHistoryUrlCache.add(normalized);
+                }
+            }
+        }
+        return tabOverviewHistoryUrlCache.contains(target);
+    }
+
     private SearchResult searchResultForTabOverview(CuspTab tab) {
-        if (tab == null || tab.url == null || tab.url.trim().isEmpty() || datAddress(tab.url) == null) {
+        DatAddress address = tab == null || tab.url == null || tab.url.trim().isEmpty()
+                ? null : datAddress(tab.url);
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty() || address == null) {
             return null;
         }
         SearchResult result = new SearchResult();
         result.url = tab.url;
-        result.boardName = displayBoardTitle(tab.url);
+        result.boardName = cachedBoardTitleForTabOverview(tab.url);
         result.responses = Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
         if (result.responses <= 0 && tab.threadPage != null) {
             result.responses = maxPostNumber(tab.threadPage);
         }
-        DatAddress address = datAddress(tab.url);
-        result.createdAt = address == null ? 0L : threadCreatedAtMillis(address.key);
-        result.velocity = address == null ? 0d : threadVelocity(address.key, result.responses);
+        result.createdAt = threadCreatedAtMillis(address.key);
+        result.velocity = threadVelocity(address.key, result.responses);
         result.boardOrder = Math.max(0, tab.knownBoardOrder);
-        result.hasReadHistory = threadHistoryContains(tab.url) || tab.readPostNumber > 0 || result.responses > 0;
+        result.hasReadHistory = cachedThreadHistoryContainsForTabOverview(tab.url)
+                || tab.readPostNumber > 0 || result.responses > 0;
         result.unread = unreadCount(tab);
         return result;
     }
@@ -8072,6 +8282,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean refreshTabOverviewTabSlotsOnly() {
+        clearTabOverviewResultCache();
         ScrollView scroll = findScrollView(contentFrame);
         if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
             return false;
@@ -8084,6 +8295,12 @@ public class MainActivity extends Activity {
         }
         VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
                 ? (VirtualTabOverviewState) list.getTag() : null;
+        List<Integer> desiredIndices = tabOverviewIndices(tabOverviewPrivateMode);
+        if (syncTabOverviewSlotsInPlace(list, holders, desiredIndices, state)) {
+            scheduleTabOverviewSlotRefresh(list);
+            syncClosedTabUndoBar();
+            return true;
+        }
         Map<CuspTab, FrameLayout> holderByTab = new LinkedHashMap<>();
         for (FrameLayout holder : holders) {
             Object tag = holder.getTag();
@@ -8100,7 +8317,6 @@ public class MainActivity extends Activity {
             }
         }
 
-        List<Integer> desiredIndices = tabOverviewIndices(tabOverviewPrivateMode);
         int insertAt = list.indexOfChild(holders.get(0));
         if (desiredIndices.isEmpty()) {
             for (int i = holders.size() - 1; i >= 0; i--) {
@@ -8163,6 +8379,71 @@ public class MainActivity extends Activity {
         }
         scheduleTabOverviewSlotRefresh(list);
         syncClosedTabUndoBar();
+        return true;
+    }
+
+    private boolean syncTabOverviewSlotsInPlace(LinearLayout list, List<FrameLayout> holders,
+                                                List<Integer> desiredIndices,
+                                                VirtualTabOverviewState state) {
+        if (list == null || holders == null || desiredIndices == null || desiredIndices.isEmpty()) {
+            return false;
+        }
+        Map<CuspTab, Integer> desiredIndexByTab = new LinkedHashMap<>();
+        List<CuspTab> desiredTabs = new ArrayList<>();
+        for (int index : desiredIndices) {
+            if (index < 0 || index >= tabs.size()) {
+                continue;
+            }
+            CuspTab tab = tabs.get(index);
+            desiredTabs.add(tab);
+            desiredIndexByTab.put(tab, index);
+        }
+        if (desiredTabs.isEmpty()) {
+            return false;
+        }
+
+        for (FrameLayout holder : new ArrayList<>(holders)) {
+            Object tag = holder.getTag();
+            if (!(tag instanceof VirtualTabOverviewSlot)) {
+                return false;
+            }
+            VirtualTabOverviewSlot slot = (VirtualTabOverviewSlot) tag;
+            if (!desiredIndexByTab.containsKey(slot.tab)) {
+                if (state != null) {
+                    state.renderedSlots.remove(holder);
+                }
+                list.removeView(holder);
+                holders.remove(holder);
+            }
+        }
+        if (holders.size() != desiredTabs.size()) {
+            return false;
+        }
+        for (int i = 0; i < holders.size(); i++) {
+            Object tag = holders.get(i).getTag();
+            if (!(tag instanceof VirtualTabOverviewSlot)
+                    || ((VirtualTabOverviewSlot) tag).tab != desiredTabs.get(i)) {
+                return false;
+            }
+        }
+        for (int i = 0; i < holders.size(); i++) {
+            FrameLayout holder = holders.get(i);
+            VirtualTabOverviewSlot slot = (VirtualTabOverviewSlot) holder.getTag();
+            CuspTab tab = desiredTabs.get(i);
+            int nextIndex = desiredIndexByTab.get(tab);
+            boolean nextSelected = !pendingNewTab && nextIndex == currentIndex;
+            boolean needsRender = slot.rendered && (slot.index != nextIndex || slot.selected != nextSelected);
+            slot.index = nextIndex;
+            slot.tab = tab;
+            bindTabOverviewSlot(holder, slot);
+            if (needsRender) {
+                if (state != null) {
+                    state.renderedSlots.remove(holder);
+                }
+                slot.rendered = false;
+                renderTabOverviewSlot(holder, slot);
+            }
+        }
         return true;
     }
 
@@ -8396,6 +8677,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderNewTabPage(String page, boolean record) {
+        progressBar.setVisibility(View.GONE);
         if (record) {
             recordNewTabPage(page);
         }
@@ -8596,7 +8878,8 @@ public class MainActivity extends Activity {
     }
 
     private void addBookmarkOverviewSection(LinearLayout list) {
-        List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+        BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
+        List<SavedItem> bookmarks = snapshot.bookmarks;
         String selectedFolder = selectedBookmarkOverviewFolder(bookmarks);
         boolean hasSelectedBookmark = selectedFolder != null;
         String rootKey = bookmarkOverviewExpandedKey("");
@@ -8604,7 +8887,7 @@ public class MainActivity extends Activity {
         list.addView(bookmarkOverviewFolderRow(
                 text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"),
                 "",
-                rootExpanded ? 0 : bookmarkOverviewUnreadSum(bookmarks, null),
+                rootExpanded ? 0 : snapshot.unreadByFolder.getOrDefault("", 0),
                 rootExpanded,
                 0,
                 hasSelectedBookmark && !rootExpanded,
@@ -8613,14 +8896,55 @@ public class MainActivity extends Activity {
         if (!rootExpanded) {
             return;
         }
-        List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS);
-        for (BookmarkNode node : bookmarkChildren("")) {
+        for (BookmarkNode node : bookmarkChildren("", snapshot)) {
             if (node.folderNode) {
-                addBookmarkOverviewFolderWithItems(list, bookmarks, folders, node.folder, selectedFolder, 1);
+                addBookmarkOverviewFolderWithItems(list, snapshot, node.folder, selectedFolder, 1);
             } else {
-                list.addView(bookmarkOverviewItemRow(node.item, 1));
+                list.addView(bookmarkOverviewItemRow(node.item, 1, snapshot));
             }
         }
+    }
+
+    private BookmarkOverviewSnapshot bookmarkOverviewSnapshot() {
+        List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+        List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS, bookmarks);
+        JSONObject orderRoot = preferenceJsonObject(PREF_BOOKMARK_ORDER);
+        JSONObject statusRoot = preferenceJsonObject(PREF_BOOKMARK_OVERVIEW_STATUS);
+        JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
+        Map<String, Integer> itemIndices = new LinkedHashMap<>();
+        Map<String, Integer> unreadByFolder = new LinkedHashMap<>();
+        for (int i = 0; i < bookmarks.size(); i++) {
+            SavedItem bookmark = bookmarks.get(i);
+            itemIndices.put(savedItemIdentity(bookmark.url, bookmark.folder), i);
+            BookmarkOverviewStatus status = bookmarkOverviewStatus(bookmark.url, statusRoot);
+            if (status == null || status.responseCount <= 0) {
+                continue;
+            }
+            int unread = Math.max(0, status.responseCount - readPosts.optInt(bookmark.url, 0));
+            if (unread <= 0) {
+                continue;
+            }
+            addBookmarkOverviewUnread(unreadByFolder, "", unread);
+            String folder = normalizeSavedFolder(bookmark.folder);
+            while (!folder.isEmpty()) {
+                addBookmarkOverviewUnread(unreadByFolder, folder, unread);
+                folder = parentSavedFolder(folder);
+            }
+        }
+        return new BookmarkOverviewSnapshot(
+                bookmarks, folders, orderRoot, statusRoot, readPosts, itemIndices, unreadByFolder);
+    }
+
+    private JSONObject preferenceJsonObject(String key) {
+        try {
+            return new JSONObject(preferences.getString(key, "{}"));
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private void addBookmarkOverviewUnread(Map<String, Integer> unreadByFolder, String folder, int unread) {
+        unreadByFolder.put(folder, unreadByFolder.getOrDefault(folder, 0) + unread);
     }
 
     private void populateHomeBookmarkSection(LinearLayout section) {
@@ -8895,25 +9219,26 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
-    private void addBookmarkOverviewFolderWithItems(LinearLayout list, List<SavedItem> bookmarks,
-                                                    List<String> folders, String folder, String selectedFolder,
+    private void addBookmarkOverviewFolderWithItems(LinearLayout list, BookmarkOverviewSnapshot snapshot,
+                                                    String folder, String selectedFolder,
                                                     int indentLevel) {
         String key = bookmarkOverviewExpandedKey(folder);
         boolean expanded = bookmarkOverviewExpanded(key, false);
         list.addView(bookmarkOverviewFolderRow(savedFolderDisplayName(folder),
                 folder,
-                expanded ? 0 : bookmarkOverviewUnreadSum(bookmarks, folder),
+                expanded ? 0 : snapshot.unreadByFolder.getOrDefault(folder, 0),
                 expanded,
                 indentLevel,
                 savedFolderDescendantOrSelf(folder, selectedFolder) && !expanded,
-                folders.indexOf(folder),
+                snapshot.folders.indexOf(folder),
                 v -> toggleBookmarkOverviewExpanded(key)));
         if (expanded) {
-            for (BookmarkNode node : bookmarkChildren(folder)) {
+            for (BookmarkNode node : bookmarkChildren(folder, snapshot)) {
                 if (node.folderNode) {
-                    addBookmarkOverviewFolderWithItems(list, bookmarks, folders, node.folder, selectedFolder, indentLevel + 1);
+                    addBookmarkOverviewFolderWithItems(
+                            list, snapshot, node.folder, selectedFolder, indentLevel + 1);
                 } else {
-                    list.addView(bookmarkOverviewItemRow(node.item, indentLevel + 1));
+                    list.addView(bookmarkOverviewItemRow(node.item, indentLevel + 1, snapshot));
                 }
             }
         }
@@ -9080,8 +9405,14 @@ public class MainActivity extends Activity {
     }
 
     private View bookmarkOverviewItemRow(SavedItem item, int indentLevel) {
-        int itemIndex = savedItemIndex(PREF_THREAD_BOOKMARKS, item);
-        CuspTab tab = bookmarkOverviewTab(item);
+        return bookmarkOverviewItemRow(item, indentLevel, null);
+    }
+
+    private View bookmarkOverviewItemRow(SavedItem item, int indentLevel, BookmarkOverviewSnapshot snapshot) {
+        int itemIndex = snapshot == null
+                ? savedItemIndex(PREF_THREAD_BOOKMARKS, item)
+                : snapshot.itemIndices.getOrDefault(savedItemIdentity(item.url, item.folder), -1);
+        CuspTab tab = bookmarkOverviewTab(item, snapshot);
         FrameLayout shell = tabOverviewRowShell(tab, bookmarkOverviewItemSelected(item),
                 (v, event) -> {
                     autoScrollDuringDrag(v, event);
@@ -9177,6 +9508,10 @@ public class MainActivity extends Activity {
     }
 
     private CuspTab bookmarkOverviewTab(SavedItem item) {
+        return bookmarkOverviewTab(item, null);
+    }
+
+    private CuspTab bookmarkOverviewTab(SavedItem item, BookmarkOverviewSnapshot snapshot) {
         CuspTab tab = new CuspTab();
         tab.url = item == null ? "" : item.url;
         tab.title = item == null ? "" : item.title;
@@ -9185,7 +9520,10 @@ public class MainActivity extends Activity {
         tab.readerMode = true;
         tab.nativeKind = isThreadUrl(tab.url) ? NATIVE_THREAD
                 : isBoardUrl(tab.url) || isBbsDirectoryUrl(tab.url) ? NATIVE_BOARD : null;
-        BookmarkOverviewStatus status = item == null ? null : bookmarkOverviewStatus(item.url);
+        BookmarkOverviewStatus status = item == null ? null
+                : snapshot == null
+                ? bookmarkOverviewStatus(item.url)
+                : bookmarkOverviewStatus(item.url, snapshot.statusRoot);
         if (status != null) {
             if (status.title != null && !status.title.trim().isEmpty()) {
                 tab.title = status.title.trim();
@@ -9195,7 +9533,9 @@ public class MainActivity extends Activity {
             if (status.responseCount > 0) {
                 tab.knownMaxPostNumber = status.responseCount;
                 tab.knownPostCount = status.responseCount;
-                tab.readPostNumber = visibleReadPostNumber(item.url);
+                tab.readPostNumber = snapshot == null
+                        ? visibleReadPostNumber(item.url)
+                        : snapshot.readPosts.optInt(item.url, 0);
                 tab.cachedUnreadCount = Math.max(0, status.responseCount - tab.readPostNumber);
                 tab.hasThreadStats = true;
             }
@@ -9210,7 +9550,9 @@ public class MainActivity extends Activity {
             if (!tab.hasThreadStats && openTab.hasThreadStats) {
                 tab.knownMaxPostNumber = openTab.knownMaxPostNumber;
                 tab.knownPostCount = openTab.knownPostCount;
-                tab.readPostNumber = visibleReadPostNumber(tab.url);
+                tab.readPostNumber = snapshot == null
+                        ? visibleReadPostNumber(tab.url)
+                        : snapshot.readPosts.optInt(tab.url, 0);
                 tab.cachedUnreadCount = Math.max(0, tab.knownMaxPostNumber - tab.readPostNumber);
                 tab.hasThreadStats = true;
             }
@@ -16056,8 +16398,11 @@ public class MainActivity extends Activity {
     }
 
     private BookmarkOverviewStatus bookmarkOverviewStatus(String url) {
+        return bookmarkOverviewStatus(url, preferenceJsonObject(PREF_BOOKMARK_OVERVIEW_STATUS));
+    }
+
+    private BookmarkOverviewStatus bookmarkOverviewStatus(String url, JSONObject root) {
         try {
-            JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_OVERVIEW_STATUS, "{}"));
             JSONObject item = root.optJSONObject(bookmarkOverviewStatusKey(url));
             if (item == null) {
                 item = root.optJSONObject(url);
@@ -17536,6 +17881,10 @@ public class MainActivity extends Activity {
     }
 
     private List<String> readSavedFolders(String key) {
+        return readSavedFolders(key, readSavedItems(key));
+    }
+
+    private List<String> readSavedFolders(String key, List<SavedItem> items) {
         List<String> folders = new ArrayList<>();
         try {
             JSONArray array = new JSONArray(preferences.getString(savedFoldersKey(key), "[]"));
@@ -17547,7 +17896,7 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {
         }
-        for (SavedItem item : readSavedItems(key)) {
+        for (SavedItem item : items) {
             String folder = normalizeSavedFolder(item.folder);
             if (!folder.isEmpty() && !folders.contains(folder)) {
                 folders.add(folder);
@@ -17673,6 +18022,37 @@ public class MainActivity extends Activity {
         return nodes;
     }
 
+    private List<BookmarkNode> bookmarkChildren(String parent, BookmarkOverviewSnapshot snapshot) {
+        parent = normalizeSavedFolder(parent);
+        List<BookmarkNode> nodes = new ArrayList<>();
+        for (String folder : snapshot.folders) {
+            if (parent.equals(parentSavedFolder(folder))) {
+                nodes.add(BookmarkNode.folder(folder));
+            }
+        }
+        for (SavedItem item : snapshot.bookmarks) {
+            if (parent.equals(normalizeSavedFolder(item.folder))) {
+                nodes.add(BookmarkNode.item(item));
+            }
+        }
+        List<String> order = bookmarkOrder(parent, snapshot.orderRoot);
+        Collections.sort(nodes, (left, right) -> {
+            int li = bookmarkOrderIndex(order, left);
+            int ri = bookmarkOrderIndex(order, right);
+            if (li < 0) {
+                li = Integer.MAX_VALUE;
+            }
+            if (ri < 0) {
+                ri = Integer.MAX_VALUE;
+            }
+            if (li != ri) {
+                return Integer.compare(li, ri);
+            }
+            return left.label().compareToIgnoreCase(right.label());
+        });
+        return nodes;
+    }
+
     private int bookmarkOrderIndex(List<String> order, BookmarkNode node) {
         int index = order.indexOf(node.orderKey());
         if (index < 0 && node != null && !node.folderNode && node.item != null) {
@@ -17682,10 +18062,13 @@ public class MainActivity extends Activity {
     }
 
     private List<String> bookmarkOrder(String parent) {
+        return bookmarkOrder(parent, preferenceJsonObject(PREF_BOOKMARK_ORDER));
+    }
+
+    private List<String> bookmarkOrder(String parent, JSONObject root) {
         parent = normalizeSavedFolder(parent);
         List<String> order = new ArrayList<>();
         try {
-            JSONObject root = new JSONObject(preferences.getString(PREF_BOOKMARK_ORDER, "{}"));
             JSONArray array = root.optJSONArray(parent);
             if (array != null) {
                 for (int i = 0; i < array.length(); i++) {
@@ -18984,10 +19367,13 @@ public class MainActivity extends Activity {
         try {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
-            if (host == null || !isRegisteredBbsUrl(url)) {
+            if (host == null) {
                 return false;
             }
-            return isBbsMenuUrl(url) || boardNameFromUrl(url) == null;
+            if (isBbsMenuUrl(url)) {
+                return is5chUrl(url) || isRegisteredBbsUrl(url);
+            }
+            return isRegisteredBbsUrl(url) && boardNameFromUrl(url) == null;
         } catch (Exception error) {
             return false;
         }
@@ -19330,6 +19716,9 @@ public class MainActivity extends Activity {
             return HOME_URL;
         }
         String value = input.trim().replaceFirst("(?i)^(h?ttps?|ttps?);//", "$1://");
+        if (value.startsWith(INTERNAL_URL_PREFIX)) {
+            return value;
+        }
         if (value.startsWith("//")) {
             value = "https:" + value;
         }
@@ -19827,6 +20216,7 @@ public class MainActivity extends Activity {
         boolean readerMode;
         List<String> navigationHistory = new ArrayList<>();
         int navigationIndex = -1;
+        int redirectGeneration;
         int threadRenderGeneration;
         boolean fastRenderToBottom;
         boolean threadRendering;
@@ -19843,6 +20233,14 @@ public class MainActivity extends Activity {
             this.page = page;
             this.view = view;
             this.title = title;
+        }
+    }
+
+    private static class NewTabHistoryPage {
+        final View view;
+
+        NewTabHistoryPage(View view) {
+            this.view = view;
         }
     }
 
@@ -19933,6 +20331,7 @@ public class MainActivity extends Activity {
         final String category;
         final SearchResult result;
         final boolean categoryHeader;
+        final BbsCategoryRow bbsCategoryRow;
         int height;
         boolean rendered;
 
@@ -19940,7 +20339,16 @@ public class MainActivity extends Activity {
             this.category = category;
             this.result = result;
             this.categoryHeader = categoryHeader;
+            this.bbsCategoryRow = null;
             this.height = categoryHeader ? dp(50) : estimateSearchResultHeight(result);
+        }
+
+        VirtualSearchSlot(BbsCategoryRow bbsCategoryRow) {
+            this.category = null;
+            this.result = null;
+            this.categoryHeader = false;
+            this.bbsCategoryRow = bbsCategoryRow;
+            this.height = dp(52);
         }
     }
 
@@ -19949,6 +20357,20 @@ public class MainActivity extends Activity {
         Runnable refreshTask;
         boolean refreshPending;
         long lastScrollAt;
+    }
+
+    private static class BbsCategoryRow {
+        final String menuUrl;
+        final String category;
+        final String label;
+        final int count;
+
+        BbsCategoryRow(String menuUrl, String category, String label, int count) {
+            this.menuUrl = menuUrl;
+            this.category = category;
+            this.label = label;
+            this.count = count;
+        }
     }
 
     private static class VirtualExtractSlot {
@@ -19976,6 +20398,7 @@ public class MainActivity extends Activity {
         CuspTab tab;
         final int height = dp(86);
         boolean rendered;
+        boolean selected;
 
         VirtualTabOverviewSlot(int index, CuspTab tab) {
             this.index = index;
@@ -20058,6 +20481,28 @@ public class MainActivity extends Activity {
 
         String label() {
             return folderNode ? folder : item == null ? "" : item.title;
+        }
+    }
+
+    private static class BookmarkOverviewSnapshot {
+        final List<SavedItem> bookmarks;
+        final List<String> folders;
+        final JSONObject orderRoot;
+        final JSONObject statusRoot;
+        final JSONObject readPosts;
+        final Map<String, Integer> itemIndices;
+        final Map<String, Integer> unreadByFolder;
+
+        BookmarkOverviewSnapshot(List<SavedItem> bookmarks, List<String> folders,
+                                 JSONObject orderRoot, JSONObject statusRoot, JSONObject readPosts,
+                                 Map<String, Integer> itemIndices, Map<String, Integer> unreadByFolder) {
+            this.bookmarks = bookmarks;
+            this.folders = folders;
+            this.orderRoot = orderRoot;
+            this.statusRoot = statusRoot;
+            this.readPosts = readPosts;
+            this.itemIndices = itemIndices;
+            this.unreadByFolder = unreadByFolder;
         }
     }
 

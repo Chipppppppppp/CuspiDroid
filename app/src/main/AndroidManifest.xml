@@ -49,6 +49,7 @@
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="stateAlwaysHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -60,6 +61,39 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="http" />
                 <data android:scheme="https" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" android:host="5ch.net" />
+                <data android:scheme="https" android:host="5ch.net" />
+                <data android:scheme="http" android:host="*.5ch.net" />
+                <data android:scheme="https" android:host="*.5ch.net" />
+                <data android:scheme="http" android:host="5ch.io" />
+                <data android:scheme="https" android:host="5ch.io" />
+                <data android:scheme="http" android:host="*.5ch.io" />
+                <data android:scheme="https" android:host="*.5ch.io" />
+                <data android:scheme="http" android:host="bbspink.com" />
+                <data android:scheme="https" android:host="bbspink.com" />
+                <data android:scheme="http" android:host="*.bbspink.com" />
+                <data android:scheme="https" android:host="*.bbspink.com" />
+                <data android:scheme="http" android:host="2ch.sc" />
+                <data android:scheme="https" android:host="2ch.sc" />
+                <data android:scheme="http" android:host="*.2ch.sc" />
+                <data android:scheme="https" android:host="*.2ch.sc" />
+                <data android:scheme="http" android:host="open2ch.net" />
+                <data android:scheme="https" android:host="open2ch.net" />
+                <data android:scheme="http" android:host="*.open2ch.net" />
+                <data android:scheme="https" android:host="*.open2ch.net" />
+                <data android:scheme="http" android:host="machi.to" />
+                <data android:scheme="https" android:host="machi.to" />
+                <data android:scheme="http" android:host="*.machi.to" />
+                <data android:scheme="https" android:host="*.machi.to" />
+                <data android:scheme="http" android:host="bbspink.org" />
+                <data android:scheme="https" android:host="bbspink.org" />
+                <data android:scheme="http" android:host="*.bbspink.org" />
+                <data android:scheme="https" android:host="*.bbspink.org" />
             </intent-filter>
         </activity>
     </application>
