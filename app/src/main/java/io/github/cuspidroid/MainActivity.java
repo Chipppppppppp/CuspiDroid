@@ -287,6 +287,7 @@ public class MainActivity extends Activity {
     private static final long TAB_UNLOAD_AFTER_MANY_TABS_MS = 15_000L;
     private static final int MAX_BACKGROUND_TAB_VIEWS = 2;
     private static final int MAX_BACKGROUND_PAGE_DATA = 3;
+    private static final int MAX_BOARD_HISTORY_PAGES = 3;
     private static final int TAB_RELOAD_PARALLELISM = 4;
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
@@ -2351,7 +2352,7 @@ public class MainActivity extends Activity {
         long now = android.os.SystemClock.uptimeMillis();
         long unloadAfter = tabs.size() > 8 ? TAB_UNLOAD_AFTER_MANY_TABS_MS : TAB_UNLOAD_AFTER_MS;
         for (int i = 0; i < tabs.size(); i++) {
-            if (!tabOverviewVisible && i == currentIndex) {
+            if (i == currentIndex) {
                 continue;
             }
             CuspTab tab = tabs.get(i);
@@ -2368,7 +2369,7 @@ public class MainActivity extends Activity {
         while (backgroundTabViewCount() > MAX_BACKGROUND_TAB_VIEWS) {
             CuspTab oldest = null;
             for (int i = 0; i < tabs.size(); i++) {
-                if (!tabOverviewVisible && i == currentIndex) {
+                if (i == currentIndex) {
                     continue;
                 }
                 CuspTab tab = tabs.get(i);
@@ -2389,7 +2390,7 @@ public class MainActivity extends Activity {
     private int backgroundTabViewCount() {
         int count = 0;
         for (int i = 0; i < tabs.size(); i++) {
-            if ((tabOverviewVisible || i != currentIndex) && tabs.get(i).readerView != null) {
+            if (i != currentIndex && tabs.get(i).readerView != null) {
                 count++;
             }
         }
@@ -2400,7 +2401,7 @@ public class MainActivity extends Activity {
         while (backgroundPageDataCount() > MAX_BACKGROUND_PAGE_DATA) {
             CuspTab oldest = null;
             for (int i = 0; i < tabs.size(); i++) {
-                if (!tabOverviewVisible && i == currentIndex) {
+                if (i == currentIndex) {
                     continue;
                 }
                 CuspTab tab = tabs.get(i);
@@ -2421,7 +2422,7 @@ public class MainActivity extends Activity {
     private int backgroundPageDataCount() {
         int count = 0;
         for (int i = 0; i < tabs.size(); i++) {
-            if ((tabOverviewVisible || i != currentIndex) && hasUnloadablePageData(tabs.get(i))) {
+            if (i != currentIndex && hasUnloadablePageData(tabs.get(i))) {
                 count++;
             }
         }
@@ -2455,6 +2456,7 @@ public class MainActivity extends Activity {
         tab.postViews = null;
         tab.postSlots = null;
         tab.renderedPostSlots = null;
+        tab.boardHistoryPages.clear();
     }
 
     private void unloadTabPageData(CuspTab tab) {
@@ -2471,6 +2473,7 @@ public class MainActivity extends Activity {
         tab.searchPage = null;
         tab.savedThreadPageJson = null;
         tab.savedSearchPageJson = null;
+        tab.boardHistoryPages.clear();
     }
 
     private JSONObject threadPageToJson(ThreadPage page) throws Exception {
@@ -4353,6 +4356,7 @@ public class MainActivity extends Activity {
                 tab.title = result.title;
                 tab.searchPage = result;
                 tab.readerView = buildSearchView(result);
+                cacheBoardHistoryPage(tab, result, tab.readerView);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
                 }
@@ -4411,6 +4415,7 @@ public class MainActivity extends Activity {
                 tab.title = result.title;
                 tab.searchPage = result;
                 tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result) : buildSearchView(result);
+                cacheBoardHistoryPage(tab, result, tab.readerView);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
                 }
@@ -7293,24 +7298,43 @@ public class MainActivity extends Activity {
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
-        trimBackgroundTabViews();
-        trimBackgroundPageData();
         attachTabOverviewView();
         updateBottomThreadBar(currentTab());
         renderTabs();
+        mainHandler.postDelayed(() -> {
+            if (tabOverviewVisible) {
+                trimBackgroundTabViews();
+                trimBackgroundPageData();
+            }
+        }, 250);
     }
 
     private void attachTabOverviewView() {
         View view = cachedTabOverviewView();
-        if (view == null) {
+        boolean newlyBuilt = view == null;
+        if (newlyBuilt) {
             view = buildTabOverviewView();
             setCachedTabOverviewView(view);
         } else if (view.getParent() instanceof ViewGroup) {
             ((ViewGroup) view.getParent()).removeView(view);
         }
         contentFrame.addView(view);
-        restoreCachedTabOverviewScroll(view);
-        syncClosedTabUndoBar();
+        View attachedView = view;
+        if (newlyBuilt && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
+            mainHandler.postDelayed(() -> {
+                if (tabOverviewNormalView != attachedView) {
+                    return;
+                }
+                refreshTabOverviewBookmarkSectionOnly(attachedView);
+                if (tabOverviewVisible && cachedTabOverviewView() == attachedView) {
+                    restoreCachedTabOverviewScroll(attachedView);
+                    syncClosedTabUndoBar();
+                }
+            }, 32);
+        } else {
+            restoreCachedTabOverviewScroll(view);
+            syncClosedTabUndoBar();
+        }
     }
 
     private View cachedTabOverviewView() {
@@ -7408,7 +7432,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        populateTabOverviewList(scroll, list);
+        populateTabOverviewList(scroll, list, false);
 
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
@@ -7430,6 +7454,10 @@ public class MainActivity extends Activity {
     }
 
     private void populateTabOverviewList(ScrollView scroll, LinearLayout list) {
+        populateTabOverviewList(scroll, list, true);
+    }
+
+    private void populateTabOverviewList(ScrollView scroll, LinearLayout list, boolean includeBookmarks) {
         list.removeAllViews();
         setTabOverviewListPadding(list);
         LinearLayout header = new LinearLayout(this);
@@ -7441,7 +7469,7 @@ public class MainActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
-        if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
+        if (includeBookmarks && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
             addBookmarkOverviewSection(list);
         }
         addTabOverviewSection(scroll, list, tabOverviewPrivateMode);
@@ -9557,7 +9585,11 @@ public class MainActivity extends Activity {
     }
 
     private boolean refreshTabOverviewBookmarkSectionOnly() {
-        ScrollView scroll = findScrollView(contentFrame);
+        return refreshTabOverviewBookmarkSectionOnly(contentFrame);
+    }
+
+    private boolean refreshTabOverviewBookmarkSectionOnly(View root) {
+        ScrollView scroll = findScrollView(root);
         if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
             return false;
         }
@@ -15689,7 +15721,55 @@ public class MainActivity extends Activity {
         if (restorePendingNewTabFromInternalUrl(tab, url)) {
             return;
         }
+        if (restoreBoardHistoryPage(tab, url)) {
+            return;
+        }
         openInCurrentTab(url, false);
+    }
+
+    private void cacheBoardHistoryPage(CuspTab tab, SearchPage page, View view) {
+        if (tab == null || page == null || view == null || page.error != null
+                || !NATIVE_BOARD.equals(tab.nativeKind) || page.url == null || page.url.trim().isEmpty()) {
+            return;
+        }
+        String key = boardHistoryKey(page.url);
+        tab.boardHistoryPages.remove(key);
+        tab.boardHistoryPages.put(key, new BoardHistoryPage(page, view, tab.title));
+        while (tab.boardHistoryPages.size() > MAX_BOARD_HISTORY_PAGES) {
+            String oldest = tab.boardHistoryPages.keySet().iterator().next();
+            tab.boardHistoryPages.remove(oldest);
+        }
+    }
+
+    private boolean restoreBoardHistoryPage(CuspTab tab, String url) {
+        if (tab == null || url == null || (!isBoardUrl(url) && !isBbsDirectoryUrl(url))) {
+            return false;
+        }
+        String key = boardHistoryKey(url);
+        BoardHistoryPage cached = tab.boardHistoryPages.remove(key);
+        if (cached == null || cached.page == null || cached.view == null) {
+            return false;
+        }
+        tab.boardHistoryPages.put(key, cached);
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_BOARD;
+        tab.url = cached.page.url;
+        tab.title = cached.title;
+        tab.searchPage = cached.page;
+        tab.threadPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        tab.readerView = cached.view;
+        int index = tabs.indexOf(tab);
+        if (index >= 0) {
+            switchToTab(index);
+        }
+        renderTabs();
+        return true;
+    }
+
+    private String boardHistoryKey(String url) {
+        return trimSlash(normalizeUrl(url));
     }
 
     private boolean restorePendingNewTabFromInternalUrl(CuspTab tab, String url) {
@@ -19673,6 +19753,7 @@ public class MainActivity extends Activity {
         SearchPage searchPage;
         JSONObject savedThreadPageJson;
         JSONObject savedSearchPageJson;
+        final LinkedHashMap<String, BoardHistoryPage> boardHistoryPages = new LinkedHashMap<>();
         ScrollView threadScroll;
         LinearLayout threadList;
         View threadBottomLoader;
@@ -19720,6 +19801,18 @@ public class MainActivity extends Activity {
         boolean threadRendering;
         Runnable threadScrollChromeTask;
         Runnable threadPostVisibilityTask;
+    }
+
+    private static class BoardHistoryPage {
+        final SearchPage page;
+        final View view;
+        final String title;
+
+        BoardHistoryPage(SearchPage page, View view, String title) {
+            this.page = page;
+            this.view = view;
+            this.title = title;
+        }
     }
 
     private static class PostCardShell {
