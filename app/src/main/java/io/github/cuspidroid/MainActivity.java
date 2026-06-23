@@ -6132,11 +6132,7 @@ public class MainActivity extends Activity {
             return scroll;
         }
 
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (SearchResult result : page.results) {
-            String category = result.category == null ? "" : result.category.trim();
-            counts.put(category, counts.containsKey(category) ? counts.get(category) + 1 : 1);
-        }
+        Map<String, Integer> counts = bbsCategoryCounts(page);
         list.setTag(new VirtualSearchState());
         for (Map.Entry<String, Integer> entry : counts.entrySet()) {
             String category = entry.getKey();
@@ -6149,6 +6145,22 @@ public class MainActivity extends Activity {
             scheduleSearchSlotRefresh(list);
         }
         return scroll;
+    }
+
+    private Map<String, Integer> bbsCategoryCounts(SearchPage page) {
+        if (page == null) {
+            return new LinkedHashMap<>();
+        }
+        if (page.categoryCounts != null) {
+            return page.categoryCounts;
+        }
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (SearchResult result : page.results) {
+            String category = result.category == null ? "" : result.category.trim();
+            counts.put(category, counts.containsKey(category) ? counts.get(category) + 1 : 1);
+        }
+        page.categoryCounts = counts;
+        return counts;
     }
 
     private View bbsCategoryRow(BbsCategoryRow item) {
@@ -9412,61 +9424,136 @@ public class MainActivity extends Activity {
         int itemIndex = snapshot == null
                 ? savedItemIndex(PREF_THREAD_BOOKMARKS, item)
                 : snapshot.itemIndices.getOrDefault(savedItemIdentity(item.url, item.folder), -1);
-        CuspTab tab = bookmarkOverviewTab(item, snapshot);
-        FrameLayout shell = tabOverviewRowShell(tab, bookmarkOverviewItemSelected(item),
-                (v, event) -> {
-                    autoScrollDuringDrag(v, event);
-                    if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
-                        Object local = event.getLocalState();
-                        if (local instanceof DragPayload) {
-                            DragPayload payload = (DragPayload) local;
-                            if ("tabs".equals(payload.key) && itemIndex >= 0) {
-                                moveTabToBookmarksFromOverview(payload.index, normalizeSavedFolder(item.folder), itemIndex);
-                                return true;
-                            }
-                            if (PREF_THREAD_BOOKMARKS.equals(payload.key) && itemIndex >= 0) {
-                                List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
-                                if (payload.index >= 0 && payload.index < items.size()) {
-                                    SavedItem moved = items.get(payload.index);
-                                    moveBookmarkNodeToParentNear(BookmarkNode.item(moved).orderKey(),
-                                            normalizeSavedFolder(item.folder), BookmarkNode.item(item).orderKey(),
-                                            bookmarkDropZone(event, v, false) > 0);
-                                }
-                                payload.index = itemIndex;
-                                refreshTabOverview();
-                                return true;
-                            }
-                            String movingKey = bookmarkNodeDragValue(payload.key);
-                            if (!movingKey.isEmpty()) {
-                                moveBookmarkNodeToParentNear(movingKey, normalizeSavedFolder(item.folder),
-                                        BookmarkNode.item(item).orderKey(), bookmarkDropZone(event, v, false) > 0);
-                                refreshTabOverview();
-                                return true;
-                            }
-                            if ((PREF_THREAD_BOOKMARKS + ":folder").equals(payload.key) && itemIndex >= 0) {
-                                moveBookmarkOverviewFolderBeforeItem(payload.index, itemIndex);
-                                refreshTabOverview();
-                                return true;
-                            }
-                        }
-                    }
-                    return true;
-                },
-                v -> openBookmarkOverviewItem(item),
-                (row, rowShell) -> {
-                    if (itemIndex < 0) {
-                        return false;
-                    }
-                    row.startDragAndDrop(ClipData.newPlainText("bookmark", item.url),
-                            new View.DragShadowBuilder(rowShell),
-                            new DragPayload(bookmarkNodeDragKey(BookmarkNode.item(item)), itemIndex), 0);
-                    return true;
-                },
+        return bookmarkOverviewShell(
+                bookmarkOverviewItemContent(item, itemIndex, snapshot),
+                indentLevel,
+                dp(72));
+    }
+
+    private View bookmarkOverviewItemContent(SavedItem item, int itemIndex, BookmarkOverviewSnapshot snapshot) {
+        FrameLayout shell = new FrameLayout(this);
+        shell.setClipChildren(false);
+        shell.setBackgroundColor(Color.TRANSPARENT);
+        View.OnDragListener dragListener = bookmarkOverviewItemDropListener(item, itemIndex);
+        shell.setOnDragListener(dragListener);
+        ImageView deleteLeft = swipeActionIcon(R.drawable.ic_delete, Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        deleteLeft.setColorFilter(TEAL);
+        ImageView deleteRight = swipeActionIcon(R.drawable.ic_delete, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        deleteRight.setColorFilter(TEAL);
+        shell.addView(deleteLeft);
+        shell.addView(deleteRight);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(7), dp(8), dp(7));
+        row.setMinimumHeight(dp(72));
+        row.setBackground(roundedDrawable(postColor(), bookmarkOverviewItemSelected(item) ? TEAL : borderColor(), dp(8)));
+        row.setOnClickListener(v -> openBookmarkOverviewItem(item));
+        row.setOnDragListener(dragListener);
+        row.setOnLongClickListener(v -> {
+            if (itemIndex < 0) {
+                return false;
+            }
+            row.startDragAndDrop(ClipData.newPlainText("bookmark", item.url),
+                    new View.DragShadowBuilder(shell),
+                    new DragPayload(bookmarkNodeDragKey(BookmarkNode.item(item)), itemIndex), 0);
+            return true;
+        });
+
+        LinearLayout textBox = new LinearLayout(this);
+        textBox.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText(item == null || item.title == null || item.title.trim().isEmpty()
+                ? displayBoardTitle(item == null ? "" : item.url)
+                : item.title.trim());
+        title.setTextColor(textColor());
+        title.setTextSize(14);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setIncludeFontPadding(false);
+        textBox.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(26)));
+        TextView meta = new TextView(this);
+        meta.setText(bookmarkOverviewItemMeta(item, snapshot));
+        meta.setTextColor(mutedColor());
+        meta.setTextSize(12);
+        meta.setSingleLine(true);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
+        meta.setIncludeFontPadding(false);
+        textBox.addView(meta, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(22)));
+        row.addView(textBox, new LinearLayout.LayoutParams(0, dp(48), 1));
+
+        ImageButton close = iconButton(R.drawable.ic_close,
                 text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u524a\u9664", "Delete bookmark"),
-                rowShell -> deleteBookmarkFromOverview(item, rowShell),
-                (row, deleteLeft, deleteRight, rowShell) ->
-                        attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item, rowShell));
-        return bookmarkOverviewShell(shell, indentLevel, dp(78));
+                v -> deleteBookmarkFromOverview(item, shell));
+        close.setColorFilter(mutedColor());
+        close.setBackgroundColor(Color.TRANSPARENT);
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(42), dp(40));
+        closeParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(close, closeParams);
+
+        shell.addView(row, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(72)));
+        attachBookmarkOverviewSwipe(row, deleteLeft, deleteRight, item, shell);
+        return shell;
+    }
+
+    private String bookmarkOverviewItemMeta(SavedItem item, BookmarkOverviewSnapshot snapshot) {
+        String url = item == null || item.url == null ? "" : item.url;
+        BookmarkOverviewStatus status = item == null ? null
+                : snapshot == null ? bookmarkOverviewStatus(url) : bookmarkOverviewStatus(url, snapshot.statusRoot);
+        if (status != null && status.responseCount > 0) {
+            int read = snapshot == null ? visibleReadPostNumber(url) : snapshot.readPosts.optInt(url, 0);
+            int unread = Math.max(0, status.responseCount - read);
+            return text("\u30ec\u30b9: ", "Posts: ") + status.responseCount
+                    + (unread > 0 ? "  " + text("\u672a\u8aad: ", "Unread: ") + unread : "");
+        }
+        return url.replaceFirst("https?://", "");
+    }
+
+    private View.OnDragListener bookmarkOverviewItemDropListener(SavedItem item, int itemIndex) {
+        return (v, event) -> {
+            autoScrollDuringDrag(v, event);
+            if (event.getAction() != android.view.DragEvent.ACTION_DROP) {
+                return true;
+            }
+            Object local = event.getLocalState();
+            if (!(local instanceof DragPayload)) {
+                return true;
+            }
+            DragPayload payload = (DragPayload) local;
+            if ("tabs".equals(payload.key) && itemIndex >= 0) {
+                moveTabToBookmarksFromOverview(payload.index, normalizeSavedFolder(item.folder), itemIndex);
+                return true;
+            }
+            if (PREF_THREAD_BOOKMARKS.equals(payload.key) && itemIndex >= 0) {
+                List<SavedItem> items = readSavedItems(PREF_THREAD_BOOKMARKS);
+                if (payload.index >= 0 && payload.index < items.size()) {
+                    SavedItem moved = items.get(payload.index);
+                    moveBookmarkNodeToParentNear(BookmarkNode.item(moved).orderKey(),
+                            normalizeSavedFolder(item.folder), BookmarkNode.item(item).orderKey(),
+                            bookmarkDropZone(event, v, false) > 0);
+                }
+                payload.index = itemIndex;
+                refreshTabOverview();
+                return true;
+            }
+            String movingKey = bookmarkNodeDragValue(payload.key);
+            if (!movingKey.isEmpty()) {
+                moveBookmarkNodeToParentNear(movingKey, normalizeSavedFolder(item.folder),
+                        BookmarkNode.item(item).orderKey(), bookmarkDropZone(event, v, false) > 0);
+                refreshTabOverview();
+                return true;
+            }
+            if ((PREF_THREAD_BOOKMARKS + ":folder").equals(payload.key) && itemIndex >= 0) {
+                moveBookmarkOverviewFolderBeforeItem(payload.index, itemIndex);
+                refreshTabOverview();
+                return true;
+            }
+            return true;
+        };
     }
 
     private void openBookmarkOverviewItem(SavedItem item) {
@@ -9960,7 +10047,9 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         if (refreshTabOverviewAfterToggle && tabOverviewVisible && contentFrame != null) {
-            refreshTabOverviewListOnly();
+            if (!refreshTabOverviewBookmarkSectionOnly()) {
+                refreshTabOverviewListOnly();
+            }
             renderTabs();
         } else if (!refreshTabOverviewAfterToggle) {
             refreshHomeBookmarksOrCurrentView();
@@ -17016,6 +17105,7 @@ public class MainActivity extends Activity {
         page.url = redirectedUrl;
         page.title = hostTitle(redirectedUrl);
         Set<String> seen = new LinkedHashSet<>();
+        Map<String, Integer> categoryCounts = new LinkedHashMap<>();
         Pattern anchorPattern = Pattern.compile(
                 "<a\\s+[^>]*href\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))[^>]*>(.*?)</a>",
                 Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
@@ -17055,7 +17145,10 @@ public class MainActivity extends Activity {
             result.meta = host;
             result.category = currentCategory;
             page.results.add(result);
+            String category = currentCategory == null ? "" : currentCategory.trim();
+            categoryCounts.put(category, categoryCounts.containsKey(category) ? categoryCounts.get(category) + 1 : 1);
         }
+        page.categoryCounts = categoryCounts;
         saveBoardDisplayNames(boardNames);
         if (page.results.isEmpty()) {
             throw new IllegalStateException(text("\u677f\u30ea\u30f3\u30af\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board links found."));
@@ -20582,6 +20675,7 @@ public class MainActivity extends Activity {
         String title;
         String error;
         List<SearchResult> results = new ArrayList<>();
+        Map<String, Integer> categoryCounts;
         int fullTextPage = 1;
         boolean fullTextHasMore;
         boolean fullTextLoadingMore;

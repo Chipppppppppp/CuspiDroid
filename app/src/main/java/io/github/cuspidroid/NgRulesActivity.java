@@ -88,6 +88,7 @@ public class NgRulesActivity extends Activity {
         LinearLayout targets = new LinearLayout(this);
         targets.setOrientation(LinearLayout.VERTICAL);
         addTargetRow(targets, "", MainActivity.text("\u5168\u30b9\u30ec\u5171\u901a", "All threads"));
+        addNewTargetRow(targets);
         List<String> seen = new ArrayList<>();
         for (MainActivity.ScopedNgRule rule : allRules) {
             if (rule.targetUrl.isEmpty() || seen.contains(rule.targetUrl)) {
@@ -110,6 +111,33 @@ public class NgRulesActivity extends Activity {
             startActivity(intent);
         });
         parent.addView(row, targetRowParams());
+    }
+
+    private void addNewTargetRow(LinearLayout parent) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(10), dp(10), dp(10), dp(10));
+        box.setBackground(boxBackground());
+        EditText input = field(MainActivity.text("\u30b9\u30ecURL\u3092\u8ffd\u52a0", "Add thread URL"));
+        box.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        TextView add = actionRow(MainActivity.text("\u5bfe\u8c61\u3092\u8ffd\u52a0", "Add target"));
+        add.setOnClickListener(v -> {
+            String url = MainActivity.normalizeNgTargetUrl(input.getText().toString());
+            if (url.isEmpty()) {
+                Toast.makeText(this, MainActivity.text("\u30b9\u30ecURL\u3092\u5165\u529b", "Enter a thread URL."), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent intent = new Intent(this, NgRulesActivity.class);
+            intent.putExtra(MainActivity.EXTRA_NG_TARGET_URL, url);
+            intent.putExtra(MainActivity.EXTRA_NG_TARGET_TITLE, "");
+            startActivity(intent);
+        });
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        addParams.setMargins(0, dp(8), 0, 0);
+        box.addView(add, addParams);
+        parent.addView(box, rowParams());
     }
 
     private void buildEditor(LinearLayout root) {
