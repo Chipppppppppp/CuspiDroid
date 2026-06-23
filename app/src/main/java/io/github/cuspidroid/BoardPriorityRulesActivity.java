@@ -11,6 +11,8 @@ import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
+import android.widget.Button;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -20,7 +22,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 public class BoardPriorityRulesActivity extends Activity {
@@ -73,6 +77,8 @@ public class BoardPriorityRulesActivity extends Activity {
         root.setPadding(dp(18), dp(16), dp(18), 0);
         root.setBackgroundColor(Theme.background(this));
         setContentView(root);
+
+        root.addView(scopeSelector());
 
         TextView title = textView(targetUrl.isEmpty()
                 ? MainActivity.text("\u3059\u3079\u3066\u306e\u677f\u306e\u512a\u5148\u30ef\u30fc\u30c9", "Priority words for all boards")
@@ -186,7 +192,7 @@ public class BoardPriorityRulesActivity extends Activity {
                     }
                 }
                 MainActivity.BoardPriorityRule rule = new MainActivity.BoardPriorityRule(
-                        value, regexType.isChecked(), currentTargetUrl());
+                        value, regexType.isChecked(), currentTargetUrl(), targetTitle);
                 if (index >= 0 && index < pageRules.size()) {
                     pageRules.set(index, rule);
                 } else {
@@ -213,12 +219,86 @@ public class BoardPriorityRulesActivity extends Activity {
         }
         String nextTarget = currentTargetUrl();
         for (MainActivity.BoardPriorityRule rule : pageRules) {
-            saved.add(new MainActivity.BoardPriorityRule(rule.value, rule.regex, nextTarget));
+            saved.add(new MainActivity.BoardPriorityRule(rule.value, rule.regex, nextTarget, targetTitle));
         }
         targetUrl = nextTarget;
         allRules.clear();
         allRules.addAll(saved);
         MainActivity.saveBoardPriorityRules(preferences, saved);
+    }
+
+    private HorizontalScrollView scopeSelector() {
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, 0, 0, dp(10));
+        Map<String, String> targets = new LinkedHashMap<>();
+        targets.put("", MainActivity.text("\u3059\u3079\u3066\u306e\u677f", "All boards"));
+        for (MainActivity.BoardPriorityRule rule : allRules) {
+            String url = MainActivity.normalizePriorityTargetUrl(rule.targetUrl);
+            if (!url.isEmpty() && !targets.containsKey(url)) {
+                targets.put(url, scopeLabel(rule.targetTitle, url));
+            }
+        }
+        if (!targetUrl.isEmpty()) {
+            targets.put(targetUrl, scopeLabel(targetTitle, targetUrl));
+        }
+        for (Map.Entry<String, String> entry : targets.entrySet()) {
+            String url = entry.getKey();
+            String label = entry.getValue();
+            String title = scopeTitleForUrl(url);
+            Button button = new Button(this);
+            button.setAllCaps(false);
+            button.setText(label);
+            button.setTextSize(13);
+            button.setTextColor(Theme.text(this));
+            button.setBackground(scopeBackground(url.equals(targetUrl)));
+            button.setOnClickListener(v -> switchScope(url, title));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(42));
+            params.setMargins(0, 0, dp(6), 0);
+            row.addView(button, params);
+        }
+        scroll.addView(row);
+        return scroll;
+    }
+
+    private String scopeTitleForUrl(String url) {
+        if (url.isEmpty()) {
+            return "";
+        }
+        if (url.equals(targetUrl) && !targetTitle.trim().isEmpty()) {
+            return targetTitle.trim();
+        }
+        for (MainActivity.BoardPriorityRule rule : allRules) {
+            if (MainActivity.normalizePriorityTargetUrl(rule.targetUrl).equals(url)
+                    && !rule.targetTitle.trim().isEmpty()) {
+                return rule.targetTitle.trim();
+            }
+        }
+        return scopeLabel("", url);
+    }
+
+    private void switchScope(String url, String title) {
+        if (url.equals(targetUrl)) {
+            return;
+        }
+        saveRules();
+        targetUrl = url;
+        targetTitle = url.isEmpty() ? "" : title;
+        targetInput = null;
+        loadPageRules();
+        buildLayout();
+        renderRules();
+    }
+
+    private String scopeLabel(String title, String url) {
+        if (title != null && !title.trim().isEmpty()) {
+            return title.trim();
+        }
+        String value = url == null ? "" : url.replaceFirst("https?://", "");
+        return value.length() > 24 ? value.substring(0, 23) + "..." : value;
     }
 
     private LinearLayout ruleRow(String value) {
@@ -297,6 +377,12 @@ public class BoardPriorityRulesActivity extends Activity {
         drawable.setColor(Theme.surface(this));
         drawable.setStroke(dp(1), Theme.border(this));
         drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable scopeBackground(boolean selected) {
+        GradientDrawable drawable = boxBackground();
+        drawable.setColor(selected ? Theme.active(this) : Theme.surface(this));
         return drawable;
     }
 

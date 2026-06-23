@@ -13,6 +13,7 @@ import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -81,6 +82,8 @@ public class NgRulesActivity extends Activity {
         root.setBackgroundColor(Theme.background(this));
         setContentView(root);
 
+        root.addView(scopeSelector());
+
         root.addView(textView(targetUrl.isEmpty()
                 ? MainActivity.text("\u3059\u3079\u3066\u306e\u30b9\u30ec\u306eNG\u7ba1\u7406", "NG rules for all threads")
                 : MainActivity.text("\u30b9\u30ec\u3054\u3068\u306eNG\u7ba1\u7406", "Thread NG rules"), 24, Theme.text(this)));
@@ -104,6 +107,7 @@ public class NgRulesActivity extends Activity {
         }
 
         LinearLayout tabs = new LinearLayout(this);
+        categoryButtons.clear();
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setPadding(0, dp(8), 0, dp(6));
         for (String category : CATEGORIES) {
@@ -227,7 +231,7 @@ public class NgRulesActivity extends Activity {
                     }
                 }
                 MainActivity.ScopedNgRule rule = new MainActivity.ScopedNgRule(
-                        currentCategory, value, regexType.isChecked(), currentTargetUrl());
+                        currentCategory, value, regexType.isChecked(), currentTargetUrl(), targetTitle);
                 if (pageIndex >= 0 && pageIndex < pageRules.size()) {
                     pageRules.set(pageIndex, rule);
                 } else {
@@ -254,12 +258,86 @@ public class NgRulesActivity extends Activity {
         }
         String nextTarget = currentTargetUrl();
         for (MainActivity.ScopedNgRule rule : pageRules) {
-            saved.add(new MainActivity.ScopedNgRule(rule.category, rule.value, rule.regex, nextTarget));
+            saved.add(new MainActivity.ScopedNgRule(
+                    rule.category, rule.value, rule.regex, nextTarget, targetTitle));
         }
         targetUrl = nextTarget;
         allRules.clear();
         allRules.addAll(saved);
         MainActivity.saveNgRules(preferences, saved);
+    }
+
+    private HorizontalScrollView scopeSelector() {
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, 0, 0, dp(10));
+        Map<String, String> targets = new LinkedHashMap<>();
+        targets.put("", MainActivity.text("\u3059\u3079\u3066\u306e\u30b9\u30ec", "All threads"));
+        for (MainActivity.ScopedNgRule rule : allRules) {
+            if (!rule.targetUrl.isEmpty() && !targets.containsKey(rule.targetUrl)) {
+                targets.put(rule.targetUrl, scopeLabel(rule.targetTitle, rule.targetUrl));
+            }
+        }
+        if (!targetUrl.isEmpty()) {
+            targets.put(targetUrl, scopeLabel(targetTitle, targetUrl));
+        }
+        for (Map.Entry<String, String> entry : targets.entrySet()) {
+            String url = entry.getKey();
+            String label = entry.getValue();
+            String title = scopeTitleForUrl(url);
+            Button button = new Button(this);
+            button.setAllCaps(false);
+            button.setText(label);
+            button.setTextSize(13);
+            button.setTextColor(Theme.text(this));
+            button.setBackground(tabBackground(url.equals(targetUrl)));
+            button.setOnClickListener(v -> switchScope(url, title));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(42));
+            params.setMargins(0, 0, dp(6), 0);
+            row.addView(button, params);
+        }
+        scroll.addView(row);
+        return scroll;
+    }
+
+    private String scopeTitleForUrl(String url) {
+        if (url.isEmpty()) {
+            return "";
+        }
+        if (url.equals(targetUrl) && !targetTitle.trim().isEmpty()) {
+            return targetTitle.trim();
+        }
+        for (MainActivity.ScopedNgRule rule : allRules) {
+            if (rule.targetUrl.equals(url) && !rule.targetTitle.trim().isEmpty()) {
+                return rule.targetTitle.trim();
+            }
+        }
+        return scopeLabel("", url);
+    }
+
+    private void switchScope(String url, String title) {
+        if (url.equals(targetUrl)) {
+            return;
+        }
+        saveRules();
+        targetUrl = url;
+        targetTitle = url.isEmpty() ? "" : title;
+        targetInput = null;
+        loadPageRules();
+        buildLayout();
+        renderRules();
+    }
+
+    private String scopeLabel(String title, String url) {
+        if (title != null && !title.trim().isEmpty()) {
+            String value = title.trim();
+            return value.length() > 24 ? value.substring(0, 23) + "..." : value;
+        }
+        String value = url == null ? "" : url.replaceFirst("https?://", "");
+        return value.length() > 24 ? value.substring(0, 23) + "..." : value;
     }
 
     private LinearLayout ruleRow(String value) {

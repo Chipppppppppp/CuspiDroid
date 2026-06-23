@@ -18713,7 +18713,7 @@ public class MainActivity extends Activity {
                     String value = item.optString("value", "").trim();
                     if (!value.isEmpty()) {
                         rules.add(new ScopedNgRule(category, value, item.optBoolean("regex", false),
-                                item.optString("targetUrl", "")));
+                                item.optString("targetUrl", ""), item.optString("targetTitle", "")));
                     }
                 }
             }
@@ -18759,6 +18759,9 @@ public class MainActivity extends Activity {
                     if (!rule.targetUrl.isEmpty()) {
                         item.put("targetUrl", normalizeNgTargetUrl(rule.targetUrl));
                     }
+                    if (!rule.targetTitle.isEmpty()) {
+                        item.put("targetTitle", rule.targetTitle);
+                    }
                     scoped.put(item);
                 }
             }
@@ -18797,7 +18800,7 @@ public class MainActivity extends Activity {
                     String value = object.optString("value", "").trim();
                     if (!value.isEmpty()) {
                         rules.add(new BoardPriorityRule(value, object.optBoolean("regex", false),
-                                object.optString("targetUrl", "")));
+                                object.optString("targetUrl", ""), object.optString("targetTitle", "")));
                     }
                 } else {
                     String value = array.optString(i, "").trim();
@@ -18826,6 +18829,9 @@ public class MainActivity extends Activity {
                     String targetUrl = normalizePriorityTargetUrl(rule.targetUrl);
                     if (!targetUrl.isEmpty()) {
                         object.put("targetUrl", targetUrl);
+                    }
+                    if (rule.targetTitle != null && !rule.targetTitle.trim().isEmpty()) {
+                        object.put("targetTitle", rule.targetTitle.trim());
                     }
                     array.put(object);
                 }
@@ -20174,15 +20180,21 @@ public class MainActivity extends Activity {
         final String value;
         final boolean regex;
         final String targetUrl;
+        final String targetTitle;
 
         BoardPriorityRule(String value, boolean regex) {
-            this(value, regex, "");
+            this(value, regex, "", "");
         }
 
         BoardPriorityRule(String value, boolean regex, String targetUrl) {
+            this(value, regex, targetUrl, "");
+        }
+
+        BoardPriorityRule(String value, boolean regex, String targetUrl, String targetTitle) {
             this.value = value;
             this.regex = regex;
             this.targetUrl = targetUrl == null ? "" : targetUrl;
+            this.targetTitle = targetTitle == null ? "" : targetTitle;
         }
     }
 
@@ -20191,12 +20203,18 @@ public class MainActivity extends Activity {
         final String value;
         final boolean regex;
         final String targetUrl;
+        final String targetTitle;
 
         ScopedNgRule(String category, String value, boolean regex, String targetUrl) {
+            this(category, value, regex, targetUrl, "");
+        }
+
+        ScopedNgRule(String category, String value, boolean regex, String targetUrl, String targetTitle) {
             this.category = category == null ? "NGWord" : category;
             this.value = value == null ? "" : value;
             this.regex = regex;
             this.targetUrl = normalizeNgTargetUrl(targetUrl);
+            this.targetTitle = targetTitle == null ? "" : targetTitle;
         }
     }
 
