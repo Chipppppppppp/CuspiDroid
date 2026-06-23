@@ -109,7 +109,7 @@ public class NgRulesActivity extends Activity {
             intent.putExtra(MainActivity.EXTRA_NG_TARGET_TITLE, title);
             startActivity(intent);
         });
-        parent.addView(row, rowParams());
+        parent.addView(row, targetRowParams());
     }
 
     private void buildEditor(LinearLayout root) {
@@ -375,6 +375,13 @@ public class NgRulesActivity extends Activity {
     private LinearLayout.LayoutParams rowParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        return params;
+    }
+
+    private LinearLayout.LayoutParams targetRowParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(68));
         params.setMargins(0, 0, 0, dp(8));
         return params;
     }

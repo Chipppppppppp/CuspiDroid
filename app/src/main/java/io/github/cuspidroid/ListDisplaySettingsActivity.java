@@ -348,39 +348,50 @@ public class ListDisplaySettingsActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
-        row.setBackground(rowBackground());
+        row.setPadding(dp(12), dp(10), dp(10), dp(10));
+        row.setBackground(managementCardBackground());
         row.setOnClickListener(listener);
+        row.setClickable(true);
+        row.setFocusable(true);
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
-        icon.setColorFilter(Theme.text(this));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        icon.setColorFilter(Color.rgb(15, 118, 110));
+        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+        icon.setBackground(managementIconBackground());
+        row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
-        texts.setPadding(dp(12), 0, 0, 0);
+        texts.setGravity(Gravity.CENTER_VERTICAL);
         TextView titleView = new TextView(this);
         titleView.setText(title);
         titleView.setTextColor(Theme.text(this));
-        titleView.setTextSize(15);
-        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setTextSize(16);
+        titleView.setSingleLine(true);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         texts.addView(titleView);
         TextView subtitleView = new TextView(this);
         subtitleView.setText(subtitle);
         subtitleView.setTextColor(Theme.muted(this));
         subtitleView.setTextSize(12);
+        subtitleView.setSingleLine(true);
+        subtitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         texts.addView(subtitleView);
-        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        textParams.setMargins(dp(12), 0, dp(8), 0);
+        row.addView(texts, textParams);
 
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-        wrapper.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_arrow_forward);
+        arrow.setColorFilter(Theme.muted(this));
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 0, 0, dp(8));
-        wrapper.setLayoutParams(params);
-        return wrapper;
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(68));
+        params.setMargins(0, dp(4), 0, dp(8));
+        row.setLayoutParams(params);
+        return row;
     }
 
     private GradientDrawable rowBackground() {
@@ -388,6 +399,21 @@ public class ListDisplaySettingsActivity extends Activity {
         drawable.setColor(Theme.surface(this));
         drawable.setStroke(dp(1), Theme.border(this));
         drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable managementCardBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.surface(this));
+        drawable.setStroke(dp(1), Theme.border(this));
+        drawable.setCornerRadius(dp(14));
+        return drawable;
+    }
+
+    private GradientDrawable managementIconBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.active(this));
+        drawable.setCornerRadius(dp(13));
         return drawable;
     }
 
