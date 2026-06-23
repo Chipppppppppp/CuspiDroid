@@ -4208,7 +4208,7 @@ public class MainActivity extends Activity {
         ThreadPage htmlPage = null;
         Exception htmlError = null;
         try {
-            String html = download(url);
+            String html = download(threadHtmlUrl(url), "Mozilla/5.0 CuspiDroid/0.1");
             htmlPage = parseThread(url, html);
             if (!htmlPage.posts.isEmpty()) {
                 return htmlPage;
@@ -16026,7 +16026,11 @@ public class MainActivity extends Activity {
     }
 
     private String download(String urlText) throws Exception {
-        HttpURLConnection connection = openConnectionFollowingRedirects(urlText, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+        return download(urlText, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+    }
+
+    private String download(String urlText, String userAgent) throws Exception {
+        HttpURLConnection connection = openConnectionFollowingRedirects(urlText, userAgent);
         int code = connection.getResponseCode();
         InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
         if (stream == null) {
@@ -16265,35 +16269,62 @@ public class MainActivity extends Activity {
 
     private List<String> datCandidates(DatAddress address) {
         List<String> candidates = new ArrayList<>();
-        if (address.host != null && !address.host.isEmpty()) {
+        String realHost = address.server == null || address.server.trim().isEmpty()
+                ? ""
+                : address.server + ".5ch.io";
+        if (address.host != null && !address.host.isEmpty()
+                && !"itest.5ch.io".equalsIgnoreCase(address.host)) {
             String base = (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/" + address.board;
-            candidates.add(base + "/dat/" + address.key + ".dat");
+            addUnique(candidates, base + "/dat/" + address.key + ".dat");
             if (address.key.length() >= 4) {
                 String bucket = address.key.substring(0, 4);
-                candidates.add(base + "/kako/" + bucket + "/" + address.key + ".dat");
+                addUnique(candidates, base + "/kako/" + bucket + "/" + address.key + ".dat");
             }
             if (address.key.length() >= 5) {
                 String bucket4 = address.key.substring(0, 4);
                 String bucket5 = address.key.substring(0, 5);
-                candidates.add(base + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
+                addUnique(candidates, base + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
             }
         }
-        candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/dat/" + address.key + ".dat");
-        candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/dat/" + address.key + ".dat");
+        if (!realHost.isEmpty()) {
+            String base = "https://" + realHost + "/" + address.board;
+            addUnique(candidates, base + "/dat/" + address.key + ".dat");
+            if (address.key.length() >= 4) {
+                String bucket = address.key.substring(0, 4);
+                addUnique(candidates, base + "/oyster/" + bucket + "/" + address.key + ".dat");
+                addUnique(candidates, base + "/kako/" + bucket + "/" + address.key + ".dat");
+            }
+            if (address.key.length() >= 5) {
+                String bucket4 = address.key.substring(0, 4);
+                String bucket5 = address.key.substring(0, 5);
+                addUnique(candidates, base + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
+            }
+        }
+        addUnique(candidates, "https://" + address.server + ".5ch.io/" + address.board + "/dat/" + address.key + ".dat");
+        addUnique(candidates, "https://" + address.server + ".5ch.net/" + address.board + "/dat/" + address.key + ".dat");
         if (address.key.length() >= 4) {
             String bucket = address.key.substring(0, 4);
-            candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
-            candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
-            candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/kako/" + bucket + "/" + address.key + ".dat");
-            candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/kako/" + bucket + "/" + address.key + ".dat");
+            addUnique(candidates, "https://" + address.server + ".5ch.io/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
+            addUnique(candidates, "https://" + address.server + ".5ch.net/" + address.board + "/oyster/" + bucket + "/" + address.key + ".dat");
+            addUnique(candidates, "https://" + address.server + ".5ch.io/" + address.board + "/kako/" + bucket + "/" + address.key + ".dat");
+            addUnique(candidates, "https://" + address.server + ".5ch.net/" + address.board + "/kako/" + bucket + "/" + address.key + ".dat");
         }
         if (address.key.length() >= 5) {
             String bucket4 = address.key.substring(0, 4);
             String bucket5 = address.key.substring(0, 5);
-            candidates.add("https://" + address.server + ".5ch.io/" + address.board + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
-            candidates.add("https://" + address.server + ".5ch.net/" + address.board + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
+            addUnique(candidates, "https://" + address.server + ".5ch.io/" + address.board + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
+            addUnique(candidates, "https://" + address.server + ".5ch.net/" + address.board + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
         }
         return candidates;
+    }
+
+    private String threadHtmlUrl(String threadUrl) {
+        DatAddress address = datAddress(threadUrl);
+        if (address == null || address.server == null || address.server.trim().isEmpty()) {
+            return threadUrl;
+        }
+        return "https://" + address.server + ".5ch.io/test/read.cgi/"
+                + address.board + "/" + address.key + "/";
     }
 
     private DatAddress datAddress(String threadUrl) {
@@ -18909,19 +18940,60 @@ public class MainActivity extends Activity {
         }
         String value = input.trim().replaceFirst("(?i)^(h?ttps?|ttps?);//", "$1://");
         if (value.startsWith("//")) {
-            return "https:" + value;
+            value = "https:" + value;
         }
         String lower = value.toLowerCase(Locale.ROOT);
         if (lower.startsWith("ttps://")) {
-            return "h" + value;
+            value = "h" + value;
+        } else if (lower.startsWith("ttp://")) {
+            value = "h" + value;
+        } else if (!value.startsWith("http://") && !value.startsWith("https://")) {
+            value = "https://" + value;
         }
-        if (lower.startsWith("ttp://")) {
-            return "h" + value;
+        String threadUrl = normalizeThreadUrlStatic(value);
+        return threadUrl == null ? value : threadUrl;
+    }
+
+    private static String normalizeThreadUrlStatic(String value) {
+        try {
+            Uri uri = Uri.parse(value);
+            String host = uri.getHost();
+            if (host == null) {
+                return null;
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            if (!lowerHost.equals("5ch.io") && !lowerHost.equals("5ch.net")
+                    && !lowerHost.endsWith(".5ch.io") && !lowerHost.endsWith(".5ch.net")) {
+                return null;
+            }
+            String[] segments = uri.getPath() == null ? new String[0] : uri.getPath().split("/");
+            List<String> parts = new ArrayList<>();
+            for (String segment : segments) {
+                if (!segment.isEmpty()) {
+                    parts.add(segment);
+                }
+            }
+            int testIndex = parts.indexOf("test");
+            if (testIndex < 0) {
+                testIndex = parts.indexOf("bbs");
+            }
+            if (testIndex < 0 || testIndex + 3 >= parts.size()
+                    || !"read.cgi".equals(parts.get(testIndex + 1))) {
+                return null;
+            }
+            String server = lowerHost.split("\\.")[0];
+            if ("itest".equals(server) && testIndex > 0) {
+                server = parts.get(testIndex - 1).toLowerCase(Locale.ROOT);
+            }
+            if (server.trim().isEmpty() || "itest".equals(server)) {
+                return null;
+            }
+            String board = parts.get(testIndex + 2);
+            String key = parts.get(testIndex + 3);
+            return "https://itest.5ch.io/" + server + "/test/read.cgi/" + board + "/" + key + "/";
+        } catch (Exception error) {
+            return null;
         }
-        if (value.startsWith("http://") || value.startsWith("https://")) {
-            return value;
-        }
-        return "https://" + value;
     }
 
     private String searchUrl(String query) {
