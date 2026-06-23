@@ -167,6 +167,9 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_SHOW_CREATED = "board_show_created";
     static final String PREF_BOARD_SHOW_UNREAD = "board_show_unread";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
+    static final String EXTRA_PRIORITY_TARGET_URL = "priority_target_url";
+    static final String EXTRA_PRIORITY_TARGET_TITLE = "priority_target_title";
+    static final String EXTRA_PRIORITY_ADD = "priority_add";
     static final String PREF_BOARD_DISPLAY_NAMES = "board_display_names";
     static final String PREF_TAB_SHOW_BOARD_NAME = "tab_show_board_name";
     static final String PREF_TAB_SHOW_RESPONSES = "tab_show_responses";
@@ -1536,8 +1539,12 @@ public class MainActivity extends Activity {
                 || address.host.isEmpty() || address.board.isEmpty()) {
             return null;
         }
+        String host = "itest.5ch.io".equalsIgnoreCase(address.host) && address.server != null
+                && !address.server.trim().isEmpty()
+                ? address.server + ".5ch.io"
+                : address.host;
         String scheme = address.scheme == null || address.scheme.isEmpty() ? "https" : address.scheme;
-        return scheme + "://" + address.host + "/" + address.board + "/";
+        return scheme + "://" + host + "/" + address.board + "/";
     }
 
     private void openCurrentThreadBoard() {
@@ -1579,6 +1586,16 @@ public class MainActivity extends Activity {
             searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
+        View priority = menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority words"), v -> {
+            dismissPopupAnimated(popup);
+            openBoardPriorityRules(boardUrl, tab.title);
+        });
+        if (boardUrl == null) {
+            priority.setEnabled(false);
+            priority.setAlpha(0.45f);
+        }
+        menu.addView(priority, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
         int mediaCount = threadExtractItems(true).size();
         int linkCount = threadExtractItems(false).size();
         menu.addView(menuIconItem(R.drawable.ic_image, menuCountLabel(text("\u30e1\u30c7\u30a3\u30a2", "Media"), mediaCount), v -> {
@@ -1596,6 +1613,16 @@ public class MainActivity extends Activity {
             copyVisibleTitle();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         showThreadTitleMenuWithinScreen(popup, menu);
+    }
+
+    private void openBoardPriorityRules(String targetUrl, String targetTitle) {
+        Intent intent = new Intent(this, BoardPriorityRulesActivity.class);
+        if (targetUrl != null && !targetUrl.trim().isEmpty()) {
+            intent.putExtra(EXTRA_PRIORITY_TARGET_URL, targetUrl);
+            intent.putExtra(EXTRA_PRIORITY_TARGET_TITLE, targetTitle == null ? "" : targetTitle);
+            intent.putExtra(EXTRA_PRIORITY_ADD, true);
+        }
+        startActivity(intent);
     }
 
     private CharSequence menuCountLabel(String label, int count) {
@@ -16444,7 +16471,7 @@ public class MainActivity extends Activity {
             result.hasReadHistory = threadHistoryContains(result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = displayBoardTitle(boardUrl);
-            result.priorityMatch = matchingBoardPriorityWord(title);
+            result.priorityMatch = matchingBoardPriorityWord(title, result.url, boardUrl);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
             order++;
@@ -16809,12 +16836,15 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_BOARD_THREAD_SORT_DESC, true);
     }
 
-    private BoardPriorityMatch matchingBoardPriorityWord(String title) {
+    private BoardPriorityMatch matchingBoardPriorityWord(String title, String resultUrl, String boardUrl) {
         if (title == null || title.isEmpty()) {
             return null;
         }
         String lowerTitle = title.toLowerCase(Locale.ROOT);
         for (BoardPriorityRule rule : readBoardPriorityRules(preferences)) {
+            if (!boardPriorityRuleApplies(rule, resultUrl, boardUrl)) {
+                continue;
+            }
             String value = rule.value == null ? "" : rule.value.trim();
             if (value.isEmpty()) {
                 continue;
@@ -17660,6 +17690,18 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private boolean boardPriorityRuleApplies(BoardPriorityRule rule, String resultUrl, String boardUrl) {
+        if (rule == null || rule.targetUrl == null || rule.targetUrl.trim().isEmpty()) {
+            return true;
+        }
+        String target = normalizePriorityTargetUrl(rule.targetUrl);
+        if (target.isEmpty()) {
+            return true;
+        }
+        return target.equals(normalizePriorityTargetUrl(resultUrl))
+                || target.equals(normalizePriorityTargetUrl(boardUrl));
+    }
+
     private SavedItem savedItemByBookmarkKey(String bookmarkKey) {
         if (bookmarkKey == null || !bookmarkKey.startsWith("I:")) {
             return null;
@@ -18464,7 +18506,8 @@ public class MainActivity extends Activity {
                     JSONObject object = (JSONObject) item;
                     String value = object.optString("value", "").trim();
                     if (!value.isEmpty()) {
-                        rules.add(new BoardPriorityRule(value, object.optBoolean("regex", false)));
+                        rules.add(new BoardPriorityRule(value, object.optBoolean("regex", false),
+                                object.optString("targetUrl", "")));
                     }
                 } else {
                     String value = array.optString(i, "").trim();
@@ -18490,6 +18533,10 @@ public class MainActivity extends Activity {
                     JSONObject object = new JSONObject();
                     object.put("value", value);
                     object.put("regex", rule.regex);
+                    String targetUrl = normalizePriorityTargetUrl(rule.targetUrl);
+                    if (!targetUrl.isEmpty()) {
+                        object.put("targetUrl", targetUrl);
+                    }
                     array.put(object);
                 }
             }
@@ -18499,17 +18546,24 @@ public class MainActivity extends Activity {
     }
 
     static void addBoardPriorityRule(SharedPreferences preferences, String word, boolean regex) {
+        addBoardPriorityRule(preferences, word, regex, "");
+    }
+
+    static void addBoardPriorityRule(SharedPreferences preferences, String word, boolean regex, String targetUrl) {
         String normalized = word == null ? "" : word.trim();
         if (normalized.isEmpty()) {
             return;
         }
+        String target = normalizePriorityTargetUrl(targetUrl);
         List<BoardPriorityRule> rules = readBoardPriorityRules(preferences);
         for (BoardPriorityRule existing : rules) {
-            if (existing.regex == regex && existing.value.equalsIgnoreCase(normalized)) {
+            if (existing.regex == regex
+                    && existing.value.equalsIgnoreCase(normalized)
+                    && normalizePriorityTargetUrl(existing.targetUrl).equals(target)) {
                 return;
             }
         }
-        rules.add(new BoardPriorityRule(normalized, regex));
+        rules.add(new BoardPriorityRule(normalized, regex, target));
         saveBoardPriorityRules(preferences, rules);
     }
 
@@ -18523,6 +18577,22 @@ public class MainActivity extends Activity {
             }
         }
         saveBoardPriorityRules(preferences, rules);
+    }
+
+    static String normalizePriorityTargetUrl(String url) {
+        String value = url == null ? "" : url.trim();
+        if (value.isEmpty()) {
+            return "";
+        }
+        try {
+            value = normalizeUrlStatic(value);
+            while (value.endsWith("/") && value.length() > "https://x".length()) {
+                value = value.substring(0, value.length() - 1);
+            }
+            return value;
+        } catch (Exception ignored) {
+            return value;
+        }
     }
 
     private boolean isThreadUrl(String url) {
@@ -19818,10 +19888,16 @@ public class MainActivity extends Activity {
     static class BoardPriorityRule {
         final String value;
         final boolean regex;
+        final String targetUrl;
 
         BoardPriorityRule(String value, boolean regex) {
+            this(value, regex, "");
+        }
+
+        BoardPriorityRule(String value, boolean regex, String targetUrl) {
             this.value = value;
             this.regex = regex;
+            this.targetUrl = targetUrl == null ? "" : targetUrl;
         }
     }
 

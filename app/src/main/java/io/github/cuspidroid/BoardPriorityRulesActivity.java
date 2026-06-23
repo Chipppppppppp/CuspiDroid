@@ -2,6 +2,7 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -20,13 +21,17 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 public class BoardPriorityRulesActivity extends Activity {
     private SharedPreferences preferences;
     private final List<MainActivity.BoardPriorityRule> rules = new ArrayList<>();
     private LinearLayout list;
+    private String initialTargetUrl = "";
+    private String initialTargetTitle = "";
 
     private int bgColor() {
         return Theme.background(this);
@@ -53,8 +58,20 @@ public class BoardPriorityRulesActivity extends Activity {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
         rules.addAll(MainActivity.readBoardPriorityRules(preferences));
+        Intent intent = getIntent();
+        if (intent != null) {
+            initialTargetUrl = MainActivity.normalizePriorityTargetUrl(
+                    intent.getStringExtra(MainActivity.EXTRA_PRIORITY_TARGET_URL));
+            initialTargetTitle = intent.getStringExtra(MainActivity.EXTRA_PRIORITY_TARGET_TITLE);
+            if (initialTargetTitle == null) {
+                initialTargetTitle = "";
+            }
+        }
         buildLayout();
         renderRules();
+        if (intent != null && intent.getBooleanExtra(MainActivity.EXTRA_PRIORITY_ADD, false)) {
+            list.post(() -> showRuleDialog(null, -1));
+        }
     }
 
     private void buildLayout() {
@@ -95,38 +112,58 @@ public class BoardPriorityRulesActivity extends Activity {
             list.addView(helperText(MainActivity.text("\u512a\u5148\u30ef\u30fc\u30c9\u306a\u3057", "No priority words.")));
             return;
         }
-        for (int i = 0; i < rules.size(); i++) {
-            MainActivity.BoardPriorityRule rule = rules.get(i);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(10), dp(8), dp(8), dp(8));
-            row.setBackground(rowBackground());
-
-            TextView text = helperText((rule.regex
-                    ? MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex")
-                    : MainActivity.text("\u6587\u5b57\u5217", "Text")) + "\n" + rule.value);
-            text.setTextColor(textColor());
-            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-            int index = i;
-            ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
-            edit.setOnClickListener(v -> showRuleDialog(rule, index));
-            row.addView(edit, iconParams());
-
-            ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u524a\u9664", "Delete"));
-            delete.setOnClickListener(v -> {
-                rules.remove(index);
-                saveRules();
-                renderRules();
-            });
-            row.addView(delete, iconParams());
-
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.setMargins(0, 0, 0, dp(8));
-            list.addView(row, params);
+        Map<String, List<Integer>> grouped = groupedRuleIndexes();
+        for (Map.Entry<String, List<Integer>> entry : grouped.entrySet()) {
+            list.addView(groupHeader(entry.getKey()));
+            for (int index : entry.getValue()) {
+                addRuleRow(index);
+            }
         }
+    }
+
+    private Map<String, List<Integer>> groupedRuleIndexes() {
+        Map<String, List<Integer>> grouped = new LinkedHashMap<>();
+        for (int i = 0; i < rules.size(); i++) {
+            String key = MainActivity.normalizePriorityTargetUrl(rules.get(i).targetUrl);
+            if (!grouped.containsKey(key)) {
+                grouped.put(key, new ArrayList<>());
+            }
+            grouped.get(key).add(i);
+        }
+        return grouped;
+    }
+
+    private void addRuleRow(int i) {
+        MainActivity.BoardPriorityRule rule = rules.get(i);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(8), dp(8), dp(8));
+        row.setBackground(rowBackground());
+
+        TextView text = helperText((rule.regex
+                ? MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex")
+                : MainActivity.text("\u6587\u5b57\u5217", "Text")) + "\n" + rule.value);
+        text.setTextColor(textColor());
+        row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        int index = i;
+        ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
+        edit.setOnClickListener(v -> showRuleDialog(rule, index));
+        row.addView(edit, iconParams());
+
+        ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u524a\u9664", "Delete"));
+        delete.setOnClickListener(v -> {
+            rules.remove(index);
+            saveRules();
+            renderRules();
+        });
+        row.addView(delete, iconParams());
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        list.addView(row, params);
     }
 
     private void showRuleDialog(MainActivity.BoardPriorityRule existing, int index) {
@@ -134,6 +171,26 @@ public class BoardPriorityRulesActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(12), dp(4), dp(12), 0);
         content.setBackgroundColor(surfaceColor());
+
+        TextView targetLabel = helperText(MainActivity.text("\u5bfe\u8c61URL\uff08\u7a7a\u306a\u3089\u5168\u4f53\uff09", "Target URL (blank for all)"));
+        targetLabel.setTextColor(textColor());
+        content.addView(targetLabel);
+
+        EditText targetInput = new EditText(this);
+        targetInput.setSingleLine(true);
+        targetInput.setTextSize(14);
+        targetInput.setTextColor(textColor());
+        targetInput.setHintTextColor(mutedColor());
+        targetInput.setHint(MainActivity.text("\u677fURL\u307e\u305f\u306f\u30b9\u30ecURL", "Board or thread URL"));
+        targetInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        targetInput.setBackground(fieldBackground());
+        targetInput.setPadding(dp(12), 0, dp(12), 0);
+        content.addView(targetInput, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+
+        TextView wordLabel = helperText(MainActivity.text("\u30ef\u30fc\u30c9", "Word"));
+        wordLabel.setTextColor(textColor());
+        content.addView(wordLabel);
 
         RadioGroup group = new RadioGroup(this);
         group.setOrientation(RadioGroup.HORIZONTAL);
@@ -166,8 +223,11 @@ public class BoardPriorityRulesActivity extends Activity {
             regexType.setChecked(true);
         }
         if (existing != null) {
+            targetInput.setText(MainActivity.normalizePriorityTargetUrl(existing.targetUrl));
             input.setText(existing.value);
             input.setSelection(input.length());
+        } else if (!initialTargetUrl.isEmpty()) {
+            targetInput.setText(initialTargetUrl);
         }
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -196,7 +256,8 @@ public class BoardPriorityRulesActivity extends Activity {
                     return;
                 }
             }
-            MainActivity.BoardPriorityRule rule = new MainActivity.BoardPriorityRule(value, regexType.isChecked());
+            String targetUrl = MainActivity.normalizePriorityTargetUrl(targetInput.getText().toString());
+            MainActivity.BoardPriorityRule rule = new MainActivity.BoardPriorityRule(value, regexType.isChecked(), targetUrl);
             if (index >= 0 && index < rules.size()) {
                 rules.set(index, rule);
             } else {
@@ -212,6 +273,21 @@ public class BoardPriorityRulesActivity extends Activity {
 
     private void saveRules() {
         MainActivity.saveBoardPriorityRules(preferences, rules);
+    }
+
+    private TextView groupHeader(String targetUrl) {
+        String value = targetUrl == null || targetUrl.trim().isEmpty()
+                ? MainActivity.text("\u5168\u4f53", "All threads")
+                : targetUrl;
+        if (!initialTargetUrl.isEmpty() && initialTargetUrl.equals(targetUrl)
+                && !initialTargetTitle.trim().isEmpty()) {
+            value = initialTargetTitle.trim() + "\n" + targetUrl;
+        }
+        TextView view = helperText(value);
+        view.setTextColor(textColor());
+        view.setTextSize(13);
+        view.setPadding(dp(2), dp(10), 0, dp(6));
+        return view;
     }
 
     private TextView helperText(String value) {
