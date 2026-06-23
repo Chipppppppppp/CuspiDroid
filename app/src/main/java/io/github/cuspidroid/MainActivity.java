@@ -756,6 +756,10 @@ public class MainActivity extends Activity {
             dismissTopReplyPopup();
             return;
         }
+        if (!animatedPopups.isEmpty()) {
+            dismissTopAnimatedPopup();
+            return;
+        }
         CuspTab tab = currentTab();
         if (canGoBackInCurrentTab(tab)) {
             goBack();
@@ -1585,16 +1589,6 @@ public class MainActivity extends Activity {
             dismissPopupAnimated(popup);
             searchNextThread();
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        View priority = menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority words"), v -> {
-            dismissPopupAnimated(popup);
-            openBoardPriorityRules(boardUrl, tab.title);
-        });
-        if (boardUrl == null) {
-            priority.setEnabled(false);
-            priority.setAlpha(0.45f);
-        }
-        menu.addView(priority, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         int mediaCount = threadExtractItems(true).size();
         int linkCount = threadExtractItems(false).size();
@@ -5808,6 +5802,16 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(10), dp(9), dp(10), dp(9));
         row.setOnClickListener(v -> routeSearchResult(result));
+        if (isBoardMenuResult(result)) {
+            row.setOnLongClickListener(v -> {
+                showBoardResultMenu(v, result);
+                return true;
+            });
+            shell.setOnLongClickListener(v -> {
+                showBoardResultMenu(v, result);
+                return true;
+            });
+        }
 
         TextView resultTitle = new TextView(this);
         resultTitle.setText(styledResultTitle(result));
@@ -5826,11 +5830,46 @@ public class MainActivity extends Activity {
             row.addView(meta);
         }
         shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (isBoardMenuResult(result)) {
+            ImageButton more = iconButton(R.drawable.ic_more_vert, text("\u677f\u30e1\u30cb\u30e5\u30fc", "Board menu"),
+                    v -> showBoardResultMenu(v, result));
+            shell.addView(more, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        }
         ImageButton save = saveToggleButtonForResult(result);
         if (save != null) {
             shell.addView(save, new LinearLayout.LayoutParams(dp(44), dp(44)));
         }
         return shell;
+    }
+
+    private boolean isBoardMenuResult(SearchResult result) {
+        return result != null && result.url != null && isBoardUrl(result.url) && !isThreadUrl(result.url);
+    }
+
+    private void showBoardResultMenu(View anchor, SearchResult result) {
+        if (!isBoardMenuResult(result)) {
+            return;
+        }
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+
+        menu.addView(menuIconItem(R.drawable.ic_arrow_forward, text("\u958b\u304f", "Open"), v -> {
+            dismissPopupAnimated(popup);
+            routeSearchResult(result);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority words"), v -> {
+            dismissPopupAnimated(popup);
+            openBoardPriorityRules(result.url, result.title);
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        showPopupAttachedToAnchor(popup, menu, anchor);
     }
 
     private View boardThreadMetaView(SearchResult result) {
@@ -16471,7 +16510,7 @@ public class MainActivity extends Activity {
             result.hasReadHistory = threadHistoryContains(result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = displayBoardTitle(boardUrl);
-            result.priorityMatch = matchingBoardPriorityWord(title, result.url, boardUrl);
+            result.priorityMatch = matchingBoardPriorityWord(title, boardUrl);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
             order++;
@@ -16836,13 +16875,13 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_BOARD_THREAD_SORT_DESC, true);
     }
 
-    private BoardPriorityMatch matchingBoardPriorityWord(String title, String resultUrl, String boardUrl) {
+    private BoardPriorityMatch matchingBoardPriorityWord(String title, String boardUrl) {
         if (title == null || title.isEmpty()) {
             return null;
         }
         String lowerTitle = title.toLowerCase(Locale.ROOT);
         for (BoardPriorityRule rule : readBoardPriorityRules(preferences)) {
-            if (!boardPriorityRuleApplies(rule, resultUrl, boardUrl)) {
+            if (!boardPriorityRuleApplies(rule, boardUrl)) {
                 continue;
             }
             String value = rule.value == null ? "" : rule.value.trim();
@@ -17690,7 +17729,7 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private boolean boardPriorityRuleApplies(BoardPriorityRule rule, String resultUrl, String boardUrl) {
+    private boolean boardPriorityRuleApplies(BoardPriorityRule rule, String boardUrl) {
         if (rule == null || rule.targetUrl == null || rule.targetUrl.trim().isEmpty()) {
             return true;
         }
@@ -17698,8 +17737,7 @@ public class MainActivity extends Activity {
         if (target.isEmpty()) {
             return true;
         }
-        return target.equals(normalizePriorityTargetUrl(resultUrl))
-                || target.equals(normalizePriorityTargetUrl(boardUrl));
+        return target.equals(normalizePriorityTargetUrl(boardUrl));
     }
 
     private SavedItem savedItemByBookmarkKey(String bookmarkKey) {
@@ -18586,6 +18624,28 @@ public class MainActivity extends Activity {
         }
         try {
             value = normalizeUrlStatic(value);
+            Uri uri = Uri.parse(value);
+            String host = uri.getHost();
+            List<String> parts = uri.getPathSegments();
+            int readIndex = -1;
+            for (int i = 0; i + 1 < parts.size(); i++) {
+                if (("test".equals(parts.get(i)) || "bbs".equals(parts.get(i)))
+                        && "read.cgi".equals(parts.get(i + 1))) {
+                    readIndex = i;
+                    break;
+                }
+            }
+            if (host != null && readIndex >= 0 && readIndex + 2 < parts.size()) {
+                String board = parts.get(readIndex + 2);
+                String lowerHost = host.toLowerCase(Locale.ROOT);
+                if ("itest.5ch.io".equals(lowerHost) && readIndex > 0) {
+                    String server = parts.get(readIndex - 1).toLowerCase(Locale.ROOT);
+                    value = "https://" + server + ".5ch.io/" + board;
+                } else {
+                    String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+                    value = scheme + "://" + host + "/" + board;
+                }
+            }
             while (value.endsWith("/") && value.length() > "https://x".length()) {
                 value = value.substring(0, value.length() - 1);
             }

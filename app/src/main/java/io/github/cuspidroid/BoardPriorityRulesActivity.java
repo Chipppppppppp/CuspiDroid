@@ -172,7 +172,7 @@ public class BoardPriorityRulesActivity extends Activity {
         content.setPadding(dp(12), dp(4), dp(12), 0);
         content.setBackgroundColor(surfaceColor());
 
-        TextView targetLabel = helperText(MainActivity.text("\u5bfe\u8c61URL\uff08\u7a7a\u306a\u3089\u5168\u4f53\uff09", "Target URL (blank for all)"));
+        TextView targetLabel = helperText(MainActivity.text("\u5bfe\u8c61\u306e\u677fURL\uff08\u7a7a\u306a\u3089\u5168\u4f53\uff09", "Target board URL (blank for all)"));
         targetLabel.setTextColor(textColor());
         content.addView(targetLabel);
 
@@ -181,7 +181,7 @@ public class BoardPriorityRulesActivity extends Activity {
         targetInput.setTextSize(14);
         targetInput.setTextColor(textColor());
         targetInput.setHintTextColor(mutedColor());
-        targetInput.setHint(MainActivity.text("\u677fURL\u307e\u305f\u306f\u30b9\u30ecURL", "Board or thread URL"));
+        targetInput.setHint(MainActivity.text("\u677fURL", "Board URL"));
         targetInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         targetInput.setBackground(fieldBackground());
         targetInput.setPadding(dp(12), 0, dp(12), 0);
@@ -277,7 +277,7 @@ public class BoardPriorityRulesActivity extends Activity {
 
     private TextView groupHeader(String targetUrl) {
         String value = targetUrl == null || targetUrl.trim().isEmpty()
-                ? MainActivity.text("\u5168\u4f53", "All threads")
+                ? MainActivity.text("\u5168\u4f53", "All boards")
                 : targetUrl;
         if (!initialTargetUrl.isEmpty() && initialTargetUrl.equals(targetUrl)
                 && !initialTargetTitle.trim().isEmpty()) {
