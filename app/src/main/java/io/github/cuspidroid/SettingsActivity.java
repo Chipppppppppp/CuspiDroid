@@ -45,6 +45,8 @@ public class SettingsActivity extends Activity {
     private EditText imgbbApiKey;
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
+    private CheckBox hideBarsOnScroll;
+    private CheckBox titleBarTabSwipe;
     private CheckBox treeView;
     private CheckBox treeSkipFirstReply;
     private CheckBox autoScrollUnread;
@@ -161,6 +163,20 @@ public class SettingsActivity extends Activity {
         addressBarPosition.addView(addressBarTop, new RadioGroup.LayoutParams(0, dp(44), 1));
         root.addView(addressBarPosition);
 
+        hideBarsOnScroll = new CheckBox(this);
+        hideBarsOnScroll.setText(MainActivity.text("\u30b9\u30af\u30ed\u30fc\u30eb\u6642\u306b\u30d0\u30fc\u3092\u81ea\u52d5\u3067\u96a0\u3059", "Hide bars while scrolling"));
+        hideBarsOnScroll.setTextColor(textColor());
+        hideBarsOnScroll.setTextSize(16);
+        Theme.tintCompoundButton(this, hideBarsOnScroll);
+        root.addView(hideBarsOnScroll);
+
+        titleBarTabSwipe = new CheckBox(this);
+        titleBarTabSwipe.setText(MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u306e\u30b9\u30ef\u30a4\u30d7\u3067\u30bf\u30d6\u3092\u79fb\u52d5", "Swipe the title bar to switch tabs"));
+        titleBarTabSwipe.setTextColor(textColor());
+        titleBarTabSwipe.setTextSize(16);
+        Theme.tintCompoundButton(this, titleBarTabSwipe);
+        root.addView(titleBarTabSwipe);
+
         showBookmarksInTabOverview = new CheckBox(this);
         showBookmarksInTabOverview.setText(MainActivity.text("\u30bf\u30d6\u4e00\u89a7\u306b\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u8868\u793a", "Show bookmarks in the tab overview"));
         showBookmarksInTabOverview.setTextColor(textColor());
@@ -175,8 +191,19 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, showHistoryOnHome);
         root.addView(showHistoryOnHome);
 
+        root.addView(managementRow(R.drawable.ic_search,
+                MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Search bar menu layout"),
+                MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u306e\u8868\u793a\u3068\u9806\u756a\u3092\u8a2d\u5b9a", "Configure visibility and order for the search bar menu"),
+                v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
+                        .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_ADDRESS))));
+        root.addView(managementRow(R.drawable.ic_more_vert,
+                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Title menu layout"),
+                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u5e38\u99d0\u30fb\u30e1\u30cb\u30e5\u30fc\u5185\u30fb\u975e\u8868\u793a\u3092\u8a2d\u5b9a", "Configure pinned, menu, and hidden title actions"),
+                v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
+                        .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_TITLE))));
+
         root.addView(sectionTitle(MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u64cd\u4f5c", "Gesture Controls")));
-        root.addView(managementRow(R.drawable.ic_jump_arrow,
+        root.addView(managementRow(android.R.drawable.ic_menu_compass,
                 MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
                 MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
                 v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
@@ -543,6 +570,8 @@ public class SettingsActivity extends Activity {
         } else {
             addressBarBottom.setChecked(true);
         }
+        hideBarsOnScroll.setChecked(preferences.getBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, false));
+        titleBarTabSwipe.setChecked(preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true));
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
         autoScrollUnread.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true));
@@ -628,6 +657,8 @@ public class SettingsActivity extends Activity {
         });
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        hideBarsOnScroll.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        titleBarTabSwipe.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> {
             updateTreeDependentSettings();
             saveSettings(false);
@@ -722,6 +753,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, autoplayGifs.isChecked())
                 .putString(MainActivity.PREF_IMGBB_API_KEY, imgbbApiKey.getText().toString().trim())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
+                .putBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, hideBarsOnScroll.isChecked())
+                .putBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, titleBarTabSwipe.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
                         treeView.isChecked() && treeSkipFirstReply.isChecked())
@@ -956,6 +989,12 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false)
                 .putString(MainActivity.PREF_IMGBB_API_KEY, "")
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
+                .putBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, false)
+                .putBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true)
+                .putString(MainActivity.PREF_ADDRESS_MENU_BUTTONS, MainActivity.DEFAULT_ADDRESS_MENU_BUTTONS)
+                .putString(MainActivity.PREF_ADDRESS_NAV_BUTTONS, MainActivity.DEFAULT_ADDRESS_NAV_BUTTONS)
+                .putString(MainActivity.PREF_THREAD_TITLE_BAR_BUTTONS, MainActivity.DEFAULT_THREAD_TITLE_BAR_BUTTONS)
+                .putString(MainActivity.PREF_THREAD_TITLE_MENU_BUTTONS, MainActivity.DEFAULT_THREAD_TITLE_MENU_BUTTONS)
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true)

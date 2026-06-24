@@ -10,6 +10,7 @@ import android.content.ClipboardManager;
 import android.content.ContentValues;
 import android.content.SharedPreferences;
 import android.content.pm.ResolveInfo;
+import android.content.res.ColorStateList;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -78,6 +79,7 @@ import android.widget.MediaController;
 import android.widget.ProgressBar;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
@@ -111,6 +113,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -128,12 +131,53 @@ public class MainActivity extends Activity {
     static final String PREFS_NAME = "cuspidroid_settings";
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
+    static final String PREF_ADDRESS_MENU_BUTTONS = "address_menu_buttons";
+    static final String PREF_ADDRESS_NAV_BUTTONS = "address_nav_buttons";
+    static final String PREF_THREAD_TITLE_BAR_BUTTONS = "thread_title_bar_buttons";
+    static final String PREF_THREAD_TITLE_MENU_BUTTONS = "thread_title_menu_buttons";
+    static final String ADDRESS_MENU_WEBVIEW = "webview";
+    static final String ADDRESS_MENU_BOOKMARK = "bookmark";
+    static final String ADDRESS_MENU_FIND = "find";
+    static final String ADDRESS_MENU_SYNC = "sync";
+    static final String ADDRESS_MENU_SETTINGS = "settings";
+    static final String ADDRESS_MENU_NAV = "navigation";
+    static final String ADDRESS_NAV_BACK = "back";
+    static final String ADDRESS_NAV_FORWARD = "forward";
+    static final String ADDRESS_NAV_SHARE = "share";
+    static final String ADDRESS_NAV_RELOAD = "reload";
+    static final String THREAD_BUTTON_WRITE = "write";
+    static final String THREAD_BUTTON_JUMP = "jump";
+    static final String THREAD_BUTTON_MENU = "menu";
+    static final String THREAD_BUTTON_BOARD = "board";
+    static final String THREAD_BUTTON_NEXT = "next";
+    static final String THREAD_BUTTON_NG = "ng";
+    static final String THREAD_BUTTON_MEDIA = "media";
+    static final String THREAD_BUTTON_LINKS = "links";
+    static final String THREAD_BUTTON_COPY = "copy";
+    static final String DEFAULT_ADDRESS_MENU_BUTTONS = "webview,bookmark,find,sync,settings,navigation";
+    static final String DEFAULT_ADDRESS_NAV_BUTTONS = "back,forward,share,reload";
+    static final String DEFAULT_THREAD_TITLE_BAR_BUTTONS = "write,jump,menu";
+    static final String DEFAULT_THREAD_TITLE_MENU_BUTTONS = "board,next,ng,media,links,copy";
+    static final String[] ADDRESS_MENU_BUTTON_IDS = {
+            ADDRESS_MENU_WEBVIEW, ADDRESS_MENU_BOOKMARK, ADDRESS_MENU_FIND,
+            ADDRESS_MENU_SYNC, ADDRESS_MENU_SETTINGS, ADDRESS_MENU_NAV
+    };
+    static final String[] ADDRESS_NAV_BUTTON_IDS = {
+            ADDRESS_NAV_BACK, ADDRESS_NAV_FORWARD, ADDRESS_NAV_SHARE, ADDRESS_NAV_RELOAD
+    };
+    static final String[] THREAD_TITLE_BUTTON_IDS = {
+            THREAD_BUTTON_WRITE, THREAD_BUTTON_JUMP, THREAD_BUTTON_MENU, THREAD_BUTTON_BOARD,
+            THREAD_BUTTON_NEXT, THREAD_BUTTON_NG, THREAD_BUTTON_MEDIA, THREAD_BUTTON_LINKS,
+            THREAD_BUTTON_COPY
+    };
     static final String PREF_SHOW_MEDIA = "show_media";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_BLUR_VIDEO_THUMBNAILS = "blur_video_thumbnails";
     static final String PREF_BLUR_GIF_THUMBNAILS = "blur_gif_thumbnails";
     static final String PREF_AUTOPLAY_GIFS = "autoplay_gifs";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
+    static final String PREF_HIDE_BARS_ON_SCROLL = "hide_bars_on_scroll";
+    static final String PREF_TITLE_BAR_TAB_SWIPE = "title_bar_tab_swipe";
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
     static final String PREF_AUTO_SCROLL_UNREAD = "auto_scroll_unread_boundary";
@@ -267,6 +311,9 @@ public class MainActivity extends Activity {
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
     private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
+    private static final long THREAD_POST_VISIBILITY_SCROLL_INTERVAL_MS = 32;
+    private static final long SAVE_TABS_DELAY_MS = 500;
+    private static final long SAVE_TABS_SCROLL_IDLE_DELAY_MS = 900;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
     private static final int THREAD_IDLE_RENDER_BUDGET = 10;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
@@ -287,8 +334,11 @@ public class MainActivity extends Activity {
     private static final long TAB_UNLOAD_INTERVAL_MS = 15_000L;
     private static final long TAB_UNLOAD_AFTER_MS = 60_000L;
     private static final long TAB_UNLOAD_AFTER_MANY_TABS_MS = 15_000L;
+    private static final int MANY_TABS_THRESHOLD = 8;
     private static final int MAX_BACKGROUND_TAB_VIEWS = 2;
+    private static final int MAX_BACKGROUND_TAB_VIEWS_MANY_TABS = 0;
     private static final int MAX_BACKGROUND_PAGE_DATA = 3;
+    private static final int MAX_BACKGROUND_PAGE_DATA_MANY_TABS = 1;
     private static final int MAX_BOARD_HISTORY_PAGES = 6;
     private static final int MAX_NEW_TAB_HISTORY_PAGES = 8;
     private static final int TAB_RELOAD_PARALLELISM = 4;
@@ -301,6 +351,7 @@ public class MainActivity extends Activity {
             "^(?:[.\\uFF0E]+[\\s\\p{Zs}\\u2028\\u2029]+|[\\s\\p{Zs}\\u2028\\u2029]{2,})");
     private static final Pattern AA_DOUBLE_SPACE_PATTERN = Pattern.compile("[\\s\\p{Zs}\\u2028\\u2029]{2,}");
     private static final int POST_OUTER_GAP_DP = 4;
+    private static final String LOADING_VIEW_TAG = "cuspidroid_loading_view";
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -313,13 +364,18 @@ public class MainActivity extends Activity {
     private FrameLayout contentFrame;
     private ProgressBar progressBar;
     private LinearLayout bottomThreadBar;
+    private FrameLayout bottomThreadBarSlot;
     private LinearLayout threadSearchBar;
+    private FrameLayout threadSearchBarSlot;
     private EditText threadSearchInput;
     private TextView threadSearchCount;
     private LinearLayout bottomToolbar;
+    private FrameLayout bottomToolbarSlot;
     private TextView bottomThreadTitle;
     private ImageButton bottomWriteButton;
+    private ImageButton bottomJumpButton;
     private ImageButton bottomBookmarkButton;
+    private final Map<String, ImageButton> bottomThreadButtons = new LinkedHashMap<>();
     private TextView tabCountButton;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
@@ -384,6 +440,16 @@ public class MainActivity extends Activity {
     private boolean addressKeyboardVisible;
     private View imageOverlay;
     private View highlightedPostView;
+    private boolean chromeBarsHidden;
+    private boolean titleTabSwipeDragging;
+    private boolean titleTabSwipeAnimating;
+    private int titleTabSwipeTargetIndex = -1;
+    private int titleTabSwipeEdge;
+    private float titleTabSwipeDownX;
+    private float titleTabSwipeDownY;
+    private View titleTabSwipeCurrentView;
+    private View titleTabSwipeTargetView;
+    private View titleTabSwipeTargetBar;
     private int appliedChromeBgColor = Integer.MIN_VALUE;
     private int appliedChromeBarColor = Integer.MIN_VALUE;
     private int appliedChromeStrokeColor = Integer.MIN_VALUE;
@@ -403,6 +469,7 @@ public class MainActivity extends Activity {
     private Runnable deferredTextTask;
     private CuspTab pendingScrollToBottomTab;
     private String appliedThemeMode;
+    private String appliedButtonLayoutSignature;
     private String cachedNgRulesKey;
     private NgRules cachedNgRules;
     private Typeface aaTypeface;
@@ -629,14 +696,96 @@ public class MainActivity extends Activity {
         return Locale.JAPANESE.getLanguage().equals(Locale.getDefault().getLanguage()) ? ja : en;
     }
 
+    private String buttonLayoutSignature() {
+        if (preferences == null) {
+            return "";
+        }
+        return preferences.getString(PREF_ADDRESS_MENU_BUTTONS, DEFAULT_ADDRESS_MENU_BUTTONS)
+                + "|" + preferences.getString(PREF_ADDRESS_NAV_BUTTONS, DEFAULT_ADDRESS_NAV_BUTTONS)
+                + "|" + preferences.getString(PREF_THREAD_TITLE_BAR_BUTTONS, DEFAULT_THREAD_TITLE_BAR_BUTTONS)
+                + "|" + preferences.getString(PREF_THREAD_TITLE_MENU_BUTTONS, DEFAULT_THREAD_TITLE_MENU_BUTTONS)
+                + "|" + preferences.getBoolean(PREF_HIDE_BARS_ON_SCROLL, false);
+    }
+
+    private void migrateAddressMenuNavigationPreference() {
+        String value = preferences.getString(PREF_ADDRESS_MENU_BUTTONS, null);
+        if (value == null || value.contains(ADDRESS_MENU_NAV)) {
+            return;
+        }
+        List<String> oldMenu = orderedButtonIds(value, "", new String[]{
+                ADDRESS_MENU_WEBVIEW, ADDRESS_MENU_BOOKMARK, ADDRESS_MENU_FIND,
+                ADDRESS_MENU_SYNC, ADDRESS_MENU_SETTINGS, ADDRESS_NAV_BACK,
+                ADDRESS_NAV_FORWARD, ADDRESS_NAV_SHARE, ADDRESS_NAV_RELOAD
+        });
+        List<String> nextMenu = new ArrayList<>();
+        List<String> nextNav = new ArrayList<>();
+        for (String id : oldMenu) {
+            if (ADDRESS_NAV_BACK.equals(id) || ADDRESS_NAV_FORWARD.equals(id)
+                    || ADDRESS_NAV_SHARE.equals(id) || ADDRESS_NAV_RELOAD.equals(id)) {
+                nextNav.add(id);
+            } else {
+                nextMenu.add(id);
+            }
+        }
+        if (nextNav.isEmpty()) {
+            return;
+        }
+        nextMenu.add(ADDRESS_MENU_NAV);
+        preferences.edit()
+                .putString(PREF_ADDRESS_MENU_BUTTONS, joinButtonIds(nextMenu))
+                .putString(PREF_ADDRESS_NAV_BUTTONS, joinButtonIds(nextNav))
+                .apply();
+    }
+
+    private List<String> orderedButtonIdsFromPreferences(String preferenceKey, String fallback, String[] allowed) {
+        return orderedButtonIds(preferences == null ? fallback : preferences.getString(preferenceKey, fallback),
+                fallback, allowed);
+    }
+
+    static List<String> orderedButtonIds(String value, String fallback, String[] allowed) {
+        Set<String> allowedSet = new HashSet<>();
+        Collections.addAll(allowedSet, allowed);
+        List<String> result = new ArrayList<>();
+        addButtonIds(result, value, allowedSet);
+        if (result.isEmpty()) {
+            addButtonIds(result, fallback, allowedSet);
+        }
+        return result;
+    }
+
+    private static void addButtonIds(List<String> result, String value, Set<String> allowedSet) {
+        if (value == null) {
+            return;
+        }
+        for (String raw : value.split(",")) {
+            String id = raw.trim();
+            if (!id.isEmpty() && allowedSet.contains(id) && !result.contains(id)) {
+                result.add(id);
+            }
+        }
+    }
+
+    static String joinButtonIds(List<String> ids) {
+        StringBuilder builder = new StringBuilder();
+        for (String id : ids) {
+            if (builder.length() > 0) {
+                builder.append(',');
+            }
+            builder.append(id);
+        }
+        return builder.toString();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        migrateAddressMenuNavigationPreference();
         migrateFavoriteBoardsToBookmarks();
         appliedThemeMode = themeMode();
         appliedSync2chUpdateAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
         appliedLocalBackupRestoreAt = preferences.getLong(PREF_LOCAL_BACKUP_RESTORED_AT, 0L);
+        appliedButtonLayoutSignature = buttonLayoutSignature();
         buildLayout();
         contentFrame.addView(loadingView(""));
         scheduleTabUnload();
@@ -714,12 +863,16 @@ public class MainActivity extends Activity {
         super.onResume();
         String currentThemeMode = themeMode();
         boolean themeChanged = appliedThemeMode != null && !appliedThemeMode.equals(currentThemeMode);
-        if (bottomToolbar != null && (addressBarTop != addressBarOnTop() || themeChanged)) {
+        String currentButtonLayoutSignature = buttonLayoutSignature();
+        boolean buttonLayoutChanged = appliedButtonLayoutSignature != null
+                && !appliedButtonLayoutSignature.equals(currentButtonLayoutSignature);
+        if (bottomToolbar != null && (addressBarTop != addressBarOnTop() || themeChanged || buttonLayoutChanged)) {
             CuspTab tab = currentTab();
             if (tab != null) {
                 rememberThreadScroll(tab);
             }
             appliedThemeMode = currentThemeMode;
+            appliedButtonLayoutSignature = currentButtonLayoutSignature;
             buildLayout();
             if (pendingNewTab) {
                 showPendingNewTabHistory(pendingHistoryAll);
@@ -742,6 +895,7 @@ public class MainActivity extends Activity {
         if (backupRestoredAt != appliedLocalBackupRestoreAt) {
             appliedLocalBackupRestoreAt = backupRestoredAt;
             appliedThemeMode = themeMode();
+            appliedButtonLayoutSignature = buttonLayoutSignature();
             buildLayout();
             if (restoreTabs() && currentIndex >= 0 && currentIndex < tabs.size()) {
                 switchToTab(currentIndex);
@@ -983,14 +1137,12 @@ public class MainActivity extends Activity {
         bottomThreadTitle.setEllipsize(TextUtils.TruncateAt.END);
         bottomThreadTitle.setIncludeFontPadding(false);
         bottomThreadTitle.setGravity(Gravity.CENTER_VERTICAL);
+        attachTitleBarTabSwipe(bottomThreadTitle);
         bottomThreadBar.addView(bottomThreadTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        attachTitleBarTabSwipe(bottomThreadBar);
 
-        bottomWriteButton = iconButton(R.drawable.ic_edit, text("\u66f8\u304d\u8fbc\u307f", "Write"), v -> showWriteDialog());
-        bottomThreadBar.addView(bottomWriteButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
-
-        bottomBookmarkButton = iconButton(R.drawable.ic_more_vert, text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"), null);
-        bottomThreadBar.addView(bottomBookmarkButton, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        rebuildBottomThreadButtons();
 
         bottomToolbar = new LinearLayout(this);
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
@@ -1125,25 +1277,38 @@ public class MainActivity extends Activity {
         bottomToolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(32), dp(32)));
         addToolbarButton(bottomToolbar, R.drawable.ic_more_vert, text("\u30e1\u30cb\u30e5\u30fc", "Menu"), v -> showThreadMenu(v));
 
+        bottomToolbarSlot = chromeBarSlot(bottomToolbar, dp(54));
+        threadSearchBarSlot = chromeBarSlot(threadSearchBar, dp(50));
+        bottomThreadBarSlot = chromeBarSlot(bottomThreadBar, dp(50));
+
         if (addressBarTop) {
-            root.addView(bottomToolbar, new LinearLayout.LayoutParams(
+            root.addView(bottomToolbarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
             root.addView(overlayFrame, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-            root.addView(threadSearchBar, new LinearLayout.LayoutParams(
+            root.addView(threadSearchBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-            root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
+            root.addView(bottomThreadBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
         } else {
             root.addView(overlayFrame, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-            root.addView(threadSearchBar, new LinearLayout.LayoutParams(
+            root.addView(threadSearchBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-            root.addView(bottomThreadBar, new LinearLayout.LayoutParams(
+            root.addView(bottomThreadBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-            root.addView(bottomToolbar, new LinearLayout.LayoutParams(
+            root.addView(bottomToolbarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
         }
+        syncChromeBarSlots(false);
+    }
+
+    private FrameLayout chromeBarSlot(View bar, int height) {
+        FrameLayout slot = new FrameLayout(this);
+        slot.setClipChildren(true);
+        slot.addView(bar, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, height));
+        return slot;
     }
 
     private ImageButton iconButton(int iconRes, String description, View.OnClickListener listener) {
@@ -1204,6 +1369,7 @@ public class MainActivity extends Activity {
                 updateBottomThreadBar(currentTab());
             }
         }
+        syncChromeBarSlots(false);
         if (focused) {
             updateSuggestions();
         } else if (suggestionsPanel != null) {
@@ -1225,6 +1391,72 @@ public class MainActivity extends Activity {
         if (bottomToolbar != null && !tabOverviewVisible) {
             bottomToolbar.setVisibility(View.VISIBLE);
         }
+        setChromeBarsHidden(false);
+        syncChromeBarSlots(false);
+    }
+
+    private boolean hideBarsOnScroll() {
+        return preferences != null && preferences.getBoolean(PREF_HIDE_BARS_ON_SCROLL, false);
+    }
+
+    private void handleContentScrollForChrome(int scrollY, int oldScrollY) {
+        if (!hideBarsOnScroll() || tabOverviewVisible || addressBar != null && addressBar.hasFocus()) {
+            setChromeBarsHidden(false);
+            return;
+        }
+        int delta = scrollY - oldScrollY;
+        if (Math.abs(delta) < dp(3)) {
+            return;
+        }
+        setChromeBarsHidden(delta > 0 && scrollY > dp(16));
+    }
+
+    private void setChromeBarsHidden(boolean hidden) {
+        if (!hideBarsOnScroll()) {
+            hidden = false;
+        }
+        if (chromeBarsHidden == hidden) {
+            return;
+        }
+        chromeBarsHidden = hidden;
+        syncChromeBarSlots(true);
+    }
+
+    private void syncChromeBarSlots(boolean animated) {
+        syncChromeBarSlot(bottomToolbarSlot, bottomToolbar, dp(54), animated);
+        syncChromeBarSlot(threadSearchBarSlot, threadSearchBar, dp(50), animated);
+        syncChromeBarSlot(bottomThreadBarSlot, bottomThreadBar, dp(50), animated);
+    }
+
+    private void syncChromeBarSlot(FrameLayout slot, View bar, int fullHeight, boolean animated) {
+        if (slot == null || bar == null || slot.getLayoutParams() == null) {
+            return;
+        }
+        int targetHeight = chromeBarsHidden || bar.getVisibility() == View.GONE ? 0 : fullHeight;
+        float targetTranslation = targetHeight == 0 && bar.getVisibility() != View.GONE ? fullHeight : 0;
+        bar.animate().cancel();
+        bar.animate().translationY(targetTranslation).setDuration(animated ? 160 : 0).start();
+        ViewGroup.LayoutParams params = slot.getLayoutParams();
+        if (params.height == targetHeight) {
+            return;
+        }
+        if (!animated) {
+            params.height = targetHeight;
+            slot.setLayoutParams(params);
+            return;
+        }
+        int startHeight = params.height;
+        ValueAnimator animator = ValueAnimator.ofInt(startHeight, targetHeight);
+        animator.setDuration(160);
+        animator.addUpdateListener(animation -> {
+            ViewGroup.LayoutParams next = slot.getLayoutParams();
+            if (next == null) {
+                return;
+            }
+            next.height = (int) animation.getAnimatedValue();
+            slot.setLayoutParams(next);
+        });
+        animator.start();
     }
 
     private void updateSuggestions() {
@@ -1524,7 +1756,6 @@ public class MainActivity extends Activity {
 
     private void showThreadMenu(View anchor) {
         CuspTab tab = currentTab();
-        boolean hasUrl = tab != null && tab.url != null && !tab.url.trim().isEmpty();
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
@@ -1534,48 +1765,77 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
 
-        menu.addView(menuIconItem(R.drawable.ic_arrow_forward, text("WebView\u3067\u958b\u304f", "Open in WebView"), v -> {
-            dismissPopupAnimated(popup);
-            openCurrentThreadInWebView();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        if (!hasUrl) {
-            menu.getChildAt(0).setEnabled(false);
-            menu.getChildAt(0).setAlpha(0.45f);
+        boolean added = false;
+        for (String id : orderedButtonIdsFromPreferences(PREF_ADDRESS_MENU_BUTTONS,
+                DEFAULT_ADDRESS_MENU_BUTTONS, ADDRESS_MENU_BUTTON_IDS)) {
+            if (ADDRESS_MENU_SYNC.equals(id) && !sync2chEnabled()) {
+                continue;
+            }
+            if (added) {
+                menu.addView(horizontalDivider());
+            }
+            if (ADDRESS_MENU_NAV.equals(id)) {
+                menu.addView(menuNavigationRow(popup), new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+            } else {
+                menu.addView(addressMenuItem(id, popup, tab), new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+            added = true;
         }
-        menu.addView(horizontalDivider());
-        boolean bookmarked = tab != null && savedItemExists(PREF_THREAD_BOOKMARKS, tab.url);
-        View bookmark = menuIconItem(savedIcon(PREF_THREAD_BOOKMARKS, tab == null ? "" : tab.url),
-                bookmarked ? text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u5916\u3059", "Remove bookmark")
-                        : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark"), v -> {
-                    dismissPopupAnimated(popup);
-                    toggleCurrentBookmark();
-                });
-        if (!canBookmarkTab(tab)) {
-            bookmark.setEnabled(false);
-            bookmark.setAlpha(0.45f);
-        }
-        menu.addView(bookmark, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_search, text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page"), v -> {
-            dismissPopupAnimated(popup);
-            showThreadSearchDialog();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        if (sync2chEnabled()) {
-            menu.addView(horizontalDivider());
-            menu.addView(menuIconItem(R.drawable.ic_refresh, text("Sync2ch\u3067\u540c\u671f", "Sync with Sync2ch"), v -> {
-                dismissPopupAnimated(popup);
-                runSync2chNow();
-            }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_settings, text("\u8a2d\u5b9a", "Settings"), v -> {
-            dismissPopupAnimated(popup);
-            openSettings();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuNavigationRow(popup), new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         showMenuWithinScreen(popup, menu, anchor);
+    }
+
+    private View addressMenuItem(String id, PopupWindow popup, CuspTab tab) {
+        boolean hasUrl = tab != null && tab.url != null && !tab.url.trim().isEmpty();
+        int icon = addressMenuIcon(id, tab);
+        CharSequence label = addressMenuLabel(id, tab);
+        View item = menuIconItem(icon, label, v -> performAddressMenuAction(id, popup));
+        boolean enabled = true;
+        if (ADDRESS_MENU_WEBVIEW.equals(id)) {
+            enabled = hasUrl;
+        } else if (ADDRESS_MENU_BOOKMARK.equals(id)) {
+            enabled = canBookmarkTab(tab);
+        }
+        if (!enabled) {
+            item.setEnabled(false);
+            item.setAlpha(0.45f);
+        }
+        return item;
+    }
+
+    private CharSequence addressMenuLabel(String id, CuspTab tab) {
+        if (ADDRESS_MENU_BOOKMARK.equals(id)) {
+            boolean bookmarked = tab != null && savedItemExists(PREF_THREAD_BOOKMARKS, tab.url);
+            return bookmarked ? text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u5916\u3059", "Remove bookmark")
+                    : text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
+        }
+        return buttonLabel(id);
+    }
+
+    private int addressMenuIcon(String id, CuspTab tab) {
+        if (ADDRESS_MENU_WEBVIEW.equals(id)) return R.drawable.ic_arrow_forward;
+        if (ADDRESS_MENU_BOOKMARK.equals(id)) return savedIcon(PREF_THREAD_BOOKMARKS, tab == null ? "" : tab.url);
+        if (ADDRESS_MENU_FIND.equals(id)) return R.drawable.ic_search;
+        if (ADDRESS_MENU_SYNC.equals(id)) return R.drawable.ic_refresh;
+        if (ADDRESS_MENU_SETTINGS.equals(id)) return R.drawable.ic_settings;
+        if (ADDRESS_MENU_NAV.equals(id)) return R.drawable.ic_arrow_back;
+        return R.drawable.ic_more_vert;
+    }
+
+    private void performAddressMenuAction(String id, PopupWindow popup) {
+        dismissPopupAnimated(popup);
+        if (ADDRESS_MENU_WEBVIEW.equals(id)) {
+            openCurrentThreadInWebView();
+        } else if (ADDRESS_MENU_BOOKMARK.equals(id)) {
+            toggleCurrentBookmark();
+        } else if (ADDRESS_MENU_FIND.equals(id)) {
+            showThreadSearchDialog();
+        } else if (ADDRESS_MENU_SYNC.equals(id)) {
+            runSync2chNow();
+        } else if (ADDRESS_MENU_SETTINGS.equals(id)) {
+            openSettings();
+        }
     }
 
     private String currentThreadBoardUrl(CuspTab tab) {
@@ -1618,44 +1878,278 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
 
-        String boardUrl = currentThreadBoardUrl(tab);
-        View openBoard = menuIconItem(R.drawable.ic_arrow_up, text("\u677f\u3078", "Go to board"), v -> {
-            dismissPopupAnimated(popup);
-            openInCurrentTab(boardUrl);
-        });
-        if (boardUrl == null) {
-            openBoard.setEnabled(false);
-            openBoard.setAlpha(0.45f);
+        boolean added = false;
+        for (String id : orderedButtonIdsFromPreferences(PREF_THREAD_TITLE_MENU_BUTTONS,
+                DEFAULT_THREAD_TITLE_MENU_BUTTONS, THREAD_TITLE_BUTTON_IDS)) {
+            if (THREAD_BUTTON_MENU.equals(id)) {
+                continue;
+            }
+            if (added) {
+                menu.addView(horizontalDivider());
+            }
+            menu.addView(threadTitleMenuItem(id, popup, tab), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            added = true;
         }
-        menu.addView(openBoard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_search_next, text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread"), v -> {
-            dismissPopupAnimated(popup);
-            searchNextThread();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_close, text("NG\u7ba1\u7406", "Manage NG rules"), v -> {
-            dismissPopupAnimated(popup);
-            openThreadNgRules(tab.url, tab.title);
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        int mediaCount = threadExtractItems(true).size();
-        int linkCount = threadExtractItems(false).size();
-        menu.addView(menuIconItem(R.drawable.ic_image, menuCountLabel(text("\u30e1\u30c7\u30a3\u30a2", "Media"), mediaCount), v -> {
-            dismissPopupAnimated(popup);
-            showThreadExtractList(true);
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_link, menuCountLabel(text("\u30ea\u30f3\u30af", "Links"), linkCount), v -> {
-            dismissPopupAnimated(popup);
-            showThreadExtractList(false);
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        menu.addView(horizontalDivider());
-        menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30b3\u30d4\u30fc", "Copy"), v -> {
-            dismissPopupAnimated(popup);
-            copyVisibleTitle();
-        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         showThreadTitleMenuWithinScreen(popup, menu);
+    }
+
+    private View threadTitleMenuItem(String id, PopupWindow popup, CuspTab tab) {
+        CharSequence label = buttonLabel(id);
+        if (THREAD_BUTTON_MEDIA.equals(id)) {
+            label = menuCountLabel(buttonLabel(id), threadExtractItems(true).size());
+        } else if (THREAD_BUTTON_LINKS.equals(id)) {
+            label = menuCountLabel(buttonLabel(id), threadExtractItems(false).size());
+        }
+        View item = menuIconItem(threadActionIcon(id), label, v -> performThreadTitleAction(id, popup));
+        if (THREAD_BUTTON_BOARD.equals(id) && currentThreadBoardUrl(tab) == null) {
+            item.setEnabled(false);
+            item.setAlpha(0.45f);
+        }
+        return item;
+    }
+
+    private void performThreadTitleAction(String id, PopupWindow popup) {
+        CuspTab tab = currentTab();
+        if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || tab.threadPage == null || tab.threadPage.error != null) {
+            return;
+        }
+        if (popup != null) {
+            dismissPopupAnimated(popup);
+        }
+        if (THREAD_BUTTON_WRITE.equals(id)) {
+            showWriteDialog();
+        } else if (THREAD_BUTTON_JUMP.equals(id)) {
+            showThreadJumpMenu(bottomThreadBar == null ? getWindow().getDecorView() : bottomThreadBar);
+        } else if (THREAD_BUTTON_MENU.equals(id)) {
+            showThreadTitleMenu(bottomThreadBar == null ? getWindow().getDecorView() : bottomThreadBar);
+        } else if (THREAD_BUTTON_BOARD.equals(id)) {
+            openCurrentThreadBoard();
+        } else if (THREAD_BUTTON_NEXT.equals(id)) {
+            searchNextThread();
+        } else if (THREAD_BUTTON_NG.equals(id)) {
+            openThreadNgRules(tab.url, tab.title);
+        } else if (THREAD_BUTTON_MEDIA.equals(id)) {
+            showThreadExtractList(true);
+        } else if (THREAD_BUTTON_LINKS.equals(id)) {
+            showThreadExtractList(false);
+        } else if (THREAD_BUTTON_COPY.equals(id)) {
+            copyVisibleTitle();
+        }
+    }
+
+    private void showThreadJumpMenu(View anchor) {
+        CuspTab tab = currentTab();
+        if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || tab.threadScroll == null) {
+            return;
+        }
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(10), dp(8), dp(10), dp(8));
+        PopupWindow popup = new PopupWindow(menu, dp(268), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+
+        TextView label = new TextView(this);
+        label.setText(text("\u30b9\u30ec\u5185\u79fb\u52d5", "Thread navigation"));
+        label.setTextColor(mutedColor());
+        label.setTextSize(12);
+        label.setGravity(Gravity.CENTER_VERTICAL);
+        label.setPadding(dp(4), 0, dp(4), dp(4));
+        menu.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(1000);
+        seek.setProgress(threadScrollProgress(tab));
+        seek.setPadding(dp(4), 0, dp(4), 0);
+        styleThreadJumpSeekBar(seek);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    scrollCurrentThreadToProgress(progress);
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                CuspTab current = currentTab();
+                if (current != null && current.threadScroll != null) {
+                    current.threadScroll.fling(0);
+                }
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                scrollCurrentThreadToProgress(seekBar.getProgress());
+            }
+        });
+        FrameLayout seekWrap = new FrameLayout(this);
+        seekWrap.setPadding(dp(5), 0, dp(5), 0);
+        seekWrap.addView(seek, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        menu.addView(seekWrap, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setGravity(Gravity.CENTER);
+        ImageButton top = menuIconButton(R.drawable.ic_first_page, text("\u5148\u982d", "Top"), v -> {
+            dismissPopupAnimated(popup);
+            scrollCurrentThreadToTop();
+        });
+        buttons.addView(top);
+        TextView number = threadJumpTextButton(text("\u756a\u53f7\u6307\u5b9a", "No."), text("\u756a\u53f7\u6307\u5b9a", "Go to number"), v -> {
+            dismissPopupAnimated(popup);
+            showJumpToPostDialog();
+        });
+        buttons.addView(number);
+        ImageButton bottom = menuIconButton(R.drawable.ic_last_page, text("\u672b\u5c3e", "Bottom"), v -> {
+            dismissPopupAnimated(popup);
+            scrollCurrentThreadToBottom();
+        });
+        buttons.addView(bottom);
+        menu.addView(buttons, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+
+        showThreadJumpMenuWithinScreen(popup, menu);
+    }
+
+    private void styleThreadJumpSeekBar(SeekBar seek) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return;
+        }
+        int active = Color.argb(170, 15, 118, 110);
+        int thumb = Color.rgb(15, 118, 110);
+        int track = Color.argb(70, 15, 118, 110);
+        seek.setProgressTintList(ColorStateList.valueOf(active));
+        seek.setThumbTintList(ColorStateList.valueOf(thumb));
+        seek.setProgressBackgroundTintList(ColorStateList.valueOf(track));
+        seek.setSplitTrack(false);
+    }
+
+    private void showThreadJumpMenuWithinScreen(PopupWindow popup, View menu) {
+        int width = dp(268);
+        menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = menu.getMeasuredHeight();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int[] titleLocation = new int[2];
+        bottomThreadBar.getLocationOnScreen(titleLocation);
+        int x = frame.right - width;
+        int y = Math.max(frame.top, titleLocation[1] - height);
+        popup.setClippingEnabled(true);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, true);
+    }
+
+    private TextView threadJumpTextButton(CharSequence label, String description, View.OnClickListener listener) {
+        TextView button = new TextView(this);
+        button.setText(label);
+        button.setContentDescription(description);
+        button.setTextColor(textColor());
+        button.setTextSize(13);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setGravity(Gravity.CENTER);
+        button.setSingleLine(true);
+        button.setBackground(iconButtonBackground());
+        button.setPadding(dp(6), 0, dp(6), 0);
+        button.setOnClickListener(listener);
+        button.setMinHeight(dp(36));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(38), 1);
+        params.setMargins(dp(3), dp(3), dp(3), dp(3));
+        button.setLayoutParams(params);
+        return button;
+    }
+
+    private int threadScrollProgress(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
+            return 0;
+        }
+        int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
+        if (range <= 0) {
+            return 0;
+        }
+        return Math.max(0, Math.min(1000, Math.round(tab.threadScroll.getScrollY() * 1000f / range)));
+    }
+
+    private void scrollCurrentThreadToProgress(int progress) {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
+            return;
+        }
+        int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
+        if (range <= 0) {
+            return;
+        }
+        if (progress < 995 && isBottomJumpActive(tab)) {
+            cancelBottomJump(tab);
+        }
+        int target = Math.max(0, Math.min(range, Math.round(range * Math.max(0, Math.min(1000, progress)) / 1000f)));
+        tab.threadScroll.scrollTo(0, target);
+        scheduleThreadPostVisibilityRefresh(tab);
+        scheduleThreadScrollChromeRefresh(tab, 2);
+    }
+
+    private void scrollCurrentThreadToTop() {
+        CuspTab tab = currentTab();
+        if (tab == null || tab.threadScroll == null) {
+            return;
+        }
+        cancelBottomJump(tab);
+        tab.threadScroll.smoothScrollTo(0, 0);
+        scheduleThreadPostVisibilityRefresh(tab);
+        scheduleThreadScrollChromeRefresh(tab, 3);
+    }
+
+    private void showJumpToPostDialog() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setTextColor(textColor());
+        input.setHintTextColor(hintTextColor());
+        input.setHint(text("\u30ec\u30b9\u756a\u53f7", "Post number"));
+        input.setTextSize(18);
+        input.setGravity(Gravity.CENTER_VERTICAL);
+        input.setMinHeight(dp(50));
+        input.setSelectAllOnFocus(true);
+        input.setPadding(dp(14), 0, dp(14), 0);
+        input.setBackground(roundedDrawable(postColor(), borderColor(), dp(10), dp(1)));
+        FrameLayout inputWrap = new FrameLayout(this);
+        inputWrap.setPadding(dp(16), dp(8), dp(16), 0);
+        inputWrap.addView(input, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u30ec\u30b9\u756a\u53f7\u3092\u6307\u5b9a", "Go to post number"))
+                .setView(inputWrap)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u79fb\u52d5", "Go"), null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                try {
+                    int number = Integer.parseInt(input.getText().toString().trim());
+                    if (number > 0) {
+                        jumpToPost(number);
+                        dialog.dismiss();
+                    }
+                } catch (Exception ignored) {
+                    Toast.makeText(this, text("\u756a\u53f7\u3092\u5165\u529b", "Enter a number."), Toast.LENGTH_SHORT).show();
+                }
+            });
+            input.requestFocus();
+            input.postDelayed(this::showKeyboard, 120);
+        });
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setGravity(Gravity.CENTER);
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        }
     }
 
     private void showBoardTitleMenu(View anchor) {
@@ -1727,40 +2221,48 @@ public class MainActivity extends Activity {
 
     private LinearLayout menuNavigationRow(PopupWindow popup) {
         CuspTab tab = currentTab();
-        boolean canBack = canGoBackInCurrentTab(tab) || tabs.size() > 1 || pendingNewTab;
-        boolean canForward = pendingNewTab ? canGoForwardInNewTab() : canGoForwardInCurrentTab(tab);
-        boolean canShareOrReload = tab != null
-                && tab.url != null
-                && !tab.url.trim().isEmpty()
-                && !NATIVE_SEARCH_HOME.equals(tab.nativeKind);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        ImageButton back = menuIconButton(R.drawable.ic_arrow_back, text("\u623b\u308b", "Back"), v -> {
-            dismissPopupAnimated(popup);
-            onBackPressed();
-        });
-        setMenuButtonEnabled(back, canBack);
-        row.addView(back);
-        ImageButton forward = menuIconButton(R.drawable.ic_arrow_forward, text("\u9032\u3080", "Forward"), v -> {
-            dismissPopupAnimated(popup);
-            goForward();
-        });
-        setMenuButtonEnabled(forward, canForward);
-        row.addView(forward);
-        ImageButton share = menuIconButton(R.drawable.ic_share, text("\u5171\u6709", "Share"), v -> {
-            dismissPopupAnimated(popup);
-            shareCurrentThread();
-        });
-        setMenuButtonEnabled(share, canShareOrReload);
-        row.addView(share);
-        ImageButton reload = menuIconButton(R.drawable.ic_refresh, text("\u66f4\u65b0", "Reload"), v -> {
-            dismissPopupAnimated(popup);
-            reloadFromMenu();
-        });
-        setMenuButtonEnabled(reload, canShareOrReload);
-        row.addView(reload);
+        for (String id : orderedButtonIdsFromPreferences(PREF_ADDRESS_NAV_BUTTONS,
+                DEFAULT_ADDRESS_NAV_BUTTONS, ADDRESS_NAV_BUTTON_IDS)) {
+            ImageButton button = menuIconButton(addressNavIcon(id), buttonLabel(id), v -> performAddressNavAction(id, popup));
+            setMenuButtonEnabled(button, addressNavEnabled(id, tab));
+            row.addView(button);
+        }
         return row;
+    }
+
+    private int addressNavIcon(String id) {
+        if (ADDRESS_NAV_BACK.equals(id)) return R.drawable.ic_arrow_back;
+        if (ADDRESS_NAV_FORWARD.equals(id)) return R.drawable.ic_arrow_forward;
+        if (ADDRESS_NAV_SHARE.equals(id)) return R.drawable.ic_share;
+        if (ADDRESS_NAV_RELOAD.equals(id)) return R.drawable.ic_refresh;
+        return R.drawable.ic_more_vert;
+    }
+
+    private boolean addressNavEnabled(String id, CuspTab tab) {
+        boolean hasShareOrReload = tab != null
+                && tab.url != null
+                && !tab.url.trim().isEmpty()
+                && !NATIVE_SEARCH_HOME.equals(tab.nativeKind);
+        if (ADDRESS_NAV_BACK.equals(id)) return canGoBackInCurrentTab(tab) || tabs.size() > 1 || pendingNewTab;
+        if (ADDRESS_NAV_FORWARD.equals(id)) return pendingNewTab ? canGoForwardInNewTab() : canGoForwardInCurrentTab(tab);
+        if (ADDRESS_NAV_SHARE.equals(id) || ADDRESS_NAV_RELOAD.equals(id)) return hasShareOrReload;
+        return true;
+    }
+
+    private void performAddressNavAction(String id, PopupWindow popup) {
+        dismissPopupAnimated(popup);
+        if (ADDRESS_NAV_BACK.equals(id)) {
+            onBackPressed();
+        } else if (ADDRESS_NAV_FORWARD.equals(id)) {
+            goForward();
+        } else if (ADDRESS_NAV_SHARE.equals(id)) {
+            shareCurrentThread();
+        } else if (ADDRESS_NAV_RELOAD.equals(id)) {
+            reloadFromMenu();
+        }
     }
 
     private void setMenuButtonEnabled(ImageButton button, boolean enabled) {
@@ -1839,6 +2341,66 @@ public class MainActivity extends Activity {
         button.setPadding(dp(8), dp(8), dp(8), dp(8));
         button.setLayoutParams(new LinearLayout.LayoutParams(dp(34), dp(40)));
         return button;
+    }
+
+    private void rebuildBottomThreadButtons() {
+        bottomWriteButton = null;
+        bottomJumpButton = null;
+        bottomBookmarkButton = null;
+        bottomThreadButtons.clear();
+        while (bottomThreadBar.getChildCount() > 1) {
+            bottomThreadBar.removeViewAt(1);
+        }
+        for (String id : orderedButtonIdsFromPreferences(PREF_THREAD_TITLE_BAR_BUTTONS,
+                DEFAULT_THREAD_TITLE_BAR_BUTTONS, THREAD_TITLE_BUTTON_IDS)) {
+            ImageButton button = iconButton(threadActionIcon(id), buttonLabel(id), v -> performThreadTitleAction(id, null));
+            attachTitleBarTabSwipe(button);
+            bottomThreadButtons.put(id, button);
+            if (THREAD_BUTTON_WRITE.equals(id)) {
+                bottomWriteButton = button;
+            } else if (THREAD_BUTTON_JUMP.equals(id)) {
+                bottomJumpButton = button;
+            } else if (THREAD_BUTTON_MENU.equals(id)) {
+                bottomBookmarkButton = button;
+            }
+            bottomThreadBar.addView(button, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        }
+    }
+
+    private String buttonLabel(String id) {
+        if (ADDRESS_MENU_WEBVIEW.equals(id)) return text("WebView\u3067\u958b\u304f", "Open in WebView");
+        if (ADDRESS_MENU_BOOKMARK.equals(id)) return text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
+        if (ADDRESS_MENU_FIND.equals(id)) return text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page");
+        if (ADDRESS_MENU_SYNC.equals(id)) return text("Sync2ch\u3067\u540c\u671f", "Sync with Sync2ch");
+        if (ADDRESS_MENU_SETTINGS.equals(id)) return text("\u8a2d\u5b9a", "Settings");
+        if (ADDRESS_MENU_NAV.equals(id)) return text("\u30ca\u30d3\u30b2\u30fc\u30b7\u30e7\u30f3", "Navigation");
+        if (ADDRESS_NAV_BACK.equals(id)) return text("\u623b\u308b", "Back");
+        if (ADDRESS_NAV_FORWARD.equals(id)) return text("\u9032\u3080", "Forward");
+        if (ADDRESS_NAV_SHARE.equals(id)) return text("\u5171\u6709", "Share");
+        if (ADDRESS_NAV_RELOAD.equals(id)) return text("\u66f4\u65b0", "Reload");
+        if (THREAD_BUTTON_WRITE.equals(id)) return text("\u66f8\u304d\u8fbc\u307f", "Write");
+        if (THREAD_BUTTON_JUMP.equals(id)) return text("\u30b9\u30ec\u79fb\u52d5", "Thread navigation");
+        if (THREAD_BUTTON_MENU.equals(id)) return text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu");
+        if (THREAD_BUTTON_BOARD.equals(id)) return text("\u677f\u3078", "Go to board");
+        if (THREAD_BUTTON_NEXT.equals(id)) return text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread");
+        if (THREAD_BUTTON_NG.equals(id)) return text("NG\u7ba1\u7406", "Manage NG rules");
+        if (THREAD_BUTTON_MEDIA.equals(id)) return text("\u30e1\u30c7\u30a3\u30a2", "Media");
+        if (THREAD_BUTTON_LINKS.equals(id)) return text("\u30ea\u30f3\u30af", "Links");
+        if (THREAD_BUTTON_COPY.equals(id)) return text("\u30b3\u30d4\u30fc", "Copy");
+        return id;
+    }
+
+    private int threadActionIcon(String id) {
+        if (THREAD_BUTTON_WRITE.equals(id)) return R.drawable.ic_edit;
+        if (THREAD_BUTTON_JUMP.equals(id)) return R.drawable.ic_jump_arrow;
+        if (THREAD_BUTTON_MENU.equals(id)) return R.drawable.ic_more_vert;
+        if (THREAD_BUTTON_BOARD.equals(id)) return R.drawable.ic_arrow_up;
+        if (THREAD_BUTTON_NEXT.equals(id)) return R.drawable.ic_search_next;
+        if (THREAD_BUTTON_NG.equals(id)) return R.drawable.ic_close;
+        if (THREAD_BUTTON_MEDIA.equals(id)) return R.drawable.ic_image;
+        if (THREAD_BUTTON_LINKS.equals(id)) return R.drawable.ic_link;
+        if (THREAD_BUTTON_COPY.equals(id)) return R.drawable.ic_copy;
+        return R.drawable.ic_more_vert;
     }
 
     private LinearLayout menuIconItem(int iconRes, CharSequence text, View.OnClickListener listener) {
@@ -2377,14 +2939,18 @@ public class MainActivity extends Activity {
     }
 
     private void requestSaveTabsSoon() {
+        requestSaveTabsSoon(SAVE_TABS_DELAY_MS);
+    }
+
+    private void requestSaveTabsSoon(long delayMs) {
         if (saveTabsTask != null) {
-            return;
+            mainHandler.removeCallbacks(saveTabsTask);
         }
         saveTabsTask = () -> {
             saveTabsTask = null;
             saveTabs(false);
         };
-        mainHandler.postDelayed(saveTabsTask, 500);
+        mainHandler.postDelayed(saveTabsTask, Math.max(0L, delayMs));
     }
 
     private void scheduleTabUnload() {
@@ -2420,7 +2986,7 @@ public class MainActivity extends Activity {
     }
 
     private void trimBackgroundTabViews() {
-        while (backgroundTabViewCount() > MAX_BACKGROUND_TAB_VIEWS) {
+        while (backgroundTabViewCount() > maxBackgroundTabViews()) {
             CuspTab oldest = null;
             for (int i = 0; i < tabs.size(); i++) {
                 if (i == currentIndex) {
@@ -2441,6 +3007,12 @@ public class MainActivity extends Activity {
         }
     }
 
+    private int maxBackgroundTabViews() {
+        return tabs.size() > MANY_TABS_THRESHOLD
+                ? MAX_BACKGROUND_TAB_VIEWS_MANY_TABS
+                : MAX_BACKGROUND_TAB_VIEWS;
+    }
+
     private int backgroundTabViewCount() {
         int count = 0;
         for (int i = 0; i < tabs.size(); i++) {
@@ -2452,7 +3024,7 @@ public class MainActivity extends Activity {
     }
 
     private void trimBackgroundPageData() {
-        while (backgroundPageDataCount() > MAX_BACKGROUND_PAGE_DATA) {
+        while (backgroundPageDataCount() > maxBackgroundPageData()) {
             CuspTab oldest = null;
             for (int i = 0; i < tabs.size(); i++) {
                 if (i == currentIndex) {
@@ -2471,6 +3043,12 @@ public class MainActivity extends Activity {
             }
             unloadTabPageData(oldest);
         }
+    }
+
+    private int maxBackgroundPageData() {
+        return tabs.size() > MANY_TABS_THRESHOLD
+                ? MAX_BACKGROUND_PAGE_DATA_MANY_TABS
+                : MAX_BACKGROUND_PAGE_DATA;
     }
 
     private int backgroundPageDataCount() {
@@ -2754,6 +3332,7 @@ public class MainActivity extends Activity {
             clearJumpHighlight();
         }
         clearAddressFocus();
+        setChromeBarsHidden(false);
         if (index != currentIndex && !replyPopups.isEmpty()) {
             dismissThreadPopups();
         }
@@ -2761,6 +3340,7 @@ public class MainActivity extends Activity {
         CuspTab tab = target;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         ensureTabViewLoaded(tab);
+        boolean loading = isLoadingReaderView(tab.readerView);
         contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
         visibleThreadPage = null;
@@ -2786,6 +3366,11 @@ public class MainActivity extends Activity {
                 restoreThreadScroll(tab);
             }
         }
+        if (loading) {
+            showCenterSpinner();
+        } else {
+            hideCenterSpinner();
+        }
         addressBar.setText(tab.url == null ? "" : tab.url);
         updateBottomThreadBar(tab);
         updateThreadSearchBar(tab);
@@ -2793,11 +3378,78 @@ public class MainActivity extends Activity {
         scheduleThreadScrollChromeRefresh(tab, 5);
         scheduleTabUnload();
         trimBackgroundTabViews();
+        trimBackgroundPageData();
     }
 
     private void ensureTabViewLoaded(CuspTab tab) {
         if (tab == null || tab.readerView != null) {
             return;
+        }
+        View view = buildAvailableTabReaderView(tab, true);
+        if (view != null) {
+            tab.readerView = view;
+            return;
+        }
+        tab.readerView = loadingView("");
+        if (tab.url != null && !tab.url.isEmpty()) {
+            mainHandler.post(() -> openInTab(tab, tab.url, false));
+        }
+    }
+
+    private boolean isLoadingReaderView(View view) {
+        return view != null && LOADING_VIEW_TAG.equals(view.getTag());
+    }
+
+    private View previewTabReaderViewForSwipe(CuspTab tab) {
+        if (tab == null) {
+            return null;
+        }
+        if (tab.readerView != null && !useLightweightTitleSwipePreview(tab)) {
+            return tab.readerView;
+        }
+        return titleTabSwipeContentPreview(tab);
+    }
+
+    private boolean useLightweightTitleSwipePreview(CuspTab tab) {
+        if (tab == null) {
+            return true;
+        }
+        if (tabs.size() > MANY_TABS_THRESHOLD) {
+            return true;
+        }
+        if (!NATIVE_THREAD.equals(tab.nativeKind) || tab.threadPage == null) {
+            return false;
+        }
+        if (tab.threadPage.posts.size() > 80) {
+            return true;
+        }
+        int checked = 0;
+        for (Post post : tab.threadPage.posts) {
+            if (post == null) {
+                continue;
+            }
+            if (post.aaMode || Boolean.TRUE.equals(post.cachedLikelyAa) || maybeHeavyAaBody(post.body)) {
+                return true;
+            }
+            if (++checked >= 40) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    private View titleTabSwipeContentPreview(CuspTab tab) {
+        FrameLayout box = new FrameLayout(this);
+        box.setBackgroundColor(bgColor());
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        box.addView(spinner, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
+        return box;
+    }
+
+    private View buildAvailableTabReaderView(CuspTab tab, boolean interactiveHome) {
+        if (tab == null) {
+            return null;
         }
         if (NATIVE_THREAD.equals(tab.nativeKind)) {
             if (tab.savedThreadPageJson != null) {
@@ -2816,8 +3468,7 @@ public class MainActivity extends Activity {
                 tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
                 updateTabThreadStats(tab, tab.threadPage);
                 tab.postViews = new LinkedHashMap<>();
-                tab.readerView = buildThreadView(tab.threadPage, tab);
-                return;
+                return buildThreadView(tab.threadPage, tab);
             }
         } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
             if (tab.savedSearchPageJson != null) {
@@ -2826,23 +3477,18 @@ public class MainActivity extends Activity {
             }
             if (tab.searchPage != null) {
                 tab.readerMode = true;
-                tab.readerView = buildSearchView(tab.searchPage);
-                return;
+                return buildSearchView(tab.searchPage);
             }
         } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || tab.url == null || tab.url.isEmpty()) {
             tab.readerMode = true;
             tab.nativeKind = NATIVE_SEARCH_HOME;
-            tab.readerView = buildSearchHomeView(true);
-            return;
+            return buildSearchHomeView(interactiveHome);
         }
-        tab.readerView = loadingView("");
-        if (tab.url != null && !tab.url.isEmpty()) {
-            mainHandler.post(() -> openInTab(tab, tab.url, false));
-        }
+        return null;
     }
 
     private void updateBottomThreadBar(CuspTab tab) {
-        if (bottomThreadBar == null || bottomThreadTitle == null || bottomWriteButton == null || bottomBookmarkButton == null) {
+        if (bottomThreadBar == null || bottomThreadTitle == null) {
             return;
         }
         if (tabOverviewVisible) {
@@ -2855,9 +3501,7 @@ public class MainActivity extends Activity {
                 return true;
             });
             bottomThreadTitle.setClickable(false);
-            bottomWriteButton.setVisibility(View.GONE);
-            bottomBookmarkButton.setVisibility(View.GONE);
-            bottomBookmarkButton.setOnClickListener(null);
+            setBottomThreadActionButtonsVisible(false);
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else if (tab != null) {
             String title = tab.threadPage != null && tab.threadPage.title != null ? tab.threadPage.title : displayTitleForTab(tab);
@@ -2881,18 +3525,367 @@ public class MainActivity extends Activity {
                 return true;
             });
             bottomThreadTitle.setClickable(canWrite || canManageBoard);
-            bottomWriteButton.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-            bottomBookmarkButton.setImageResource(R.drawable.ic_more_vert);
-            bottomBookmarkButton.setContentDescription(canManageBoard
-                    ? text("\u677f\u30e1\u30cb\u30e5\u30fc", "Board menu")
-                    : text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"));
-            bottomBookmarkButton.setVisibility(canWrite || canManageBoard ? View.VISIBLE : View.GONE);
-            bottomBookmarkButton.setOnClickListener(canWrite ? v -> showThreadTitleMenu(v)
-                    : canManageBoard ? v -> showBoardTitleMenu(v) : null);
+            setBottomThreadActionButtonsVisible(canWrite);
+            if (bottomBookmarkButton != null) {
+                bottomBookmarkButton.setImageResource(R.drawable.ic_more_vert);
+                bottomBookmarkButton.setContentDescription(canManageBoard
+                        ? text("\u677f\u30e1\u30cb\u30e5\u30fc", "Board menu")
+                        : text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"));
+                bottomBookmarkButton.setVisibility(canWrite || canManageBoard ? View.VISIBLE : View.GONE);
+                bottomBookmarkButton.setOnClickListener(canWrite ? v -> showThreadTitleMenu(v)
+                        : canManageBoard ? v -> showBoardTitleMenu(v) : null);
+            }
             bottomThreadBar.setVisibility(View.VISIBLE);
         } else {
             bottomThreadBar.setVisibility(View.GONE);
         }
+        syncChromeBarSlots(false);
+    }
+
+    private void setBottomThreadActionButtonsVisible(boolean visible) {
+        for (ImageButton button : bottomThreadButtons.values()) {
+            button.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void attachTitleBarTabSwipe(View view) {
+        if (view == null) {
+            return;
+        }
+        view.setOnTouchListener(this::handleTitleBarTabSwipeTouch);
+    }
+
+    private boolean handleTitleBarTabSwipeTouch(View view, MotionEvent event) {
+        if (event == null || view == null) {
+            return false;
+        }
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            if (titleTabSwipeAnimating) {
+                return true;
+            }
+            titleTabSwipeDownX = event.getRawX();
+            titleTabSwipeDownY = event.getRawY();
+            titleTabSwipeDragging = false;
+            titleTabSwipeTargetIndex = -1;
+            return false;
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            float dx = event.getRawX() - titleTabSwipeDownX;
+            float dy = event.getRawY() - titleTabSwipeDownY;
+            if (!titleTabSwipeDragging) {
+                if (!canStartTitleTabSwipe()) {
+                    return false;
+                }
+                if (Math.abs(dy) > dp(10) && Math.abs(dy) > Math.abs(dx) * 1.2f) {
+                    return false;
+                }
+                if (Math.abs(dx) <= dp(12) || Math.abs(dx) <= Math.abs(dy) * 1.2f) {
+                    return false;
+                }
+                int target = titleSwipeTargetIndex(dx < 0 ? 1 : -1);
+                if (target < 0 || !beginTitleTabSwipe(target, dx)) {
+                    return false;
+                }
+                titleTabSwipeDragging = true;
+                view.cancelLongPress();
+                requestDisallowInterceptDeep(view, true);
+            }
+            updateTitleTabSwipe(dx);
+            return true;
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (!titleTabSwipeDragging) {
+                resetTitleTabSwipeState();
+                return false;
+            }
+            float dx = event.getRawX() - titleTabSwipeDownX;
+            boolean commit = action == MotionEvent.ACTION_UP && shouldCommitTitleTabSwipe(dx);
+            finishTitleTabSwipe(commit);
+            requestDisallowInterceptDeep(view, false);
+            return true;
+        }
+        return titleTabSwipeDragging;
+    }
+
+    private boolean canStartTitleTabSwipe() {
+        return titleBarTabSwipeEnabled()
+                && !titleTabSwipeAnimating
+                && !pendingNewTab
+                && !tabOverviewVisible
+                && contentFrame != null
+                && contentFrame.getWidth() > 0
+                && currentIndex >= 0
+                && currentIndex < tabs.size()
+                && titleSwipeTargetIndex(1) >= 0
+                && imageOverlay == null
+                && animatedPopups.isEmpty()
+                && replyPopups.isEmpty();
+    }
+
+    private boolean titleBarTabSwipeEnabled() {
+        return preferences == null || preferences.getBoolean(PREF_TITLE_BAR_TAB_SWIPE, true);
+    }
+
+    private int titleSwipeTargetIndex(int delta) {
+        if (tabs.isEmpty() || currentIndex < 0 || currentIndex >= tabs.size() || delta == 0) {
+            return -1;
+        }
+        CuspTab current = tabs.get(currentIndex);
+        List<Integer> candidates = new ArrayList<>();
+        if (current.bookmarkOverviewTab) {
+            String folder = normalizeSavedFolder(current.bookmarkOverviewFolder);
+            for (int i = 0; i < tabs.size(); i++) {
+                CuspTab tab = tabs.get(i);
+                if (tab.bookmarkOverviewTab
+                        && tab.privateBrowsing == current.privateBrowsing
+                        && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(folder)) {
+                    candidates.add(i);
+                }
+            }
+        } else {
+            for (int i = 0; i < tabs.size(); i++) {
+                CuspTab tab = tabs.get(i);
+                if (!tab.bookmarkOverviewTab && tab.privateBrowsing == current.privateBrowsing) {
+                    candidates.add(i);
+                }
+            }
+        }
+        if (candidates.size() <= 1) {
+            return -1;
+        }
+        int position = candidates.indexOf(currentIndex);
+        if (position < 0) {
+            return -1;
+        }
+        int next = (position + (delta > 0 ? 1 : -1) + candidates.size()) % candidates.size();
+        int target = candidates.get(next);
+        return target == currentIndex ? -1 : target;
+    }
+
+    private boolean beginTitleTabSwipe(int targetIndex, float dx) {
+        CuspTab current = currentTab();
+        if (current == null || current.readerView == null || targetIndex < 0 || targetIndex >= tabs.size()) {
+            return false;
+        }
+        View targetView = previewTabReaderViewForSwipe(tabs.get(targetIndex));
+        if (targetView == null) {
+            return false;
+        }
+        int width = contentFrame.getWidth();
+        if (width <= 0) {
+            return false;
+        }
+        titleTabSwipeTargetIndex = targetIndex;
+        titleTabSwipeCurrentView = current.readerView;
+        titleTabSwipeTargetView = targetView;
+        titleTabSwipeEdge = dx < 0 ? 1 : -1;
+        ViewParent targetParent = targetView.getParent();
+        if (targetParent instanceof ViewGroup) {
+            ((ViewGroup) targetParent).removeView(targetView);
+        }
+        titleTabSwipeTargetBar = createTitleTabSwipeTargetBar(tabs.get(targetIndex), titleTabSwipeEdge);
+        if (bottomThreadBar != null) {
+            bottomThreadBar.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        }
+        targetView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        titleTabSwipeCurrentView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        targetView.setVisibility(View.VISIBLE);
+        targetView.setTranslationX(titleTabSwipeEdge * width);
+        contentFrame.addView(targetView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        updateTitleTabSwipe(dx);
+        return true;
+    }
+
+    private void updateTitleTabSwipe(float dx) {
+        if (titleTabSwipeCurrentView == null || titleTabSwipeTargetView == null || contentFrame == null) {
+            return;
+        }
+        int width = Math.max(1, contentFrame.getWidth());
+        float movement = titleTabSwipeMovement(dx, width);
+        titleTabSwipeCurrentView.setTranslationX(movement);
+        titleTabSwipeTargetView.setTranslationX(titleTabSwipeEdge * width + movement);
+        updateTitleTabSwipeBar(movement, width);
+    }
+
+    private View createTitleTabSwipeTargetBar(CuspTab tab, int edge) {
+        if (bottomThreadBarSlot == null || bottomThreadBar == null) {
+            return null;
+        }
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(10), dp(4), dp(6), dp(4));
+        bar.setBackground(bottomBarBackground());
+        TextView target = new TextView(this);
+        target.setTextColor(textColor());
+        target.setTextSize(14);
+        target.setSingleLine(false);
+        target.setMaxLines(2);
+        target.setEllipsize(TextUtils.TruncateAt.END);
+        target.setIncludeFontPadding(false);
+        target.setGravity(Gravity.CENTER_VERTICAL);
+        String title = tab == null || tab.threadPage == null || tab.threadPage.title == null
+                ? displayTitleForTab(tab)
+                : tab.threadPage.title;
+        if (tab != null && tab.threadPage != null) {
+            setThreadTitleText(target, tab.threadPage, title);
+        } else {
+            target.setText(title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title);
+        }
+        bar.addView(target, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        addTitleTabSwipePreviewButtons(bar, tab);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, bottomThreadBar.getHeight() > 0
+                        ? bottomThreadBar.getHeight() : dp(50));
+        bottomThreadBarSlot.addView(bar, params);
+        bar.setTranslationX(edge * Math.max(1, bottomThreadBarSlot.getWidth()));
+        bar.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        return bar;
+    }
+
+    private void addTitleTabSwipePreviewButtons(LinearLayout bar, CuspTab tab) {
+        boolean canWrite = tab != null && NATIVE_THREAD.equals(tab.nativeKind)
+                && tab.threadPage != null && tab.threadPage.error == null;
+        boolean canManageBoard = tab != null && NATIVE_BOARD.equals(tab.nativeKind)
+                && tab.url != null && isBoardUrl(tab.url) && !isBbsDirectoryUrl(tab.url);
+        if (canWrite) {
+            for (String id : orderedButtonIdsFromPreferences(PREF_THREAD_TITLE_BAR_BUTTONS,
+                    DEFAULT_THREAD_TITLE_BAR_BUTTONS, THREAD_TITLE_BUTTON_IDS)) {
+                ImageView icon = titleTabSwipePreviewIcon(threadActionIcon(id), buttonLabel(id));
+                bar.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(40)));
+            }
+        } else if (canManageBoard) {
+            ImageView icon = titleTabSwipePreviewIcon(R.drawable.ic_more_vert,
+                    text("\u677f\u30e1\u30cb\u30e5\u30fc", "Board menu"));
+            bar.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        }
+    }
+
+    private ImageView titleTabSwipePreviewIcon(int iconRes, String description) {
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setContentDescription(description);
+        icon.setColorFilter(textColor());
+        icon.setPadding(dp(9), dp(9), dp(9), dp(9));
+        icon.setScaleType(ImageView.ScaleType.CENTER);
+        return icon;
+    }
+
+    private void updateTitleTabSwipeBar(float contentMovement, int contentWidth) {
+        if (bottomThreadBar == null || titleTabSwipeTargetBar == null || bottomThreadBarSlot == null) {
+            return;
+        }
+        int titleWidth = Math.max(1, bottomThreadBarSlot.getWidth());
+        float progress = contentWidth <= 0 ? 0f : contentMovement / contentWidth;
+        float titleMovement = progress * titleWidth;
+        bottomThreadBar.setTranslationX(titleMovement);
+        titleTabSwipeTargetBar.setTranslationX(titleTabSwipeEdge * titleWidth + titleMovement);
+    }
+
+    private float titleTabSwipeMovement(float dx, int width) {
+        if (titleTabSwipeEdge > 0) {
+            return Math.max(-width, Math.min(0f, dx));
+        }
+        return Math.max(0f, Math.min(width, dx));
+    }
+
+    private boolean shouldCommitTitleTabSwipe(float dx) {
+        if (contentFrame == null) {
+            return false;
+        }
+        int width = Math.max(1, contentFrame.getWidth());
+        float movement = Math.abs(titleTabSwipeMovement(dx, width));
+        float threshold = Math.max(dp(28), Math.min(width * 0.12f, dp(56)));
+        return movement >= threshold;
+    }
+
+    private void animateTitleTabSwipeBar(boolean commit, int edge, long durationMs) {
+        if (bottomThreadBar == null || titleTabSwipeTargetBar == null || bottomThreadBarSlot == null) {
+            return;
+        }
+        int titleWidth = Math.max(1, bottomThreadBarSlot.getWidth());
+        float currentEnd = commit ? -edge * titleWidth : 0f;
+        float targetEnd = commit ? 0f : edge * titleWidth;
+        bottomThreadBar.animate().cancel();
+        titleTabSwipeTargetBar.animate().cancel();
+        titleTabSwipeTargetBar.animate().translationX(targetEnd).setDuration(durationMs).start();
+        bottomThreadBar.animate().translationX(currentEnd).setDuration(durationMs).start();
+    }
+
+    private void finishTitleTabSwipe(boolean commit) {
+        View currentView = titleTabSwipeCurrentView;
+        View targetView = titleTabSwipeTargetView;
+        int targetIndex = titleTabSwipeTargetIndex;
+        int edge = titleTabSwipeEdge;
+        int width = contentFrame == null ? 0 : Math.max(1, contentFrame.getWidth());
+        titleTabSwipeDragging = false;
+        titleTabSwipeAnimating = true;
+        if (currentView == null || targetView == null || width <= 0) {
+            completeTitleTabSwipe(commit, targetIndex, currentView, targetView);
+            return;
+        }
+        currentView.animate().cancel();
+        targetView.animate().cancel();
+        float currentEnd = commit ? -edge * width : 0f;
+        float targetEnd = commit ? 0f : edge * width;
+        long duration = 110L;
+        animateTitleTabSwipeBar(commit, edge, duration);
+        targetView.animate().translationX(targetEnd).setDuration(duration).start();
+        currentView.animate()
+                .translationX(currentEnd)
+                .setDuration(duration)
+                .withEndAction(() -> completeTitleTabSwipe(commit, targetIndex, currentView, targetView))
+                .start();
+    }
+
+    private void completeTitleTabSwipe(boolean commit, int targetIndex, View currentView, View targetView) {
+        if (currentView != null) {
+            currentView.animate().cancel();
+            currentView.setTranslationX(0f);
+        }
+        if (targetView != null) {
+            targetView.animate().cancel();
+            targetView.setTranslationX(0f);
+            targetView.setLayerType(View.LAYER_TYPE_NONE, null);
+        }
+        if (currentView != null) {
+            currentView.setLayerType(View.LAYER_TYPE_NONE, null);
+        }
+        if (bottomThreadBar != null) {
+            bottomThreadBar.animate().cancel();
+            bottomThreadBar.setTranslationX(0f);
+            bottomThreadBar.setLayerType(View.LAYER_TYPE_NONE, null);
+        }
+        if (titleTabSwipeTargetBar != null) {
+            titleTabSwipeTargetBar.animate().cancel();
+            titleTabSwipeTargetBar.setTranslationX(0f);
+            titleTabSwipeTargetBar.setLayerType(View.LAYER_TYPE_NONE, null);
+            if (titleTabSwipeTargetBar.getParent() instanceof ViewGroup) {
+                ((ViewGroup) titleTabSwipeTargetBar.getParent()).removeView(titleTabSwipeTargetBar);
+            }
+        }
+        if (commit && targetIndex >= 0 && targetIndex < tabs.size()) {
+            resetTitleTabSwipeState();
+            switchToTab(targetIndex);
+            return;
+        }
+        if (targetView != null && targetView.getParent() == contentFrame) {
+            contentFrame.removeView(targetView);
+        }
+        resetTitleTabSwipeState();
+    }
+
+    private void resetTitleTabSwipeState() {
+        titleTabSwipeDragging = false;
+        titleTabSwipeAnimating = false;
+        titleTabSwipeTargetIndex = -1;
+        titleTabSwipeEdge = 0;
+        titleTabSwipeCurrentView = null;
+        titleTabSwipeTargetView = null;
+        titleTabSwipeTargetBar = null;
     }
 
     private void copyVisibleTitle() {
@@ -2989,6 +3982,7 @@ public class MainActivity extends Activity {
         if (bottomToolbar != null) {
             bottomToolbar.setVisibility(tabOverviewVisible ? View.GONE : View.VISIBLE);
         }
+        syncChromeBarSlots(false);
         if (tabCountButton != null) {
             tabCountButton.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
             tabCountButton.setBackground(tabCountBackground(tabOverviewVisible));
@@ -3222,6 +4216,7 @@ public class MainActivity extends Activity {
         if (tab == currentTab() && !tabOverviewVisible) {
             contentFrame.removeAllViews();
             contentFrame.addView(tab.readerView);
+            hideCenterSpinner();
         }
         renderTabs();
     }
@@ -4399,6 +5394,7 @@ public class MainActivity extends Activity {
         tab.readerView = buildSearchHomeView(true);
         if (foreground) {
             switchToTab(tabs.indexOf(tab));
+            hideCenterSpinner();
         }
         renderTabs();
     }
@@ -4523,11 +5519,12 @@ public class MainActivity extends Activity {
 
     private View loadingView(String message) {
         LinearLayout box = new LinearLayout(this);
+        box.setTag(LOADING_VIEW_TAG);
         box.setGravity(Gravity.CENTER);
         box.setOrientation(LinearLayout.VERTICAL);
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
-        box.addView(spinner, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        box.addView(spinner, new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView text = new TextView(this);
         text.setText(message);
         text.setTextColor(textColor());
@@ -5019,11 +6016,18 @@ public class MainActivity extends Activity {
                 dragging[0] = false;
                 horizontalIntent[0] = false;
                 card.clearAnimation();
+                if (isPostSwipeText(trigger)) {
+                    requestDisallowInterceptDeep(v, true);
+                }
                 return false;
             }
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 float dx = event.getRawX() - downX[0];
                 float dy = event.getRawY() - downY[0];
+                if (!horizontalIntent[0] && isPostSwipeText(trigger)
+                        && Math.abs(dy) > dp(8) && Math.abs(dy) > Math.abs(dx) * 1.2f) {
+                    requestDisallowInterceptDeep(v, false);
+                }
                 if (!horizontalIntent[0] && Math.abs(dx) > dp(3) && Math.abs(dx) > Math.abs(dy) * 1.05f) {
                     horizontalIntent[0] = true;
                     post.swiping = true;
@@ -5200,6 +6204,10 @@ public class MainActivity extends Activity {
                 .setView(menu)
                 .create();
 
+        menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
+            dialog.dismiss();
+            toggleAaMode(tab, post, anchor);
+        }));
         menu.addView(dialogAction(R.drawable.ic_reply, text("\u8fd4\u4fe1", "Reply"), () -> {
             dialog.dismiss();
             showWriteDialog(">>" + post.number + "\n");
@@ -5207,10 +6215,6 @@ public class MainActivity extends Activity {
         menu.addView(dialogAction(R.drawable.ic_check, text("\u3053\u3053\u307e\u3067\u8aad\u3093\u3060", "Read to here"), () -> {
             dialog.dismiss();
             setReadThroughPost(tab, post);
-        }));
-        menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
-            dialog.dismiss();
-            toggleAaMode(tab, post, anchor);
         }));
         dialog.show();
         Theme.styleDialog(dialog, this);
@@ -5492,6 +6496,8 @@ public class MainActivity extends Activity {
     private View buildSearchView(SearchPage page) {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) ->
+                handleContentScrollForChrome(scrollY, oldScrollY));
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
@@ -5606,6 +6612,10 @@ public class MainActivity extends Activity {
             }
             return false;
         });
+    }
+
+    private boolean isPostSwipeText(View view) {
+        return view instanceof TextView && Boolean.TRUE.equals(view.getTag(R.id.tag_post_swipe_text));
     }
 
     private boolean isScrollAtBottom(ScrollView scroll) {
@@ -6341,6 +7351,7 @@ public class MainActivity extends Activity {
         scrubber.addView(thumb, thumbParams);
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            handleContentScrollForChrome(scrollY, oldScrollY);
             if (tab != null && tab.threadRendering) {
                 updateScrollThumb(scroll, scrubber, thumb);
                 if (scrollY != oldScrollY) {
@@ -6359,7 +7370,7 @@ public class MainActivity extends Activity {
                 } else if (now - tab.lastThreadScrollSaveAt >= THREAD_SCROLL_SAVE_INTERVAL_MS) {
                     tab.lastThreadScrollSaveAt = now;
                     rememberThreadScroll(tab);
-                    requestSaveTabsSoon();
+                    requestSaveTabsSoon(SAVE_TABS_SCROLL_IDLE_DELAY_MS);
                 }
                 scheduleThreadPostVisibilityRefresh(tab);
             }
@@ -6447,7 +7458,10 @@ public class MainActivity extends Activity {
             tab.threadPostVisibilityTask = null;
             refreshThreadPostVisibility(tab);
         };
-        mainHandler.postDelayed(tab.threadPostVisibilityTask, THREAD_POST_VISIBILITY_INTERVAL_MS);
+        long delay = recentlyScrolled(tab)
+                ? THREAD_POST_VISIBILITY_SCROLL_INTERVAL_MS
+                : THREAD_POST_VISIBILITY_INTERVAL_MS;
+        mainHandler.postDelayed(tab.threadPostVisibilityTask, delay);
     }
 
     private void refreshThreadPostVisibility(CuspTab tab) {
@@ -6460,10 +7474,10 @@ public class MainActivity extends Activity {
             return;
         }
         boolean scrolling = recentlyScrolled(tab);
-        int top = Math.max(0, scrollY - (scrolling ? height / 3 : height));
-        int bottom = scrollY + height + (scrolling ? height / 2 : height * 2);
+        int top = Math.max(0, scrollY - (scrolling ? Math.max(dp(72), height / 4) : height));
+        int bottom = scrollY + height + (scrolling ? Math.max(dp(120), height / 3) : height * 2);
         int unloadTop = Math.max(0, scrollY - (scrolling ? height : height * 2));
-        int unloadBottom = scrollY + height + (scrolling ? height * 2 : height * 3);
+        int unloadBottom = scrollY + height + (scrolling ? height + Math.max(dp(160), height / 2) : height * 3);
         ViewGroup list = tab.threadList;
         int start = firstChildWithBottomAtLeast(list, top);
         int end = lastChildWithTopAtMost(list, bottom);
@@ -6479,8 +7493,11 @@ public class MainActivity extends Activity {
                 renderCost, budgetReached, keep);
         int budget = scrolling ? THREAD_SCROLL_RENDER_BUDGET : THREAD_IDLE_RENDER_BUDGET;
         renderVirtualPostSlotsInRange(list, start, end, budget, renderCost, budgetReached, keep);
-        if (budgetReached[0]) {
+        if (budgetReached[0] || scrolling) {
             scheduleThreadPostVisibilityRefresh(tab);
+        }
+        if (scrolling) {
+            scheduleThreadScrollChromeRefresh(tab, 1);
         }
         if (tab.renderedPostSlots != null && !tab.renderedPostSlots.isEmpty()) {
             for (FrameLayout holder : new ArrayList<>(tab.renderedPostSlots)) {
@@ -7062,9 +8079,12 @@ public class MainActivity extends Activity {
         int frameHeight = Math.max(1, scrubber.getHeight());
         int thumbHeight = Math.max(dp(42), frameHeight * scroll.getHeight() / Math.max(scroll.getChildAt(0).getHeight(), 1));
         int maxTop = Math.max(0, frameHeight - thumbHeight);
-        params.height = thumbHeight;
-        params.topMargin = maxTop * scroll.getScrollY() / range;
-        thumb.setLayoutParams(params);
+        int top = maxTop * scroll.getScrollY() / range;
+        if (params.height != thumbHeight || params.topMargin != top) {
+            params.height = thumbHeight;
+            params.topMargin = top;
+            thumb.setLayoutParams(params);
+        }
     }
 
     private void refreshThreadScrollChrome(CuspTab tab) {
@@ -7079,6 +8099,9 @@ public class MainActivity extends Activity {
                 if (tab.unreadMarkerLayer != null) {
                     tab.unreadMarkerLayer.removeAllViews();
                 }
+                return;
+            }
+            if (recentlyScrolled(tab)) {
                 return;
             }
             updateUnreadScrollMarkers(tab);
@@ -7101,7 +8124,7 @@ public class MainActivity extends Activity {
                 scheduleThreadScrollChromeRefresh(tab, tab.threadScrollChromeFrames);
             }
         };
-        long delay = tab.threadRendering ? 160L : 16L;
+        long delay = tab.threadRendering ? 160L : recentlyScrolled(tab) ? 120L : 16L;
         mainHandler.postDelayed(tab.threadScrollChromeTask, delay);
     }
 
@@ -7529,6 +8552,7 @@ public class MainActivity extends Activity {
         scroll.setBackgroundColor(bgColor());
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            handleContentScrollForChrome(scrollY, oldScrollY);
             setCurrentTabOverviewScrollY(scrollY);
         });
         scroll.setOnDragListener((v, event) -> {
@@ -7850,6 +8874,45 @@ public class MainActivity extends Activity {
             if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualTabOverviewState) {
                 ((VirtualTabOverviewState) parent.getTag()).renderedSlots.add(holder);
             }
+        }
+    }
+
+    private void refreshTabOverviewSlotForTab(CuspTab tab) {
+        if (!tabOverviewVisible || contentFrame == null || tab == null
+                || tab.privateBrowsing != tabOverviewPrivateMode) {
+            return;
+        }
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
+            return;
+        }
+        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
+                ? (VirtualTabOverviewState) list.getTag() : null;
+        tabOverviewResultCache.remove(tab);
+        for (FrameLayout holder : tabOverviewSlotHolders(list)) {
+            Object tag = holder.getTag();
+            if (!(tag instanceof VirtualTabOverviewSlot)) {
+                continue;
+            }
+            VirtualTabOverviewSlot slot = (VirtualTabOverviewSlot) tag;
+            if (slot.tab != tab) {
+                continue;
+            }
+            slot.index = tabs.indexOf(tab);
+            if (slot.index < 0) {
+                return;
+            }
+            if (slot.rendered) {
+                slot.rendered = false;
+                if (state != null) {
+                    state.renderedSlots.remove(holder);
+                }
+                renderTabOverviewSlot(holder, slot);
+            } else {
+                bindTabOverviewSlot(holder, slot);
+            }
+            return;
         }
     }
 
@@ -11010,6 +12073,7 @@ public class MainActivity extends Activity {
             return postContent(post.body, page, tab.threadSearchQuery, longClick, imgurLinks(post));
         }
         TextView body = new TextView(this);
+        body.setTag(R.id.tag_post_swipe_text, true);
         String aaBody = aaDisplayBody(post);
         body.setText(aaBody);
         body.setTextColor(textColor());
@@ -15746,6 +16810,7 @@ public class MainActivity extends Activity {
         if (threadSearchBar != null) {
             threadSearchBar.setVisibility(View.GONE);
         }
+        syncChromeBarSlots(false);
         int pageGeneration = ++pageSearchGeneration;
         clearPageSearchHighlightsChunked(pageGeneration);
         pageSearchOpen = false;
@@ -15761,6 +16826,7 @@ public class MainActivity extends Activity {
         boolean threadShow = tab != null && tab.threadSearchOpen && NATIVE_THREAD.equals(tab.nativeKind);
         boolean show = threadShow || pageSearchOpen;
         threadSearchBar.setVisibility(show ? View.VISIBLE : View.GONE);
+        syncChromeBarSlots(false);
         if (!show) {
             return;
         }
@@ -16292,10 +17358,12 @@ public class MainActivity extends Activity {
                 trimBackgroundTabViews();
                 trimBackgroundPageData();
                 requestSaveTabsSoon();
-                if (wasOverview) {
-                    if (tabOverviewVisible) {
-                        refreshTabOverviewListOnly();
-                        renderTabs();
+                if (wasOverview && tabOverviewVisible && contentFrame != null) {
+                    if (!tabOverviewPrivateMode && showBookmarksInTabOverview()
+                            && !bookmarkTargets.isEmpty()) {
+                        refreshTabOverviewBookmarkSectionOnly();
+                    } else {
+                        syncClosedTabUndoBar();
                     }
                 }
             }
@@ -16329,6 +17397,7 @@ public class MainActivity extends Activity {
             mainHandler.post(() -> {
                 if (result != null && url.equals(tab.url)) {
                     applyOverviewReloadStatus(tab, result);
+                    refreshTabOverviewSlotForTab(tab);
                 }
                 if (onComplete != null) {
                     onComplete.run();
