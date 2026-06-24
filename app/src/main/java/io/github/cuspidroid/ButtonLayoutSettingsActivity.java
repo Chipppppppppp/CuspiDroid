@@ -25,6 +25,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
     static final String MODE_TITLE = "title";
 
     private static final String LIST_ADDRESS_MENU = "address_menu";
+    private static final String LIST_ADDRESS_BAR = "address_bar";
     private static final String LIST_ADDRESS_NAV = "address_nav";
     private static final String LIST_TITLE_BAR = "title_bar";
     private static final String LIST_TITLE_MENU = "title_menu";
@@ -34,6 +35,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
     private String mode;
     private LinearLayout firstList;
     private LinearLayout secondList;
+    private LinearLayout thirdList;
     private LinearLayout hiddenList;
 
     @Override
@@ -60,7 +62,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText(MODE_TITLE.equals(mode)
-                ? MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Title menu layout")
+                ? MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Title bar menu layout")
                 : MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Search bar menu layout"));
         title.setTextColor(textColor());
         title.setTextSize(24);
@@ -78,12 +80,15 @@ public class ButtonLayoutSettingsActivity extends Activity {
             secondList = listBox(LIST_TITLE_MENU);
             root.addView(secondList);
         } else {
-            root.addView(sectionTitle(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc", "Search bar menu")));
-            firstList = listBox(LIST_ADDRESS_MENU);
+            root.addView(sectionTitle(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u306b\u5e38\u99d0", "Pinned on search bar")));
+            firstList = listBox(LIST_ADDRESS_BAR);
             root.addView(firstList);
-            root.addView(sectionTitle(MainActivity.text("\u30ca\u30d3\u30b2\u30fc\u30b7\u30e7\u30f3\u884c", "Navigation row")));
-            secondList = listBox(LIST_ADDRESS_NAV);
+            root.addView(sectionTitle(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc", "Search bar menu")));
+            secondList = listBox(LIST_ADDRESS_MENU);
             root.addView(secondList);
+            root.addView(sectionTitle(MainActivity.text("\u30ca\u30d3\u30b2\u30fc\u30b7\u30e7\u30f3\u884c", "Navigation row")));
+            thirdList = listBox(LIST_ADDRESS_NAV);
+            root.addView(thirdList);
         }
         root.addView(sectionTitle(MainActivity.text("\u975e\u8868\u793a", "Hidden")));
         hiddenList = listBox(LIST_HIDDEN);
@@ -95,29 +100,46 @@ public class ButtonLayoutSettingsActivity extends Activity {
     private void rebuildLists() {
         firstList.removeAllViews();
         secondList.removeAllViews();
+        if (thirdList != null) thirdList.removeAllViews();
         hiddenList.removeAllViews();
         if (MODE_TITLE.equals(mode)) {
             List<String> bar = read(MainActivity.PREF_THREAD_TITLE_BAR_BUTTONS,
                     MainActivity.DEFAULT_THREAD_TITLE_BAR_BUTTONS, MainActivity.THREAD_TITLE_BUTTON_IDS);
             List<String> menu = read(MainActivity.PREF_THREAD_TITLE_MENU_BUTTONS,
                     MainActivity.DEFAULT_THREAD_TITLE_MENU_BUTTONS, MainActivity.THREAD_TITLE_BUTTON_IDS);
+            menu.remove(MainActivity.THREAD_BUTTON_MENU);
             for (String id : bar) firstList.addView(row(id, true, LIST_TITLE_BAR));
             for (String id : menu) secondList.addView(row(id, true, LIST_TITLE_MENU));
             for (String id : MainActivity.THREAD_TITLE_BUTTON_IDS) {
                 if (!bar.contains(id) && !menu.contains(id)) hiddenList.addView(row(id, false, LIST_HIDDEN));
             }
         } else {
+            List<String> bar = read(MainActivity.PREF_ADDRESS_BAR_BUTTONS,
+                    MainActivity.DEFAULT_ADDRESS_BAR_BUTTONS, MainActivity.ADDRESS_BUTTON_IDS);
             List<String> menu = read(MainActivity.PREF_ADDRESS_MENU_BUTTONS,
-                    MainActivity.DEFAULT_ADDRESS_MENU_BUTTONS, MainActivity.ADDRESS_MENU_BUTTON_IDS);
+                    MainActivity.DEFAULT_ADDRESS_MENU_BUTTONS, MainActivity.ADDRESS_BUTTON_IDS);
             List<String> nav = read(MainActivity.PREF_ADDRESS_NAV_BUTTONS,
-                    MainActivity.DEFAULT_ADDRESS_NAV_BUTTONS, MainActivity.ADDRESS_NAV_BUTTON_IDS);
-            for (String id : menu) firstList.addView(row(id, true, LIST_ADDRESS_MENU));
-            for (String id : nav) secondList.addView(row(id, true, LIST_ADDRESS_NAV));
-            for (String id : MainActivity.ADDRESS_MENU_BUTTON_IDS) {
-                if (!menu.contains(id)) hiddenList.addView(row(id, false, LIST_HIDDEN));
+                    MainActivity.DEFAULT_ADDRESS_NAV_BUTTONS, MainActivity.ADDRESS_BUTTON_IDS);
+            removeDuplicates(menu, bar);
+            removeDuplicates(nav, bar);
+            removeDuplicates(nav, menu);
+            menu.remove(MainActivity.ADDRESS_BAR_MENU);
+            nav.remove(MainActivity.ADDRESS_BAR_MENU);
+            if (!bar.contains(MainActivity.ADDRESS_BAR_MENU)) {
+                bar.add(MainActivity.ADDRESS_BAR_MENU);
             }
-            for (String id : MainActivity.ADDRESS_NAV_BUTTON_IDS) {
-                if (!nav.contains(id)) hiddenList.addView(row(id, false, LIST_HIDDEN));
+            if (!bar.contains(MainActivity.ADDRESS_MENU_SETTINGS)
+                    && !menu.contains(MainActivity.ADDRESS_MENU_SETTINGS)
+                    && !nav.contains(MainActivity.ADDRESS_MENU_SETTINGS)) {
+                menu.add(MainActivity.ADDRESS_MENU_SETTINGS);
+            }
+            for (String id : bar) firstList.addView(row(id, true, LIST_ADDRESS_BAR));
+            for (String id : menu) secondList.addView(row(id, true, LIST_ADDRESS_MENU));
+            for (String id : nav) thirdList.addView(row(id, true, LIST_ADDRESS_NAV));
+            for (String id : MainActivity.ADDRESS_BUTTON_IDS) {
+                if (!bar.contains(id) && !menu.contains(id) && !nav.contains(id)) {
+                    hiddenList.addView(row(id, false, LIST_HIDDEN));
+                }
             }
         }
     }
@@ -132,14 +154,16 @@ public class ButtonLayoutSettingsActivity extends Activity {
 
         CheckBox box = new CheckBox(this);
         box.setChecked(checked);
+        if (isRequiredAddressButton(id)) {
+            box.setChecked(true);
+            box.setEnabled(false);
+            box.setAlpha(0.45f);
+        }
         Theme.tintCompoundButton(this, box);
         box.setOnCheckedChangeListener((buttonView, isChecked) -> setVisible(id, isChecked, listKey));
         row.addView(box, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconFor(id));
-        icon.setColorFilter(textColor());
-        row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        row.addView(rowIcon(id), new LinearLayout.LayoutParams(dp(22), dp(22)));
 
         TextView label = new TextView(this);
         label.setText(labelFor(id));
@@ -204,8 +228,9 @@ public class ButtonLayoutSettingsActivity extends Activity {
             if (LIST_TITLE_BAR.equals(listKey)) return firstList;
             if (LIST_TITLE_MENU.equals(listKey)) return secondList;
         } else {
-            if (LIST_ADDRESS_MENU.equals(listKey)) return firstList;
-            if (LIST_ADDRESS_NAV.equals(listKey)) return secondList;
+            if (LIST_ADDRESS_BAR.equals(listKey)) return firstList;
+            if (LIST_ADDRESS_MENU.equals(listKey)) return secondList;
+            if (LIST_ADDRESS_NAV.equals(listKey)) return thirdList;
         }
         return null;
     }
@@ -216,65 +241,93 @@ public class ButtonLayoutSettingsActivity extends Activity {
         if (target.equals(from) && LIST_HIDDEN.equals(target)) return;
         List<String> first = idsFrom(firstList);
         List<String> second = idsFrom(secondList);
+        List<String> third = idsFrom(thirdList);
         first.remove(id);
         second.remove(id);
+        third.remove(id);
         if (!LIST_HIDDEN.equals(target)) {
-            List<String> destination = firstListKey().equals(target) ? first : second;
+            List<String> destination = firstListKey().equals(target) ? first
+                    : secondListKey().equals(target) ? second : third;
             destination.add(Math.max(0, Math.min(index, destination.size())), id);
         }
-        save(first, second);
+        save(first, second, third);
         rebuildLists();
     }
 
     private String normalizedTarget(String id, String requested) {
         if (MODE_TITLE.equals(mode)) {
+            if (MainActivity.THREAD_BUTTON_MENU.equals(id)
+                    && !LIST_TITLE_BAR.equals(requested) && !LIST_HIDDEN.equals(requested)) {
+                return null;
+            }
             if (LIST_TITLE_BAR.equals(requested) || LIST_TITLE_MENU.equals(requested) || LIST_HIDDEN.equals(requested)) {
                 return requested;
             }
             return null;
         }
+        if (isRequiredAddressButton(id) && LIST_HIDDEN.equals(requested)) {
+            return null;
+        }
         if (LIST_HIDDEN.equals(requested)) return requested;
-        if (isAddressNav(id)) return LIST_ADDRESS_NAV.equals(requested) ? requested : null;
-        return LIST_ADDRESS_MENU.equals(requested) ? requested : null;
+        if (MainActivity.ADDRESS_BAR_MENU.equals(id) && !LIST_ADDRESS_BAR.equals(requested)) {
+            return null;
+        }
+        if (LIST_ADDRESS_BAR.equals(requested) || LIST_ADDRESS_MENU.equals(requested) || LIST_ADDRESS_NAV.equals(requested)) {
+            return requested;
+        }
+        return null;
     }
 
     private String firstListKey() {
-        return MODE_TITLE.equals(mode) ? LIST_TITLE_BAR : LIST_ADDRESS_MENU;
+        return MODE_TITLE.equals(mode) ? LIST_TITLE_BAR : LIST_ADDRESS_BAR;
+    }
+
+    private String secondListKey() {
+        return MODE_TITLE.equals(mode) ? LIST_TITLE_MENU : LIST_ADDRESS_MENU;
     }
 
     private void setVisible(String id, boolean visible, String currentList) {
+        if (!visible && isRequiredAddressButton(id)) {
+            rebuildLists();
+            return;
+        }
         String target;
         if (!visible) {
             target = LIST_HIDDEN;
         } else if (MODE_TITLE.equals(mode)) {
-            target = LIST_HIDDEN.equals(currentList) ? LIST_TITLE_MENU : currentList;
+            target = MainActivity.THREAD_BUTTON_MENU.equals(id) ? LIST_TITLE_BAR
+                    : LIST_HIDDEN.equals(currentList) ? LIST_TITLE_MENU : currentList;
         } else {
-            target = isAddressNav(id) ? LIST_ADDRESS_NAV : LIST_ADDRESS_MENU;
+            target = MainActivity.ADDRESS_BAR_MENU.equals(id) ? LIST_ADDRESS_BAR
+                    : LIST_HIDDEN.equals(currentList) ? LIST_ADDRESS_MENU : currentList;
         }
         move(id, currentList, target, childCount(target));
     }
 
-    private void save(List<String> first, List<String> second) {
+    private void save(List<String> first, List<String> second, List<String> third) {
         SharedPreferences.Editor editor = preferences.edit();
         if (MODE_TITLE.equals(mode)) {
             editor.putString(MainActivity.PREF_THREAD_TITLE_BAR_BUTTONS, MainActivity.joinButtonIds(first))
                     .putString(MainActivity.PREF_THREAD_TITLE_MENU_BUTTONS, MainActivity.joinButtonIds(second));
         } else {
-            editor.putString(MainActivity.PREF_ADDRESS_MENU_BUTTONS, MainActivity.joinButtonIds(first))
-                    .putString(MainActivity.PREF_ADDRESS_NAV_BUTTONS, MainActivity.joinButtonIds(second));
+            editor.putString(MainActivity.PREF_ADDRESS_BAR_BUTTONS, MainActivity.joinButtonIds(first))
+                    .putString(MainActivity.PREF_ADDRESS_MENU_BUTTONS, MainActivity.joinButtonIds(second))
+                    .putString(MainActivity.PREF_ADDRESS_NAV_BUTTONS, MainActivity.joinButtonIds(third));
         }
         editor.apply();
     }
 
-    private boolean isAddressNav(String id) {
-        for (String navId : MainActivity.ADDRESS_NAV_BUTTON_IDS) {
-            if (navId.equals(id)) return true;
-        }
-        return false;
-    }
-
     private List<String> read(String key, String fallback, String[] allowed) {
         return MainActivity.orderedButtonIds(preferences.getString(key, fallback), fallback, allowed);
+    }
+
+    private void removeDuplicates(List<String> target, List<String> existing) {
+        target.removeAll(existing);
+    }
+
+    private boolean isRequiredAddressButton(String id) {
+        return MODE_ADDRESS.equals(mode)
+                && (MainActivity.ADDRESS_BAR_MENU.equals(id) || MainActivity.ADDRESS_MENU_SETTINGS.equals(id));
     }
 
     private List<String> idsFrom(LinearLayout list) {
@@ -294,6 +347,9 @@ public class ButtonLayoutSettingsActivity extends Activity {
         if (MainActivity.ADDRESS_MENU_SYNC.equals(id)) return MainActivity.text("Sync2ch\u3067\u540c\u671f", "Sync with Sync2ch");
         if (MainActivity.ADDRESS_MENU_SETTINGS.equals(id)) return MainActivity.text("\u8a2d\u5b9a", "Settings");
         if (MainActivity.ADDRESS_MENU_NAV.equals(id)) return MainActivity.text("\u30ca\u30d3\u30b2\u30fc\u30b7\u30e7\u30f3", "Navigation");
+        if (MainActivity.ADDRESS_BAR_NEW_TAB.equals(id)) return MainActivity.text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        if (MainActivity.ADDRESS_BAR_TABS.equals(id)) return MainActivity.text("\u30bf\u30d6\u4e00\u89a7", "Tabs");
+        if (MainActivity.ADDRESS_BAR_MENU.equals(id)) return MainActivity.text("\u30e1\u30cb\u30e5\u30fc", "Menu");
         if (MainActivity.ADDRESS_NAV_BACK.equals(id)) return MainActivity.text("\u623b\u308b", "Back");
         if (MainActivity.ADDRESS_NAV_FORWARD.equals(id)) return MainActivity.text("\u9032\u3080", "Forward");
         if (MainActivity.ADDRESS_NAV_SHARE.equals(id)) return MainActivity.text("\u5171\u6709", "Share");
@@ -317,6 +373,9 @@ public class ButtonLayoutSettingsActivity extends Activity {
         if (MainActivity.ADDRESS_MENU_SYNC.equals(id)) return R.drawable.ic_refresh;
         if (MainActivity.ADDRESS_MENU_SETTINGS.equals(id)) return R.drawable.ic_settings;
         if (MainActivity.ADDRESS_MENU_NAV.equals(id)) return R.drawable.ic_arrow_back;
+        if (MainActivity.ADDRESS_BAR_NEW_TAB.equals(id)) return R.drawable.ic_add;
+        if (MainActivity.ADDRESS_BAR_TABS.equals(id)) return R.drawable.ic_folder;
+        if (MainActivity.ADDRESS_BAR_MENU.equals(id)) return R.drawable.ic_more_vert;
         if (MainActivity.ADDRESS_NAV_BACK.equals(id)) return R.drawable.ic_arrow_back;
         if (MainActivity.ADDRESS_NAV_FORWARD.equals(id)) return R.drawable.ic_arrow_forward;
         if (MainActivity.ADDRESS_NAV_SHARE.equals(id)) return R.drawable.ic_share;
@@ -331,6 +390,30 @@ public class ButtonLayoutSettingsActivity extends Activity {
         if (MainActivity.THREAD_BUTTON_LINKS.equals(id)) return R.drawable.ic_link;
         if (MainActivity.THREAD_BUTTON_COPY.equals(id)) return R.drawable.ic_copy;
         return R.drawable.ic_more_vert;
+    }
+
+    private View rowIcon(String id) {
+        if (MainActivity.ADDRESS_BAR_TABS.equals(id)) {
+            TextView icon = new TextView(this);
+            icon.setText("1");
+            icon.setTextColor(textColor());
+            icon.setTextSize(11);
+            icon.setGravity(Gravity.CENTER);
+            icon.setBackground(tabIconBackground(false));
+            return icon;
+        }
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconFor(id));
+        icon.setColorFilter(textColor());
+        return icon;
+    }
+
+    private GradientDrawable tabIconBackground(boolean selected) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(selected ? Theme.active(this) : Color.TRANSPARENT);
+        drawable.setStroke(dp(2), textColor());
+        drawable.setCornerRadius(dp(4));
+        return drawable;
     }
 
     private TextView sectionTitle(String value) {

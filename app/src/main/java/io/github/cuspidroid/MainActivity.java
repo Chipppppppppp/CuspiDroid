@@ -131,6 +131,7 @@ public class MainActivity extends Activity {
     static final String PREFS_NAME = "cuspidroid_settings";
     static final String PREF_5CH_NEW_TAB = "open_5ch_links_in_new_tab";
     static final String PREF_SEARCH_TEMPLATE = "search_template";
+    static final String PREF_ADDRESS_BAR_BUTTONS = "address_bar_buttons";
     static final String PREF_ADDRESS_MENU_BUTTONS = "address_menu_buttons";
     static final String PREF_ADDRESS_NAV_BUTTONS = "address_nav_buttons";
     static final String PREF_THREAD_TITLE_BAR_BUTTONS = "thread_title_bar_buttons";
@@ -141,6 +142,9 @@ public class MainActivity extends Activity {
     static final String ADDRESS_MENU_SYNC = "sync";
     static final String ADDRESS_MENU_SETTINGS = "settings";
     static final String ADDRESS_MENU_NAV = "navigation";
+    static final String ADDRESS_BAR_NEW_TAB = "new_tab";
+    static final String ADDRESS_BAR_TABS = "tabs";
+    static final String ADDRESS_BAR_MENU = "address_menu";
     static final String ADDRESS_NAV_BACK = "back";
     static final String ADDRESS_NAV_FORWARD = "forward";
     static final String ADDRESS_NAV_SHARE = "share";
@@ -154,7 +158,8 @@ public class MainActivity extends Activity {
     static final String THREAD_BUTTON_MEDIA = "media";
     static final String THREAD_BUTTON_LINKS = "links";
     static final String THREAD_BUTTON_COPY = "copy";
-    static final String DEFAULT_ADDRESS_MENU_BUTTONS = "webview,bookmark,find,sync,settings,navigation";
+    static final String DEFAULT_ADDRESS_BAR_BUTTONS = "new_tab,tabs,address_menu";
+    static final String DEFAULT_ADDRESS_MENU_BUTTONS = "webview,bookmark,find,sync,settings";
     static final String DEFAULT_ADDRESS_NAV_BUTTONS = "back,forward,share,reload";
     static final String DEFAULT_THREAD_TITLE_BAR_BUTTONS = "write,jump,menu";
     static final String DEFAULT_THREAD_TITLE_MENU_BUTTONS = "board,next,ng,media,links,copy";
@@ -164,6 +169,12 @@ public class MainActivity extends Activity {
     };
     static final String[] ADDRESS_NAV_BUTTON_IDS = {
             ADDRESS_NAV_BACK, ADDRESS_NAV_FORWARD, ADDRESS_NAV_SHARE, ADDRESS_NAV_RELOAD
+    };
+    static final String[] ADDRESS_BUTTON_IDS = {
+            ADDRESS_MENU_WEBVIEW, ADDRESS_MENU_BOOKMARK, ADDRESS_MENU_FIND,
+            ADDRESS_MENU_SYNC, ADDRESS_MENU_SETTINGS, ADDRESS_BAR_NEW_TAB,
+            ADDRESS_BAR_TABS, ADDRESS_BAR_MENU, ADDRESS_NAV_BACK,
+            ADDRESS_NAV_FORWARD, ADDRESS_NAV_SHARE, ADDRESS_NAV_RELOAD
     };
     static final String[] THREAD_TITLE_BUTTON_IDS = {
             THREAD_BUTTON_WRITE, THREAD_BUTTON_JUMP, THREAD_BUTTON_MENU, THREAD_BUTTON_BOARD,
@@ -376,6 +387,7 @@ public class MainActivity extends Activity {
     private ImageButton bottomJumpButton;
     private ImageButton bottomBookmarkButton;
     private final Map<String, ImageButton> bottomThreadButtons = new LinkedHashMap<>();
+    private final Map<String, View> addressBarButtons = new LinkedHashMap<>();
     private TextView tabCountButton;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
@@ -700,7 +712,8 @@ public class MainActivity extends Activity {
         if (preferences == null) {
             return "";
         }
-        return preferences.getString(PREF_ADDRESS_MENU_BUTTONS, DEFAULT_ADDRESS_MENU_BUTTONS)
+        return preferences.getString(PREF_ADDRESS_BAR_BUTTONS, DEFAULT_ADDRESS_BAR_BUTTONS)
+                + "|" + preferences.getString(PREF_ADDRESS_MENU_BUTTONS, DEFAULT_ADDRESS_MENU_BUTTONS)
                 + "|" + preferences.getString(PREF_ADDRESS_NAV_BUTTONS, DEFAULT_ADDRESS_NAV_BUTTONS)
                 + "|" + preferences.getString(PREF_THREAD_TITLE_BAR_BUTTONS, DEFAULT_THREAD_TITLE_BAR_BUTTONS)
                 + "|" + preferences.getString(PREF_THREAD_TITLE_MENU_BUTTONS, DEFAULT_THREAD_TITLE_MENU_BUTTONS)
@@ -709,12 +722,12 @@ public class MainActivity extends Activity {
 
     private void migrateAddressMenuNavigationPreference() {
         String value = preferences.getString(PREF_ADDRESS_MENU_BUTTONS, null);
-        if (value == null || value.contains(ADDRESS_MENU_NAV)) {
+        if (value == null || !value.contains(ADDRESS_MENU_NAV)) {
             return;
         }
         List<String> oldMenu = orderedButtonIds(value, "", new String[]{
                 ADDRESS_MENU_WEBVIEW, ADDRESS_MENU_BOOKMARK, ADDRESS_MENU_FIND,
-                ADDRESS_MENU_SYNC, ADDRESS_MENU_SETTINGS, ADDRESS_NAV_BACK,
+                ADDRESS_MENU_SYNC, ADDRESS_MENU_SETTINGS, ADDRESS_MENU_NAV, ADDRESS_NAV_BACK,
                 ADDRESS_NAV_FORWARD, ADDRESS_NAV_SHARE, ADDRESS_NAV_RELOAD
         });
         List<String> nextMenu = new ArrayList<>();
@@ -723,18 +736,57 @@ public class MainActivity extends Activity {
             if (ADDRESS_NAV_BACK.equals(id) || ADDRESS_NAV_FORWARD.equals(id)
                     || ADDRESS_NAV_SHARE.equals(id) || ADDRESS_NAV_RELOAD.equals(id)) {
                 nextNav.add(id);
-            } else {
+            } else if (!ADDRESS_MENU_NAV.equals(id)) {
                 nextMenu.add(id);
             }
         }
         if (nextNav.isEmpty()) {
-            return;
+            nextNav.addAll(orderedButtonIds(preferences.getString(PREF_ADDRESS_NAV_BUTTONS, DEFAULT_ADDRESS_NAV_BUTTONS),
+                    DEFAULT_ADDRESS_NAV_BUTTONS, ADDRESS_NAV_BUTTON_IDS));
         }
-        nextMenu.add(ADDRESS_MENU_NAV);
+        if (nextMenu.isEmpty()) {
+            nextMenu.addAll(orderedButtonIds(DEFAULT_ADDRESS_MENU_BUTTONS, DEFAULT_ADDRESS_MENU_BUTTONS, ADDRESS_MENU_BUTTON_IDS));
+        }
         preferences.edit()
                 .putString(PREF_ADDRESS_MENU_BUTTONS, joinButtonIds(nextMenu))
                 .putString(PREF_ADDRESS_NAV_BUTTONS, joinButtonIds(nextNav))
                 .apply();
+    }
+
+    private List<String> addressBarButtonIds() {
+        List<String> ids = orderedButtonIdsFromPreferences(PREF_ADDRESS_BAR_BUTTONS, DEFAULT_ADDRESS_BAR_BUTTONS, ADDRESS_BUTTON_IDS);
+        if (!ids.contains(ADDRESS_BAR_MENU)) {
+            ids.add(ADDRESS_BAR_MENU);
+        }
+        return ids;
+    }
+
+    private List<String> addressMenuButtonIds() {
+        List<String> ids = orderedButtonIdsFromPreferences(PREF_ADDRESS_MENU_BUTTONS,
+                DEFAULT_ADDRESS_MENU_BUTTONS, ADDRESS_BUTTON_IDS);
+        ids.remove(ADDRESS_MENU_NAV);
+        ids.remove(ADDRESS_BAR_MENU);
+        if (!addressButtonPlaced(ADDRESS_MENU_SETTINGS) && !ids.contains(ADDRESS_MENU_SETTINGS)) {
+            ids.add(ADDRESS_MENU_SETTINGS);
+        }
+        return ids;
+    }
+
+    private List<String> addressNavButtonIds() {
+        List<String> ids = orderedButtonIdsFromPreferences(PREF_ADDRESS_NAV_BUTTONS, DEFAULT_ADDRESS_NAV_BUTTONS, ADDRESS_BUTTON_IDS);
+        ids.remove(ADDRESS_BAR_MENU);
+        return ids;
+    }
+
+    private boolean addressButtonPlaced(String id) {
+        return addressButtonListContains(PREF_ADDRESS_BAR_BUTTONS, DEFAULT_ADDRESS_BAR_BUTTONS, id)
+                || addressButtonListContains(PREF_ADDRESS_MENU_BUTTONS, DEFAULT_ADDRESS_MENU_BUTTONS, id)
+                || addressButtonListContains(PREF_ADDRESS_NAV_BUTTONS, DEFAULT_ADDRESS_NAV_BUTTONS, id);
+    }
+
+    private boolean addressButtonListContains(String key, String fallback, String id) {
+        return orderedButtonIds(preferences == null ? fallback : preferences.getString(key, fallback),
+                fallback, ADDRESS_BUTTON_IDS).contains(id);
     }
 
     private List<String> orderedButtonIdsFromPreferences(String preferenceKey, String fallback, String[] allowed) {
@@ -1271,11 +1323,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(40), 1);
         bottomToolbar.addView(addressBar, addressParams);
 
-        addToolbarButton(bottomToolbar, R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> createBlankTab());
-        tabCountButton = tabCountButton();
-        toolbarButtons.add(tabCountButton);
-        bottomToolbar.addView(tabCountButton, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        addToolbarButton(bottomToolbar, R.drawable.ic_more_vert, text("\u30e1\u30cb\u30e5\u30fc", "Menu"), v -> showThreadMenu(v));
+        rebuildAddressBarButtons();
 
         bottomToolbarSlot = chromeBarSlot(bottomToolbar, dp(54));
         threadSearchBarSlot = chromeBarSlot(threadSearchBar, dp(50));
@@ -1327,17 +1375,25 @@ public class MainActivity extends Activity {
     }
 
     private TextView tabCountButton() {
-        TextView view = new TextView(this);
-        view.setTextColor(textColor());
-        view.setTextSize(13);
-        view.setGravity(Gravity.CENTER);
-        view.setSingleLine(true);
+        TextView view = tabCountIconView(dp(30), tabOverviewVisible);
         view.setContentDescription(text("\u30bf\u30d6", "Tabs"));
-        view.setBackground(tabCountBackground(false));
         view.setOnClickListener(v -> showTabOverview());
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(30), dp(32));
         params.setMargins(dp(7), 0, dp(7), 0);
         view.setLayoutParams(params);
+        return view;
+    }
+
+    private TextView tabCountIconView(int size, boolean selected) {
+        TextView view = new TextView(this);
+        view.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
+        view.setTextColor(textColor());
+        view.setTextSize(13);
+        view.setGravity(Gravity.CENTER);
+        view.setSingleLine(true);
+        view.setBackground(tabCountBackground(selected));
+        view.setMinWidth(size);
+        view.setMinHeight(size);
         return view;
     }
 
@@ -1760,43 +1816,41 @@ public class MainActivity extends Activity {
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        List<String> navIds = addressNavButtonIds();
+        int popupWidth = addressMenuPopupWidth(navIds.size());
+        PopupWindow popup = new PopupWindow(menu, popupWidth, ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
 
         boolean added = false;
-        for (String id : orderedButtonIdsFromPreferences(PREF_ADDRESS_MENU_BUTTONS,
-                DEFAULT_ADDRESS_MENU_BUTTONS, ADDRESS_MENU_BUTTON_IDS)) {
+        for (String id : addressMenuButtonIds()) {
             if (ADDRESS_MENU_SYNC.equals(id) && !sync2chEnabled()) {
                 continue;
             }
             if (added) {
                 menu.addView(horizontalDivider());
             }
-            if (ADDRESS_MENU_NAV.equals(id)) {
-                menu.addView(menuNavigationRow(popup), new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
-            } else {
-                menu.addView(addressMenuItem(id, popup, tab), new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            }
+            menu.addView(addressMenuItem(id, popup, tab), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             added = true;
         }
-        showMenuWithinScreen(popup, menu, anchor);
+        if (!navIds.isEmpty()) {
+            if (added) {
+                menu.addView(horizontalDivider());
+            }
+            menu.addView(menuNavigationRow(popup, navIds), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        }
+        showMenuWithinScreen(popup, menu, anchor, popupWidth);
     }
 
     private View addressMenuItem(String id, PopupWindow popup, CuspTab tab) {
-        boolean hasUrl = tab != null && tab.url != null && !tab.url.trim().isEmpty();
-        int icon = addressMenuIcon(id, tab);
         CharSequence label = addressMenuLabel(id, tab);
-        View item = menuIconItem(icon, label, v -> performAddressMenuAction(id, popup));
-        boolean enabled = true;
-        if (ADDRESS_MENU_WEBVIEW.equals(id)) {
-            enabled = hasUrl;
-        } else if (ADDRESS_MENU_BOOKMARK.equals(id)) {
-            enabled = canBookmarkTab(tab);
-        }
+        View item = ADDRESS_BAR_TABS.equals(id)
+                ? menuIconItem(tabCountIconView(dp(21), false), label, v -> performAddressMenuAction(id, popup))
+                : menuIconItem(addressMenuIcon(id, tab), label, v -> performAddressMenuAction(id, popup));
+        boolean enabled = addressButtonEnabled(id, tab);
         if (!enabled) {
             item.setEnabled(false);
             item.setAlpha(0.45f);
@@ -1813,18 +1867,52 @@ public class MainActivity extends Activity {
         return buttonLabel(id);
     }
 
+    private boolean addressButtonEnabled(String id, CuspTab tab) {
+        boolean hasUrl = tab != null && tab.url != null && !tab.url.trim().isEmpty();
+        if (ADDRESS_BAR_NEW_TAB.equals(id) || ADDRESS_BAR_TABS.equals(id) || ADDRESS_BAR_MENU.equals(id)) {
+            return true;
+        }
+        if (ADDRESS_MENU_WEBVIEW.equals(id)) {
+            return hasUrl;
+        }
+        if (ADDRESS_MENU_BOOKMARK.equals(id)) {
+            return canBookmarkTab(tab);
+        }
+        if (ADDRESS_NAV_BACK.equals(id) || ADDRESS_NAV_FORWARD.equals(id)
+                || ADDRESS_NAV_SHARE.equals(id) || ADDRESS_NAV_RELOAD.equals(id)) {
+            return addressNavEnabled(id, tab);
+        }
+        return true;
+    }
+
     private int addressMenuIcon(String id, CuspTab tab) {
+        return addressButtonIcon(id, tab);
+    }
+
+    private int addressButtonIcon(String id, CuspTab tab) {
         if (ADDRESS_MENU_WEBVIEW.equals(id)) return R.drawable.ic_arrow_forward;
         if (ADDRESS_MENU_BOOKMARK.equals(id)) return savedIcon(PREF_THREAD_BOOKMARKS, tab == null ? "" : tab.url);
         if (ADDRESS_MENU_FIND.equals(id)) return R.drawable.ic_search;
         if (ADDRESS_MENU_SYNC.equals(id)) return R.drawable.ic_refresh;
         if (ADDRESS_MENU_SETTINGS.equals(id)) return R.drawable.ic_settings;
-        if (ADDRESS_MENU_NAV.equals(id)) return R.drawable.ic_arrow_back;
+        if (ADDRESS_BAR_NEW_TAB.equals(id)) return R.drawable.ic_add;
+        if (ADDRESS_BAR_TABS.equals(id)) return R.drawable.ic_folder;
+        if (ADDRESS_BAR_MENU.equals(id)) return R.drawable.ic_more_vert;
+        if (ADDRESS_NAV_BACK.equals(id)) return R.drawable.ic_arrow_back;
+        if (ADDRESS_NAV_FORWARD.equals(id)) return R.drawable.ic_arrow_forward;
+        if (ADDRESS_NAV_SHARE.equals(id)) return R.drawable.ic_share;
+        if (ADDRESS_NAV_RELOAD.equals(id)) return R.drawable.ic_refresh;
         return R.drawable.ic_more_vert;
     }
 
     private void performAddressMenuAction(String id, PopupWindow popup) {
-        dismissPopupAnimated(popup);
+        performAddressButtonAction(id, popup);
+    }
+
+    private void performAddressButtonAction(String id, PopupWindow popup) {
+        if (popup != null) {
+            dismissPopupAnimated(popup);
+        }
         if (ADDRESS_MENU_WEBVIEW.equals(id)) {
             openCurrentThreadInWebView();
         } else if (ADDRESS_MENU_BOOKMARK.equals(id)) {
@@ -1835,6 +1923,23 @@ public class MainActivity extends Activity {
             runSync2chNow();
         } else if (ADDRESS_MENU_SETTINGS.equals(id)) {
             openSettings();
+        } else if (ADDRESS_BAR_NEW_TAB.equals(id)) {
+            createBlankTab();
+        } else if (ADDRESS_BAR_TABS.equals(id)) {
+            showTabOverview();
+        } else if (ADDRESS_BAR_MENU.equals(id)) {
+            View anchor = addressBarButtons.get(ADDRESS_BAR_MENU);
+            if (anchor != null) {
+                showThreadMenu(anchor);
+            }
+        } else if (ADDRESS_NAV_BACK.equals(id)) {
+            onBackPressed();
+        } else if (ADDRESS_NAV_FORWARD.equals(id)) {
+            goForward();
+        } else if (ADDRESS_NAV_SHARE.equals(id)) {
+            shareCurrentThread();
+        } else if (ADDRESS_NAV_RELOAD.equals(id)) {
+            reloadFromMenu();
         }
     }
 
@@ -2066,6 +2171,54 @@ public class MainActivity extends Activity {
         return button;
     }
 
+    private void rebuildAddressBarButtons() {
+        if (bottomToolbar == null) {
+            return;
+        }
+        addressBarButtons.clear();
+        tabCountButton = null;
+        CuspTab tab = currentTab();
+        for (String id : addressBarButtonIds()) {
+            if (ADDRESS_MENU_SYNC.equals(id) && !sync2chEnabled()) {
+                continue;
+            }
+            View button = addressBarButton(id, tab);
+            addressBarButtons.put(id, button);
+            toolbarButtons.add(button);
+            bottomToolbar.addView(button);
+        }
+    }
+
+    private void updateAddressBarButtons(CuspTab tab) {
+        if (addressBarButtons.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, View> entry : addressBarButtons.entrySet()) {
+            String id = entry.getKey();
+            View button = entry.getValue();
+            if (button instanceof ImageButton) {
+                ((ImageButton) button).setImageResource(addressButtonIcon(id, tab));
+            }
+            setToolbarButtonEnabled(button, addressButtonEnabled(id, tab));
+        }
+    }
+
+    private View addressBarButton(String id, CuspTab tab) {
+        if (ADDRESS_BAR_TABS.equals(id)) {
+            tabCountButton = tabCountButton();
+            tabCountButton.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
+            tabCountButton.setBackground(tabCountBackground(tabOverviewVisible));
+            return tabCountButton;
+        }
+        ImageButton button = iconButton(addressButtonIcon(id, tab), buttonLabel(id),
+                v -> performAddressButtonAction(id, null));
+        setMenuButtonEnabled(button, addressButtonEnabled(id, tab));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(36));
+        params.setMargins(dp(7), 0, dp(7), 0);
+        button.setLayoutParams(params);
+        return button;
+    }
+
     private int threadScrollProgress(CuspTab tab) {
         if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
             return 0;
@@ -2219,26 +2372,26 @@ public class MainActivity extends Activity {
         animatePopupIn(popup, true);
     }
 
-    private LinearLayout menuNavigationRow(PopupWindow popup) {
+    private LinearLayout menuNavigationRow(PopupWindow popup, List<String> ids) {
         CuspTab tab = currentTab();
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        for (String id : orderedButtonIdsFromPreferences(PREF_ADDRESS_NAV_BUTTONS,
-                DEFAULT_ADDRESS_NAV_BUTTONS, ADDRESS_NAV_BUTTON_IDS)) {
-            ImageButton button = menuIconButton(addressNavIcon(id), buttonLabel(id), v -> performAddressNavAction(id, popup));
-            setMenuButtonEnabled(button, addressNavEnabled(id, tab));
+        for (String id : ids) {
+            if (ADDRESS_MENU_SYNC.equals(id) && !sync2chEnabled()) {
+                continue;
+            }
+            View button = ADDRESS_BAR_TABS.equals(id)
+                    ? menuTabCountButton(v -> performAddressNavAction(id, popup))
+                    : menuIconButton(addressNavIcon(id), buttonLabel(id), v -> performAddressNavAction(id, popup));
+            setMenuButtonEnabled(button, addressButtonEnabled(id, tab));
             row.addView(button);
         }
         return row;
     }
 
     private int addressNavIcon(String id) {
-        if (ADDRESS_NAV_BACK.equals(id)) return R.drawable.ic_arrow_back;
-        if (ADDRESS_NAV_FORWARD.equals(id)) return R.drawable.ic_arrow_forward;
-        if (ADDRESS_NAV_SHARE.equals(id)) return R.drawable.ic_share;
-        if (ADDRESS_NAV_RELOAD.equals(id)) return R.drawable.ic_refresh;
-        return R.drawable.ic_more_vert;
+        return addressButtonIcon(id, currentTab());
     }
 
     private boolean addressNavEnabled(String id, CuspTab tab) {
@@ -2253,25 +2406,23 @@ public class MainActivity extends Activity {
     }
 
     private void performAddressNavAction(String id, PopupWindow popup) {
-        dismissPopupAnimated(popup);
-        if (ADDRESS_NAV_BACK.equals(id)) {
-            onBackPressed();
-        } else if (ADDRESS_NAV_FORWARD.equals(id)) {
-            goForward();
-        } else if (ADDRESS_NAV_SHARE.equals(id)) {
-            shareCurrentThread();
-        } else if (ADDRESS_NAV_RELOAD.equals(id)) {
-            reloadFromMenu();
-        }
+        performAddressButtonAction(id, popup);
     }
 
-    private void setMenuButtonEnabled(ImageButton button, boolean enabled) {
+    private void setMenuButtonEnabled(View button, boolean enabled) {
+        setToolbarButtonEnabled(button, enabled);
+    }
+
+    private void setToolbarButtonEnabled(View button, boolean enabled) {
         button.setEnabled(enabled);
         button.setAlpha(enabled ? 1f : 0.32f);
     }
 
     private void showMenuWithinScreen(PopupWindow popup, View menu, View anchor) {
-        int width = dp(220);
+        showMenuWithinScreen(popup, menu, anchor, dp(220));
+    }
+
+    private void showMenuWithinScreen(PopupWindow popup, View menu, View anchor, int width) {
         menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int height = menu.getMeasuredHeight();
@@ -2286,6 +2437,13 @@ public class MainActivity extends Activity {
         popup.setClippingEnabled(true);
         popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
         animatePopupIn(popup, !addressBarTop);
+    }
+
+    private int addressMenuPopupWidth(int navButtonCount) {
+        if (navButtonCount <= 0) {
+            return dp(220);
+        }
+        return Math.max(dp(220), dp(16 + 48 * navButtonCount));
     }
 
     private void showPopupAttachedToAnchor(PopupWindow popup, View menu, View anchor) {
@@ -2335,6 +2493,14 @@ public class MainActivity extends Activity {
         return button;
     }
 
+    private TextView menuTabCountButton(View.OnClickListener listener) {
+        TextView button = tabCountIconView(dp(24), tabOverviewVisible);
+        button.setContentDescription(buttonLabel(ADDRESS_BAR_TABS));
+        button.setOnClickListener(listener);
+        button.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        return button;
+    }
+
     private ImageButton threadSearchButton(int iconRes, String description, View.OnClickListener listener) {
         ImageButton button = iconButton(iconRes, description, listener);
         button.setBackgroundColor(Color.TRANSPARENT);
@@ -2374,6 +2540,9 @@ public class MainActivity extends Activity {
         if (ADDRESS_MENU_SYNC.equals(id)) return text("Sync2ch\u3067\u540c\u671f", "Sync with Sync2ch");
         if (ADDRESS_MENU_SETTINGS.equals(id)) return text("\u8a2d\u5b9a", "Settings");
         if (ADDRESS_MENU_NAV.equals(id)) return text("\u30ca\u30d3\u30b2\u30fc\u30b7\u30e7\u30f3", "Navigation");
+        if (ADDRESS_BAR_NEW_TAB.equals(id)) return text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        if (ADDRESS_BAR_TABS.equals(id)) return text("\u30bf\u30d6\u4e00\u89a7", "Tabs");
+        if (ADDRESS_BAR_MENU.equals(id)) return text("\u30e1\u30cb\u30e5\u30fc", "Menu");
         if (ADDRESS_NAV_BACK.equals(id)) return text("\u623b\u308b", "Back");
         if (ADDRESS_NAV_FORWARD.equals(id)) return text("\u9032\u3080", "Forward");
         if (ADDRESS_NAV_SHARE.equals(id)) return text("\u5171\u6709", "Share");
@@ -2404,14 +2573,18 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout menuIconItem(int iconRes, CharSequence text, View.OnClickListener listener) {
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(textColor());
+        return menuIconItem(icon, text, listener);
+    }
+
+    private LinearLayout menuIconItem(View icon, CharSequence text, View.OnClickListener listener) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(10), dp(10), dp(10));
         row.setOnClickListener(listener);
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(textColor());
         row.addView(icon, new LinearLayout.LayoutParams(dp(21), dp(21)));
         TextView label = new TextView(this);
         label.setText(text);
@@ -3987,7 +4160,9 @@ public class MainActivity extends Activity {
             tabCountButton.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
             tabCountButton.setBackground(tabCountBackground(tabOverviewVisible));
         }
-        updateBottomThreadBar(pendingNewTab ? null : currentTab());
+        CuspTab tab = pendingNewTab ? null : currentTab();
+        updateAddressBarButtons(tab);
+        updateBottomThreadBar(tab);
     }
 
     private void openFromAddressBar() {

@@ -191,13 +191,13 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, showHistoryOnHome);
         root.addView(showHistoryOnHome);
 
-        root.addView(managementRow(R.drawable.ic_search,
+        root.addView(managementRow(R.drawable.ic_more_vert,
                 MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Search bar menu layout"),
                 MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u306e\u8868\u793a\u3068\u9806\u756a\u3092\u8a2d\u5b9a", "Configure visibility and order for the search bar menu"),
                 v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
                         .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_ADDRESS))));
         root.addView(managementRow(R.drawable.ic_more_vert,
-                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Title menu layout"),
+                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Title bar menu layout"),
                 MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u5e38\u99d0\u30fb\u30e1\u30cb\u30e5\u30fc\u5185\u30fb\u975e\u8868\u793a\u3092\u8a2d\u5b9a", "Configure pinned, menu, and hidden title actions"),
                 v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
                         .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_TITLE))));
@@ -991,6 +991,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, false)
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true)
+                .putString(MainActivity.PREF_ADDRESS_BAR_BUTTONS, MainActivity.DEFAULT_ADDRESS_BAR_BUTTONS)
                 .putString(MainActivity.PREF_ADDRESS_MENU_BUTTONS, MainActivity.DEFAULT_ADDRESS_MENU_BUTTONS)
                 .putString(MainActivity.PREF_ADDRESS_NAV_BUTTONS, MainActivity.DEFAULT_ADDRESS_NAV_BUTTONS)
                 .putString(MainActivity.PREF_THREAD_TITLE_BAR_BUTTONS, MainActivity.DEFAULT_THREAD_TITLE_BAR_BUTTONS)
