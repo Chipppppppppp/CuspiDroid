@@ -388,7 +388,8 @@ public class MainActivity extends Activity {
     private ImageButton bottomBookmarkButton;
     private final Map<String, ImageButton> bottomThreadButtons = new LinkedHashMap<>();
     private final Map<String, View> addressBarButtons = new LinkedHashMap<>();
-    private TextView tabCountButton;
+    private View tabCountButton;
+    private TextView tabCountLabel;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
     private EditText pendingImgbbUploadMessage;
@@ -1374,17 +1375,18 @@ public class MainActivity extends Activity {
         return button;
     }
 
-    private TextView tabCountButton() {
-        TextView view = tabCountIconView(dp(30), tabOverviewVisible);
+    private View tabCountButton() {
+        FrameLayout view = new FrameLayout(this);
+        tabCountLabel = tabCountIconSquare(tabOverviewVisible);
+        view.addView(tabCountLabel, new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER));
         view.setContentDescription(text("\u30bf\u30d6", "Tabs"));
         view.setOnClickListener(v -> showTabOverview());
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(30), dp(32));
-        params.setMargins(dp(7), 0, dp(7), 0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(42), dp(40));
         view.setLayoutParams(params);
         return view;
     }
 
-    private TextView tabCountIconView(int size, boolean selected) {
+    private TextView tabCountIconSquare(boolean selected) {
         TextView view = new TextView(this);
         view.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
         view.setTextColor(textColor());
@@ -1392,9 +1394,16 @@ public class MainActivity extends Activity {
         view.setGravity(Gravity.CENTER);
         view.setSingleLine(true);
         view.setBackground(tabCountBackground(selected));
-        view.setMinWidth(size);
-        view.setMinHeight(size);
+        view.setLayoutParams(new ViewGroup.LayoutParams(dp(30), dp(30)));
         return view;
+    }
+
+    private void updateTabCountButton() {
+        if (tabCountLabel == null) {
+            return;
+        }
+        tabCountLabel.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
+        tabCountLabel.setBackground(tabCountBackground(tabOverviewVisible));
     }
 
     private GradientDrawable tabCountBackground(boolean selected) {
@@ -1848,7 +1857,7 @@ public class MainActivity extends Activity {
     private View addressMenuItem(String id, PopupWindow popup, CuspTab tab) {
         CharSequence label = addressMenuLabel(id, tab);
         View item = ADDRESS_BAR_TABS.equals(id)
-                ? menuIconItem(tabCountIconView(dp(21), false), label, v -> performAddressMenuAction(id, popup))
+                ? menuIconItem(tabCountIconSquare(false), label, v -> performAddressMenuAction(id, popup))
                 : menuIconItem(addressMenuIcon(id, tab), label, v -> performAddressMenuAction(id, popup));
         boolean enabled = addressButtonEnabled(id, tab);
         if (!enabled) {
@@ -2206,16 +2215,13 @@ public class MainActivity extends Activity {
     private View addressBarButton(String id, CuspTab tab) {
         if (ADDRESS_BAR_TABS.equals(id)) {
             tabCountButton = tabCountButton();
-            tabCountButton.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
-            tabCountButton.setBackground(tabCountBackground(tabOverviewVisible));
+            updateTabCountButton();
             return tabCountButton;
         }
         ImageButton button = iconButton(addressButtonIcon(id, tab), buttonLabel(id),
                 v -> performAddressButtonAction(id, null));
         setMenuButtonEnabled(button, addressButtonEnabled(id, tab));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(36));
-        params.setMargins(dp(7), 0, dp(7), 0);
-        button.setLayoutParams(params);
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(42), dp(40)));
         return button;
     }
 
@@ -2493,10 +2499,12 @@ public class MainActivity extends Activity {
         return button;
     }
 
-    private TextView menuTabCountButton(View.OnClickListener listener) {
-        TextView button = tabCountIconView(dp(24), tabOverviewVisible);
+    private View menuTabCountButton(View.OnClickListener listener) {
+        FrameLayout button = new FrameLayout(this);
         button.setContentDescription(buttonLabel(ADDRESS_BAR_TABS));
         button.setOnClickListener(listener);
+        button.addView(tabCountIconSquare(tabOverviewVisible),
+                new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER));
         button.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
         return button;
     }
@@ -2585,7 +2593,11 @@ public class MainActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(10), dp(10), dp(10));
         row.setOnClickListener(listener);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(21), dp(21)));
+        ViewGroup.LayoutParams existingParams = icon.getLayoutParams();
+        LinearLayout.LayoutParams iconParams = existingParams != null
+                ? new LinearLayout.LayoutParams(existingParams.width, existingParams.height)
+                : new LinearLayout.LayoutParams(dp(21), dp(21));
+        row.addView(icon, iconParams);
         TextView label = new TextView(this);
         label.setText(text);
         label.setTextColor(textColor());
@@ -3666,6 +3678,8 @@ public class MainActivity extends Activity {
         }
         if (tabOverviewVisible) {
             bottomThreadBar.setVisibility(View.GONE);
+        } else if (isAddressEditing()) {
+            bottomThreadBar.setVisibility(View.GONE);
         } else if (pendingNewTab) {
             bottomThreadTitle.setText(pendingNewTabTitle());
             bottomThreadTitle.setOnClickListener(null);
@@ -3683,7 +3697,9 @@ public class MainActivity extends Activity {
             } else {
                 bottomThreadTitle.setText(title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title);
             }
-            boolean canWrite = NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null;
+            boolean isThread = NATIVE_THREAD.equals(tab.nativeKind);
+            boolean threadLoading = isThread && (tab.threadPage == null || isLoadingReaderView(tab.readerView));
+            boolean canWrite = isThread && tab.threadPage != null && tab.threadPage.error == null;
             boolean canManageBoard = NATIVE_BOARD.equals(tab.nativeKind) && tab.url != null
                     && isBoardUrl(tab.url) && !isBbsDirectoryUrl(tab.url);
             bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
@@ -3698,13 +3714,16 @@ public class MainActivity extends Activity {
                 return true;
             });
             bottomThreadTitle.setClickable(canWrite || canManageBoard);
-            setBottomThreadActionButtonsVisible(canWrite);
+            setBottomThreadActionButtonsVisible(canWrite || threadLoading);
+            setBottomThreadActionButtonsEnabled(canWrite);
             if (bottomBookmarkButton != null) {
                 bottomBookmarkButton.setImageResource(R.drawable.ic_more_vert);
                 bottomBookmarkButton.setContentDescription(canManageBoard
                         ? text("\u677f\u30e1\u30cb\u30e5\u30fc", "Board menu")
                         : text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu"));
-                bottomBookmarkButton.setVisibility(canWrite || canManageBoard ? View.VISIBLE : View.GONE);
+                bottomBookmarkButton.setVisibility(canWrite || canManageBoard || threadLoading ? View.VISIBLE : View.GONE);
+                bottomBookmarkButton.setEnabled(canWrite || canManageBoard);
+                bottomBookmarkButton.setAlpha(canWrite || canManageBoard ? 1f : 0.38f);
                 bottomBookmarkButton.setOnClickListener(canWrite ? v -> showThreadTitleMenu(v)
                         : canManageBoard ? v -> showBoardTitleMenu(v) : null);
             }
@@ -3719,6 +3738,17 @@ public class MainActivity extends Activity {
         for (ImageButton button : bottomThreadButtons.values()) {
             button.setVisibility(visible ? View.VISIBLE : View.GONE);
         }
+    }
+
+    private void setBottomThreadActionButtonsEnabled(boolean enabled) {
+        for (ImageButton button : bottomThreadButtons.values()) {
+            button.setEnabled(enabled);
+            button.setAlpha(enabled ? 1f : 0.38f);
+        }
+    }
+
+    private boolean isAddressEditing() {
+        return addressBar != null && addressBar.hasFocus();
     }
 
     private void attachTitleBarTabSwipe(View view) {
@@ -4157,8 +4187,7 @@ public class MainActivity extends Activity {
         }
         syncChromeBarSlots(false);
         if (tabCountButton != null) {
-            tabCountButton.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
-            tabCountButton.setBackground(tabCountBackground(tabOverviewVisible));
+            updateTabCountButton();
         }
         CuspTab tab = pendingNewTab ? null : currentTab();
         updateAddressBarButtons(tab);

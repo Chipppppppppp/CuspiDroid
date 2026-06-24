@@ -4,8 +4,11 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.View;
@@ -37,6 +40,10 @@ public class ButtonLayoutSettingsActivity extends Activity {
     private LinearLayout secondList;
     private LinearLayout thirdList;
     private LinearLayout hiddenList;
+    private ScrollView scrollView;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Runnable dragAutoScrollTask;
+    private int dragAutoScrollDelta;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,13 +56,22 @@ public class ButtonLayoutSettingsActivity extends Activity {
         buildLayout();
     }
 
+    @Override
+    protected void onDestroy() {
+        stopDragAutoScroll();
+        super.onDestroy();
+    }
+
     private void buildLayout() {
         Theme.applySystemBars(this);
         ScrollView scroll = new ScrollView(this);
+        scrollView = scroll;
         scroll.setBackgroundColor(bgColor());
+        scroll.setOnDragListener((v, event) -> handleAutoScrollDrag(v, event));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(28));
+        root.setOnDragListener((v, event) -> handleAutoScrollDrag(v, event));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(scroll);
@@ -67,6 +83,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
         title.setTextColor(textColor());
         title.setTextSize(24);
         title.setPadding(0, 0, 0, dp(10));
+        title.setOnDragListener((v, event) -> handleAutoScrollDrag(v, event));
         root.addView(title);
         root.addView(helper(MainActivity.text(
                 "\u9577\u62bc\u3057\u3057\u3066\u304b\u3089\u30c9\u30e9\u30c3\u30b0\u3057\u307e\u3059\u3002\u30c1\u30a7\u30c3\u30af\u3092\u5916\u3059\u3068\u975e\u8868\u793a\u306b\u79fb\u52d5\u3057\u307e\u3059\u3002",
@@ -198,6 +215,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
 
     private boolean handleDropOnRow(String targetList, View row, DragEvent event) {
         if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) return event.getLocalState() instanceof DragPayload;
+        autoScrollDuringDrag(row, event);
         if (event.getAction() != DragEvent.ACTION_DROP) return true;
         DragPayload payload = (DragPayload) event.getLocalState();
         move(payload.id, payload.listKey, targetList, indexOfRow(targetList, row));
@@ -206,10 +224,82 @@ public class ButtonLayoutSettingsActivity extends Activity {
 
     private boolean handleDropOnList(String targetList, DragEvent event) {
         if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) return event.getLocalState() instanceof DragPayload;
+        autoScrollDuringDrag(listFor(targetList), event);
         if (event.getAction() != DragEvent.ACTION_DROP) return true;
         DragPayload payload = (DragPayload) event.getLocalState();
         move(payload.id, payload.listKey, targetList, childCount(targetList));
         return true;
+    }
+
+    private boolean handleAutoScrollDrag(View anchor, DragEvent event) {
+        if (!(event.getLocalState() instanceof DragPayload)) {
+            return false;
+        }
+        autoScrollDuringDrag(anchor, event);
+        return true;
+    }
+
+    private void autoScrollDuringDrag(View anchor, DragEvent event) {
+        if (event == null || anchor == null || scrollView == null) {
+            return;
+        }
+        int action = event.getAction();
+        if (action == DragEvent.ACTION_DRAG_ENDED || action == DragEvent.ACTION_DROP
+                || action == DragEvent.ACTION_DRAG_EXITED) {
+            stopDragAutoScroll();
+            return;
+        }
+        if (action != DragEvent.ACTION_DRAG_LOCATION) {
+            return;
+        }
+        int[] location = new int[2];
+        anchor.getLocationOnScreen(location);
+        float screenY = location[1] + event.getY();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int edge = dp(48);
+        int maxStep = dp(34);
+        int minStep = dp(5);
+        int nextDelta = 0;
+        if (screenY <= frame.top + edge) {
+            float ratio = Math.min(1f, Math.max(0f, (frame.top + edge - screenY) / Math.max(1f, edge)));
+            nextDelta = -Math.max(minStep, Math.round(maxStep * ratio));
+        } else if (screenY >= frame.bottom - edge) {
+            float ratio = Math.min(1f, Math.max(0f, (screenY - (frame.bottom - edge)) / Math.max(1f, edge)));
+            nextDelta = Math.max(minStep, Math.round(maxStep * ratio));
+        }
+        if (nextDelta == 0) {
+            stopDragAutoScroll();
+            return;
+        }
+        dragAutoScrollDelta = nextDelta;
+        startDragAutoScroll();
+    }
+
+    private void startDragAutoScroll() {
+        if (dragAutoScrollTask != null) {
+            return;
+        }
+        dragAutoScrollTask = new Runnable() {
+            @Override
+            public void run() {
+                if (scrollView == null || dragAutoScrollDelta == 0) {
+                    dragAutoScrollTask = null;
+                    return;
+                }
+                scrollView.scrollBy(0, dragAutoScrollDelta);
+                handler.postDelayed(this, 16);
+            }
+        };
+        handler.post(dragAutoScrollTask);
+    }
+
+    private void stopDragAutoScroll() {
+        dragAutoScrollDelta = 0;
+        if (dragAutoScrollTask != null) {
+            handler.removeCallbacks(dragAutoScrollTask);
+            dragAutoScrollTask = null;
+        }
     }
 
     private int indexOfRow(String listKey, View row) {
@@ -368,7 +458,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
 
     private int iconFor(String id) {
         if (MainActivity.ADDRESS_MENU_WEBVIEW.equals(id)) return R.drawable.ic_arrow_forward;
-        if (MainActivity.ADDRESS_MENU_BOOKMARK.equals(id)) return R.drawable.ic_bookmark_border;
+        if (MainActivity.ADDRESS_MENU_BOOKMARK.equals(id)) return R.drawable.ic_star_border;
         if (MainActivity.ADDRESS_MENU_FIND.equals(id)) return R.drawable.ic_search;
         if (MainActivity.ADDRESS_MENU_SYNC.equals(id)) return R.drawable.ic_refresh;
         if (MainActivity.ADDRESS_MENU_SETTINGS.equals(id)) return R.drawable.ic_settings;
@@ -423,6 +513,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
         view.setTextSize(17);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         view.setPadding(0, dp(18), 0, dp(8));
+        view.setOnDragListener((v, event) -> handleAutoScrollDrag(v, event));
         return view;
     }
 
@@ -432,6 +523,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
         view.setTextColor(mutedColor());
         view.setTextSize(13);
         view.setPadding(0, 0, 0, dp(6));
+        view.setOnDragListener((v, event) -> handleAutoScrollDrag(v, event));
         return view;
     }
 
