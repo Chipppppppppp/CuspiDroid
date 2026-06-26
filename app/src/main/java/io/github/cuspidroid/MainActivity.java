@@ -3018,7 +3018,7 @@ public class MainActivity extends Activity {
                 if (tab.searchPage != null) {
                     tab.readerMode = true;
                     if (i == currentIndex) {
-                        tab.readerView = buildSearchView(tab.searchPage);
+                        tab.readerView = buildSearchView(tab.searchPage, !NATIVE_BOARD.equals(tab.nativeKind));
                     } else {
                         unloadTabView(tab);
                     }
@@ -3673,7 +3673,7 @@ public class MainActivity extends Activity {
             }
             if (tab.searchPage != null) {
                 tab.readerMode = true;
-                return buildSearchView(tab.searchPage);
+                return buildSearchView(tab.searchPage, !NATIVE_BOARD.equals(tab.nativeKind));
             }
         } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || tab.url == null || tab.url.isEmpty()) {
             tab.readerMode = true;
@@ -4142,7 +4142,7 @@ public class MainActivity extends Activity {
 
     private String pendingNewTabPageTitle(String page) {
         if ("5ch".equals(page)) {
-            return text("5ch\u677f\u4e00\u89a7", "5ch boards");
+            return text("\u677f\u4e00\u89a7", "Boards");
         }
         if ("history".equals(page)) {
             return text("\u5c65\u6b74", "History");
@@ -4159,7 +4159,7 @@ public class MainActivity extends Activity {
             if (request.category != null && !request.category.trim().isEmpty()) {
                 return request.category;
             }
-            return text("5ch\u677f\u4e00\u89a7", "5ch boards");
+            return text("\u677f\u4e00\u89a7", "Boards");
         }
         if (page != null && page.startsWith("5ch-category:")) {
             String category = decodeNewTabToken(page.substring("5ch-category:".length()));
@@ -5667,7 +5667,7 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = buildSearchView(result);
+                tab.readerView = buildSearchView(result, false);
                 cacheBoardHistoryPage(tab, result, tab.readerView);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
@@ -5726,7 +5726,7 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result) : buildSearchView(result);
+                tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result) : buildSearchView(result, false);
                 cacheBoardHistoryPage(tab, result, tab.readerView);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
@@ -6716,6 +6716,10 @@ public class MainActivity extends Activity {
     }
 
     private View buildSearchView(SearchPage page) {
+        return buildSearchView(page, true);
+    }
+
+    private View buildSearchView(SearchPage page, boolean showSearchControls) {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) ->
@@ -6726,58 +6730,60 @@ public class MainActivity extends Activity {
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        EditText query = new EditText(this);
-        query.setSingleLine(true);
-        query.setText(searchQueryFromUrl(page.url));
-        query.setHint(text("\u691c\u7d22\u8a9e", "Search query"));
-        query.setTextColor(textColor());
-        query.setHintTextColor(mutedColor());
-        query.setTextSize(18);
-        query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        query.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-        query.setBackground(addressBarBackground());
-        query.setPadding(dp(12), 0, dp(12), 0);
-        query.setOnEditorActionListener((v, actionId, event) -> {
-            boolean enter = event != null && event.getAction() == KeyEvent.ACTION_UP
-                    && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
-            if (actionId == EditorInfo.IME_ACTION_SEARCH || enter) {
-                String value = query.getText().toString().trim();
-                if (!value.isEmpty()) {
-                    try {
-                        InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                        manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
-                    } catch (Exception ignored) {
+        if (showSearchControls) {
+            EditText query = new EditText(this);
+            query.setSingleLine(true);
+            query.setText(searchQueryFromUrl(page.url));
+            query.setHint(text("\u691c\u7d22\u8a9e", "Search query"));
+            query.setTextColor(textColor());
+            query.setHintTextColor(mutedColor());
+            query.setTextSize(18);
+            query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+            query.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+            query.setBackground(addressBarBackground());
+            query.setPadding(dp(12), 0, dp(12), 0);
+            query.setOnEditorActionListener((v, actionId, event) -> {
+                boolean enter = event != null && event.getAction() == KeyEvent.ACTION_UP
+                        && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
+                if (actionId == EditorInfo.IME_ACTION_SEARCH || enter) {
+                    String value = query.getText().toString().trim();
+                    if (!value.isEmpty()) {
+                        try {
+                            InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                            manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
+                        } catch (Exception ignored) {
+                        }
+                        openInCurrentTab(isFullTextSearchUrl(page.url) ? fullTextSearchUrl(value) : searchUrl(value));
                     }
-                    openInCurrentTab(isFullTextSearchUrl(page.url) ? fullTextSearchUrl(value) : searchUrl(value));
+                    return true;
                 }
-                return true;
-            }
-            return false;
-        });
-        LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        queryParams.setMargins(0, 0, 0, dp(8));
-        list.addView(query, queryParams);
+                return false;
+            });
+            LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+            queryParams.setMargins(0, 0, 0, dp(8));
+            list.addView(query, queryParams);
 
-        TextView switchSearch = actionRow(isFullTextSearchUrl(page.url)
-                ? text("\u30b9\u30ec\u30bf\u30a4\u691c\u7d22", "Thread-title search")
-                : text("\u5168\u6587\u691c\u7d22", "Full-text search"));
-        switchSearch.setOnClickListener(v -> {
-            String value = query.getText().toString().trim();
-            if (value.isEmpty()) {
-                return;
-            }
-            try {
-                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
-            } catch (Exception ignored) {
-            }
-            openInCurrentTab(isFullTextSearchUrl(page.url) ? searchUrl(value) : fullTextSearchUrl(value));
-        });
-        LinearLayout.LayoutParams switchParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        switchParams.setMargins(0, 0, 0, dp(10));
-        list.addView(switchSearch, switchParams);
+            TextView switchSearch = actionRow(isFullTextSearchUrl(page.url)
+                    ? text("\u30b9\u30ec\u30bf\u30a4\u691c\u7d22", "Thread-title search")
+                    : text("\u5168\u6587\u691c\u7d22", "Full-text search"));
+            switchSearch.setOnClickListener(v -> {
+                String value = query.getText().toString().trim();
+                if (value.isEmpty()) {
+                    return;
+                }
+                try {
+                    InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                    manager.hideSoftInputFromWindow(query.getWindowToken(), 0);
+                } catch (Exception ignored) {
+                }
+                openInCurrentTab(isFullTextSearchUrl(page.url) ? searchUrl(value) : fullTextSearchUrl(value));
+            });
+            LinearLayout.LayoutParams switchParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            switchParams.setMargins(0, 0, 0, dp(10));
+            list.addView(switchSearch, switchParams);
+        }
 
         if (page.error != null) {
             TextView error = postText(page.error, null);
@@ -8156,7 +8162,7 @@ public class MainActivity extends Activity {
         topRow.addView(fiveChTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         topRow.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(topRow);
-        TextView fiveCh = actionRow(text("5ch\u677f\u4e00\u89a7", "5ch boards"));
+        TextView fiveCh = actionRow(text("\u677f\u4e00\u89a7", "Boards"));
         fiveCh.setOnClickListener(v -> showFiveChBoardsView(true));
         list.addView(fiveCh);
         TextView fullTextSearch = actionRow(text("\u5168\u6587\u691c\u7d22", "Full-text search"));
@@ -8387,7 +8393,7 @@ public class MainActivity extends Activity {
             SearchPage page;
             try {
                 page = downloadBbsDirectory(FIVE_CH_BBSMENU_URL);
-                page.title = text("5ch\u677f\u4e00\u89a7", "5ch boards");
+                page.title = text("\u677f\u4e00\u89a7", "Boards");
             } catch (Exception error) {
                 page = SearchPage.error(FIVE_CH_BBSMENU_URL, error.getMessage());
             }
@@ -8472,7 +8478,7 @@ public class MainActivity extends Activity {
             }
             SearchPage result = page;
             runOnUiThread(() -> {
-                View resultView = buildSearchView(result);
+                View resultView = buildSearchView(result, false);
                 if (forNewTab && result.error == null) {
                     cacheNewTabHistoryPage(pageKey, resultView);
                 }

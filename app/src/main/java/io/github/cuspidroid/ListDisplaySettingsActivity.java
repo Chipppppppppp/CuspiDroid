@@ -99,7 +99,7 @@ public class ListDisplaySettingsActivity extends Activity {
         root.addView(showResponses);
 
         if (tabMode) {
-            tabSortEnabled = settingCheckBox(MainActivity.text("表示順を自動で並べ替え", "Automatically sort tab list"));
+            tabSortEnabled = settingCheckBox(MainActivity.text("タブを自動で並べ替え", "Automatically sort tabs"));
             root.addView(tabSortEnabled);
             bookmarkSortEnabled = settingCheckBox(MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u81ea\u52d5\u3067\u4e26\u3079\u66ff\u3048", "Automatically sort bookmarks"));
             root.addView(bookmarkSortEnabled);
