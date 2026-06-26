@@ -2847,8 +2847,7 @@ public class MainActivity extends Activity {
         CuspTab tab = new CuspTab();
         tab.title = text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
         tab.url = "";
-        tab.bookmarkOverviewTab = true;
-        tab.bookmarkOverviewFolder = item == null ? "" : normalizeSavedFolder(item.folder);
+        applyThreadTabScope(tab, TabScope.BOOKMARK, item == null ? "" : item.folder);
         tab.privateBrowsing = currentTabIsPrivate();
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tabs.add(tab);
@@ -2857,7 +2856,8 @@ public class MainActivity extends Activity {
         tabOverviewVisible = false;
         contentFrame.removeAllViews();
         contentFrame.addView(loadingView(""));
-        openInCurrentTab(normalizeUrl(url), true, true);
+        openInCurrentTab(normalizeUrl(url), true, TabScope.BOOKMARK,
+                item == null ? "" : item.folder, false);
         renderTabs();
     }
 
@@ -2966,8 +2966,9 @@ public class MainActivity extends Activity {
                 tab.title = item.optString("title", text("\u65b0\u898f\u30bf\u30d6", "New tab"));
                 tab.url = url;
                 tab.privateBrowsing = item.optBoolean("privateBrowsing", false);
-                tab.bookmarkOverviewTab = item.optBoolean("bookmarkOverviewTab", false);
-                tab.bookmarkOverviewFolder = normalizeSavedFolder(item.optString("bookmarkOverviewFolder", ""));
+                applyThreadTabScope(tab,
+                        item.optBoolean("bookmarkOverviewTab", false) ? TabScope.BOOKMARK : TabScope.NORMAL,
+                        item.optString("bookmarkOverviewFolder", ""));
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
@@ -4277,10 +4278,23 @@ public class MainActivity extends Activity {
     }
 
     private void openInCurrentTab(String url, boolean addHistory, boolean bookmarkOverviewTab) {
-        openInCurrentTab(url, addHistory, bookmarkOverviewTab, false);
+        CuspTab tab = currentTab();
+        openInCurrentTab(url, addHistory,
+                bookmarkOverviewTab ? TabScope.BOOKMARK : TabScope.NORMAL,
+                tab == null ? "" : tab.bookmarkOverviewFolder,
+                false);
     }
 
     private void openInCurrentTab(String url, boolean addHistory, boolean bookmarkOverviewTab,
+                                  boolean redirectResolved) {
+        CuspTab tab = currentTab();
+        openInCurrentTab(url, addHistory,
+                bookmarkOverviewTab ? TabScope.BOOKMARK : TabScope.NORMAL,
+                tab == null ? "" : tab.bookmarkOverviewFolder,
+                redirectResolved);
+    }
+
+    private void openInCurrentTab(String url, boolean addHistory, TabScope scope, String bookmarkFolder,
                                   boolean redirectResolved) {
         if (pendingNewTab) {
             openPendingNewTabUrl(url);
@@ -4291,10 +4305,7 @@ public class MainActivity extends Activity {
             createTab(url, true);
             return;
         }
-        tab.bookmarkOverviewTab = bookmarkOverviewTab;
-        if (!bookmarkOverviewTab) {
-            tab.bookmarkOverviewFolder = "";
-        }
+        applyThreadTabScope(tab, scope, bookmarkFolder);
         if (!redirectResolved) {
             int redirectGeneration = ++tab.redirectGeneration;
             String normalizedUrl = isInternalPageUrl(url) ? url : normalizeUrl(url);
@@ -4313,7 +4324,7 @@ public class MainActivity extends Activity {
                                 || tab != currentTab() || !tabs.contains(tab)) {
                             return;
                         }
-                        openInCurrentTab(resultUrl, addHistory, bookmarkOverviewTab, true);
+                        openInCurrentTab(resultUrl, addHistory, scope, bookmarkFolder, true);
                     });
                 });
                 return;
@@ -4370,6 +4381,19 @@ public class MainActivity extends Activity {
             return;
         }
         openExternal(url);
+    }
+
+    private void applyThreadTabScope(CuspTab tab, TabScope scope, String bookmarkFolder) {
+        if (tab == null) {
+            return;
+        }
+        if (scope == TabScope.BOOKMARK) {
+            tab.bookmarkOverviewTab = true;
+            tab.bookmarkOverviewFolder = normalizeSavedFolder(bookmarkFolder);
+        } else {
+            tab.bookmarkOverviewTab = false;
+            tab.bookmarkOverviewFolder = "";
+        }
     }
 
     private boolean shouldResolveBbsRedirectBeforeOpening(String url) {
@@ -10524,7 +10548,7 @@ public class MainActivity extends Activity {
         }
         SavedItem item = items.get(bookmarkIndex);
         CuspTab tab = bookmarkOverviewTab(item);
-        tab.bookmarkOverviewTab = false;
+        applyThreadTabScope(tab, TabScope.NORMAL, "");
         tab.readerView = loadingView("");
         int insert = Math.max(0, Math.min(to, tabs.size()));
         tabs.add(insert, tab);
@@ -11278,8 +11302,7 @@ public class MainActivity extends Activity {
         CuspTab tab = new CuspTab();
         tab.url = item == null ? "" : item.url;
         tab.title = item == null ? "" : item.title;
-        tab.bookmarkOverviewTab = true;
-        tab.bookmarkOverviewFolder = item == null ? "" : normalizeSavedFolder(item.folder);
+        applyThreadTabScope(tab, TabScope.BOOKMARK, item == null ? "" : item.folder);
         tab.readerMode = true;
         tab.nativeKind = isThreadUrl(tab.url) ? NATIVE_THREAD
                 : isBoardUrl(tab.url) || isBbsDirectoryUrl(tab.url) ? NATIVE_BOARD : null;
@@ -11454,7 +11477,7 @@ public class MainActivity extends Activity {
             return;
         }
         addBookmarkFromTab(tab, folder, beforeItemIndex);
-        tab.bookmarkOverviewTab = true;
+        applyThreadTabScope(tab, TabScope.BOOKMARK, folder);
         currentIndex = tabIndex;
         pendingNewTab = false;
         requestSaveTabsSoon();
@@ -20816,7 +20839,9 @@ public class MainActivity extends Activity {
             return;
         }
         for (CuspTab tab : tabs) {
-            if (tab == null || tab == source || !sameSavedUrl(threadUrl(tab), url)) {
+            if (tab == null || tab == source
+                    || !sameThreadTabScope(source, tab)
+                    || !sameSavedUrl(threadUrl(tab), url)) {
                 continue;
             }
             int nextRead = allowDecrease ? Math.max(0, readPostNumber) : Math.max(tab.readPostNumber, readPostNumber);
@@ -20835,6 +20860,15 @@ public class MainActivity extends Activity {
             }
             refreshTabOverviewValuesForTab(tab);
         }
+    }
+
+    private boolean sameThreadTabScope(CuspTab left, CuspTab right) {
+        if (left == null || right == null || left.bookmarkOverviewTab != right.bookmarkOverviewTab) {
+            return false;
+        }
+        return !left.bookmarkOverviewTab
+                || normalizeSavedFolder(left.bookmarkOverviewFolder)
+                .equals(normalizeSavedFolder(right.bookmarkOverviewFolder));
     }
 
     private int lastExistingPostNumber(ThreadPage page, int oldCount) {
@@ -22100,6 +22134,11 @@ public class MainActivity extends Activity {
             }
             matrix.postTranslate(dx, dy);
         }
+    }
+
+    private enum TabScope {
+        NORMAL,
+        BOOKMARK
     }
 
     private static class CuspTab {
