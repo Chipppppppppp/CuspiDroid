@@ -1416,7 +1416,7 @@ public class MainActivity extends Activity {
         boolean privateScope = tabOverviewVisible ? tabOverviewPrivateMode : currentTabIsPrivate();
         int count = 0;
         for (CuspTab tab : tabs) {
-            if (tab != null && tab.privateBrowsing == privateScope) {
+            if (tab != null && tab.privateBrowsing == privateScope && !tab.bookmarkOverviewTab) {
                 count++;
             }
         }
@@ -8745,8 +8745,13 @@ public class MainActivity extends Activity {
         }
         contentFrame.addView(view);
         View attachedView = view;
-        if (!newlyBuilt && !refreshTabOverviewTabSlotsOnly()) {
-            refreshTabOverviewListOnly();
+        if (!newlyBuilt) {
+            boolean updatedTabs = refreshTabOverviewTabSlotsOnly();
+            boolean updatedBookmarks = !tabOverviewPrivateMode && showBookmarksInTabOverview()
+                    && refreshTabOverviewBookmarkSectionOnly(attachedView);
+            if (!updatedTabs && !updatedBookmarks) {
+                refreshTabOverviewListOnly();
+            }
         }
         if (newlyBuilt && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
             mainHandler.postDelayed(() -> {
