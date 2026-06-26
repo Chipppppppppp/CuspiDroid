@@ -50,6 +50,7 @@ public class SettingsActivity extends Activity {
     private CheckBox treeView;
     private CheckBox treeSkipFirstReply;
     private CheckBox autoScrollUnread;
+    private CheckBox markExistingReadOnThreadUpdate;
     private CheckBox colorUnreadPosts;
     private CheckBox omitCopyPaste;
     private CheckBox autoAa;
@@ -60,6 +61,7 @@ public class SettingsActivity extends Activity {
     private CheckBox saveUploadHistory;
     private CheckBox showBookmarksInTabOverview;
     private CheckBox showHistoryOnHome;
+    private CheckBox showHomeBookmarkUnreadBadges;
     private CheckBox sync2chEnabled;
     private EditText sync2chId;
     private EditText sync2chApiPassword;
@@ -191,6 +193,13 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, showHistoryOnHome);
         root.addView(showHistoryOnHome);
 
+        showHomeBookmarkUnreadBadges = new CheckBox(this);
+        showHomeBookmarkUnreadBadges.setText(MainActivity.text("\u65b0\u898f\u30bf\u30d6\u306e\u30d6\u30c3\u30af\u30de\u30fc\u30af\u306b\u672a\u8aad\u6570\u3092\u8868\u793a", "Show unread counts on new tab bookmarks"));
+        showHomeBookmarkUnreadBadges.setTextColor(textColor());
+        showHomeBookmarkUnreadBadges.setTextSize(16);
+        Theme.tintCompoundButton(this, showHomeBookmarkUnreadBadges);
+        root.addView(showHomeBookmarkUnreadBadges);
+
         root.addView(managementRow(R.drawable.ic_more_vert,
                 MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Search bar menu layout"),
                 MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u306e\u8868\u793a\u3068\u9806\u756a\u3092\u8a2d\u5b9a", "Configure visibility and order for the search bar menu"),
@@ -229,6 +238,13 @@ public class SettingsActivity extends Activity {
         autoScrollUnread.setTextSize(16);
         Theme.tintCompoundButton(this, autoScrollUnread);
         root.addView(autoScrollUnread);
+
+        markExistingReadOnThreadUpdate = new CheckBox(this);
+        markExistingReadOnThreadUpdate.setText(MainActivity.text("\u30b9\u30ec\u66f4\u65b0\u6642\u306b\u4eca\u307e\u3067\u306e\u66f8\u304d\u8fbc\u307f\u3092\u65e2\u8aad\u306b\u3059\u308b", "Mark existing posts read when refreshing a thread"));
+        markExistingReadOnThreadUpdate.setTextColor(textColor());
+        markExistingReadOnThreadUpdate.setTextSize(16);
+        Theme.tintCompoundButton(this, markExistingReadOnThreadUpdate);
+        root.addView(markExistingReadOnThreadUpdate);
 
         colorUnreadPosts = new CheckBox(this);
         colorUnreadPosts.setText(MainActivity.text("\u672a\u8aad\u306e\u66f8\u304d\u8fbc\u307f\u3092\u5225\u306e\u8272\u306b\u3059\u308b", "Use a different color for unread posts"));
@@ -575,6 +591,7 @@ public class SettingsActivity extends Activity {
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
         treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
         autoScrollUnread.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true));
+        markExistingReadOnThreadUpdate.setChecked(preferences.getBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true));
         colorUnreadPosts.setChecked(preferences.getBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true));
         omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
@@ -582,6 +599,7 @@ public class SettingsActivity extends Activity {
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
         showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
         showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
+        showHomeBookmarkUnreadBadges.setChecked(preferences.getBoolean(MainActivity.PREF_HOME_BOOKMARK_UNREAD_BADGES, true));
         boolean legacyDisabled = preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false);
         saveBrowsingHistory.setChecked(!legacyDisabled
                 && preferences.getBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, true));
@@ -665,11 +683,13 @@ public class SettingsActivity extends Activity {
         });
         treeSkipFirstReply.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoScrollUnread.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        markExistingReadOnThreadUpdate.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         colorUnreadPosts.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        showHomeBookmarkUnreadBadges.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveBrowsingHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveReadHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveWriteIdentityHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -759,11 +779,13 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
                         treeView.isChecked() && treeSkipFirstReply.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, autoScrollUnread.isChecked())
+                .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, markExistingReadOnThreadUpdate.isChecked())
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, colorUnreadPosts.isChecked())
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
+                .putBoolean(MainActivity.PREF_HOME_BOOKMARK_UNREAD_BADGES, showHomeBookmarkUnreadBadges.isChecked())
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                 .putBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, saveBrowsingHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SAVE_READ_HISTORY, saveReadHistory.isChecked())
@@ -999,6 +1021,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true)
+                .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true)
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true)
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, false)
                 .putBoolean(MainActivity.PREF_AUTO_AA, true)
