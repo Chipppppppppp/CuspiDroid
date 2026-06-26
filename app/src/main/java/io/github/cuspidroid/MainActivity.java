@@ -5805,6 +5805,7 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleThreadMediaLoads);
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
