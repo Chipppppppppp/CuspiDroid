@@ -640,7 +640,7 @@ public class MainActivity extends Activity {
 
     private int bgColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(0, 18, 12) : Color.rgb(220, 252, 231);
+            return privateChromeColor();
         }
         return Theme.background(this);
     }
@@ -671,9 +671,17 @@ public class MainActivity extends Activity {
 
     private int barColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(2, 44, 34) : Color.rgb(187, 247, 208);
+            return privateChromeColor();
         }
         return Theme.topBar(this);
+    }
+
+    private int privateChromeColor() {
+        return Theme.dark(this) ? Color.rgb(0, 14, 10) : Color.rgb(187, 247, 208);
+    }
+
+    private int chromeBorderColor() {
+        return privateUiActive() ? privateStrokeColor() : borderColor();
     }
 
     private int hintTextColor() {
@@ -685,14 +693,14 @@ public class MainActivity extends Activity {
     }
 
     private int privateStrokeColor() {
-        return Theme.dark(this) ? Color.rgb(5, 120, 89) : Color.rgb(22, 101, 52);
+        return Theme.dark(this) ? Color.rgb(4, 83, 63) : Color.rgb(20, 83, 45);
     }
 
     private int privateButtonFill(boolean active) {
         if (!active) {
             return Theme.dark(this) ? Color.rgb(17, 24, 39) : menuColor();
         }
-        return Theme.dark(this) ? Color.rgb(6, 78, 59) : Color.rgb(187, 247, 208);
+        return privateChromeColor();
     }
 
     private int privateButtonStroke(boolean active) {
@@ -1691,7 +1699,7 @@ public class MainActivity extends Activity {
     private GradientDrawable compactSuggestionPanelBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(menuColor());
-        drawable.setStroke(dp(1), borderColor());
+        drawable.setStroke(dp(1), chromeBorderColor());
         drawable.setCornerRadius(0);
         return drawable;
     }
@@ -2732,7 +2740,7 @@ public class MainActivity extends Activity {
     private GradientDrawable addressBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Theme.field(this));
-        drawable.setStroke(dp(1), borderColor());
+        drawable.setStroke(dp(1), chromeBorderColor());
         drawable.setCornerRadius(dp(20));
         return drawable;
     }
@@ -2740,7 +2748,7 @@ public class MainActivity extends Activity {
     private GradientDrawable menuBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(menuColor());
-        drawable.setStroke(dp(2), Theme.strongBorder(this));
+        drawable.setStroke(dp(2), chromeBorderColor());
         drawable.setCornerRadius(dp(10));
         return drawable;
     }
@@ -2748,14 +2756,14 @@ public class MainActivity extends Activity {
     private GradientDrawable bottomBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(barColor());
-        drawable.setStroke(dp(1), privateUiActive() ? privateStrokeColor() : borderColor());
+        drawable.setStroke(dp(1), chromeBorderColor());
         return drawable;
     }
 
     private void updatePrivateChrome() {
         int bg = bgColor();
         int bar = barColor();
-        int stroke = privateUiActive() ? privateStrokeColor() : borderColor();
+        int stroke = chromeBorderColor();
         boolean privateActive = privateUiActive();
         boolean dark = Theme.dark(this);
         if (bg == appliedChromeBgColor
@@ -4786,6 +4794,7 @@ public class MainActivity extends Activity {
                     if (markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
                     }
+                    normalizeThreadPostSlotLayouts(tab);
                     renderTabs();
                     if (tab == currentTab()) {
                         updateBottomThreadBar(tab);
@@ -5938,10 +5947,12 @@ public class MainActivity extends Activity {
                 showPostActionMenu(card, tab, post);
             }
         });
-        card.addView(metaView);
+        card.addView(metaView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         View bodyView = postBodyView(card, page, tab, post, depth);
-        card.addView(bodyView);
+        card.addView(bodyView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         if (showTreeConnector) {
@@ -6039,6 +6050,7 @@ public class MainActivity extends Activity {
 
     private void completeThreadRender(CuspTab tab, Runnable onComplete) {
         tab.threadRendering = false;
+        normalizeThreadPostSlotLayouts(tab);
         finishThreadRender(tab);
         scheduleThreadPostVisibilityRefresh(tab);
         scheduleLazyImgurLoads();
@@ -6382,6 +6394,136 @@ public class MainActivity extends Activity {
         } else {
             reset.run();
         }
+    }
+
+    private void normalizeThreadPostSlotLayouts(CuspTab tab) {
+        if (tab == null || tab.postSlots == null || tab.postSlots.isEmpty()) {
+            return;
+        }
+        normalizeThreadListLayout(tab);
+        FrameLayout lastSlot = lastThreadPostSlot(tab);
+        for (Map.Entry<Integer, FrameLayout> entry : tab.postSlots.entrySet()) {
+            FrameLayout holder = entry.getValue();
+            if (holder == null) {
+                continue;
+            }
+            ViewGroup.LayoutParams holderParams = holder.getLayoutParams();
+            if (holderParams != null && holderParams.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+                holderParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                holder.setLayoutParams(holderParams);
+            }
+            Object tag = holder.getTag();
+            if (!(tag instanceof VirtualPostSlot)) {
+                continue;
+            }
+            normalizeRenderedPostSlotLayout(holder, (VirtualPostSlot) tag, holder == lastSlot);
+        }
+    }
+
+    private void normalizeThreadListLayout(CuspTab tab) {
+        if (tab == null || tab.threadList == null) {
+            return;
+        }
+        int gap = dp(POST_OUTER_GAP_DP);
+        if (tab.threadList.getPaddingLeft() != gap
+                || tab.threadList.getPaddingTop() != gap
+                || tab.threadList.getPaddingRight() != gap
+                || tab.threadList.getPaddingBottom() != gap) {
+            tab.threadList.setPadding(gap, gap, gap, gap);
+        }
+        ViewGroup.LayoutParams params = tab.threadList.getLayoutParams();
+        if (params != null && params.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            tab.threadList.setLayoutParams(params);
+        }
+    }
+
+    private void normalizeRenderedPostSlotLayout(FrameLayout holder, VirtualPostSlot slot) {
+        normalizeRenderedPostSlotLayout(holder, slot, holder != null && slot != null
+                && holder == lastThreadPostSlot(slot.tab));
+    }
+
+    private void normalizeRenderedPostSlotLayout(FrameLayout holder, VirtualPostSlot slot, boolean last) {
+        if (holder == null || slot == null) {
+            return;
+        }
+        View shell = slot.shell;
+        if (shell == null && holder.getChildCount() > 0) {
+            shell = holder.getChildAt(0);
+        }
+        if (shell == null) {
+            return;
+        }
+        ViewGroup.LayoutParams shellParams = shell.getLayoutParams();
+        if (shellParams != null && shellParams.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+            shellParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            shell.setLayoutParams(shellParams);
+        }
+        View card = slot.card;
+        if (card == null && shell instanceof ViewGroup) {
+            card = findPostCardInChildren((ViewGroup) shell);
+        }
+        if (card == null) {
+            return;
+        }
+        resetPostSwipeCard(card, false);
+        ViewGroup.LayoutParams cardParams = card.getLayoutParams();
+        if (cardParams instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams frameParams = (FrameLayout.LayoutParams) cardParams;
+            int depth = slot.item == null ? 0 : slot.item.depth;
+            int leftMargin = dp(Math.min(depth, 8) * 18);
+            int bottomMargin = last ? 0 : dp(POST_OUTER_GAP_DP);
+            if (frameParams.width != ViewGroup.LayoutParams.MATCH_PARENT
+                    || frameParams.leftMargin != leftMargin
+                    || frameParams.topMargin != 0
+                    || frameParams.rightMargin != 0
+                    || frameParams.bottomMargin != bottomMargin) {
+                frameParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                frameParams.setMargins(leftMargin, 0, 0, bottomMargin);
+                card.setLayoutParams(frameParams);
+            }
+        }
+    }
+
+    private boolean isLastThreadPostSlot(CuspTab tab, int postNumber) {
+        FrameLayout last = lastThreadPostSlot(tab);
+        if (last != null && last.getTag() instanceof VirtualPostSlot) {
+            VirtualPostSlot slot = (VirtualPostSlot) last.getTag();
+            return slot.item != null && slot.item.post != null && slot.item.post.number == postNumber;
+        }
+        return false;
+    }
+
+    private FrameLayout lastThreadPostSlot(CuspTab tab) {
+        if (tab == null || tab.threadList == null) {
+            return null;
+        }
+        for (int i = tab.threadList.getChildCount() - 1; i >= 0; i--) {
+            View child = tab.threadList.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualPostSlot) {
+                return (FrameLayout) child;
+            }
+        }
+        return null;
+    }
+
+    private View findPostCardInChildren(ViewGroup group) {
+        if (group == null) {
+            return null;
+        }
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (Boolean.TRUE.equals(child.getTag(R.id.tag_post_card))) {
+                return child;
+            }
+            if (child instanceof ViewGroup) {
+                View nested = findPostCardInChildren((ViewGroup) child);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
     }
 
     private void setLongClickableDeep(View view, boolean enabled, Map<View, Boolean> oldStates) {
@@ -7890,6 +8032,7 @@ public class MainActivity extends Activity {
         if (slot.tab.renderedPostSlots != null) {
             slot.tab.renderedPostSlots.add(holder);
         }
+        normalizeRenderedPostSlotLayout(holder, slot);
         if (slot.tab == currentTab()) {
             visiblePostViews.put(slot.item.post.number, postCard.card);
         }
@@ -7897,6 +8040,11 @@ public class MainActivity extends Activity {
             int measured = renderedSlotContentHeight(holder);
             if (measured > 0 && !isSlotFullyAboveViewport(holder, slot.tab)) {
                 slot.height = measured;
+            }
+            if (slot.item != null && slot.item.post != null
+                    && isLastThreadPostSlot(slot.tab, slot.item.post.number)
+                    && isThreadAtBottom(slot.tab == null ? null : slot.tab.threadScroll)) {
+                pinThreadScrollToBottom(slot.tab);
             }
             scheduleThreadScrollChromeRefresh(slot.tab, 3);
         });
@@ -7952,8 +8100,7 @@ public class MainActivity extends Activity {
         int lines = post == null ? bodyLineCount(body) : bodyLineCount(post);
         boolean aaLike = post != null && (Boolean.TRUE.equals(post.cachedLikelyAa)
                 || post.aaMode || maybeHeavyAaBody(body));
-        int wrapped = aaLike ? 0 : Math.max(0, body.length() / 38);
-        int textLines = aaLike ? lines : Math.min(42, lines + wrapped);
+        int textLines = aaLike ? lines : Math.min(42, estimateWrappedBodyLineCount(body, item));
         int mediaRows = post == null ? 0 : (int) Math.ceil(imgurLinks(post).size() / 3.0);
         int depthPad = item == null ? 0 : Math.min(item.depth, 8) * 2;
         int lineHeight = aaLike ? estimateAaLineHeight(post, item) : dp(18);
@@ -7984,6 +8131,34 @@ public class MainActivity extends Activity {
         int safeDepth = Math.min(Math.max(0, depth), 8);
         int reservedDp = 24 + POST_OUTER_GAP_DP * 2 + 20 + safeDepth * 18;
         return Math.max(dp(80), getResources().getDisplayMetrics().widthPixels - dp(reservedDp));
+    }
+
+    private int estimateWrappedBodyLineCount(String body, PostRenderItem item) {
+        if (body == null || body.isEmpty()) {
+            return 1;
+        }
+        int available = estimatePostTextWidth(item == null ? 0 : item.depth);
+        TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, POST_TEXT_SIZE_SP, getResources().getDisplayMetrics()));
+        int total = 0;
+        int start = 0;
+        for (int i = 0; i <= body.length(); i++) {
+            if (i == body.length() || body.charAt(i) == '\n') {
+                int end = i;
+                if (end > start && body.charAt(end - 1) == '\r') {
+                    end--;
+                }
+                if (end <= start) {
+                    total++;
+                } else {
+                    float lineWidth = paint.measureText(body, start, end);
+                    total += Math.max(1, (int) Math.ceil(lineWidth / Math.max(1, available)));
+                }
+                start = i + 1;
+            }
+        }
+        return Math.max(1, total);
     }
 
     private Post copyPasteSourcePost(ThreadPage page, Post post) {
@@ -11988,7 +12163,8 @@ public class MainActivity extends Activity {
                 return true;
             });
         }
-        box.addView(bodyText);
+        box.addView(bodyText, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClickAction));
@@ -12765,7 +12941,9 @@ public class MainActivity extends Activity {
         LinearLayout card = (LinearLayout) cardView;
         if (card.getChildCount() >= 2) {
             card.removeViewAt(1);
-            card.addView(postBodyView(card, tab.threadPage, tab, post), 1);
+            card.addView(postBodyView(card, tab.threadPage, tab, post), 1,
+                    new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             View holder = (View) card.getParent();
             if (holder != null && holder.getParent() instanceof FrameLayout
                     && ((View) holder.getParent()).getTag() instanceof VirtualPostSlot) {
@@ -17460,7 +17638,8 @@ public class MainActivity extends Activity {
         }
         card.removeViewAt(1);
         View bodyView = postBodyView(card, tab.threadPage, tab, post);
-        card.addView(bodyView, 1);
+        card.addView(bodyView, 1, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         View parent = (View) card.getParent();
         if (parent instanceof ViewGroup && ((ViewGroup) parent).getChildCount() >= 3) {
             ViewGroup shell = (ViewGroup) parent;
