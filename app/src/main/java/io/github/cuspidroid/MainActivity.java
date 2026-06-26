@@ -1424,7 +1424,7 @@ public class MainActivity extends Activity {
         boolean privateScope = tabOverviewVisible ? tabOverviewPrivateMode : currentTabIsPrivate();
         int count = 0;
         for (CuspTab tab : tabs) {
-            if (tab != null && tab.privateBrowsing == privateScope && !tab.bookmarkOverviewTab) {
+            if (tab != null && tab.privateBrowsing == privateScope && isNormalTabScope(tab)) {
                 count++;
             }
         }
@@ -2881,9 +2881,9 @@ public class MainActivity extends Activity {
         String folder = normalizeSavedFolder(item.folder);
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
-            if (tab != null && tab.bookmarkOverviewTab
+            if (tab != null && isBookmarkTabScope(tab)
                     && sameSavedUrl(threadUrl(tab), item.url)
-                    && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(folder)) {
+                    && bookmarkTabFolder(tab).equals(folder)) {
                 return i;
             }
         }
@@ -2980,7 +2980,7 @@ public class MainActivity extends Activity {
                 tab.url = url;
                 tab.privateBrowsing = item.optBoolean("privateBrowsing", false);
                 applyThreadTabScope(tab,
-                        item.optBoolean("bookmarkOverviewTab", false) ? TabScope.BOOKMARK : TabScope.NORMAL,
+                        tabScopeFromSavedItem(item),
                         item.optString("bookmarkOverviewFolder", ""));
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
@@ -3149,7 +3149,8 @@ public class MainActivity extends Activity {
                 item.put("url", tab.url == null ? "" : tab.url);
                 item.put("title", tab.title == null ? "Tab" : tab.title);
                 item.put("privateBrowsing", false);
-                item.put("bookmarkOverviewTab", tab.bookmarkOverviewTab);
+                item.put("tabScope", tab.tabScope.name());
+                item.put("bookmarkOverviewTab", isBookmarkTabScope(tab));
                 item.put("bookmarkOverviewFolder", normalizeSavedFolder(tab.bookmarkOverviewFolder));
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
@@ -3915,20 +3916,20 @@ public class MainActivity extends Activity {
         }
         CuspTab current = tabs.get(currentIndex);
         List<Integer> candidates = new ArrayList<>();
-        if (current.bookmarkOverviewTab) {
-            String folder = normalizeSavedFolder(current.bookmarkOverviewFolder);
+        if (isBookmarkTabScope(current)) {
+            String folder = bookmarkTabFolder(current);
             for (int i = 0; i < tabs.size(); i++) {
                 CuspTab tab = tabs.get(i);
-                if (tab.bookmarkOverviewTab
+                if (isBookmarkTabScope(tab)
                         && tab.privateBrowsing == current.privateBrowsing
-                        && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(folder)) {
+                        && bookmarkTabFolder(tab).equals(folder)) {
                     candidates.add(i);
                 }
             }
         } else {
             for (int i = 0; i < tabs.size(); i++) {
                 CuspTab tab = tabs.get(i);
-                if (!tab.bookmarkOverviewTab && tab.privateBrowsing == current.privateBrowsing) {
+                if (isNormalTabScope(tab) && tab.privateBrowsing == current.privateBrowsing) {
                     candidates.add(i);
                 }
             }
@@ -4300,7 +4301,7 @@ public class MainActivity extends Activity {
         CuspTab tab = currentTab();
         openInCurrentTab(url, addHistory,
                 bookmarkOverviewTab ? TabScope.BOOKMARK : TabScope.NORMAL,
-                tab == null ? "" : tab.bookmarkOverviewFolder,
+                bookmarkTabFolder(tab),
                 false);
     }
 
@@ -4309,7 +4310,7 @@ public class MainActivity extends Activity {
         CuspTab tab = currentTab();
         openInCurrentTab(url, addHistory,
                 bookmarkOverviewTab ? TabScope.BOOKMARK : TabScope.NORMAL,
-                tab == null ? "" : tab.bookmarkOverviewFolder,
+                bookmarkTabFolder(tab),
                 redirectResolved);
     }
 
@@ -4406,13 +4407,42 @@ public class MainActivity extends Activity {
         if (tab == null) {
             return;
         }
-        if (scope == TabScope.BOOKMARK) {
+        tab.tabScope = scope == null ? TabScope.NORMAL : scope;
+        if (tab.tabScope == TabScope.BOOKMARK) {
             tab.bookmarkOverviewTab = true;
             tab.bookmarkOverviewFolder = normalizeSavedFolder(bookmarkFolder);
         } else {
             tab.bookmarkOverviewTab = false;
             tab.bookmarkOverviewFolder = "";
         }
+    }
+
+    private TabScope tabScopeFromSavedItem(JSONObject item) {
+        if (item != null) {
+            String value = item.optString("tabScope", "");
+            if (!value.isEmpty()) {
+                try {
+                    return TabScope.valueOf(value);
+                } catch (Exception ignored) {
+                }
+            }
+            if (item.optBoolean("bookmarkOverviewTab", false)) {
+                return TabScope.BOOKMARK;
+            }
+        }
+        return TabScope.NORMAL;
+    }
+
+    private boolean isBookmarkTabScope(CuspTab tab) {
+        return tab != null && tab.tabScope == TabScope.BOOKMARK;
+    }
+
+    private boolean isNormalTabScope(CuspTab tab) {
+        return tab != null && tab.tabScope != TabScope.BOOKMARK;
+    }
+
+    private String bookmarkTabFolder(CuspTab tab) {
+        return normalizeSavedFolder(tab == null ? "" : tab.bookmarkOverviewFolder);
     }
 
     private boolean shouldResolveBbsRedirectBeforeOpening(String url) {
@@ -4795,6 +4825,7 @@ public class MainActivity extends Activity {
                 if (tab.threadBottomLoader != null) {
                     resetBottomRefreshLoader(tab.threadBottomLoader);
                 }
+                repairThreadLayoutAfterRefresh(tab);
                 if (result.error != null) {
                     Toast.makeText(this, friendlyThreadLoadError(result.error), Toast.LENGTH_SHORT).show();
                     if (onComplete != null) {
@@ -4819,6 +4850,7 @@ public class MainActivity extends Activity {
                         if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                             updateThreadSearch(tab.threadSearchQuery, false);
                         }
+                        repairThreadLayoutAfterRefresh(tab);
                         if (forceScrollToBottom) {
                             scrollCurrentThreadToBottom();
                         }
@@ -4840,8 +4872,7 @@ public class MainActivity extends Activity {
                     if (markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
                     }
-                    normalizeThreadPostSlotLayouts(tab);
-                    renderTabs();
+                    rebuildThreadViewAfterRefresh(tab, keepAtBottom || forceScrollToBottom);
                     if (tab == currentTab()) {
                         updateBottomThreadBar(tab);
                     }
@@ -4850,9 +4881,8 @@ public class MainActivity extends Activity {
                             && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                         updateThreadSearch(tab.threadSearchQuery, false);
                     }
-                    if (keepAtBottom) {
-                        scrollThreadToBottomWhenReady(tab, 0);
-                    }
+                    repairThreadLayoutAfterRefresh(tab);
+                    renderTabs();
                     if (onComplete != null) {
                         onComplete.run();
                     }
@@ -4870,22 +4900,55 @@ public class MainActivity extends Activity {
                     cacheThreadPage(result);
                     addThreadHistory(tab, result.url, result.title);
                 }
-                renderAdditionalPostCardsIncrementally(tab.threadList, result, tab, oldCount, () -> {
-                    if (tab == currentTab() && tab.threadSearchOpen
-                            && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
-                        updateThreadSearch(tab.threadSearchQuery, false);
-                    }
-                    if (tab == currentTab() && keepAtBottom) {
-                        scrollThreadToBottomWhenReady(tab, 0);
-                    }
-                    renderTabs();
-                    refreshTabOverviewValuesForTab(tab);
-                    if (onComplete != null) {
-                        onComplete.run();
-                    }
-                });
+                rebuildThreadViewAfterRefresh(tab, keepAtBottom || forceScrollToBottom);
+                if (tab == currentTab() && tab.threadSearchOpen
+                        && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
+                    updateThreadSearch(tab.threadSearchQuery, false);
+                }
+                repairThreadLayoutAfterRefresh(tab);
+                renderTabs();
+                refreshTabOverviewValuesForTab(tab);
+                if (onComplete != null) {
+                    onComplete.run();
+                }
             });
         });
+    }
+
+    private void rebuildThreadViewAfterRefresh(CuspTab tab, boolean keepAtBottom) {
+        if (tab == null || tab.threadPage == null) {
+            return;
+        }
+        if (!keepAtBottom) {
+            rememberThreadScroll(tab);
+        }
+        tab.postViews = new LinkedHashMap<>();
+        tab.readerView = buildThreadView(tab.threadPage, tab);
+        if (tab == currentTab() && !tabOverviewVisible) {
+            switchToTab(currentIndex);
+            if (keepAtBottom) {
+                scrollThreadToBottomWhenReady(tab, 0);
+            } else {
+                restoreThreadScroll(tab);
+            }
+        }
+    }
+
+    private void repairThreadLayoutAfterRefresh(CuspTab tab) {
+        if (tab == null) {
+            return;
+        }
+        normalizeThreadPostSlotLayouts(tab);
+        if (tab.threadScroll != null) {
+            tab.threadScroll.requestLayout();
+            tab.threadScroll.post(() -> {
+                normalizeThreadPostSlotLayouts(tab);
+                refreshThreadScrollChrome(tab);
+                scheduleThreadPostVisibilityRefresh(tab);
+            });
+        } else if (tab.readerView != null) {
+            tab.readerView.requestLayout();
+        }
     }
 
     private void loadSearchResults(CuspTab tab, String url) {
@@ -8319,6 +8382,7 @@ public class MainActivity extends Activity {
     private void enableBottomPullRefresh(ScrollView scroll, View loader, CuspTab owner, Runnable refresh) {
         final float[] downX = new float[1];
         final float[] downY = new float[1];
+        final float[] lastY = new float[1];
         final float[] pullDistance = new float[1];
         final boolean[] startedAtBottom = new boolean[1];
         final boolean[] dragging = new boolean[1];
@@ -8339,6 +8403,7 @@ public class MainActivity extends Activity {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 downX[0] = event.getX();
                 downY[0] = event.getY();
+                lastY[0] = event.getY();
                 pullDistance[0] = 0;
                 startedAtBottom[0] = canStartBottomPullRefresh(scroll, owner);
                 dragging[0] = false;
@@ -8353,10 +8418,21 @@ public class MainActivity extends Activity {
                     resetBottomRefreshLoader(loader);
                     return false;
                 }
+                float y = event.getY();
                 if (isBottomJumpActive(owner) && event.getY() > downY[0] + dp(4)) {
                     cancelBottomJump(owner);
+                    lastY[0] = y;
                     return false;
                 }
+                if (!startedAtBottom[0] && !dragging[0] && !refreshing[0]
+                        && canStartBottomPullRefresh(scroll, owner)
+                        && lastY[0] - y > dp(2)) {
+                    startedAtBottom[0] = true;
+                    downX[0] = event.getX();
+                    downY[0] = y;
+                    pullDistance[0] = 0;
+                }
+                lastY[0] = y;
                 if (startedAtBottom[0] && !refreshing[0]) {
                     if (scroll.canScrollVertically(1)) {
                         startedAtBottom[0] = false;
@@ -9516,7 +9592,7 @@ public class MainActivity extends Activity {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
-            if (tab.privateBrowsing == privateSection && !tab.bookmarkOverviewTab) {
+            if (tab.privateBrowsing == privateSection && isNormalTabScope(tab)) {
                 indices.add(i);
             }
         }
@@ -11302,10 +11378,10 @@ public class MainActivity extends Activity {
 
     private boolean bookmarkOverviewItemSelected(SavedItem item) {
         CuspTab tab = currentTab();
-        return tab != null && tab.bookmarkOverviewTab
+        return isBookmarkTabScope(tab)
                 && item != null && item.url != null
                 && sameSavedUrl(threadUrl(tab), item.url)
-                && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(normalizeSavedFolder(item.folder));
+                && bookmarkTabFolder(tab).equals(normalizeSavedFolder(item.folder));
     }
 
     private CuspTab bookmarkOverviewTab(SavedItem item) {
@@ -11365,7 +11441,7 @@ public class MainActivity extends Activity {
             return null;
         }
         for (CuspTab tab : tabs) {
-            if (tab == null || tab.bookmarkOverviewTab || !NATIVE_THREAD.equals(tab.nativeKind)) {
+            if (tab == null || isBookmarkTabScope(tab) || !NATIVE_THREAD.equals(tab.nativeKind)) {
                 continue;
             }
             String tabUrl = threadUrl(tab);
@@ -20877,12 +20953,11 @@ public class MainActivity extends Activity {
     }
 
     private boolean sameThreadTabScope(CuspTab left, CuspTab right) {
-        if (left == null || right == null || left.bookmarkOverviewTab != right.bookmarkOverviewTab) {
+        if (left == null || right == null || left.tabScope != right.tabScope) {
             return false;
         }
-        return !left.bookmarkOverviewTab
-                || normalizeSavedFolder(left.bookmarkOverviewFolder)
-                .equals(normalizeSavedFolder(right.bookmarkOverviewFolder));
+        return left.tabScope != TabScope.BOOKMARK
+                || bookmarkTabFolder(left).equals(bookmarkTabFolder(right));
     }
 
     private int lastExistingPostNumber(ThreadPage page, int oldCount) {
@@ -22202,6 +22277,7 @@ public class MainActivity extends Activity {
         int returnToIndex = -1;
         boolean backToNewTab;
         boolean privateBrowsing;
+        TabScope tabScope = TabScope.NORMAL;
         boolean bookmarkOverviewTab;
         String bookmarkOverviewFolder = "";
         boolean readerMode;
