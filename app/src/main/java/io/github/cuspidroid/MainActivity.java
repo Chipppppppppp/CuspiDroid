@@ -4715,6 +4715,7 @@ public class MainActivity extends Activity {
         if (centerSpinner) {
             showCenterSpinner();
         }
+        boolean wasAtThreadBottom = isThreadAtBottom(tab.threadScroll);
         ioExecutor.execute(() -> {
             ThreadPage page;
             boolean partialUpdate = false;
@@ -4740,6 +4741,8 @@ public class MainActivity extends Activity {
             ThreadPage result = page;
             boolean wasPartialUpdate = partialUpdate;
             runOnUiThread(() -> {
+                boolean keepAtBottom = forceScrollToBottom
+                        || (wasAtThreadBottom && isThreadAtBottom(tab.threadScroll));
                 if (centerSpinner) {
                     hideCenterSpinner();
                 }
@@ -4804,8 +4807,8 @@ public class MainActivity extends Activity {
                             && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                         updateThreadSearch(tab.threadSearchQuery, false);
                     }
-                    if (forceScrollToBottom) {
-                        scrollCurrentThreadToBottom();
+                    if (keepAtBottom) {
+                        scrollThreadToBottomWhenReady(tab, 0);
                     }
                     if (onComplete != null) {
                         onComplete.run();
@@ -4829,8 +4832,8 @@ public class MainActivity extends Activity {
                             && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                         updateThreadSearch(tab.threadSearchQuery, false);
                     }
-                    if (tab == currentTab() && forceScrollToBottom) {
-                        scrollCurrentThreadToBottom();
+                    if (tab == currentTab() && keepAtBottom) {
+                        scrollThreadToBottomWhenReady(tab, 0);
                     }
                     renderTabs();
                     refreshTabOverviewValuesForTab(tab);
@@ -8271,6 +8274,7 @@ public class MainActivity extends Activity {
     }
 
     private void enableBottomPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
+        final float[] downX = new float[1];
         final float[] downY = new float[1];
         final float[] pullDistance = new float[1];
         final boolean[] startedAtBottom = new boolean[1];
@@ -8290,22 +8294,32 @@ public class MainActivity extends Activity {
                 }
             }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downX[0] = event.getX();
                 downY[0] = event.getY();
                 pullDistance[0] = 0;
-                startedAtBottom[0] = !scroll.canScrollVertically(1);
+                CuspTab tab = currentTab();
+                startedAtBottom[0] = canStartBottomPullRefresh(scroll, tab);
                 dragging[0] = false;
                 if (!refreshing[0]) {
                     resetBottomRefreshLoader(loader);
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 CuspTab tab = currentTab();
+                if (!canStartBottomPullRefresh(scroll, tab)) {
+                    startedAtBottom[0] = false;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
+                    resetBottomRefreshLoader(loader);
+                    return false;
+                }
                 if (isBottomJumpActive(tab) && event.getY() > downY[0] + dp(4)) {
                     cancelBottomJump(tab);
                     return false;
                 }
                 if (!startedAtBottom[0] && !dragging[0] && !refreshing[0]
-                        && !scroll.canScrollVertically(1)) {
+                        && canStartBottomPullRefresh(scroll, tab)) {
                     startedAtBottom[0] = true;
+                    downX[0] = event.getX();
                     downY[0] = event.getY();
                     pullDistance[0] = 0;
                 }
@@ -8317,9 +8331,17 @@ public class MainActivity extends Activity {
                         resetBottomRefreshLoader(loader);
                         return false;
                     }
+                    float dx = Math.abs(event.getX() - downX[0]);
+                    float dy = event.getY() - downY[0];
+                    if (!dragging[0] && dy > dp(8)) {
+                        startedAtBottom[0] = false;
+                        pullDistance[0] = 0;
+                        resetBottomRefreshLoader(loader);
+                        return false;
+                    }
                     float pull = Math.max(0, downY[0] - event.getY());
                     pullDistance[0] = pull;
-                    if (pull > dp(4)) {
+                    if (pull > dp(12) && pull > dx * 1.15f) {
                         dragging[0] = true;
                         loader.clearAnimation();
                         loader.setVisibility(View.VISIBLE);
@@ -8360,6 +8382,14 @@ public class MainActivity extends Activity {
             }
             return false;
         });
+    }
+
+    private boolean canStartBottomPullRefresh(ScrollView scroll, CuspTab tab) {
+        if (scroll == null || scroll.getChildCount() == 0 || scroll.canScrollVertically(1)) {
+            return false;
+        }
+        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+        return range > dp(24) && lastPostViewReady(tab);
     }
 
     private void resetBottomRefreshLoader(View loader) {
@@ -15426,15 +15456,22 @@ public class MainActivity extends Activity {
     }
 
     private boolean lastPostViewReady(CuspTab tab) {
-        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty()) {
+        if (tab == null) {
             return true;
         }
-        Post last = tab.threadPage.posts.get(tab.threadPage.posts.size() - 1);
-        View view = tab.postViews == null ? null : tab.postViews.get(last.number);
-        if (view == null && tab.postSlots != null) {
-            view = tab.postSlots.get(last.number);
+        FrameLayout holder = lastThreadPostSlot(tab);
+        if (holder == null) {
+            return true;
         }
-        return view != null && view.getHeight() > 0 && view.isShown();
+        if (!(holder.getTag() instanceof VirtualPostSlot)) {
+            return holder.getHeight() > 0 && holder.isShown();
+        }
+        VirtualPostSlot slot = (VirtualPostSlot) holder.getTag();
+        if (!slot.rendered || slot.card == null) {
+            renderVirtualPostSlot(holder, slot);
+            return false;
+        }
+        return slot.card.getHeight() > 0 && holder.getHeight() > 0 && holder.isShown();
     }
 
     private boolean isThreadAtBottom(ScrollView scroll) {
