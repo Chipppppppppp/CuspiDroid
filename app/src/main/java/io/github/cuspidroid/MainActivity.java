@@ -2837,11 +2837,7 @@ public class MainActivity extends Activity {
         rememberTabOverviewScroll();
         int existing = bookmarkOverviewTabIndex(item);
         if (existing >= 0) {
-            tabOverviewVisible = false;
-            pendingNewTab = false;
-            pendingHistoryAll = false;
-            switchToTab(existing);
-            renderTabs();
+            reopenExistingBookmarkOverviewTab(existing, item);
             return;
         }
         CuspTab tab = new CuspTab();
@@ -2859,6 +2855,23 @@ public class MainActivity extends Activity {
         openInCurrentTab(normalizeUrl(url), true, TabScope.BOOKMARK,
                 item == null ? "" : item.folder, false);
         renderTabs();
+    }
+
+    private void reopenExistingBookmarkOverviewTab(int index, SavedItem item) {
+        if (index < 0 || index >= tabs.size() || item == null || item.url == null
+                || item.url.trim().isEmpty()) {
+            return;
+        }
+        String folder = normalizeSavedFolder(item.folder);
+        CuspTab tab = tabs.get(index);
+        applyThreadTabScope(tab, TabScope.BOOKMARK, folder);
+        clearTabViewState(tab);
+        tab.readerView = loadingView("");
+        tabOverviewVisible = false;
+        pendingNewTab = false;
+        pendingHistoryAll = false;
+        switchToTab(index);
+        openInCurrentTab(normalizeUrl(item.url), true, TabScope.BOOKMARK, folder, false);
     }
 
     private int bookmarkOverviewTabIndex(SavedItem item) {
@@ -3315,13 +3328,19 @@ public class MainActivity extends Activity {
             return;
         }
         rememberThreadScroll(tab);
-        ViewGroup parent = (ViewGroup) tab.readerView.getParent();
-        if (parent != null) {
-            parent.removeView(tab.readerView);
+        clearTabViewState(tab);
+    }
+
+    private void clearTabViewState(CuspTab tab) {
+        if (tab == null) {
+            return;
         }
-        if (tab.threadScrollChromeTask != null) {
-            mainHandler.removeCallbacks(tab.threadScrollChromeTask);
-            tab.threadScrollChromeTask = null;
+        cancelThreadChunkRender(tab);
+        if (tab.threadBottomLoader != null) {
+            resetBottomRefreshLoader(tab.threadBottomLoader);
+        }
+        if (tab.readerView != null && tab.readerView.getParent() instanceof ViewGroup) {
+            ((ViewGroup) tab.readerView.getParent()).removeView(tab.readerView);
         }
         tab.threadScrollChromeFrames = 0;
         tab.readerView = null;
@@ -8338,13 +8357,6 @@ public class MainActivity extends Activity {
                     cancelBottomJump(owner);
                     return false;
                 }
-                if (!startedAtBottom[0] && !dragging[0] && !refreshing[0]
-                        && canStartBottomPullRefresh(scroll, owner)) {
-                    startedAtBottom[0] = true;
-                    downX[0] = event.getX();
-                    downY[0] = event.getY();
-                    pullDistance[0] = 0;
-                }
                 if (startedAtBottom[0] && !refreshing[0]) {
                     if (scroll.canScrollVertically(1)) {
                         startedAtBottom[0] = false;
@@ -8407,7 +8419,9 @@ public class MainActivity extends Activity {
     }
 
     private boolean canStartBottomPullRefresh(ScrollView scroll, CuspTab tab) {
-        if (scroll == null || scroll.getChildCount() == 0 || scroll.canScrollVertically(1)) {
+        if (scroll == null || tab == null || tab != currentTab()
+                || scroll != tab.threadScroll || tab.threadRendering
+                || scroll.getChildCount() == 0 || scroll.canScrollVertically(1)) {
             return false;
         }
         int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
