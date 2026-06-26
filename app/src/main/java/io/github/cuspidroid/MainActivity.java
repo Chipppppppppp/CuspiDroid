@@ -5859,7 +5859,7 @@ public class MainActivity extends Activity {
         bottomLoader.setTranslationY(dp(58));
         tab.threadBottomLoader = bottomLoader;
 
-        enableBottomPullRefresh(scroll, bottomLoader, () -> {
+        enableBottomPullRefresh(scroll, bottomLoader, tab, () -> {
             refreshThreadFromBottom(tab);
         });
         FrameLayout frame = new FrameLayout(this);
@@ -8273,7 +8273,7 @@ public class MainActivity extends Activity {
         scroll.postDelayed(() -> scroll.scrollTo(0, target), 48);
     }
 
-    private void enableBottomPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
+    private void enableBottomPullRefresh(ScrollView scroll, View loader, CuspTab owner, Runnable refresh) {
         final float[] downX = new float[1];
         final float[] downY = new float[1];
         final float[] pullDistance = new float[1];
@@ -8297,27 +8297,25 @@ public class MainActivity extends Activity {
                 downX[0] = event.getX();
                 downY[0] = event.getY();
                 pullDistance[0] = 0;
-                CuspTab tab = currentTab();
-                startedAtBottom[0] = canStartBottomPullRefresh(scroll, tab);
+                startedAtBottom[0] = canStartBottomPullRefresh(scroll, owner);
                 dragging[0] = false;
                 if (!refreshing[0]) {
                     resetBottomRefreshLoader(loader);
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                CuspTab tab = currentTab();
-                if (!canStartBottomPullRefresh(scroll, tab)) {
+                if (!canStartBottomPullRefresh(scroll, owner)) {
                     startedAtBottom[0] = false;
                     dragging[0] = false;
                     pullDistance[0] = 0;
                     resetBottomRefreshLoader(loader);
                     return false;
                 }
-                if (isBottomJumpActive(tab) && event.getY() > downY[0] + dp(4)) {
-                    cancelBottomJump(tab);
+                if (isBottomJumpActive(owner) && event.getY() > downY[0] + dp(4)) {
+                    cancelBottomJump(owner);
                     return false;
                 }
                 if (!startedAtBottom[0] && !dragging[0] && !refreshing[0]
-                        && canStartBottomPullRefresh(scroll, tab)) {
+                        && canStartBottomPullRefresh(scroll, owner)) {
                     startedAtBottom[0] = true;
                     downX[0] = event.getX();
                     downY[0] = event.getY();
@@ -11330,7 +11328,7 @@ public class MainActivity extends Activity {
             return null;
         }
         for (CuspTab tab : tabs) {
-            if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind)) {
+            if (tab == null || tab.bookmarkOverviewTab || !NATIVE_THREAD.equals(tab.nativeKind)) {
                 continue;
             }
             String tabUrl = threadUrl(tab);
