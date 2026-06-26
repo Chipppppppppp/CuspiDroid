@@ -32,6 +32,7 @@ public class ListDisplaySettingsActivity extends Activity {
     private CheckBox showVelocity;
     private CheckBox showResponses;
     private CheckBox tabSortEnabled;
+    private CheckBox bookmarkSortEnabled;
     private RadioGroup sortGroup;
     private RadioButton sortBoardName;
     private RadioButton sortCreated;
@@ -100,12 +101,16 @@ public class ListDisplaySettingsActivity extends Activity {
         if (tabMode) {
             tabSortEnabled = settingCheckBox(MainActivity.text("表示順を自動で並べ替え", "Automatically sort tab list"));
             root.addView(tabSortEnabled);
+            bookmarkSortEnabled = settingCheckBox(MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u81ea\u52d5\u3067\u4e26\u3079\u66ff\u3048", "Automatically sort bookmarks"));
+            root.addView(bookmarkSortEnabled);
         }
 
         root.addView(sectionTitle(MainActivity.text("並べ替え", "Sort")));
         if (tabMode) {
             root.removeView(tabSortEnabled);
             root.addView(tabSortEnabled);
+            root.removeView(bookmarkSortEnabled);
+            root.addView(bookmarkSortEnabled);
         }
         sortGroup = new RadioGroup(this);
         sortGroup.setOrientation(RadioGroup.VERTICAL);
@@ -174,6 +179,7 @@ public class ListDisplaySettingsActivity extends Activity {
         }
         if (tabMode) {
             tabSortEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_SORT_ENABLED, false));
+            bookmarkSortEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_BOOKMARK_SORT_ENABLED, false));
             if (preferences.getBoolean(MainActivity.PREF_TAB_NON_THREAD_TOP, true)) {
                 nonThreadTop.setChecked(true);
             } else {
@@ -197,6 +203,10 @@ public class ListDisplaySettingsActivity extends Activity {
                 updateTabSortDependentSettings();
                 saveSettings();
             });
+            bookmarkSortEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                updateTabSortDependentSettings();
+                saveSettings();
+            });
             nonThreadPositionGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings());
         }
     }
@@ -213,6 +223,7 @@ public class ListDisplaySettingsActivity extends Activity {
                 .putBoolean(sortDescPref(), sortDesc.isChecked());
         if (tabMode) {
             editor.putBoolean(MainActivity.PREF_TAB_SORT_ENABLED, tabSortEnabled.isChecked())
+                    .putBoolean(MainActivity.PREF_BOOKMARK_SORT_ENABLED, bookmarkSortEnabled.isChecked())
                     .putBoolean(MainActivity.PREF_TAB_NON_THREAD_TOP, nonThreadTop.isChecked());
         } else {
             editor.putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED,
@@ -290,10 +301,11 @@ public class ListDisplaySettingsActivity extends Activity {
     }
 
     private void updateTabSortDependentSettings() {
-        boolean enabled = tabSortEnabled != null && tabSortEnabled.isChecked();
+        boolean enabled = tabSortEnabled != null && tabSortEnabled.isChecked()
+                || bookmarkSortEnabled != null && bookmarkSortEnabled.isChecked();
         setGroupEnabled(sortGroup, enabled);
         setGroupEnabled(sortDirectionGroup, enabled);
-        setGroupEnabled(nonThreadPositionGroup, enabled);
+        setGroupEnabled(nonThreadPositionGroup, tabSortEnabled != null && tabSortEnabled.isChecked());
     }
 
     private void setGroupEnabled(ViewGroup group, boolean enabled) {
