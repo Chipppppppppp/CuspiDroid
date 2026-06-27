@@ -192,6 +192,7 @@ public class MainActivity extends Activity {
     static final String PREF_TREE_VIEW = "tree_view";
     static final String PREF_TREE_SKIP_FIRST_REPLY = "tree_skip_first_reply";
     static final String PREF_AUTO_SCROLL_UNREAD = "auto_scroll_unread_boundary";
+    static final String PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE = "mark_existing_read_on_thread_update";
     static final String PREF_COLOR_UNREAD_POSTS = "color_unread_posts";
     static final String PREF_OMIT_COPYPASTE = "omit_copypaste_posts";
     static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
@@ -1390,7 +1391,8 @@ public class MainActivity extends Activity {
 
     private TextView tabCountIconSquare(boolean selected) {
         TextView view = new TextView(this);
-        view.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
+        int count = normalTabCount();
+        view.setText(count > 99 ? "\u221e" : String.valueOf(count));
         view.setTextColor(textColor());
         view.setTextSize(13);
         view.setGravity(Gravity.CENTER);
@@ -1404,8 +1406,19 @@ public class MainActivity extends Activity {
         if (tabCountLabel == null) {
             return;
         }
-        tabCountLabel.setText(tabs.size() > 99 ? "\u221e" : String.valueOf(tabs.size()));
+        int count = normalTabCount();
+        tabCountLabel.setText(count > 99 ? "\u221e" : String.valueOf(count));
         tabCountLabel.setBackground(tabCountBackground(tabOverviewVisible));
+    }
+
+    private int normalTabCount() {
+        int count = 0;
+        for (CuspTab tab : tabs) {
+            if (tab != null && !tab.bookmarkOverviewTab) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private GradientDrawable tabCountBackground(boolean selected) {
@@ -2812,6 +2825,12 @@ public class MainActivity extends Activity {
             return;
         }
         rememberTabOverviewScroll();
+        int existingIndex = openBookmarkOverviewTabIndex(item);
+        if (existingIndex >= 0) {
+            switchToTab(existingIndex);
+            refreshTabOverviewValuesForTab(tabs.get(existingIndex));
+            return;
+        }
         CuspTab tab = new CuspTab();
         tab.title = text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
         tab.url = "";
@@ -2827,6 +2846,24 @@ public class MainActivity extends Activity {
         contentFrame.addView(loadingView(""));
         openInCurrentTab(normalizeUrl(url), true, true);
         renderTabs();
+    }
+
+    private int openBookmarkOverviewTabIndex(SavedItem item) {
+        if (item == null || item.url == null || item.url.trim().isEmpty()) {
+            return -1;
+        }
+        String folder = normalizeSavedFolder(item.folder);
+        for (int i = 0; i < tabs.size(); i++) {
+            CuspTab tab = tabs.get(i);
+            if (tab == null || !tab.bookmarkOverviewTab) {
+                continue;
+            }
+            if (sameSavedUrl(threadUrl(tab), item.url)
+                    && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(folder)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void createBlankTab() {
@@ -4743,7 +4780,8 @@ public class MainActivity extends Activity {
                     cacheThreadPage(result);
                     tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
                     updateTabThreadStats(tab, result);
-                    if (markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
+                    if (markExistingReadOnThreadUpdate()
+                            && markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
                     }
                     renderTabs();
@@ -4767,7 +4805,9 @@ public class MainActivity extends Activity {
                 updateThreadTitleHeader(tab, result);
                 tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
                 updateTabThreadStats(tab, result);
-                markReadTo(tab, lastExistingPostNumber(result, oldCount), false);
+                if (markExistingReadOnThreadUpdate()) {
+                    markReadTo(tab, lastExistingPostNumber(result, oldCount), false);
+                }
                 tab.title = result.title;
                 if (result.error == null && !result.posts.isEmpty()) {
                     cacheThreadPage(result);
@@ -17951,6 +17991,10 @@ public class MainActivity extends Activity {
 
     private boolean showHomeBookmarkUnreadBadges() {
         return preferences == null || preferences.getBoolean(PREF_HOME_BOOKMARK_UNREAD_BADGES, true);
+    }
+
+    private boolean markExistingReadOnThreadUpdate() {
+        return preferences == null || preferences.getBoolean(PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true);
     }
 
     private boolean bookmarkSortEnabled() {
