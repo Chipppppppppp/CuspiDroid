@@ -10062,6 +10062,9 @@ public class MainActivity extends Activity {
             return false;
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        if (!isTabOverviewList(list)) {
+            return false;
+        }
         setTabOverviewListPadding(list);
         List<FrameLayout> holders = tabOverviewSlotHolders(list);
         if (holders.isEmpty()) {
@@ -11752,12 +11755,12 @@ public class MainActivity extends Activity {
             return false;
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
-        setTabOverviewListPadding(list);
         int sectionStart = 1;
         int tabSectionStart = tabOverviewTabSectionStart(list);
         if (tabSectionStart < sectionStart) {
             return false;
         }
+        setTabOverviewListPadding(list);
         for (int i = tabSectionStart - 1; i >= sectionStart; i--) {
             list.removeViewAt(i);
         }
@@ -11860,14 +11863,16 @@ public class MainActivity extends Activity {
     }
 
     private void syncClosedTabUndoBar() {
-        if (contentFrame == null || contentFrame.getChildCount() == 0
-                || !(contentFrame.getChildAt(0) instanceof FrameLayout)) {
+        FrameLayout root = tabOverviewFrameRoot(contentFrame);
+        if (root == null) {
             return;
         }
-        FrameLayout root = (FrameLayout) contentFrame.getChildAt(0);
         ScrollView scroll = findScrollView(root);
         if (scroll != null && scroll.getChildCount() > 0 && scroll.getChildAt(0) instanceof LinearLayout) {
-            setTabOverviewListPadding((LinearLayout) scroll.getChildAt(0));
+            LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+            if (isTabOverviewList(list)) {
+                setTabOverviewListPadding(list);
+            }
         }
         for (int i = root.getChildCount() - 1; i >= 0; i--) {
             View child = root.getChildAt(i);
@@ -11878,6 +11883,35 @@ public class MainActivity extends Activity {
         if (recentlyClosedTab != null) {
             root.addView(closedTabUndoBar(), closedTabUndoParams());
         }
+    }
+
+    private FrameLayout tabOverviewFrameRoot(View root) {
+        if (root == null) {
+            return null;
+        }
+        if (root == contentFrame && contentFrame != null && contentFrame.getChildCount() > 0
+                && contentFrame.getChildAt(0) instanceof FrameLayout
+                && containsTabOverviewList(contentFrame.getChildAt(0))) {
+            return (FrameLayout) contentFrame.getChildAt(0);
+        }
+        if (root instanceof FrameLayout && containsTabOverviewList(root)) {
+            return (FrameLayout) root;
+        }
+        return null;
+    }
+
+    private boolean containsTabOverviewList(View root) {
+        ScrollView scroll = findScrollView(root);
+        return scroll != null
+                && scroll.getChildCount() > 0
+                && scroll.getChildAt(0) instanceof LinearLayout
+                && isTabOverviewList((LinearLayout) scroll.getChildAt(0));
+    }
+
+    private boolean isTabOverviewList(LinearLayout list) {
+        return list != null
+                && (list.getTag() instanceof VirtualTabOverviewState
+                || tabOverviewTabSectionStart(list) >= 1);
     }
 
     private View buildSavedItemsView(String key) {
