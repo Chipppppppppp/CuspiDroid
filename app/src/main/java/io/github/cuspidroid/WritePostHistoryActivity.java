@@ -138,7 +138,7 @@ public class WritePostHistoryActivity extends Activity {
         TextView url = helperText(item.url);
         content.addView(url);
 
-        ImageButton jump = iconButton(R.drawable.ic_jump_arrow, MainActivity.text("\u66f8\u304d\u8fbc\u307f\u306b\u79fb\u52d5", "Jump to post"));
+        ImageButton jump = iconButton(R.drawable.ic_arrow_forward, MainActivity.text("\u66f8\u304d\u8fbc\u307f\u306b\u79fb\u52d5", "Jump to post"));
         jump.setOnClickListener(v -> openHistoryItem(item));
         row.addView(jump, iconParams());
 

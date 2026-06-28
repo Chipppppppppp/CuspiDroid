@@ -248,6 +248,7 @@ public class MainActivity extends Activity {
     static final String PREF_WRITE_IDENTITY_HISTORY = "write_identity_history";
     static final String PREF_SAVE_BROWSING_HISTORY = "save_browsing_history";
     static final String PREF_SAVE_READ_HISTORY = "save_read_history";
+    static final String PREF_SAVE_WRITE_POST_HISTORY = "save_write_post_history";
     static final String PREF_SAVE_WRITE_IDENTITY_HISTORY = "save_write_identity_history";
     static final String PREF_SAVE_UPLOAD_HISTORY = "save_upload_history";
     static final String PREF_DISABLE_HISTORY = "disable_history";
@@ -21823,6 +21824,10 @@ public class MainActivity extends Activity {
         return historySettingEnabled(PREF_SAVE_READ_HISTORY);
     }
 
+    private boolean writePostHistoryEnabled() {
+        return historySettingEnabled(PREF_SAVE_WRITE_POST_HISTORY);
+    }
+
     private boolean historySettingEnabled(String key) {
         if (preferences == null) {
             return true;
@@ -21915,7 +21920,8 @@ public class MainActivity extends Activity {
     }
 
     private void saveMyPost(CuspTab tab, String body, int postNumber) {
-        if (isPrivateTab(tab) || tab == null || tab.url == null || tab.url.isEmpty()) {
+        if (isPrivateTab(tab) || !writePostHistoryEnabled()
+                || tab == null || tab.url == null || tab.url.isEmpty()) {
             return;
         }
         String hash = postBodyHash(body);

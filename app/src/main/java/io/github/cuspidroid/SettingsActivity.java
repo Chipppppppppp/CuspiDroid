@@ -57,6 +57,7 @@ public class SettingsActivity extends Activity {
     private CheckBox cacheEnabled;
     private CheckBox saveBrowsingHistory;
     private CheckBox saveReadHistory;
+    private CheckBox saveWritePostHistory;
     private CheckBox saveWriteIdentityHistory;
     private CheckBox saveUploadHistory;
     private CheckBox showBookmarksInTabOverview;
@@ -470,6 +471,13 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read history by thread"),
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
+        saveWritePostHistory = new CheckBox(this);
+        saveWritePostHistory.setText(MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u4fdd\u5b58", "Save post history"));
+        saveWritePostHistory.setTextColor(textColor());
+        saveWritePostHistory.setTextSize(16);
+        Theme.tintCompoundButton(this, saveWritePostHistory);
+        root.addView(saveWritePostHistory);
+
         root.addView(managementRow(R.drawable.ic_reply,
                 MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u7ba1\u7406", "Manage post history"),
                 MainActivity.text("\u81ea\u5206\u306e\u66f8\u304d\u8fbc\u307f\u306b\u79fb\u52d5\u30fb\u5c65\u6b74\u304b\u3089\u524a\u9664", "Jump to your posts and delete saved post history"),
@@ -610,6 +618,8 @@ public class SettingsActivity extends Activity {
                 && preferences.getBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, true));
         saveReadHistory.setChecked(!legacyDisabled
                 && preferences.getBoolean(MainActivity.PREF_SAVE_READ_HISTORY, true));
+        saveWritePostHistory.setChecked(!legacyDisabled
+                && preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, true));
         saveWriteIdentityHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true));
         sync2chEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false));
         sync2chId.setText(preferences.getString(MainActivity.PREF_SYNC2CH_ID, ""));
@@ -697,6 +707,7 @@ public class SettingsActivity extends Activity {
         showHomeBookmarkUnreadBadges.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveBrowsingHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveReadHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        saveWritePostHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveWriteIdentityHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveUploadHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         sync2chEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -794,6 +805,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                 .putBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, saveBrowsingHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SAVE_READ_HISTORY, saveReadHistory.isChecked())
+                .putBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, saveWritePostHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, saveWriteIdentityHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, saveUploadHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, sync2chEnabled.isChecked())
@@ -1059,6 +1071,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                 .putBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SAVE_READ_HISTORY, true)
+                .putBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false)
