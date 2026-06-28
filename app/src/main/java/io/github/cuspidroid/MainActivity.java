@@ -21929,14 +21929,41 @@ public class MainActivity extends Activity {
             if (items == null) {
                 return false;
             }
+            boolean hashOnlyMatch = false;
             for (int i = 0; i < items.length(); i++) {
-                if (hash.equals(myPostHash(items.opt(i)))) {
-                    return true;
+                Object value = items.opt(i);
+                if (!hash.equals(myPostHash(value))) {
+                    continue;
+                }
+                int number = myPostNumber(value);
+                if (number > 0) {
+                    if (number == post.number) {
+                        return true;
+                    }
+                } else {
+                    hashOnlyMatch = true;
                 }
             }
+            return hashOnlyMatch && postHashOccurrences(page, hash) == 1;
         } catch (Exception ignored) {
         }
         return false;
+    }
+
+    private int postHashOccurrences(ThreadPage page, String hash) {
+        if (page == null || page.posts == null || hash == null || hash.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Post item : page.posts) {
+            if (item != null && hash.equals(postBodyHash(item.body))) {
+                count++;
+                if (count > 1) {
+                    return count;
+                }
+            }
+        }
+        return count;
     }
 
     private void saveMyPost(CuspTab tab, String body) {

@@ -5,7 +5,10 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.ClipDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
@@ -437,6 +440,7 @@ public class SettingsActivity extends Activity {
         cacheUsage = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         cacheUsage.setMax(1000);
         cacheUsage.setProgress(0);
+        cacheUsage.setProgressDrawable(cacheUsageDrawable());
         root.addView(cacheUsage, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
 
@@ -1301,6 +1305,24 @@ public class SettingsActivity extends Activity {
         drawable.setColor(Theme.dark(this) ? Color.rgb(17, 55, 58) : Color.rgb(220, 252, 247));
         drawable.setCornerRadius(dp(13));
         return drawable;
+    }
+
+    private Drawable cacheUsageDrawable() {
+        boolean dark = Theme.dark(this);
+        GradientDrawable track = new GradientDrawable();
+        track.setColor(dark ? Color.rgb(34, 45, 56) : Color.rgb(226, 232, 240));
+        track.setStroke(dp(1), dark ? Color.rgb(86, 98, 112) : borderColor());
+        track.setCornerRadius(dp(9));
+
+        GradientDrawable progress = new GradientDrawable();
+        progress.setColor(dark ? Color.rgb(45, 212, 191) : Theme.accent(this));
+        progress.setCornerRadius(dp(9));
+
+        ClipDrawable clippedProgress = new ClipDrawable(progress, Gravity.LEFT, ClipDrawable.HORIZONTAL);
+        LayerDrawable layers = new LayerDrawable(new Drawable[]{track, clippedProgress});
+        layers.setId(0, android.R.id.background);
+        layers.setId(1, android.R.id.progress);
+        return layers;
     }
 
     private GradientDrawable roundedField() {
