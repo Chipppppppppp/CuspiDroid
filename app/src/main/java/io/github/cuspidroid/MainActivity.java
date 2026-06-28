@@ -3394,6 +3394,7 @@ public class MainActivity extends Activity {
         object.put("archived", page.archived);
         object.put("datUrl", page.datUrl == null ? "" : page.datUrl);
         object.put("datByteLength", page.datByteLength);
+        object.put("hissiSummary", page.hissiSummary == null ? "" : page.hissiSummary);
         JSONArray posts = new JSONArray();
         for (Post post : page.posts) {
             JSONObject item = new JSONObject();
@@ -3401,6 +3402,9 @@ public class MainActivity extends Activity {
             item.put("name", post.name);
             item.put("date", post.date);
             item.put("body", post.body);
+            item.put("sourceTitle", post.sourceTitle == null ? "" : post.sourceTitle);
+            item.put("sourceUrl", post.sourceUrl == null ? "" : post.sourceUrl);
+            item.put("sourcePostNumber", post.sourcePostNumber);
             posts.put(item);
         }
         object.put("posts", posts);
@@ -3417,6 +3421,7 @@ public class MainActivity extends Activity {
         page.archived = object.optBoolean("archived", false);
         page.datUrl = object.optString("datUrl", "");
         page.datByteLength = object.optLong("datByteLength", 0);
+        page.hissiSummary = object.optString("hissiSummary", "");
         JSONArray posts = object.optJSONArray("posts");
         if (posts != null) {
             for (int i = 0; i < posts.length(); i++) {
@@ -3429,6 +3434,9 @@ public class MainActivity extends Activity {
                 post.name = item.optString("name", "");
                 post.date = item.optString("date", "");
                 post.body = item.optString("body", "");
+                post.sourceTitle = item.optString("sourceTitle", "");
+                post.sourceUrl = item.optString("sourceUrl", "");
+                post.sourcePostNumber = item.optInt("sourcePostNumber", 0);
                 post.cachedLikelyAa = likelyAaPost(post.body);
                 page.posts.add(post);
                 page.postsByNumber.put(post.number, post);
@@ -3640,6 +3648,7 @@ public class MainActivity extends Activity {
                 visiblePostViews.putAll(tab.postViews);
             }
             if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                refreshUnreadColors(tab);
                 if (shouldRestoreThreadScroll(tab)) {
                     tab.readerView.setVisibility(View.INVISIBLE);
                 }
@@ -4771,6 +4780,7 @@ public class MainActivity extends Activity {
             if (!tabOverviewVisible && (showFullLoading || tab == currentTab())) {
                 switchToTab(tabs.indexOf(tab));
                 restoreThreadScroll(tab);
+                runPendingPostJump(tab);
             }
         }
 
@@ -4810,6 +4820,7 @@ public class MainActivity extends Activity {
                     }
                     if (tab == currentTab()) {
                         restoreThreadScroll(tab);
+                        runPendingPostJump(tab);
                     }
                     renderTabs();
                     return;
@@ -4906,6 +4917,7 @@ public class MainActivity extends Activity {
                 if (tab == currentTab() && !tabOverviewVisible) {
                     switchToTab(currentIndex);
                     restoreThreadScroll(tab);
+                    runPendingPostJump(tab);
                 }
                 renderTabs();
             });
@@ -4917,6 +4929,7 @@ public class MainActivity extends Activity {
         page.url = url;
         page.title = cleanText(valueOr(firstMatch(html == null ? "" : html, "<title[^>]*>(.*?)</title>"),
                 text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc", "Hissi Checker")));
+        page.hissiSummary = hissiSummary(html);
         Matcher matcher = HISSI_POST_PATTERN.matcher(html == null ? "" : html);
         while (matcher.find()) {
             String header = matcher.group(1);
@@ -4933,36 +4946,175 @@ public class MainActivity extends Activity {
             if (!name.isEmpty()) {
                 meta = meta.replaceFirst(Pattern.quote(name), "").trim();
             }
-            if (!sourceNumber.isEmpty()) {
-                meta = ">>" + sourceNumber + (meta.isEmpty() ? "" : "  " + meta);
-            }
             String body = cleanText(bodyHtml);
-            StringBuilder bodyBuilder = new StringBuilder();
-            if (!threadTitle.isEmpty()) {
-                bodyBuilder.append("\u3010").append(threadTitle).append("\u3011");
-            }
-            if (!sourceUrl.isEmpty()) {
-                if (bodyBuilder.length() > 0) {
-                    bodyBuilder.append('\n');
-                }
-                bodyBuilder.append(sourceUrl);
-            }
-            if (!body.isEmpty()) {
-                if (bodyBuilder.length() > 0) {
-                    bodyBuilder.append("\n\n");
-                }
-                bodyBuilder.append(body);
-            }
             Post post = new Post();
             post.number = page.posts.size() + 1;
             post.name = name;
             post.date = meta;
-            post.body = bodyBuilder.toString();
+            post.body = body;
+            post.sourceTitle = threadTitle;
+            post.sourcePostNumber = parsePositiveInt(sourceNumber, 0);
+            post.sourceUrl = sourceThreadUrl(sourceUrl, post.sourcePostNumber);
             post.cachedLikelyAa = likelyAaPost(post.body);
             page.posts.add(post);
             page.postsByNumber.put(post.number, post);
         }
         return page;
+    }
+
+    private String hissiSummary(String html) {
+        String source = html == null ? "" : html;
+        String title = cleanText(valueOr(firstMatch(source, "<title[^>]*>(.*?)</title>"), ""));
+        if (title.startsWith("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc\u3082\u3069\u304d")) {
+            title = title.substring("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc\u3082\u3069\u304d".length()).trim();
+        }
+        StringBuilder summary = new StringBuilder();
+        String[] titleParts = title.split("\\s*>\\s*");
+        if (titleParts.length > 1) {
+            appendSummaryLine(summary, text("ID", "ID"), titleParts[titleParts.length - 1]);
+            StringBuilder context = new StringBuilder();
+            for (int i = 0; i < titleParts.length - 1; i++) {
+                if (titleParts[i].trim().isEmpty()) {
+                    continue;
+                }
+                if (context.length() > 0) {
+                    context.append(" > ");
+                }
+                context.append(titleParts[i].trim());
+            }
+            appendSummaryLine(summary, text("\u677f/\u65e5\u4ed8", "Board/date"), context.toString());
+        } else {
+            appendSummaryLine(summary, text("ID", "ID"), title);
+        }
+
+        String rank = firstMatch(source, "<td[^>]*rowspan\\s*=\\s*2[^>]*>(.*?)</td>");
+        if (rank == null || cleanText(rank).isEmpty()) {
+            rank = firstMatch(source, "(<font[^>]*>.*?</font>\\s*/\\s*[^<]*ID[^<]*)");
+        }
+        appendSummaryLine(summary, text("\u9806\u4f4d", "Rank"), rank);
+
+        String writeCountRow = firstMatch(source, "<tr[^>]*>\\s*<td[^>]*>\u66f8\u304d\u8fbc\u307f\u6570</td>(.*?)</tr>");
+        String total = lastTableCellText(writeCountRow);
+        if (total == null || total.isEmpty()) {
+            total = firstMatch(source, ">Total</td>.*?<td[^>]*bgcolor\\s*=\\s*red[^>]*>(.*?)</td>");
+        }
+        appendSummaryLine(summary, text("\u66f8\u304d\u8fbc\u307f\u6570", "Posts"), total);
+
+        Matcher names = Pattern.compile(
+                "\u4f7f\u7528\u3057\u305f\u540d\u524d\u4e00\u89a7.*?\u66f8\u304d\u8fbc\u3093\u3060\u30b9\u30ec\u30c3\u30c9\u4e00\u89a7.*?</tr>\\s*<tr[^>]*>\\s*<td[^>]*>(.*?)</td>\\s*<td[^>]*>(.*?)</td>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(source);
+        if (names.find()) {
+            appendSummaryLine(summary, text("\u540d\u524d", "Names"), compactSummaryText(names.group(1)));
+            appendSummaryLine(summary, text("\u30b9\u30ec", "Threads"), hissiThreadSummary(names.group(2)));
+        }
+        return summary.toString();
+    }
+
+    private String lastTableCellText(String html) {
+        if (html == null || html.isEmpty()) {
+            return "";
+        }
+        Matcher cells = Pattern.compile("<td[^>]*>(.*?)</td>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
+        String last = "";
+        while (cells.find()) {
+            last = cleanText(cells.group(1));
+        }
+        return last;
+    }
+
+    private String hissiThreadSummary(String html) {
+        String source = html == null ? "" : html;
+        List<String> titles = new ArrayList<>();
+        Matcher links = Pattern.compile("<a\\b([^>]*)>(.*?)</a>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(source);
+        while (links.find()) {
+            String attributes = links.group(1) == null ? "" : links.group(1).toLowerCase(Locale.ROOT);
+            if (!attributes.contains("read.cgi")) {
+                continue;
+            }
+            String title = cleanText(links.group(2));
+            if (!title.isEmpty()) {
+                titles.add(title);
+            }
+        }
+        int omitted = parsePositiveInt(firstMatch(source,
+                "\u305d\u306e\u4ed6\\s*(\\d+)\\s*\u30b9\u30ec\u30c3\u30c9"), 0);
+        int total = titles.size() + omitted;
+        if (total <= 0) {
+            return compactSummaryText(source);
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append(total).append(text("\u30b9\u30ec\u30c3\u30c9", " threads"));
+        int shown = Math.min(3, titles.size());
+        for (int i = 0; i < shown; i++) {
+            builder.append(i == 0 ? ": " : " / ").append(titles.get(i));
+        }
+        if (omitted > 0) {
+            builder.append(" / ").append(text("\u305d\u306e\u4ed6", "other "))
+                    .append(omitted).append(text("\u30b9\u30ec\u30c3\u30c9", " threads"));
+        } else if (titles.size() > shown) {
+            builder.append(" / ...");
+        }
+        return builder.toString();
+    }
+
+    private void appendSummaryLine(StringBuilder builder, String label, String value) {
+        String clean = cleanText(value == null ? "" : value);
+        if (clean.isEmpty()) {
+            return;
+        }
+        if (builder.length() > 0) {
+            builder.append('\n');
+        }
+        builder.append(label).append(": ").append(clean);
+    }
+
+    private String compactSummaryText(String html) {
+        String value = cleanText(html == null ? "" : html).replace('\r', '\n');
+        String[] lines = value.split("\\n+");
+        StringBuilder builder = new StringBuilder();
+        for (String line : lines) {
+            String item = line.trim();
+            if (item.isEmpty()) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append(" / ");
+            }
+            builder.append(item);
+        }
+        return builder.toString();
+    }
+
+    private String sourceThreadUrl(String url, int postNumber) {
+        if (url == null || url.trim().isEmpty()) {
+            return "";
+        }
+        String normalized = normalizeUrl(url);
+        if (postNumber <= 0 || normalized.isEmpty()) {
+            return normalized;
+        }
+        try {
+            Uri uri = Uri.parse(normalized);
+            List<String> segments = uri.getPathSegments();
+            int readIndex = segments.indexOf("read.cgi");
+            if (readIndex >= 0 && readIndex + 2 < segments.size()) {
+                StringBuilder path = new StringBuilder();
+                for (int i = 0; i <= readIndex + 2; i++) {
+                    path.append('/').append(segments.get(i));
+                }
+                path.append('/');
+                Uri.Builder builder = uri.buildUpon();
+                builder.path(path.toString());
+                builder.encodedQuery(null);
+                builder.fragment(null);
+                return builder.build().toString();
+            }
+        } catch (Exception ignored) {
+        }
+        String suffix = "/" + postNumber;
+        return normalized.endsWith(suffix) ? normalized.substring(0, normalized.length() - suffix.length()) + "/" : normalized;
     }
 
     private String firstHref(String html) {
@@ -6166,6 +6318,14 @@ public class MainActivity extends Activity {
         title.setPadding(0, 0, 0, dp(10));
         list.addView(title);
 
+        if (tab != null && NATIVE_HISSI.equals(tab.nativeKind)
+                && page.hissiSummary != null && !page.hissiSummary.trim().isEmpty()) {
+            LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            summaryParams.setMargins(0, 0, 0, dp(10));
+            list.addView(hissiSummaryView(page.hissiSummary), summaryParams);
+        }
+
         if (page.error != null) {
             TextView error = postText(page.error, page);
             error.setTextColor(Color.rgb(185, 28, 28));
@@ -6249,7 +6409,7 @@ public class MainActivity extends Activity {
         card.setTag(R.id.tag_post_card, true);
         boolean copyPasteOmitted = copyPasteSourcePost(page, post) != null;
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(postBackground(post.number > tab.readPostNumber, isMyPost(page, post)));
+        card.setBackground(postBackground(isPostUnread(page, tab, post), isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
                 return true;
@@ -6286,19 +6446,54 @@ public class MainActivity extends Activity {
             return new PostCardShell(shell, card);
         }
 
+        boolean hissiSourcePost = tab != null && NATIVE_HISSI.equals(tab.nativeKind) && hasHissiSourcePost(post);
+        View sourceHeader = null;
+        if (hissiSourcePost) {
+            sourceHeader = hissiSourceHeaderView(tab, post, () -> {
+                if (!isPostSwipeBlocked(post)) {
+                    showPostActionMenu(card, tab, post);
+                }
+            });
+            LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            titleParams.setMargins(0, 0, 0, dp(7));
+            card.addView(sourceHeader, titleParams);
+        }
         View metaView = postMetaText(post, page, () -> {
             if (!isPostSwipeBlocked(post)) {
                 showPostActionMenu(card, tab, post);
             }
         });
-        card.addView(metaView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        View metaTouchTarget = metaView;
+        if (hissiSourcePost) {
+            LinearLayout metaRow = new LinearLayout(this);
+            metaRow.setOrientation(LinearLayout.HORIZONTAL);
+            metaRow.setGravity(Gravity.CENTER_VERTICAL);
+            metaRow.addView(metaView, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            ImageButton jump = iconButton(R.drawable.ic_arrow_forward,
+                    "Jump to >>" + post.sourcePostNumber, null);
+            jump.setColorFilter(TEAL);
+            jump.setBackgroundColor(Color.TRANSPARENT);
+            jump.setPadding(dp(8), dp(8), dp(8), dp(8));
+            jump.setOnClickListener(v -> openHissiSourcePost(tab, post));
+            metaRow.addView(jump, new LinearLayout.LayoutParams(dp(34), dp(34)));
+            card.addView(metaRow, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            metaTouchTarget = metaRow;
+        } else {
+            card.addView(metaView, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
 
         View bodyView = postBodyView(card, page, tab, post, depth);
         card.addView(bodyView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (allowSwipeActions) {
-            attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
+            if (sourceHeader != null) {
+                attachPostSwipeDeep(sourceHeader, card, readAction, replyAction, tab, post);
+            }
+            attachPostSwipeDeep(metaTouchTarget, card, readAction, replyAction, tab, post);
             attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         }
         if (showTreeConnector) {
@@ -6308,6 +6503,126 @@ public class MainActivity extends Activity {
         }
         shell.addView(card, cardFrameParams);
         return new PostCardShell(shell, card);
+    }
+
+    private View hissiSummaryView(String summary) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(10), dp(8), dp(10), dp(9));
+        box.setBackground(roundedDrawable(postColor(), TEAL, dp(8), dp(1)));
+        box.setOnLongClickListener(v -> {
+            copyHissiSummary(summary);
+            return true;
+        });
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = new TextView(this);
+        label.setText(text("ID\u60c5\u5831", "ID info"));
+        label.setTextColor(TEAL);
+        label.setTextSize(14);
+        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        label.setIncludeFontPadding(false);
+        header.addView(label, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton copy = iconButton(R.drawable.ic_copy,
+                text("ID\u60c5\u5831\u3092\u30b3\u30d4\u30fc", "Copy ID info"), v -> copyHissiSummary(summary));
+        copy.setColorFilter(TEAL);
+        copy.setBackgroundColor(Color.TRANSPARENT);
+        copy.setPadding(dp(8), dp(8), dp(8), dp(8));
+        header.addView(copy, new LinearLayout.LayoutParams(dp(36), dp(34)));
+        box.addView(header, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        String[] lines = summary == null ? new String[0] : summary.split("\\n+");
+        for (String line : lines) {
+            String item = line == null ? "" : line.trim();
+            if (item.isEmpty()) {
+                continue;
+            }
+            box.addView(hissiSummaryRow(item), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        return box;
+    }
+
+    private View hissiSummaryRow(String line) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.TOP);
+        row.setPadding(0, dp(6), 0, 0);
+        String label = "";
+        String value = line;
+        int separator = line.indexOf(':');
+        if (separator >= 0) {
+            label = line.substring(0, separator).trim();
+            value = line.substring(separator + 1).trim();
+        }
+        if (!label.isEmpty()) {
+            TextView labelView = new TextView(this);
+            labelView.setText(label);
+            labelView.setTextColor(TEAL);
+            labelView.setTextSize(12);
+            labelView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            labelView.setGravity(Gravity.TOP | Gravity.START);
+            row.addView(labelView, new LinearLayout.LayoutParams(dp(76), ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        TextView valueView = new TextView(this);
+        valueView.setText(value);
+        valueView.setTextColor(textColor());
+        valueView.setTextSize(13);
+        valueView.setLineSpacing(dp(1), 1.0f);
+        valueView.setTextIsSelectable(true);
+        row.addView(valueView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        return row;
+    }
+
+    private void copyHissiSummary(String summary) {
+        copyTextToClipboard("CuspiDroid Hissi ID info", summary,
+                text("ID\u60c5\u5831\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "ID info copied."));
+    }
+
+    private View hissiSourceHeaderView(CuspTab tab, Post post, Runnable longClickAction) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, 0);
+        row.setOnLongClickListener(v -> {
+            if (longClickAction != null) {
+                longClickAction.run();
+                return true;
+            }
+            return false;
+        });
+
+        TextView title = new TextView(this);
+        String titleText = post.sourceTitle == null || post.sourceTitle.trim().isEmpty()
+                ? text("\u5143\u30b9\u30ec\u30c3\u30c9", "Source thread")
+                : post.sourceTitle.trim();
+        title.setText(titleText);
+        title.setTextColor(TEAL);
+        title.setTextSize(13);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        title.setMaxLines(2);
+        title.setIncludeFontPadding(false);
+        title.setPadding(dp(8), dp(5), dp(8), dp(5));
+        title.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
+        title.setOnClickListener(v -> openHissiSourceThread(tab, post));
+        title.setOnLongClickListener(v -> {
+            if (longClickAction != null) {
+                longClickAction.run();
+                return true;
+            }
+            return false;
+        });
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        titleParams.setMargins(0, 0, dp(6), 0);
+        row.addView(title, titleParams);
+        return row;
     }
 
     private TextView copyPasteOmittedView(ThreadPage page, Post post, View card, CuspTab tab,
@@ -6410,6 +6725,7 @@ public class MainActivity extends Activity {
             }
             restoreThreadScroll(tab);
             runPendingScrollToBottom(tab);
+            runPendingPostJump(tab);
         }
         if (pendingScrollToBottomTab != tab) {
             tab.fastRenderToBottom = false;
@@ -6813,9 +7129,10 @@ public class MainActivity extends Activity {
 
     private TextView postMetaText(Post post, ThreadPage page, Runnable longClickAction) {
         TextView meta = new TextView(this);
-        String value = post.number + "  " + post.name + "  " + post.date;
+        int displayNumber = post.sourcePostNumber > 0 ? post.sourcePostNumber : post.number;
+        String value = displayNumber + "  " + post.name + "  " + post.date;
         SpannableString text = new SpannableString(value);
-        int numberEnd = String.valueOf(post.number).length();
+        int numberEnd = String.valueOf(displayNumber).length();
         text.setSpan(new StyleSpan(Typeface.BOLD), 0, numberEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         Matcher matcher = POST_ID_PATTERN.matcher(value);
         while (matcher.find()) {
@@ -6862,6 +7179,68 @@ public class MainActivity extends Activity {
         return meta;
     }
 
+    private boolean isPostUnread(ThreadPage page, CuspTab tab, Post post) {
+        if (post == null) {
+            return false;
+        }
+        if (tab != null && NATIVE_HISSI.equals(tab.nativeKind) && hasHissiSourcePost(post)) {
+            return post.sourcePostNumber > sourceReadPostNumber(tab, post.sourceUrl);
+        }
+        return tab != null && post.number > tab.readPostNumber;
+    }
+
+    private int sourceReadPostNumber(CuspTab tab, String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return 0;
+        }
+        int read = 0;
+        if (!isPrivateTab(tab) && readHistoryEnabled()) {
+            read = Math.max(read, readPostNumber(preferences, url));
+            try {
+                JSONObject object = new JSONObject(preferences.getString(PREF_READ_POSTS, "{}"));
+                Iterator<String> keys = object.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    if (sameThreadIdentity(key, url)) {
+                        read = Math.max(read, object.optInt(key, 0));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        for (CuspTab item : tabs) {
+            if (item != null && NATIVE_THREAD.equals(item.nativeKind)
+                    && sameThreadIdentity(threadUrl(item), url)) {
+                read = Math.max(read, item.readPostNumber);
+            }
+        }
+        return read;
+    }
+
+    private boolean sameThreadIdentity(String left, String right) {
+        if (left == null || left.trim().isEmpty() || right == null || right.trim().isEmpty()) {
+            return false;
+        }
+        if (sameSavedUrl(left, right)) {
+            return true;
+        }
+        DatAddress leftAddress = datAddress(left);
+        DatAddress rightAddress = datAddress(right);
+        return leftAddress != null && rightAddress != null
+                && TextUtils.equals(leftAddress.board, rightAddress.board)
+                && TextUtils.equals(leftAddress.key, rightAddress.key)
+                && (TextUtils.equals(leftAddress.server, rightAddress.server)
+                || TextUtils.equals(leftAddress.host, rightAddress.host)
+                || isSameBbsHostFamily(leftAddress.host, rightAddress.host));
+    }
+
+    private boolean hasHissiSourcePost(Post post) {
+        return post != null
+                && post.sourceUrl != null
+                && !post.sourceUrl.trim().isEmpty()
+                && post.sourcePostNumber > 0;
+    }
+
     private void installPostIdTouchTracking(TextView text) {
         text.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -6899,7 +7278,13 @@ public class MainActivity extends Activity {
                 String segment = spanned.subSequence(start, end).toString();
                 Matcher matcher = POST_ID_PATTERN.matcher(segment);
                 if (matcher.find()) {
-                    return new TouchedPostId(matcher.group(1), (int) event.getRawX(), (int) event.getRawY());
+                    int[] location = new int[2];
+                    text.getLocationOnScreen(location);
+                    int rawX = location[0] + text.getTotalPaddingLeft() - text.getScrollX()
+                            + (int) layout.getPrimaryHorizontal(start);
+                    int rawY = location[1] + text.getTotalPaddingTop() - text.getScrollY()
+                            + layout.getLineBottom(line);
+                    return new TouchedPostId(matcher.group(1), rawX, rawY);
                 }
             }
         }
@@ -6954,9 +7339,9 @@ public class MainActivity extends Activity {
         });
         menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int x = Math.max(0, Math.min(touched.rawX - dp(18),
+        int x = Math.max(0, Math.min(touched.rawX,
                 getResources().getDisplayMetrics().widthPixels - menu.getMeasuredWidth()));
-        int y = touched.rawY + dp(18);
+        int y = touched.rawY + dp(2);
         popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
         animatePopupIn(popup, false);
     }
@@ -7057,7 +7442,7 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(postBackground(tab != null && post.number > tab.readPostNumber,
+        card.setBackground(postBackground(isPostUnread(tab == null ? null : tab.threadPage, tab, post),
                 isMyPost(tab == null ? null : tab.threadPage, post)));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -15122,7 +15507,7 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setTag(R.id.tag_post_card, true);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        Drawable background = postBackground(tab != null && post.number > tab.readPostNumber, isMyPost(page, post));
+        Drawable background = postBackground(isPostUnread(page, tab, post), isMyPost(page, post));
         card.setBackground(showFrame ? framedPostBackground(background) : background);
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
@@ -15581,6 +15966,77 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void openHissiSourcePost(CuspTab sourceTab, Post post) {
+        if (!hasHissiSourcePost(post)) {
+            Toast.makeText(this, text("\u5143\u306e\u66f8\u304d\u8fbc\u307f\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Source post not found."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String url = post.sourceUrl;
+        int postNumber = post.sourcePostNumber;
+        CuspTab existing = normalThreadTab(url);
+        if (existing != null) {
+            existing.pendingJumpPostNumber = postNumber;
+            switchToTab(tabs.indexOf(existing));
+            if (existing.threadPage == null || existing.threadPage.posts.isEmpty()) {
+                openInTab(existing, url, false);
+            } else {
+                runPendingPostJump(existing);
+            }
+            return;
+        }
+        createTabForSourcePost(url, postNumber, tabs.indexOf(sourceTab), isPrivateTab(sourceTab));
+    }
+
+    private void openHissiSourceThread(CuspTab sourceTab, Post post) {
+        if (post == null || post.sourceUrl == null || post.sourceUrl.trim().isEmpty()) {
+            Toast.makeText(this, text("\u5143\u30b9\u30ec\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Source thread not found."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String url = post.sourceUrl;
+        CuspTab existing = normalThreadTab(url);
+        if (existing != null) {
+            switchToTab(tabs.indexOf(existing));
+            if (existing.threadPage == null || existing.threadPage.posts.isEmpty()) {
+                openInTab(existing, url, false);
+            }
+            return;
+        }
+        createTabForSourcePost(url, 0, tabs.indexOf(sourceTab), isPrivateTab(sourceTab));
+    }
+
+    private void createTabForSourcePost(String url, int postNumber, int returnToIndex, boolean privateBrowsing) {
+        CuspTab tab = new CuspTab();
+        tab.title = text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        tab.url = "";
+        tab.returnToIndex = returnToIndex;
+        tab.privateBrowsing = privateBrowsing;
+        tab.pendingJumpPostNumber = postNumber;
+        tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        tabs.add(tab);
+        switchToTab(tabs.size() - 1);
+        openInCurrentTab(url);
+        renderTabs();
+    }
+
+    private CuspTab normalThreadTab(String url) {
+        for (CuspTab tab : tabs) {
+            if (tab != null && !isBookmarkTabScope(tab) && NATIVE_THREAD.equals(tab.nativeKind)
+                    && sameThreadIdentity(threadUrl(tab), url)) {
+                return tab;
+            }
+        }
+        return null;
+    }
+
+    private void runPendingPostJump(CuspTab tab) {
+        if (tab == null || tab != currentTab() || tab.pendingJumpPostNumber <= 0) {
+            return;
+        }
+        int postNumber = tab.pendingJumpPostNumber;
+        tab.pendingJumpPostNumber = 0;
+        mainHandler.postDelayed(() -> jumpToPost(postNumber), 80);
+    }
+
     private View renderPostForJump(int number) {
         return renderPostForJump(currentTab(), number);
     }
@@ -15629,7 +16085,7 @@ public class MainActivity extends Activity {
         if (tab != null && tab.threadPage != null) {
             for (Post post : tab.threadPage.posts) {
                 if (tab.postViews != null && tab.postViews.get(post.number) == target) {
-                    unread = post.number > tab.readPostNumber;
+                    unread = isPostUnread(tab.threadPage, tab, post);
                     break;
                 }
             }
@@ -21326,7 +21782,7 @@ public class MainActivity extends Activity {
         for (Post post : tab.threadPage.posts) {
             View card = tab.postViews.get(post.number);
             if (card != null) {
-                card.setBackground(postBackground(post.number > tab.readPostNumber, isMyPost(tab.threadPage, post)));
+                card.setBackground(postBackground(isPostUnread(tab.threadPage, tab, post), isMyPost(tab.threadPage, post)));
             }
         }
         updateUnreadScrollMarkers(tab);
@@ -22581,6 +23037,7 @@ public class MainActivity extends Activity {
         Set<Integer> threadSearchHighlightedPosts = new LinkedHashSet<>();
         int threadSearchGeneration;
         int threadSearchIndex = -1;
+        int pendingJumpPostNumber;
         int returnToIndex = -1;
         boolean backToNewTab;
         boolean privateBrowsing;
@@ -22904,6 +23361,7 @@ public class MainActivity extends Activity {
         String url;
         String title;
         String error;
+        String hissiSummary;
         String datUrl;
         long datByteLength;
         int newPostCount;
@@ -23300,6 +23758,9 @@ public class MainActivity extends Activity {
         String date;
         String body;
         String cachedSearchBody;
+        String sourceTitle;
+        String sourceUrl;
+        int sourcePostNumber;
         List<ImgurLink> cachedImgurLinks;
         String cachedId;
         String cachedBe;
