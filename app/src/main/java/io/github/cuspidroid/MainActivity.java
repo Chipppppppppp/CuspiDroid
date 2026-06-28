@@ -15398,11 +15398,8 @@ public class MainActivity extends Activity {
                 + (jumpEachPost ? popupFrameInset * 2 : popupRootGap * 2);
         boolean hasDeferredPopupPosts = incremental && initialCount < targets.size();
         int maxHeight = hasDeferredPopupPosts
-                ? fullHeightFromTop
+                ? Math.min(fullHeightFromTop, Math.max(availableAbove, desiredHeight))
                 : Math.min(fullHeightFromTop, Math.max(availableAbove, desiredHeight));
-        if (hasDeferredPopupPosts) {
-            desiredHeight = Math.max(desiredHeight, maxHeight);
-        }
         boolean popupScrollable = hasDeferredPopupPosts || desiredHeight > maxHeight;
         int popupHeight = Math.max(dp(40), Math.min(desiredHeight, maxHeight));
         popupScroll.setVerticalScrollBarEnabled(popupScrollable);
@@ -15421,9 +15418,11 @@ public class MainActivity extends Activity {
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
         animatePopupIn(popup, true);
         if (initialCount < targets.size()) {
+            int popupX = x;
+            int popupBottom = y + popupHeight;
             mainHandler.postDelayed(() -> appendPopupPostsChunk(popup, popupPosts, page, targets,
                     jumpEachPost, showPostFrame, initialCount, generation,
-                    jumpEachPost, popupFrameInset, maxHeight), 16);
+                    jumpEachPost, popupFrameInset, maxHeight, popupX, popupBottom, minPopupY), 16);
         }
         mainHandler.postDelayed(() -> {
             if (generation == postPopupGeneration) {
@@ -15471,22 +15470,26 @@ public class MainActivity extends Activity {
     private void appendPopupPostsChunk(PopupWindow popup, LinearLayout popupPosts, ThreadPage page,
                                        List<Post> targets, boolean jumpEachPost, boolean showPostFrame,
                                        int start, int generation, boolean shrinkToContent,
-                                       int contentInset, int maxHeight) {
+                                       int contentInset, int maxHeight, int popupX, int popupBottom, int minPopupY) {
         if (popup == null || !popup.isShowing() || popupPosts == null
                 || targets == null || generation != postPopupGeneration) {
             return;
         }
         int end = Math.min(targets.size(), start + POPUP_RENDER_CHUNK_SIZE);
         addPopupPosts(popupPosts, page, targets, jumpEachPost, showPostFrame, start, end);
+        if (shrinkToContent) {
+            popupPosts.post(() -> resizePopupToContent(popup, popupPosts, contentInset,
+                    maxHeight, popupX, popupBottom, minPopupY));
+        }
         if (end < targets.size()) {
             mainHandler.postDelayed(() -> appendPopupPostsChunk(popup, popupPosts, page, targets,
-                    jumpEachPost, showPostFrame, end, generation, shrinkToContent, contentInset, maxHeight), 16);
-        } else if (shrinkToContent) {
-            popupPosts.post(() -> shrinkPopupToContent(popup, popupPosts, contentInset, maxHeight));
+                    jumpEachPost, showPostFrame, end, generation, shrinkToContent, contentInset,
+                    maxHeight, popupX, popupBottom, minPopupY), 16);
         }
     }
 
-    private void shrinkPopupToContent(PopupWindow popup, LinearLayout popupPosts, int contentInset, int maxHeight) {
+    private void resizePopupToContent(PopupWindow popup, LinearLayout popupPosts, int contentInset,
+                                      int maxHeight, int popupX, int popupBottom, int minPopupY) {
         if (popup == null || !popup.isShowing() || popupPosts == null) {
             return;
         }
@@ -15498,10 +15501,10 @@ public class MainActivity extends Activity {
                 View.MeasureSpec.makeMeasureSpec(contentWidth, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int desiredHeight = popupPosts.getMeasuredHeight() + contentInset * 2;
-        int currentHeight = popup.getHeight();
-        int newHeight = Math.max(dp(40), Math.min(desiredHeight, maxHeight));
-        if (newHeight > 0 && currentHeight > newHeight) {
-            popup.update(popup.getWidth(), newHeight);
+        int availableHeight = Math.max(dp(40), popupBottom - minPopupY);
+        int newHeight = Math.max(dp(40), Math.min(desiredHeight, Math.min(maxHeight, availableHeight)));
+        if (newHeight > 0 && popup.getHeight() != newHeight) {
+            popup.update(popupX, popupBottom - newHeight, popup.getWidth(), newHeight);
         }
     }
 
