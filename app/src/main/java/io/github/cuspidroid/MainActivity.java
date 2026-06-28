@@ -1271,7 +1271,9 @@ public class MainActivity extends Activity {
                 return;
             }
             addressBar.requestFocus();
-            focusAddressBarText();
+            if (!addressFocusedOnDown) {
+                focusAddressBarText();
+            }
             showKeyboardSoon();
         });
         addressBar.setOnFocusChangeListener((v, hasFocus) -> {
