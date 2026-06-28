@@ -17624,33 +17624,57 @@ public class MainActivity extends Activity {
 
     private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie) throws Exception {
         byte[] body = payload.getBytes(POST_CHARSET);
-        HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
-        connection.setConnectTimeout(12000);
-        connection.setReadTimeout(18000);
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        connection.setInstanceFollowRedirects(false);
-        connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
-        connection.setRequestProperty("Referer", referer);
-        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-        connection.setRequestProperty("Content-Length", String.valueOf(body.length));
-        applyCookies(connection, endpoint, cookie);
-        try (OutputStream stream = connection.getOutputStream()) {
-            stream.write(body);
+        String current = endpoint;
+        List<String> allCookies = new ArrayList<>();
+        for (int redirect = 0; redirect < 8; redirect++) {
+            HttpURLConnection connection = (HttpURLConnection) new URL(current).openConnection();
+            connection.setConnectTimeout(12000);
+            connection.setReadTimeout(18000);
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
+            connection.setRequestProperty("Referer", referer);
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            connection.setRequestProperty("Content-Length", String.valueOf(body.length));
+            applyCookies(connection, current, cookie);
+            try (OutputStream stream = connection.getOutputStream()) {
+                stream.write(body);
+            }
+            int code = connection.getResponseCode();
+            List<String> cookies = connection.getHeaderFields().get("Set-Cookie");
+            if (cookies != null) {
+                allCookies.addAll(cookies);
+            }
+            storeCookies(current, cookies);
+            if (isPostRedirectStatus(code)) {
+                String location = connection.getHeaderField("Location");
+                connection.disconnect();
+                if (location == null || location.trim().isEmpty()) {
+                    throw new IllegalStateException("Redirect without Location");
+                }
+                current = new URL(new URL(current), location).toString();
+                continue;
+            }
+            InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            String response = stream == null ? "" : readText(stream, responseCharset(connection));
+            connection.disconnect();
+            if (code >= 400) {
+                throw new IllegalStateException("HTTP " + code + "\n" + cleanText(response));
+            }
+            PostResult result = new PostResult();
+            result.body = response;
+            result.cookies = allCookies;
+            return result;
         }
-        int code = connection.getResponseCode();
-        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        String response = stream == null ? "" : readText(stream, responseCharset(connection));
-        List<String> cookies = connection.getHeaderFields().get("Set-Cookie");
-        storeCookies(endpoint, cookies);
-        connection.disconnect();
-        if (code >= 400) {
-            throw new IllegalStateException("HTTP " + code + "\n" + cleanText(response));
-        }
-        PostResult result = new PostResult();
-        result.body = response;
-        result.cookies = cookies == null ? new ArrayList<>() : cookies;
-        return result;
+        throw new IllegalStateException("Too many redirects");
+    }
+
+    private boolean isPostRedirectStatus(int code) {
+        return code == HttpURLConnection.HTTP_MOVED_PERM
+                || code == HttpURLConnection.HTTP_MOVED_TEMP
+                || code == 307
+                || code == 308;
     }
 
     private String cookieHeader(List<String> cookies) {
