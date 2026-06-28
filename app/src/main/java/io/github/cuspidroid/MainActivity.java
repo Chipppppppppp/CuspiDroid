@@ -53,6 +53,7 @@ import android.text.style.StyleSpan;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
+import android.util.Base64;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -305,6 +306,7 @@ public class MainActivity extends Activity {
     private static final String FULL_TEXT_SEARCH_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     private static final String NATIVE_THREAD = "thread";
+    private static final String NATIVE_HISSI = "hissi";
     private static final String NATIVE_SEARCH = "search";
     private static final String NATIVE_SEARCH_HOME = "search_home";
     private static final String NATIVE_BOARD = "board";
@@ -318,6 +320,11 @@ public class MainActivity extends Activity {
     private static final int TEXT = Color.rgb(31, 41, 55);
     private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?[;:]//|ttps?[;:]//|ttp[;:]//)\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
+    private static final Pattern HISSI_DATE_PATTERN = Pattern.compile("(20\\d{2})[./\\-](\\d{1,2})[./\\-](\\d{1,2})|(20\\d{2})年(\\d{1,2})月(\\d{1,2})日");
+    private static final Pattern HISSI_POST_PATTERN = Pattern.compile("<dt>(.*?)<dd>(.*?)(?=</dl>)",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern HREF_PATTERN = Pattern.compile("<a\\b[^>]*\\bhref\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2015\\u2212\\uff0d~\\uff5e]\\s*(\\d{1,5}))?");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
     private static final int REQUEST_IMGBB_IMAGE = 42;
@@ -3002,7 +3009,7 @@ public class MainActivity extends Activity {
                 restoreNavigationHistory(tab, item);
                 tab.readerMode = tab.nativeKind != null || url.isEmpty();
                 tab.readerView = loadingView("");
-                if (NATIVE_THREAD.equals(tab.nativeKind)) {
+                if (isThreadPageNativeKind(tab.nativeKind)) {
                     tab.savedThreadPageJson = item.optJSONObject("threadPage");
                 } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
                     tab.savedSearchPageJson = item.optJSONObject("searchPage");
@@ -3056,15 +3063,19 @@ public class MainActivity extends Activity {
         int i = order.get(position);
         if (i >= 0 && i < tabs.size()) {
             CuspTab tab = tabs.get(i);
-            if (NATIVE_THREAD.equals(tab.nativeKind)) {
+            if (isThreadPageNativeKind(tab.nativeKind)) {
                 if (tab.savedThreadPageJson != null) {
                     tab.threadPage = threadPageFromJson(tab.savedThreadPageJson);
                     tab.savedThreadPageJson = null;
                 }
                 if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                     tab.readerMode = true;
-                    tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
-                    updateTabThreadStats(tab, tab.threadPage);
+                    if (NATIVE_THREAD.equals(tab.nativeKind)) {
+                        tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
+                        updateTabThreadStats(tab, tab.threadPage);
+                    } else {
+                        tab.readPostNumber = 0;
+                    }
                     if (i == currentIndex) {
                         tab.postViews = new LinkedHashMap<>();
                         tab.readerView = buildThreadView(tab.threadPage, tab);
@@ -3108,7 +3119,7 @@ public class MainActivity extends Activity {
             }
             if (i == currentIndex && !tabOverviewVisible && !pendingNewTab) {
                 switchToTab(i);
-                if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+                if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                     restoreThreadScroll(tab);
                 }
             }
@@ -3174,7 +3185,7 @@ public class MainActivity extends Activity {
                     history.put(historyUrl);
                 }
                 item.put("navigationHistory", history);
-                if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
+                if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
                     item.put("threadPage", threadPageToJson(tab.threadPage));
                 } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
                         && tab.searchPage != null && tab.searchPage.error == null) {
@@ -3621,14 +3632,14 @@ public class MainActivity extends Activity {
                 oldParent.removeView(tab.readerView);
             }
             contentFrame.addView(tab.readerView);
-            if (NATIVE_THREAD.equals(tab.nativeKind)) {
+            if (isThreadPageNativeKind(tab.nativeKind)) {
                 visibleThreadPage = tab.threadPage;
                 visibleThreadScroll = tab.threadScroll;
             }
-            if (NATIVE_THREAD.equals(tab.nativeKind) && tab.postViews != null) {
+            if (isThreadPageNativeKind(tab.nativeKind) && tab.postViews != null) {
                 visiblePostViews.putAll(tab.postViews);
             }
-            if (NATIVE_THREAD.equals(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
+            if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                 if (shouldRestoreThreadScroll(tab)) {
                     tab.readerView.setVisibility(View.INVISIBLE);
                 }
@@ -3720,12 +3731,13 @@ public class MainActivity extends Activity {
         if (tab == null) {
             return null;
         }
-        if (NATIVE_THREAD.equals(tab.nativeKind)) {
+        if (isThreadPageNativeKind(tab.nativeKind)) {
             if (tab.savedThreadPageJson != null) {
                 tab.threadPage = threadPageFromJson(tab.savedThreadPageJson);
                 tab.savedThreadPageJson = null;
             }
-            if ((tab.threadPage == null || tab.threadPage.posts.isEmpty())
+            if (NATIVE_THREAD.equals(tab.nativeKind)
+                    && (tab.threadPage == null || tab.threadPage.posts.isEmpty())
                     && tab.url != null && !tab.url.isEmpty()) {
                 ThreadPage cached = readCachedThreadPage(tab.url);
                 if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
@@ -3734,8 +3746,12 @@ public class MainActivity extends Activity {
             }
             if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
                 tab.readerMode = true;
-                tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
-                updateTabThreadStats(tab, tab.threadPage);
+                if (NATIVE_THREAD.equals(tab.nativeKind)) {
+                    tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
+                    updateTabThreadStats(tab, tab.threadPage);
+                } else {
+                    tab.readPostNumber = 0;
+                }
                 tab.postViews = new LinkedHashMap<>();
                 return buildThreadView(tab.threadPage, tab);
             }
@@ -4461,6 +4477,13 @@ public class MainActivity extends Activity {
             loadFullTextSearchResults(tab, url);
             return;
         }
+        if (isHissiCheckerUrl(url)) {
+            if (addHistory) {
+                recordNavigation(tab, url);
+            }
+            loadHissiChecker(tab, url);
+            return;
+        }
         if (isFindSearchUrl(url)) {
             if (addHistory) {
                 recordNavigation(tab, url);
@@ -4530,6 +4553,10 @@ public class MainActivity extends Activity {
         return tab != null && tab.tabScope != TabScope.BOOKMARK;
     }
 
+    private boolean isThreadPageNativeKind(String nativeKind) {
+        return NATIVE_THREAD.equals(nativeKind) || NATIVE_HISSI.equals(nativeKind);
+    }
+
     private String bookmarkTabFolder(CuspTab tab) {
         return normalizeSavedFolder(tab == null ? "" : tab.bookmarkOverviewFolder);
     }
@@ -4548,6 +4575,22 @@ public class MainActivity extends Activity {
 
     private boolean isInternalPageUrl(String url) {
         return url != null && url.startsWith(INTERNAL_URL_PREFIX);
+    }
+
+    private boolean isHissiCheckerUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null) {
+                return false;
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            return (lowerHost.equals("hissi.org") || lowerHost.equals("www.hissi.org"))
+                    && path.matches("/read\\.php/[^/]+/\\d{8}/[^/]+\\.html");
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private String savedPageUrl(String key) {
@@ -4818,6 +4861,133 @@ public class MainActivity extends Activity {
                 renderTabs();
             });
         });
+    }
+
+    private void loadHissiChecker(CuspTab tab, String url) {
+        if (tab == null) {
+            return;
+        }
+        final String loadUrl = normalizeUrl(url);
+        rememberThreadScroll(tab);
+        prepareChromeForLoading();
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_HISSI;
+        tab.url = loadUrl;
+        tab.title = text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc", "Hissi Checker");
+        tab.searchPage = null;
+        tab.threadPage = null;
+        tab.postViews = null;
+        tab.readerView = loadingView("");
+        switchToTab(tabs.indexOf(tab));
+        progressBar.setVisibility(View.VISIBLE);
+        ioExecutor.execute(() -> {
+            ThreadPage page;
+            try {
+                page = parseHissiCheckerPage(loadUrl, download(loadUrl));
+            } catch (Exception error) {
+                page = ThreadPage.error(loadUrl, error.getMessage());
+            }
+            ThreadPage result = page;
+            runOnUiThread(() -> {
+                if (!loadUrl.equals(tab.url) || !NATIVE_HISSI.equals(tab.nativeKind)) {
+                    if (tab == currentTab()) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
+                tab.title = result.title;
+                tab.threadPage = result;
+                tab.readPostNumber = 0;
+                tab.postViews = new LinkedHashMap<>();
+                tab.readerView = buildThreadView(result, tab);
+                if (result.error != null || result.posts.isEmpty()) {
+                    progressBar.setVisibility(View.GONE);
+                }
+                if (tab == currentTab() && !tabOverviewVisible) {
+                    switchToTab(currentIndex);
+                    restoreThreadScroll(tab);
+                }
+                renderTabs();
+            });
+        });
+    }
+
+    private ThreadPage parseHissiCheckerPage(String url, String html) {
+        ThreadPage page = new ThreadPage();
+        page.url = url;
+        page.title = cleanText(valueOr(firstMatch(html == null ? "" : html, "<title[^>]*>(.*?)</title>"),
+                text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc", "Hissi Checker")));
+        Matcher matcher = HISSI_POST_PATTERN.matcher(html == null ? "" : html);
+        while (matcher.find()) {
+            String header = matcher.group(1);
+            String bodyHtml = matcher.group(2);
+            String threadTitle = cleanText(valueOr(firstMatch(header, "<a[^>]*>(.*?)</a>"), ""));
+            String sourceUrl = absolutizeUrl(url, firstHref(header));
+            String plainHeader = cleanText(header);
+            if (!threadTitle.isEmpty()) {
+                plainHeader = plainHeader.replace(threadTitle, "").trim();
+            }
+            String sourceNumber = valueOr(firstMatch(plainHeader, "^(\\d+)\\s*[\\uFF1A:]"), "");
+            String name = valueOr(firstMatch(header, "<b[^>]*>(.*?)</b>"), "anonymous");
+            String meta = plainHeader.replaceFirst("^\\d+\\s*[\\uFF1A:]\\s*", "").trim();
+            if (!name.isEmpty()) {
+                meta = meta.replaceFirst(Pattern.quote(name), "").trim();
+            }
+            if (!sourceNumber.isEmpty()) {
+                meta = ">>" + sourceNumber + (meta.isEmpty() ? "" : "  " + meta);
+            }
+            String body = cleanText(bodyHtml);
+            StringBuilder bodyBuilder = new StringBuilder();
+            if (!threadTitle.isEmpty()) {
+                bodyBuilder.append("\u3010").append(threadTitle).append("\u3011");
+            }
+            if (!sourceUrl.isEmpty()) {
+                if (bodyBuilder.length() > 0) {
+                    bodyBuilder.append('\n');
+                }
+                bodyBuilder.append(sourceUrl);
+            }
+            if (!body.isEmpty()) {
+                if (bodyBuilder.length() > 0) {
+                    bodyBuilder.append("\n\n");
+                }
+                bodyBuilder.append(body);
+            }
+            Post post = new Post();
+            post.number = page.posts.size() + 1;
+            post.name = name;
+            post.date = meta;
+            post.body = bodyBuilder.toString();
+            post.cachedLikelyAa = likelyAaPost(post.body);
+            page.posts.add(post);
+            page.postsByNumber.put(post.number, post);
+        }
+        return page;
+    }
+
+    private String firstHref(String html) {
+        Matcher matcher = HREF_PATTERN.matcher(html == null ? "" : html);
+        if (!matcher.find()) {
+            return "";
+        }
+        for (int i = 1; i <= 3; i++) {
+            String value = matcher.group(i);
+            if (value != null && !value.trim().isEmpty()) {
+                return cleanText(value);
+            }
+        }
+        return "";
+    }
+
+    private String absolutizeUrl(String base, String href) {
+        if (href == null || href.trim().isEmpty()) {
+            return "";
+        }
+        try {
+            return new URL(new URL(base), href.trim()).toString();
+        } catch (Exception ignored) {
+            return normalizeUrl(href);
+        }
     }
 
     private boolean sameRenderedThread(ThreadPage a, ThreadPage b) {
@@ -6013,21 +6183,28 @@ public class MainActivity extends Activity {
         if (page.posts.isEmpty()) {
             list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
         }
-        FrameLayout bottomLoader = bottomRefreshLoader();
-        bottomLoader.setVisibility(View.GONE);
-        bottomLoader.setTranslationY(dp(58));
-        tab.threadBottomLoader = bottomLoader;
+        FrameLayout bottomLoader = null;
+        if (tab != null && NATIVE_THREAD.equals(tab.nativeKind)) {
+            bottomLoader = bottomRefreshLoader();
+            bottomLoader.setVisibility(View.GONE);
+            bottomLoader.setTranslationY(dp(58));
+            tab.threadBottomLoader = bottomLoader;
 
-        enableBottomPullRefresh(scroll, bottomLoader, () -> {
-            refreshThreadFromBottom(tab);
-        });
+            enableBottomPullRefresh(scroll, bottomLoader, () -> {
+                refreshThreadFromBottom(tab);
+            });
+        } else if (tab != null) {
+            tab.threadBottomLoader = null;
+        }
         FrameLayout frame = new FrameLayout(this);
         frame.addView(withScrollScrubber(scroll, tab), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(66), dp(66),
-                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        loaderParams.setMargins(0, 0, 0, dp(2));
-        frame.addView(bottomLoader, loaderParams);
+        if (bottomLoader != null) {
+            FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(66), dp(66),
+                    Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            loaderParams.setMargins(0, 0, 0, dp(2));
+            frame.addView(bottomLoader, loaderParams);
+        }
         return frame;
     }
 
@@ -6064,6 +6241,7 @@ public class MainActivity extends Activity {
         ImageView replyAction = swipeActionIcon(R.drawable.ic_reply, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         shell.addView(readAction);
         shell.addView(replyAction);
+        boolean allowSwipeActions = tab == null || NATIVE_THREAD.equals(tab.nativeKind);
         boolean showTreeConnector = treeViewEnabled() && (depth > 0 || item.hasReplies);
 
         LinearLayout card = new LinearLayout(this);
@@ -6079,7 +6257,9 @@ public class MainActivity extends Activity {
             showPostActionMenu(card, tab, post);
             return true;
         });
-        attachPostSwipe(card, card, readAction, replyAction, tab, post);
+        if (allowSwipeActions) {
+            attachPostSwipe(card, card, readAction, replyAction, tab, post);
+        }
         int indentLeft = dp(Math.min(depth, 8) * 18);
         if (indentLeft > 0 && readAction.getLayoutParams() instanceof FrameLayout.LayoutParams) {
             FrameLayout.LayoutParams readActionParams = (FrameLayout.LayoutParams) readAction.getLayoutParams();
@@ -6094,7 +6274,9 @@ public class MainActivity extends Activity {
             TextView omitted = copyPasteOmittedView(page, post, card, tab, readAction, replyAction);
             card.addView(omitted, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
-            attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
+            if (allowSwipeActions) {
+                attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
+            }
             if (showTreeConnector) {
                 shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
                         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -6115,8 +6297,10 @@ public class MainActivity extends Activity {
         View bodyView = postBodyView(card, page, tab, post, depth);
         card.addView(bodyView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
-        attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
+        if (allowSwipeActions) {
+            attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
+            attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
+        }
         if (showTreeConnector) {
             shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
                     new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -6441,14 +6625,16 @@ public class MainActivity extends Activity {
         final boolean[] horizontalIntent = new boolean[1];
         final Map<View, Boolean> longClickStates = new LinkedHashMap<>();
         trigger.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN && v instanceof TextView) {
+                TextView textView = (TextView) v;
+                String url = touchedUrl(textView, event);
+                v.setTag(url == null ? null : new TouchedLink(url, (int) event.getRawX(), (int) event.getRawY()));
+                textView.setTag(R.id.tag_touched_post_id, touchedPostId(textView, event));
+            }
             if (gesturesEnabled()) {
                 return false;
             }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                if (v instanceof TextView) {
-                    String url = touchedUrl((TextView) v, event);
-                    v.setTag(url == null ? null : new TouchedLink(url, (int) event.getRawX(), (int) event.getRawY()));
-                }
                 downX[0] = event.getRawX();
                 downY[0] = event.getRawY();
                 dragging[0] = false;
@@ -6476,6 +6662,7 @@ public class MainActivity extends Activity {
                     requestDisallowInterceptDeep(v, true);
                     if (v instanceof TextView) {
                         v.setTag(null);
+                        v.setTag(R.id.tag_touched_post_id, null);
                     }
                 }
                 if (!dragging[0] && horizontalIntent[0] && Math.abs(dx) > dp(6)) {
@@ -6495,6 +6682,7 @@ public class MainActivity extends Activity {
             if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
                 if (event.getAction() == MotionEvent.ACTION_CANCEL && v instanceof TextView) {
                     v.setTag(null);
+                    v.setTag(R.id.tag_touched_post_id, null);
                 }
                 if (dragging[0]) {
                     float tx = card.getTranslationX();
@@ -6658,9 +6846,13 @@ public class MainActivity extends Activity {
         meta.setTextSize(12);
         meta.setPadding(0, 0, 0, dp(5));
         meta.setMovementMethod(LinkMovementMethod.getInstance());
+        installPostIdTouchTracking(meta);
         meta.setOnLongClickListener(v -> {
             suppressNextLinkClick.add(v);
             mainHandler.postDelayed(() -> suppressNextLinkClick.remove(v), 1200);
+            if (showPostIdMenuIfAny(meta, page, post)) {
+                return true;
+            }
             if (longClickAction != null) {
                 longClickAction.run();
                 return true;
@@ -6668,6 +6860,168 @@ public class MainActivity extends Activity {
             return false;
         });
         return meta;
+    }
+
+    private void installPostIdTouchTracking(TextView text) {
+        text.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                text.setTag(R.id.tag_touched_post_id, touchedPostId(text, event));
+            } else if (event.getAction() == MotionEvent.ACTION_UP
+                    || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                text.setTag(R.id.tag_touched_post_id, null);
+            }
+            return false;
+        });
+    }
+
+    private TouchedPostId touchedPostId(TextView text, MotionEvent event) {
+        CharSequence value = text.getText();
+        if (!(value instanceof Spanned)) {
+            return null;
+        }
+        Layout layout = text.getLayout();
+        if (layout == null) {
+            return null;
+        }
+        int x = (int) event.getX() - text.getTotalPaddingLeft() + text.getScrollX();
+        int y = (int) event.getY() - text.getTotalPaddingTop() + text.getScrollY();
+        if (y < 0 || y > layout.getHeight()) {
+            return null;
+        }
+        int line = layout.getLineForVertical(y);
+        int offset = layout.getOffsetForHorizontal(line, x);
+        Spanned spanned = (Spanned) value;
+        ClickableSpan[] spans = spanned.getSpans(offset, offset, ClickableSpan.class);
+        for (ClickableSpan span : spans) {
+            int start = spanned.getSpanStart(span);
+            int end = spanned.getSpanEnd(span);
+            if (start <= offset && end > offset) {
+                String segment = spanned.subSequence(start, end).toString();
+                Matcher matcher = POST_ID_PATTERN.matcher(segment);
+                if (matcher.find()) {
+                    return new TouchedPostId(matcher.group(1), (int) event.getRawX(), (int) event.getRawY());
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean showPostIdMenuIfAny(TextView anchor, ThreadPage page, Post post) {
+        Object tag = anchor.getTag(R.id.tag_touched_post_id);
+        if (!(tag instanceof TouchedPostId) || ((TouchedPostId) tag).id.isEmpty()) {
+            return false;
+        }
+        suppressNextLinkClick.add(anchor);
+        mainHandler.postDelayed(() -> suppressNextLinkClick.remove(anchor), 1400);
+        showPostIdActionMenu(anchor, page, post, (TouchedPostId) tag);
+        return true;
+    }
+
+    private void showPostIdActionMenu(View anchor, ThreadPage page, Post post, TouchedPostId touched) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+
+        TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
+        });
+        copy.setGravity(Gravity.CENTER_VERTICAL);
+        copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
+        copy.setCompoundDrawablePadding(dp(6));
+        menu.addView(copy, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView hissi = menuItem(text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc", "Hissi Checker"), v -> {
+        });
+        hissi.setGravity(Gravity.CENTER_VERTICAL);
+        hissi.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
+        hissi.setCompoundDrawablePadding(dp(6));
+        menu.addView(hissi, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+        copy.setOnClickListener(v -> {
+            copyPostId(touched.id);
+            dismissPopupAnimated(popup);
+        });
+        hissi.setOnClickListener(v -> {
+            openHissiChecker(page, post, touched.id);
+            dismissPopupAnimated(popup);
+        });
+        menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int x = Math.max(0, Math.min(touched.rawX - dp(18),
+                getResources().getDisplayMetrics().widthPixels - menu.getMeasuredWidth()));
+        int y = touched.rawY + dp(18);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, false);
+    }
+
+    private void copyPostId(String id) {
+        copyTextToClipboard("CuspiDroid ID", id, text("ID\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "ID copied."));
+    }
+
+    private void openHissiChecker(ThreadPage page, Post post, String id) {
+        String url = hissiCheckerUrl(page, post, id);
+        if (url.isEmpty()) {
+            Toast.makeText(this, text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc\u306eURL\u3092\u4f5c\u6210\u3067\u304d\u307e\u305b\u3093", "Could not create Hissi Checker URL."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        CuspTab current = currentTab();
+        createTab(url, true, tabs.indexOf(current), false, isPrivateTab(current));
+    }
+
+    private String hissiCheckerUrl(ThreadPage page, Post post, String id) {
+        String board = hissiBoardName(page);
+        String date = hissiDate(page, post);
+        if (board.isEmpty() || date.isEmpty() || id == null || id.isEmpty()) {
+            return "";
+        }
+        String encodedId = Base64.encodeToString(id.getBytes(POST_CHARSET), Base64.NO_WRAP)
+                .replaceAll("=+$", "");
+        return "http://hissi.org/read.php/" + board + "/" + date + "/" + encodedId + ".html";
+    }
+
+    private String hissiBoardName(ThreadPage page) {
+        String url = page == null ? "" : page.url;
+        if (isHissiCheckerUrl(url)) {
+            List<String> segments = Uri.parse(normalizeUrl(url)).getPathSegments();
+            if (segments.size() >= 3) {
+                return segments.get(1);
+            }
+        }
+        DatAddress address = datAddress(url);
+        if (address != null && address.board != null) {
+            return address.board;
+        }
+        String board = boardNameFromUrl(url);
+        return board == null ? "" : board;
+    }
+
+    private String hissiDate(ThreadPage page, Post post) {
+        String value = post == null ? "" : post.date;
+        Matcher matcher = HISSI_DATE_PATTERN.matcher(value == null ? "" : value);
+        if (matcher.find()) {
+            String year = matcher.group(1) != null ? matcher.group(1) : matcher.group(4);
+            String month = matcher.group(2) != null ? matcher.group(2) : matcher.group(5);
+            String day = matcher.group(3) != null ? matcher.group(3) : matcher.group(6);
+            return String.format(Locale.ROOT, "%04d%02d%02d",
+                    parsePositiveInt(year, 0),
+                    parsePositiveInt(month, 0),
+                    parsePositiveInt(day, 0));
+        }
+        String url = page == null ? "" : page.url;
+        if (isHissiCheckerUrl(url)) {
+            List<String> segments = Uri.parse(normalizeUrl(url)).getPathSegments();
+            if (segments.size() >= 4) {
+                return segments.get(2);
+            }
+        }
+        return "";
     }
 
     private void showPostActionMenu(View anchor, CuspTab tab, Post post) {
@@ -6685,14 +7039,16 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             toggleAaMode(tab, post, anchor);
         }));
-        menu.addView(dialogAction(R.drawable.ic_reply, text("\u8fd4\u4fe1", "Reply"), () -> {
-            dialog.dismiss();
-            showWriteDialog(">>" + post.number + "\n");
-        }));
-        menu.addView(dialogAction(R.drawable.ic_check, text("\u3053\u3053\u307e\u3067\u8aad\u3093\u3060", "Read to here"), () -> {
-            dialog.dismiss();
-            setReadThroughPost(tab, post);
-        }));
+        if (tab == null || NATIVE_THREAD.equals(tab.nativeKind)) {
+            menu.addView(dialogAction(R.drawable.ic_reply, text("\u8fd4\u4fe1", "Reply"), () -> {
+                dialog.dismiss();
+                showWriteDialog(">>" + post.number + "\n");
+            }));
+            menu.addView(dialogAction(R.drawable.ic_check, text("\u3053\u3053\u307e\u3067\u8aad\u3093\u3060", "Read to here"), () -> {
+                dialog.dismiss();
+                setReadThroughPost(tab, post);
+            }));
+        }
         dialog.show();
         Theme.styleDialog(dialog, this);
     }
@@ -17969,6 +18325,9 @@ public class MainActivity extends Activity {
         if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
             clearAddressFocus();
             loadThread(tab, tab.url);
+        } else if (tab.readerMode && NATIVE_HISSI.equals(tab.nativeKind)) {
+            clearAddressFocus();
+            loadHissiChecker(tab, tab.url);
         } else if (tab.readerMode && NATIVE_SEARCH.equals(tab.nativeKind)) {
             clearAddressFocus();
             loadSearchResults(tab, tab.url);
@@ -22894,6 +23253,18 @@ public class MainActivity extends Activity {
 
         TouchedLink(String url, int rawX, int rawY) {
             this.url = url;
+            this.rawX = rawX;
+            this.rawY = rawY;
+        }
+    }
+
+    private static class TouchedPostId {
+        final String id;
+        final int rawX;
+        final int rawY;
+
+        TouchedPostId(String id, int rawX, int rawY) {
+            this.id = id;
             this.rawX = rawX;
             this.rawY = rawY;
         }

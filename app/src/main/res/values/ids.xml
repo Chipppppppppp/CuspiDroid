@@ -2,4 +2,5 @@
 <resources>
     <item name="tag_post_swipe_text" type="id" />
     <item name="tag_post_card" type="id" />
+    <item name="tag_touched_post_id" type="id" />
 </resources>
