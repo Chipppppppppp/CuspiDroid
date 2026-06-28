@@ -3628,6 +3628,10 @@ public class MainActivity extends Activity {
         CuspTab tab = target;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         ensureTabViewLoaded(tab);
+        if (NATIVE_THREAD.equals(tab.nativeKind)) {
+            adoptSharedThreadScroll(tab);
+            refreshThreadReadStateOnOpen(tab);
+        }
         boolean loading = isLoadingReaderView(tab.readerView);
         contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
@@ -4748,10 +4752,11 @@ public class MainActivity extends Activity {
         if (showFullLoading) {
             prepareChromeForLoading();
         }
-        boolean keepExistingScroll = tab.hasSavedThreadScroll && loadUrl.equals(tab.threadScrollUrl);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
         tab.url = loadUrl;
+        adoptSharedThreadScroll(tab, loadUrl);
+        boolean keepExistingScroll = tab.hasSavedThreadScroll && sameSavedUrl(loadUrl, tab.threadScrollUrl);
         tab.title = hostTitle(loadUrl);
         applyPendingThreadMetadata(tab, loadUrl);
         tab.searchPage = null;
@@ -8622,7 +8627,7 @@ public class MainActivity extends Activity {
         }
         ViewGroup markers = tab.unreadMarkerLayer;
         markers.removeAllViews();
-        if (tab.threadRendering) {
+        if (tab.threadRendering || !showUnreadScrollMarkers(tab)) {
             return;
         }
         View content = tab.threadScroll.getChildAt(0);
@@ -10704,13 +10709,13 @@ public class MainActivity extends Activity {
             return false;
         }
         setTabOverviewListPadding(list);
+        List<Integer> desiredIndices = tabOverviewIndices(tabOverviewPrivateMode);
         List<FrameLayout> holders = tabOverviewSlotHolders(list);
         if (holders.isEmpty()) {
-            return false;
+            return populateEmptyTabOverviewSlots(scroll, list, desiredIndices);
         }
         VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
                 ? (VirtualTabOverviewState) list.getTag() : null;
-        List<Integer> desiredIndices = tabOverviewIndices(tabOverviewPrivateMode);
         if (syncTabOverviewSlotsInPlace(list, holders, desiredIndices, state)) {
             scheduleTabOverviewSlotRefresh(list);
             syncClosedTabUndoBar();
@@ -10790,6 +10795,44 @@ public class MainActivity extends Activity {
             }
             if (holder.getParent() == list) {
                 list.removeView(holder);
+            }
+        }
+        scheduleTabOverviewSlotRefresh(list);
+        syncClosedTabUndoBar();
+        return true;
+    }
+
+    private boolean populateEmptyTabOverviewSlots(ScrollView scroll, LinearLayout list, List<Integer> desiredIndices) {
+        if (list == null || desiredIndices == null) {
+            return false;
+        }
+        int insertAt = tabOverviewTabSectionStart(list);
+        if (insertAt < 0) {
+            return false;
+        }
+        if (desiredIndices.isEmpty()) {
+            syncClosedTabUndoBar();
+            return true;
+        }
+        View existing = insertAt < list.getChildCount() ? list.getChildAt(insertAt) : null;
+        if (existing != null && TAB_OVERVIEW_EMPTY_TAG.equals(existing.getTag())) {
+            list.removeViewAt(insertAt);
+        }
+        if (!(list.getTag() instanceof VirtualTabOverviewState)) {
+            setupVirtualTabOverviewRefresh(scroll, list);
+        }
+        for (int i = 0; i < desiredIndices.size(); i++) {
+            int tabIndex = desiredIndices.get(i);
+            if (tabIndex < 0 || tabIndex >= tabs.size()) {
+                continue;
+            }
+            CuspTab tab = tabs.get(tabIndex);
+            FrameLayout holder = createTabOverviewSlotHolder(new VirtualTabOverviewSlot(tabIndex, tab));
+            list.addView(holder, Math.max(0, Math.min(insertAt + i, list.getChildCount())),
+                    tabOverviewSlotLayoutParams());
+            Object tag = holder.getTag();
+            if (tag instanceof VirtualTabOverviewSlot) {
+                renderTabOverviewSlot(holder, (VirtualTabOverviewSlot) tag);
             }
         }
         scheduleTabOverviewSlotRefresh(list);
@@ -16324,6 +16367,7 @@ public class MainActivity extends Activity {
         tab.threadBottomOffset = 0;
         tab.threadScrollUrl = threadUrl(tab);
         tab.hasSavedThreadScroll = true;
+        syncThreadScrollForMatchingTabs(tab);
     }
 
     private boolean shouldKeepBottomLocked(CuspTab tab) {
@@ -17401,7 +17445,7 @@ public class MainActivity extends Activity {
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
-        String endpoint = "https://" + address.server + ".5ch.net/test/bbs.cgi";
+        String endpoint = postEndpoint(address);
         String payload = formField("bbs", address.board)
                 + "&" + formField("key", address.key)
                 + "&" + formField("time", String.valueOf(System.currentTimeMillis() / 1000L))
@@ -17417,7 +17461,7 @@ public class MainActivity extends Activity {
         connection.setDoOutput(true);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
-        connection.setRequestProperty("Referer", threadUrl);
+        connection.setRequestProperty("Referer", postReferer(threadUrl, address));
         connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
         connection.setRequestProperty("Content-Length", String.valueOf(body.length));
         try (OutputStream stream = connection.getOutputStream()) {
@@ -17435,10 +17479,11 @@ public class MainActivity extends Activity {
 
     private String postToThreadWithCookieConfirm(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
         String endpoint = postEndpoint(address);
+        String referer = postReferer(threadUrl, address);
         Map<String, String> fields = postFields(address, name, mail, message);
         String payload = postPayload(fields, "\u66f8\u304d\u8fbc\u3080");
 
-        PostResult first = sendPostWithCookie(endpoint, threadUrl, payload, null);
+        PostResult first = sendPostWithCookie(endpoint, referer, payload, null);
         String firstPlain = cleanText(first.body);
         if (!requiresCookieConfirm(firstPlain)) {
             return postSucceeded(firstPlain) ? "write done" : first.body;
@@ -17451,7 +17496,7 @@ public class MainActivity extends Activity {
             cookie = cookie + "; yuki=akari";
         }
         String confirmPayload = confirmPostPayload(first.body, fields);
-        PostResult second = sendPostWithCookie(endpoint, threadUrl, confirmPayload, cookie);
+        PostResult second = sendPostWithCookie(endpoint, referer, confirmPayload, cookie);
         String secondPlain = cleanText(second.body);
         return postSucceeded(secondPlain) ? "write done" : second.body;
     }
@@ -17468,7 +17513,37 @@ public class MainActivity extends Activity {
     }
 
     private String postEndpoint(DatAddress address) {
-        return (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/test/bbs.cgi";
+        return postScheme(address) + "://" + postHost(address) + "/test/bbs.cgi";
+    }
+
+    private String postReferer(String threadUrl, DatAddress address) {
+        String host = postHost(address);
+        if (address == null || host.isEmpty() || address.board == null || address.key == null) {
+            return threadUrl;
+        }
+        String originalHost = address.host == null ? "" : address.host.trim();
+        if (!host.equalsIgnoreCase(originalHost)) {
+            return postScheme(address) + "://" + host + "/test/read.cgi/" + address.board + "/" + address.key + "/";
+        }
+        return threadUrl;
+    }
+
+    private String postHost(DatAddress address) {
+        if (address == null) {
+            return "";
+        }
+        String host = address.host == null ? "" : address.host.trim();
+        String lowerHost = host.toLowerCase(Locale.ROOT);
+        if (("itest.5ch.io".equals(lowerHost) || "itest.5ch.net".equals(lowerHost))
+                && address.server != null && !address.server.trim().isEmpty()) {
+            return address.server.trim() + ".5ch.net";
+        }
+        return host;
+    }
+
+    private String postScheme(DatAddress address) {
+        return address == null || address.scheme == null || address.scheme.trim().isEmpty()
+                ? "https" : address.scheme.trim();
     }
 
     private String confirmPostPayload(String html, Map<String, String> originalFields) throws Exception {
@@ -17709,6 +17784,7 @@ public class MainActivity extends Activity {
         tab.threadBottomOffset = range <= 0 ? 0 : Math.max(0, range - tab.threadScroll.getScrollY());
         tab.threadScrollUrl = threadUrl(tab);
         tab.hasSavedThreadScroll = true;
+        syncThreadScrollForMatchingTabs(tab);
     }
 
     private void restoreThreadScroll(CuspTab tab) {
@@ -17716,14 +17792,26 @@ public class MainActivity extends Activity {
     }
 
     private void restoreThreadScroll(CuspTab tab, int attempt) {
-        if (tab == null || tab.threadScroll == null) {
+        if (tab == null) {
+            return;
+        }
+        if (tab.threadScroll == null) {
+            revealThreadAfterScrollRestore(tab, attempt);
             return;
         }
         if (isBottomJumpActive(tab)) {
+            revealThreadAfterScrollRestore(tab, attempt);
             return;
         }
+        adoptSharedThreadScroll(tab);
+        tab.threadScroll.postDelayed(() -> {
+            if (tab.readerView != null && tab.readerView.getVisibility() != View.VISIBLE) {
+                revealThreadAfterScrollRestore(tab, attempt);
+            }
+        }, 900);
         tab.threadScroll.post(() -> {
             if (isBottomJumpActive(tab)) {
+                revealThreadAfterScrollRestore(tab, attempt);
                 return;
             }
             if (tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
@@ -17742,10 +17830,14 @@ public class MainActivity extends Activity {
             if (tab.restoreFromBottom) {
                 tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
                 tab.restoreFromBottom = false;
-            } else if (tab.hasSavedThreadScroll && threadUrl(tab).equals(tab.threadScrollUrl)) {
-                int target = (int) (range * tab.threadScrollRatio);
+            } else if (tab.hasSavedThreadScroll && sameSavedUrl(threadUrl(tab), tab.threadScrollUrl)) {
+                boolean savedBottom = isSavedThreadScrollAtBottom(tab);
+                int target = savedBottom ? range : (int) (range * tab.threadScrollRatio);
                 tab.threadScroll.scrollTo(0, Math.max(0, Math.min(target, range)));
-            } else if (autoScrollUnreadBoundary()) {
+                if (savedBottom) {
+                    keepSavedBottomRestored(tab, range, 0);
+                }
+            } else if (shouldAutoScrollUnreadBoundary(tab)) {
                 scrollToUnreadBoundaryWhenReady(tab, 0);
             }
             revealThreadAfterScrollRestore(tab, attempt);
@@ -17754,9 +17846,105 @@ public class MainActivity extends Activity {
     }
 
     private boolean shouldRestoreThreadScroll(CuspTab tab) {
+        adoptSharedThreadScroll(tab);
         return tab != null
                 && tab.hasSavedThreadScroll
-                && threadUrl(tab).equals(tab.threadScrollUrl);
+                && sameSavedUrl(threadUrl(tab), tab.threadScrollUrl);
+    }
+
+    private boolean isSavedThreadScrollAtBottom(CuspTab tab) {
+        return tab != null
+                && tab.hasSavedThreadScroll
+                && tab.threadBottomOffset == 0
+                && tab.threadScrollRatio >= 0.999f;
+    }
+
+    private void keepSavedBottomRestored(CuspTab tab, int previousRange, int attempt) {
+        if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0
+                || !isSavedThreadScrollAtBottom(tab)) {
+            return;
+        }
+        tab.threadScroll.postDelayed(() -> {
+            if (tab.threadScroll == null || tab.threadScroll.getChildCount() == 0
+                    || !isSavedThreadScrollAtBottom(tab)) {
+                return;
+            }
+            int range = Math.max(0, tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight());
+            if (range <= 0) {
+                return;
+            }
+            if (attempt > 0 && previousRange > 0 && tab.threadScroll.getScrollY() < previousRange - dp(4)) {
+                return;
+            }
+            tab.threadScroll.scrollTo(0, range);
+            if (attempt < 12) {
+                keepSavedBottomRestored(tab, range, attempt + 1);
+            }
+        }, 40);
+    }
+
+    private void syncThreadScrollForMatchingTabs(CuspTab source) {
+        if (!hasShareableThreadScroll(source)) {
+            return;
+        }
+        String url = source.threadScrollUrl;
+        for (CuspTab tab : tabs) {
+            if (tab == null || tab == source || !canShareThreadScroll(source, tab, url)) {
+                continue;
+            }
+            copyThreadScroll(source, tab);
+        }
+    }
+
+    private void adoptSharedThreadScroll(CuspTab target) {
+        adoptSharedThreadScroll(target, threadUrl(target));
+    }
+
+    private void adoptSharedThreadScroll(CuspTab target, String url) {
+        if (target == null || url == null || url.trim().isEmpty()) {
+            return;
+        }
+        CuspTab source = null;
+        long bestActivatedAt = Long.MIN_VALUE;
+        for (CuspTab tab : tabs) {
+            if (tab == null || tab == target || !hasShareableThreadScroll(tab)
+                    || !canShareThreadScroll(tab, target, url)) {
+                continue;
+            }
+            long activatedAt = Math.max(tab.lastActivatedAt, tab.lastScrollAt);
+            if (source == null || activatedAt >= bestActivatedAt) {
+                source = tab;
+                bestActivatedAt = activatedAt;
+            }
+        }
+        if (source != null) {
+            copyThreadScroll(source, target);
+        }
+    }
+
+    private boolean hasShareableThreadScroll(CuspTab tab) {
+        return tab != null
+                && NATIVE_THREAD.equals(tab.nativeKind)
+                && tab.hasSavedThreadScroll
+                && tab.threadScrollUrl != null
+                && !tab.threadScrollUrl.trim().isEmpty();
+    }
+
+    private boolean canShareThreadScroll(CuspTab source, CuspTab target, String url) {
+        return source != null && target != null
+                && source.privateBrowsing == target.privateBrowsing
+                && NATIVE_THREAD.equals(target.nativeKind)
+                && url != null
+                && !url.trim().isEmpty()
+                && sameSavedUrl(source.threadScrollUrl, url)
+                && sameSavedUrl(threadUrl(source), url);
+    }
+
+    private void copyThreadScroll(CuspTab source, CuspTab target) {
+        target.threadScrollRatio = source.threadScrollRatio;
+        target.threadBottomOffset = source.threadBottomOffset;
+        target.threadScrollUrl = source.threadScrollUrl;
+        target.hasSavedThreadScroll = true;
     }
 
     private void revealThreadAfterScrollRestore(CuspTab tab, int attempt) {
@@ -18044,8 +18232,16 @@ public class MainActivity extends Activity {
         return preferences.getBoolean(PREF_AUTO_SCROLL_UNREAD, true);
     }
 
+    private boolean shouldAutoScrollUnreadBoundary(CuspTab tab) {
+        return tab != null && NATIVE_THREAD.equals(tab.nativeKind) && autoScrollUnreadBoundary();
+    }
+
     private boolean colorUnreadPosts() {
         return preferences.getBoolean(PREF_COLOR_UNREAD_POSTS, true);
+    }
+
+    private boolean showUnreadScrollMarkers(CuspTab tab) {
+        return tab != null && NATIVE_THREAD.equals(tab.nativeKind) && colorUnreadPosts();
     }
 
     private boolean copyPasteOmitEnabled() {
@@ -21722,6 +21918,41 @@ public class MainActivity extends Activity {
             }
             refreshTabOverviewValuesForTab(tab);
         }
+    }
+
+    private void refreshThreadReadStateOnOpen(CuspTab tab) {
+        if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind)) {
+            return;
+        }
+        String url = threadUrl(tab);
+        if (url == null || url.trim().isEmpty()) {
+            return;
+        }
+        int nextRead = Math.max(tab.readPostNumber, readPostNumberForTab(tab, url));
+        for (CuspTab other : tabs) {
+            if (other == null || other == tab
+                    || other.privateBrowsing != tab.privateBrowsing
+                    || !NATIVE_THREAD.equals(other.nativeKind)
+                    || !sameSavedUrl(threadUrl(other), url)) {
+                continue;
+            }
+            nextRead = Math.max(nextRead, other.readPostNumber);
+        }
+        if (nextRead == tab.readPostNumber) {
+            if (tab.threadPage != null || tab.hasThreadStats) {
+                refreshTabOverviewValuesForTab(tab);
+            }
+            return;
+        }
+        tab.readPostNumber = nextRead;
+        if (tab.threadPage != null) {
+            updateTabThreadStats(tab, tab.threadPage);
+            refreshUnreadColors(tab);
+        } else if (tab.hasThreadStats) {
+            tab.cachedUnreadCount = Math.max(0,
+                    Math.max(tab.knownMaxPostNumber, tab.knownPostCount) - tab.readPostNumber);
+        }
+        refreshTabOverviewValuesForTab(tab);
     }
 
     private boolean sameThreadTabScope(CuspTab left, CuspTab right) {
