@@ -144,10 +144,7 @@ public class WritePostHistoryActivity extends Activity {
 
         ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u524a\u9664", "Delete post history"));
         delete.setColorFilter(mutedColor());
-        delete.setOnClickListener(v -> {
-            MainActivity.removeWritePostHistory(preferences, item);
-            renderHistory();
-        });
+        delete.setOnClickListener(v -> confirmDelete(item));
         row.addView(delete, iconParams());
 
         return row;
@@ -166,6 +163,24 @@ public class WritePostHistoryActivity extends Activity {
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         startActivity(intent);
         finish();
+    }
+
+    private void confirmDelete(MainActivity.WritePostHistoryItem item) {
+        if (item == null) {
+            return;
+        }
+        String target = item.title + "\n" + postNumberLabel(item);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u524a\u9664", "Delete post history"))
+                .setMessage(MainActivity.text("\u3053\u306e\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f\n", "Delete this post history item?\n") + target)
+                .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (d, which) -> {
+                    MainActivity.removeWritePostHistory(preferences, item);
+                    renderHistory();
+                })
+                .create();
+        dialog.show();
+        Theme.styleDialog(dialog, this);
     }
 
     private void confirmClear() {
