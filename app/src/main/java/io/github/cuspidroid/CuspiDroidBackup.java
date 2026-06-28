@@ -189,17 +189,19 @@ final class CuspiDroidBackup {
                 continue;
             }
             for (int i = 0; i < hashes.length(); i++) {
-                String hash = hashes.optString(i, "");
+                Object value = hashes.opt(i);
+                String hash = myPostHash(value);
                 if (hash.isEmpty()) {
                     continue;
                 }
                 JSONObject item = new JSONObject();
                 item.put("url", url);
-                item.put("body", "");
+                item.put("body", myPostBody(value));
                 item.put("bodyHash", hash);
-                item.put("posted", 0);
-                item.put("title", "");
-                item.put("targetTitle", "");
+                item.put("posted", myPostPostedAt(value));
+                item.put("number", myPostNumber(value));
+                item.put("title", myPostTitle(value));
+                item.put("targetTitle", myPostTitle(value));
                 array.put(item);
             }
         }
@@ -207,6 +209,47 @@ final class CuspiDroidBackup {
         zip.putNextEntry(entry);
         zip.write(array.toString(2).getBytes(StandardCharsets.UTF_8));
         zip.closeEntry();
+    }
+
+    private static String myPostHash(Object value) {
+        if (value instanceof JSONObject) {
+            JSONObject object = (JSONObject) value;
+            String hash = object.optString("hash", "").trim();
+            if (hash.isEmpty()) {
+                hash = object.optString("bodyHash", "").trim();
+            }
+            return hash;
+        }
+        return value instanceof String ? ((String) value).trim() : "";
+    }
+
+    private static String myPostBody(Object value) {
+        return value instanceof JSONObject ? ((JSONObject) value).optString("body", "") : "";
+    }
+
+    private static String myPostTitle(Object value) {
+        if (!(value instanceof JSONObject)) {
+            return "";
+        }
+        JSONObject object = (JSONObject) value;
+        String title = object.optString("title", "").trim();
+        if (title.isEmpty()) {
+            title = object.optString("targetTitle", "").trim();
+        }
+        return title;
+    }
+
+    private static int myPostNumber(Object value) {
+        return value instanceof JSONObject ? ((JSONObject) value).optInt("number", 0) : 0;
+    }
+
+    private static long myPostPostedAt(Object value) {
+        if (!(value instanceof JSONObject)) {
+            return 0L;
+        }
+        JSONObject object = (JSONObject) value;
+        long postedAt = object.optLong("postedAt", 0L);
+        return postedAt > 0 ? postedAt : object.optLong("posted", 0L);
     }
 
     private static JSONObject readPreferences(Context context, Uri uri) throws Exception {

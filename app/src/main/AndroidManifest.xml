@@ -43,6 +43,9 @@
             android:name=".UploadHistoryActivity"
             android:exported="false" />
         <activity
+            android:name=".WritePostHistoryActivity"
+            android:exported="false" />
+        <activity
             android:name=".WriteIdentityHistoryActivity"
             android:exported="false" />
         <activity

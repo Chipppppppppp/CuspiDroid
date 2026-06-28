@@ -470,6 +470,11 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read history by thread"),
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
 
+        root.addView(managementRow(R.drawable.ic_reply,
+                MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u7ba1\u7406", "Manage post history"),
+                MainActivity.text("\u81ea\u5206\u306e\u66f8\u304d\u8fbc\u307f\u306b\u79fb\u52d5\u30fb\u5c65\u6b74\u304b\u3089\u524a\u9664", "Jump to your posts and delete saved post history"),
+                v -> startActivity(new Intent(this, WritePostHistoryActivity.class))));
+
         saveWriteIdentityHistory = new CheckBox(this);
         saveWriteIdentityHistory.setText(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u4fdd\u5b58", "Save name/mail history"));
         saveWriteIdentityHistory.setTextColor(textColor());

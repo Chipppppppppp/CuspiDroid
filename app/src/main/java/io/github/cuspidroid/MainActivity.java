@@ -226,6 +226,7 @@ public class MainActivity extends Activity {
     static final String PREF_BOARD_SHOW_CREATED = "board_show_created";
     static final String PREF_BOARD_SHOW_UNREAD = "board_show_unread";
     static final String PREF_BOARD_PRIORITY_WORDS = "board_priority_words";
+    static final String EXTRA_JUMP_POST_NUMBER = "jump_post_number";
     static final String EXTRA_PRIORITY_TARGET_URL = "priority_target_url";
     static final String EXTRA_PRIORITY_TARGET_TITLE = "priority_target_title";
     static final String EXTRA_NG_TARGET_URL = "ng_target_url";
@@ -886,14 +887,22 @@ public class MainActivity extends Activity {
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) {
             return false;
         }
-        openIncomingLink(intent.getData().toString());
+        openIncomingLink(intent.getData().toString(), intent.getIntExtra(EXTRA_JUMP_POST_NUMBER, 0));
         return true;
     }
 
     private void openIncomingLink(String rawUrl) {
+        openIncomingLink(rawUrl, 0);
+    }
+
+    private void openIncomingLink(String rawUrl, int postNumber) {
         String url = normalizeUrl(rawUrl);
         if (isSupportedBbsLink(url)) {
-            routeLink(url, currentTab());
+            if (postNumber > 0 && isThreadUrl(url)) {
+                openThreadPost(url, postNumber, currentTab());
+            } else {
+                routeLink(url, currentTab());
+            }
             if (tabs.isEmpty() && !pendingNewTab) {
                 createBlankTab();
             }
@@ -16040,20 +16049,31 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u5143\u306e\u66f8\u304d\u8fbc\u307f\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Source post not found."), Toast.LENGTH_SHORT).show();
             return;
         }
-        String url = post.sourceUrl;
-        int postNumber = post.sourcePostNumber;
+        openThreadPost(post.sourceUrl, post.sourcePostNumber, sourceTab);
+    }
+
+    private void openThreadPost(String url, int postNumber, CuspTab sourceTab) {
+        if (url == null || url.trim().isEmpty()) {
+            Toast.makeText(this, text("\u5143\u306e\u66f8\u304d\u8fbc\u307f\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Source post not found."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (postNumber <= 0) {
+            routeLink(url, sourceTab);
+            return;
+        }
+        String threadUrl = sourceThreadUrl(url, postNumber);
         CuspTab existing = normalThreadTab(url);
         if (existing != null) {
             existing.pendingJumpPostNumber = postNumber;
             switchToTab(tabs.indexOf(existing));
             if (existing.threadPage == null || existing.threadPage.posts.isEmpty()) {
-                openInTab(existing, url, false);
+                openInTab(existing, threadUrl, false);
             } else {
                 runPendingPostJump(existing);
             }
             return;
         }
-        createTabForSourcePost(url, postNumber, tabs.indexOf(sourceTab), isPrivateTab(sourceTab));
+        createTabForSourcePost(threadUrl, postNumber, tabs.indexOf(sourceTab), isPrivateTab(sourceTab));
     }
 
     private void openHissiSourceThread(CuspTab sourceTab, Post post) {
@@ -16507,6 +16527,12 @@ public class MainActivity extends Activity {
                     Intent intent = new Intent(this, WriteIdentityHistoryActivity.class);
                     intent.putExtra(WriteIdentityHistoryActivity.EXTRA_PICK_MODE, true);
                     startActivityForResult(intent, REQUEST_WRITE_IDENTITY_HISTORY);
+                }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
+        menu.addView(menuIconItem(R.drawable.ic_reply,
+                text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74", "Post history"), v -> {
+                    dismissPopupAnimated(popup);
+                    startActivity(new Intent(this, WritePostHistoryActivity.class));
                 }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_add, text("ImgBB\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Upload to ImgBB"), v -> {
@@ -17419,6 +17445,7 @@ public class MainActivity extends Activity {
         if (firstUnread == null || !submittedHash.equals(postBodyHash(firstUnread.body))) {
             return;
         }
+        saveMyPost(tab, body, firstUnread.number);
         markReadTo(tab, firstUnread.number, false);
         renderTabs();
     }
@@ -20696,6 +20723,88 @@ public class MainActivity extends Activity {
         return history;
     }
 
+    static List<WritePostHistoryItem> readWritePostHistory(SharedPreferences preferences) {
+        List<WritePostHistoryItem> history = new ArrayList<>();
+        Map<String, String> titles = new LinkedHashMap<>();
+        for (ThreadHistoryItem item : readThreadHistory(preferences)) {
+            titles.put(item.url, item.title);
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_MY_POSTS, "{}"));
+            Iterator<String> urls = root.keys();
+            while (urls.hasNext()) {
+                String url = urls.next();
+                JSONArray items = root.optJSONArray(url);
+                if (items == null) {
+                    continue;
+                }
+                for (int i = 0; i < items.length(); i++) {
+                    Object value = items.opt(i);
+                    String hash = myPostHash(value);
+                    if (hash.isEmpty()) {
+                        continue;
+                    }
+                    String title = myPostTitle(value);
+                    if (title.isEmpty()) {
+                        title = titles.containsKey(url) ? titles.get(url) : url;
+                    }
+                    history.add(new WritePostHistoryItem(
+                            title,
+                            url,
+                            myPostNumber(value),
+                            myPostBody(value),
+                            hash,
+                            myPostPostedAt(value)));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        Collections.sort(history, (left, right) -> Long.compare(right.postedAt, left.postedAt));
+        return history;
+    }
+
+    static void clearWritePostHistory(SharedPreferences preferences) {
+        preferences.edit().remove(PREF_MY_POSTS).apply();
+    }
+
+    static void removeWritePostHistory(SharedPreferences preferences, WritePostHistoryItem target) {
+        if (target == null || target.url == null || target.url.isEmpty() || target.hash == null || target.hash.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(PREF_MY_POSTS, "{}"));
+            JSONArray old = root.optJSONArray(target.url);
+            if (old == null) {
+                return;
+            }
+            JSONArray next = new JSONArray();
+            for (int i = 0; i < old.length(); i++) {
+                Object value = old.opt(i);
+                if (matchesWritePostHistory(value, target)) {
+                    continue;
+                }
+                next.put(value);
+            }
+            if (next.length() == 0) {
+                root.remove(target.url);
+            } else {
+                root.put(target.url, next);
+            }
+            preferences.edit().putString(PREF_MY_POSTS, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static boolean matchesWritePostHistory(Object value, WritePostHistoryItem target) {
+        if (target == null || !target.hash.equals(myPostHash(value))) {
+            return false;
+        }
+        int number = myPostNumber(value);
+        long postedAt = myPostPostedAt(value);
+        return (target.number <= 0 || number == target.number)
+                && (target.postedAt <= 0 || postedAt == target.postedAt);
+    }
+
     private static List<ThreadHistoryItem> readThreadItems(SharedPreferences preferences, String key) {
         List<ThreadHistoryItem> history = new ArrayList<>();
         try {
@@ -21792,7 +21901,7 @@ public class MainActivity extends Activity {
                 return false;
             }
             for (int i = 0; i < items.length(); i++) {
-                if (hash.equals(items.optString(i))) {
+                if (hash.equals(myPostHash(items.opt(i)))) {
                     return true;
                 }
             }
@@ -21802,6 +21911,10 @@ public class MainActivity extends Activity {
     }
 
     private void saveMyPost(CuspTab tab, String body) {
+        saveMyPost(tab, body, 0);
+    }
+
+    private void saveMyPost(CuspTab tab, String body, int postNumber) {
         if (isPrivateTab(tab) || tab == null || tab.url == null || tab.url.isEmpty()) {
             return;
         }
@@ -21813,11 +21926,26 @@ public class MainActivity extends Activity {
             JSONObject root = new JSONObject(preferences.getString(PREF_MY_POSTS, "{}"));
             JSONArray old = root.optJSONArray(tab.url);
             JSONArray next = new JSONArray();
-            next.put(hash);
+            JSONObject previous = findMyPostObject(old, hash);
+            int number = postNumber > 0 ? postNumber : myPostNumber(previous);
+            long postedAt = myPostPostedAt(previous);
+            if (postedAt <= 0) {
+                postedAt = System.currentTimeMillis();
+            }
+            JSONObject entry = new JSONObject();
+            entry.put("hash", hash);
+            entry.put("bodyHash", hash);
+            entry.put("body", normalizeOwnPostBody(body));
+            entry.put("number", Math.max(0, number));
+            entry.put("postedAt", postedAt);
+            String title = tab.threadPage == null ? tab.title : tab.threadPage.title;
+            entry.put("title", title == null ? "" : title);
+            next.put(entry);
             if (old != null) {
                 for (int i = 0; i < old.length() && next.length() < 80; i++) {
-                    String value = old.optString(i);
-                    if (!hash.equals(value) && !value.isEmpty()) {
+                    Object value = old.opt(i);
+                    String valueHash = myPostHash(value);
+                    if (!hash.equals(valueHash) && !valueHash.isEmpty()) {
                         next.put(value);
                     }
                 }
@@ -21918,6 +22046,63 @@ public class MainActivity extends Activity {
             }
             refreshTabOverviewValuesForTab(tab);
         }
+    }
+
+    private static JSONObject findMyPostObject(JSONArray items, String hash) {
+        if (items == null || hash == null || hash.isEmpty()) {
+            return null;
+        }
+        for (int i = 0; i < items.length(); i++) {
+            Object value = items.opt(i);
+            if (hash.equals(myPostHash(value)) && value instanceof JSONObject) {
+                return (JSONObject) value;
+            }
+        }
+        return null;
+    }
+
+    private static String myPostHash(Object value) {
+        if (value instanceof JSONObject) {
+            JSONObject object = (JSONObject) value;
+            String hash = object.optString("hash", "").trim();
+            if (hash.isEmpty()) {
+                hash = object.optString("bodyHash", "").trim();
+            }
+            return hash;
+        }
+        if (value instanceof String) {
+            return ((String) value).trim();
+        }
+        return "";
+    }
+
+    private static int myPostNumber(Object value) {
+        return value instanceof JSONObject ? ((JSONObject) value).optInt("number", 0) : 0;
+    }
+
+    private static long myPostPostedAt(Object value) {
+        if (!(value instanceof JSONObject)) {
+            return 0L;
+        }
+        JSONObject object = (JSONObject) value;
+        long postedAt = object.optLong("postedAt", 0L);
+        return postedAt > 0 ? postedAt : object.optLong("posted", 0L);
+    }
+
+    private static String myPostBody(Object value) {
+        return value instanceof JSONObject ? ((JSONObject) value).optString("body", "") : "";
+    }
+
+    private static String myPostTitle(Object value) {
+        if (!(value instanceof JSONObject)) {
+            return "";
+        }
+        JSONObject object = (JSONObject) value;
+        String title = object.optString("title", "").trim();
+        if (title.isEmpty()) {
+            title = object.optString("targetTitle", "").trim();
+        }
+        return title;
     }
 
     private void refreshThreadReadStateOnOpen(CuspTab tab) {
@@ -23514,6 +23699,24 @@ public class MainActivity extends Activity {
             this.title = title;
             this.url = url;
             this.lastViewedAt = lastViewedAt;
+        }
+    }
+
+    static class WritePostHistoryItem {
+        final String title;
+        final String url;
+        final int number;
+        final String body;
+        final String hash;
+        final long postedAt;
+
+        WritePostHistoryItem(String title, String url, int number, String body, String hash, long postedAt) {
+            this.title = title == null || title.isEmpty() ? url : title;
+            this.url = url;
+            this.number = number;
+            this.body = body == null ? "" : body;
+            this.hash = hash == null ? "" : hash;
+            this.postedAt = postedAt;
         }
     }
 
