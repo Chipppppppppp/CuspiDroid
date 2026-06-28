@@ -1271,15 +1271,17 @@ public class MainActivity extends Activity {
                 return;
             }
             addressBar.requestFocus();
-            addressBar.selectAll();
+            focusAddressBarText();
             showKeyboardSoon();
         });
         addressBar.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
-                addressBar.selectAll();
+                focusAddressBarText();
                 if (!addressTouchInProgress) {
                     showKeyboardSoon();
                 }
+            } else {
+                updateAddressBarDisplay(false);
             }
             updateAddressFocusUi(hasFocus);
         });
@@ -1329,7 +1331,7 @@ public class MainActivity extends Activity {
             return false;
         });
         addressBar.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-            if (scrollX != 0 || scrollY != 0) {
+            if (!addressBar.hasFocus() && (scrollX != 0 || scrollY != 0)) {
                 addressBar.scrollTo(0, 0);
             }
         });
@@ -1725,7 +1727,7 @@ public class MainActivity extends Activity {
 
     private View suggestionDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(borderColor());
+        divider.setBackgroundColor(chromeBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
@@ -2640,14 +2642,14 @@ public class MainActivity extends Activity {
 
     private View verticalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(borderColor());
+        divider.setBackgroundColor(chromeBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT));
         return divider;
     }
 
     private View horizontalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(borderColor());
+        divider.setBackgroundColor(chromeBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
     }
@@ -3636,7 +3638,7 @@ public class MainActivity extends Activity {
         } else {
             hideCenterSpinner();
         }
-        addressBar.setText(tab.url == null ? "" : tab.url);
+        updateAddressBarDisplay(false);
         updateBottomThreadBar(tab);
         updateThreadSearchBar(tab);
         renderTabs();
@@ -4274,6 +4276,91 @@ public class MainActivity extends Activity {
         updateBottomThreadBar(tab);
     }
 
+    private void updateAddressBarDisplay(boolean focusText) {
+        if (addressBar == null || addressBar.hasFocus() && !focusText) {
+            return;
+        }
+        addressBar.setText(addressBarTextForTab(currentTab()));
+        if (focusText) {
+            focusAddressBarText();
+        } else {
+            resetAddressBarScrollToStart();
+        }
+    }
+
+    private String addressBarTextForTab(CuspTab tab) {
+        if (tab == null || tab.url == null) {
+            return "";
+        }
+        return addressBarTextForUrl(tab.nativeKind, tab.url);
+    }
+
+    private String addressBarTextForUrl(String nativeKind, String url) {
+        if (url == null) {
+            return "";
+        }
+        if (shouldDisplaySearchQueryInAddress(nativeKind, url)) {
+            String query = searchQueryFromUrl(url);
+            if (query != null && !query.trim().isEmpty()) {
+                return query.trim();
+            }
+        }
+        return url;
+    }
+
+    private boolean shouldDisplaySearchQueryInAddress(CuspTab tab) {
+        return tab != null && shouldDisplaySearchQueryInAddress(tab.nativeKind, tab.url);
+    }
+
+    private boolean shouldDisplaySearchQueryInAddress(String nativeKind, String url) {
+        return NATIVE_SEARCH.equals(nativeKind) && isDefaultSearchUrl(url);
+    }
+
+    private void focusAddressBarText() {
+        if (addressBar == null) {
+            return;
+        }
+        addressBar.setEllipsize(null);
+        addressBar.setHorizontallyScrolling(true);
+        addressBar.selectAll();
+        scrollAddressBarToEndSoon();
+    }
+
+    private void resetAddressBarScrollToStart() {
+        if (addressBar == null) {
+            return;
+        }
+        addressBar.setEllipsize(TextUtils.TruncateAt.END);
+        addressBar.setHorizontallyScrolling(true);
+        addressBar.setSelection(0);
+        addressBar.scrollTo(0, 0);
+        addressBar.post(() -> {
+            if (addressBar != null && !addressBar.hasFocus()) {
+                addressBar.scrollTo(0, 0);
+            }
+        });
+    }
+
+    private void scrollAddressBarToEndSoon() {
+        if (addressBar == null) {
+            return;
+        }
+        addressBar.post(() -> scrollAddressBarToEnd());
+        addressBar.postDelayed(() -> scrollAddressBarToEnd(), 80);
+    }
+
+    private void scrollAddressBarToEnd() {
+        if (addressBar == null || !addressBar.hasFocus()) {
+            return;
+        }
+        android.text.Layout layout = addressBar.getLayout();
+        int contentWidth = layout == null ? 0 : (int) Math.ceil(layout.getLineWidth(0));
+        int viewportWidth = Math.max(0, addressBar.getWidth()
+                - addressBar.getTotalPaddingLeft() - addressBar.getTotalPaddingRight());
+        int maxScroll = Math.max(0, contentWidth - viewportWidth);
+        addressBar.scrollTo(maxScroll, 0);
+    }
+
     private void openFromAddressBar() {
         String input = addressBar.getText().toString().trim();
         if (input.isEmpty()) {
@@ -4788,7 +4875,6 @@ public class MainActivity extends Activity {
         if (centerSpinner) {
             showCenterSpinner();
         }
-        boolean wasAtThreadBottom = isThreadAtBottom(tab.threadScroll);
         ioExecutor.execute(() -> {
             ThreadPage page;
             boolean partialUpdate = false;
@@ -4814,8 +4900,6 @@ public class MainActivity extends Activity {
             ThreadPage result = page;
             boolean wasPartialUpdate = partialUpdate;
             runOnUiThread(() -> {
-                boolean keepAtBottom = forceScrollToBottom
-                        || (wasAtThreadBottom && isThreadAtBottom(tab.threadScroll));
                 if (centerSpinner) {
                     hideCenterSpinner();
                 }
@@ -4825,7 +4909,6 @@ public class MainActivity extends Activity {
                 if (tab.threadBottomLoader != null) {
                     resetBottomRefreshLoader(tab.threadBottomLoader);
                 }
-                repairThreadLayoutAfterRefresh(tab);
                 if (result.error != null) {
                     Toast.makeText(this, friendlyThreadLoadError(result.error), Toast.LENGTH_SHORT).show();
                     if (onComplete != null) {
@@ -4850,7 +4933,6 @@ public class MainActivity extends Activity {
                         if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                             updateThreadSearch(tab.threadSearchQuery, false);
                         }
-                        repairThreadLayoutAfterRefresh(tab);
                         if (forceScrollToBottom) {
                             scrollCurrentThreadToBottom();
                         }
@@ -4869,10 +4951,11 @@ public class MainActivity extends Activity {
                     cacheThreadPage(result);
                     tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
                     updateTabThreadStats(tab, result);
-                    if (markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
+                    if (markExistingReadOnThreadUpdate()
+                            && markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
                         markReadTo(tab, maxPostNumber(result), false);
                     }
-                    rebuildThreadViewAfterRefresh(tab, keepAtBottom || forceScrollToBottom);
+                    renderTabs();
                     if (tab == currentTab()) {
                         updateBottomThreadBar(tab);
                     }
@@ -4881,8 +4964,9 @@ public class MainActivity extends Activity {
                             && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
                         updateThreadSearch(tab.threadSearchQuery, false);
                     }
-                    repairThreadLayoutAfterRefresh(tab);
-                    renderTabs();
+                    if (forceScrollToBottom) {
+                        scrollCurrentThreadToBottom();
+                    }
                     if (onComplete != null) {
                         onComplete.run();
                     }
@@ -4900,55 +4984,22 @@ public class MainActivity extends Activity {
                     cacheThreadPage(result);
                     addThreadHistory(tab, result.url, result.title);
                 }
-                rebuildThreadViewAfterRefresh(tab, keepAtBottom || forceScrollToBottom);
-                if (tab == currentTab() && tab.threadSearchOpen
-                        && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
-                    updateThreadSearch(tab.threadSearchQuery, false);
-                }
-                repairThreadLayoutAfterRefresh(tab);
-                renderTabs();
-                refreshTabOverviewValuesForTab(tab);
-                if (onComplete != null) {
-                    onComplete.run();
-                }
+                renderAdditionalPostCardsIncrementally(tab.threadList, result, tab, oldCount, () -> {
+                    if (tab == currentTab() && tab.threadSearchOpen
+                            && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
+                        updateThreadSearch(tab.threadSearchQuery, false);
+                    }
+                    if (tab == currentTab() && forceScrollToBottom) {
+                        scrollCurrentThreadToBottom();
+                    }
+                    renderTabs();
+                    refreshTabOverviewValuesForTab(tab);
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
+                });
             });
         });
-    }
-
-    private void rebuildThreadViewAfterRefresh(CuspTab tab, boolean keepAtBottom) {
-        if (tab == null || tab.threadPage == null) {
-            return;
-        }
-        if (!keepAtBottom) {
-            rememberThreadScroll(tab);
-        }
-        tab.postViews = new LinkedHashMap<>();
-        tab.readerView = buildThreadView(tab.threadPage, tab);
-        if (tab == currentTab() && !tabOverviewVisible) {
-            switchToTab(currentIndex);
-            if (keepAtBottom) {
-                scrollThreadToBottomWhenReady(tab, 0);
-            } else {
-                restoreThreadScroll(tab);
-            }
-        }
-    }
-
-    private void repairThreadLayoutAfterRefresh(CuspTab tab) {
-        if (tab == null) {
-            return;
-        }
-        normalizeThreadPostSlotLayouts(tab);
-        if (tab.threadScroll != null) {
-            tab.threadScroll.requestLayout();
-            tab.threadScroll.post(() -> {
-                normalizeThreadPostSlotLayouts(tab);
-                refreshThreadScrollChrome(tab);
-                scheduleThreadPostVisibilityRefresh(tab);
-            });
-        } else if (tab.readerView != null) {
-            tab.readerView.requestLayout();
-        }
     }
 
     private void loadSearchResults(CuspTab tab, String url) {
@@ -5965,7 +6016,7 @@ public class MainActivity extends Activity {
         bottomLoader.setTranslationY(dp(58));
         tab.threadBottomLoader = bottomLoader;
 
-        enableBottomPullRefresh(scroll, bottomLoader, tab, () -> {
+        enableBottomPullRefresh(scroll, bottomLoader, () -> {
             refreshThreadFromBottom(tab);
         });
         FrameLayout frame = new FrameLayout(this);
@@ -6159,7 +6210,6 @@ public class MainActivity extends Activity {
 
     private void completeThreadRender(CuspTab tab, Runnable onComplete) {
         tab.threadRendering = false;
-        normalizeThreadPostSlotLayouts(tab);
         finishThreadRender(tab);
         scheduleThreadPostVisibilityRefresh(tab);
         scheduleLazyImgurLoads();
@@ -6505,104 +6555,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void normalizeThreadPostSlotLayouts(CuspTab tab) {
-        if (tab == null || tab.postSlots == null || tab.postSlots.isEmpty()) {
-            return;
-        }
-        normalizeThreadListLayout(tab);
-        FrameLayout lastSlot = lastThreadPostSlot(tab);
-        for (Map.Entry<Integer, FrameLayout> entry : tab.postSlots.entrySet()) {
-            FrameLayout holder = entry.getValue();
-            if (holder == null) {
-                continue;
-            }
-            ViewGroup.LayoutParams holderParams = holder.getLayoutParams();
-            if (holderParams != null && holderParams.width != ViewGroup.LayoutParams.MATCH_PARENT) {
-                holderParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
-                holder.setLayoutParams(holderParams);
-            }
-            Object tag = holder.getTag();
-            if (!(tag instanceof VirtualPostSlot)) {
-                continue;
-            }
-            normalizeRenderedPostSlotLayout(holder, (VirtualPostSlot) tag, holder == lastSlot);
-        }
-    }
-
-    private void normalizeThreadListLayout(CuspTab tab) {
-        if (tab == null || tab.threadList == null) {
-            return;
-        }
-        int gap = dp(POST_OUTER_GAP_DP);
-        if (tab.threadList.getPaddingLeft() != gap
-                || tab.threadList.getPaddingTop() != gap
-                || tab.threadList.getPaddingRight() != gap
-                || tab.threadList.getPaddingBottom() != gap) {
-            tab.threadList.setPadding(gap, gap, gap, gap);
-        }
-        ViewGroup.LayoutParams params = tab.threadList.getLayoutParams();
-        if (params != null && params.width != ViewGroup.LayoutParams.MATCH_PARENT) {
-            params.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            tab.threadList.setLayoutParams(params);
-        }
-    }
-
-    private void normalizeRenderedPostSlotLayout(FrameLayout holder, VirtualPostSlot slot) {
-        normalizeRenderedPostSlotLayout(holder, slot, holder != null && slot != null
-                && holder == lastThreadPostSlot(slot.tab));
-    }
-
-    private void normalizeRenderedPostSlotLayout(FrameLayout holder, VirtualPostSlot slot, boolean last) {
-        if (holder == null || slot == null) {
-            return;
-        }
-        View shell = slot.shell;
-        if (shell == null && holder.getChildCount() > 0) {
-            shell = holder.getChildAt(0);
-        }
-        if (shell == null) {
-            return;
-        }
-        ViewGroup.LayoutParams shellParams = shell.getLayoutParams();
-        if (shellParams != null && shellParams.width != ViewGroup.LayoutParams.MATCH_PARENT) {
-            shellParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            shell.setLayoutParams(shellParams);
-        }
-        View card = slot.card;
-        if (card == null && shell instanceof ViewGroup) {
-            card = findPostCardInChildren((ViewGroup) shell);
-        }
-        if (card == null) {
-            return;
-        }
-        resetPostSwipeCard(card, false);
-        ViewGroup.LayoutParams cardParams = card.getLayoutParams();
-        if (cardParams instanceof FrameLayout.LayoutParams) {
-            FrameLayout.LayoutParams frameParams = (FrameLayout.LayoutParams) cardParams;
-            int depth = slot.item == null ? 0 : slot.item.depth;
-            int leftMargin = dp(Math.min(depth, 8) * 18);
-            int bottomMargin = last ? 0 : dp(POST_OUTER_GAP_DP);
-            if (frameParams.width != ViewGroup.LayoutParams.MATCH_PARENT
-                    || frameParams.leftMargin != leftMargin
-                    || frameParams.topMargin != 0
-                    || frameParams.rightMargin != 0
-                    || frameParams.bottomMargin != bottomMargin) {
-                frameParams.width = ViewGroup.LayoutParams.MATCH_PARENT;
-                frameParams.setMargins(leftMargin, 0, 0, bottomMargin);
-                card.setLayoutParams(frameParams);
-            }
-        }
-    }
-
-    private boolean isLastThreadPostSlot(CuspTab tab, int postNumber) {
-        FrameLayout last = lastThreadPostSlot(tab);
-        if (last != null && last.getTag() instanceof VirtualPostSlot) {
-            VirtualPostSlot slot = (VirtualPostSlot) last.getTag();
-            return slot.item != null && slot.item.post != null && slot.item.post.number == postNumber;
-        }
-        return false;
-    }
-
     private FrameLayout lastThreadPostSlot(CuspTab tab) {
         if (tab == null || tab.threadList == null) {
             return null;
@@ -6611,25 +6563,6 @@ public class MainActivity extends Activity {
             View child = tab.threadList.getChildAt(i);
             if (child instanceof FrameLayout && child.getTag() instanceof VirtualPostSlot) {
                 return (FrameLayout) child;
-            }
-        }
-        return null;
-    }
-
-    private View findPostCardInChildren(ViewGroup group) {
-        if (group == null) {
-            return null;
-        }
-        for (int i = 0; i < group.getChildCount(); i++) {
-            View child = group.getChildAt(i);
-            if (Boolean.TRUE.equals(child.getTag(R.id.tag_post_card))) {
-                return child;
-            }
-            if (child instanceof ViewGroup) {
-                View nested = findPostCardInChildren((ViewGroup) child);
-                if (nested != null) {
-                    return nested;
-                }
             }
         }
         return null;
@@ -8141,7 +8074,6 @@ public class MainActivity extends Activity {
         if (slot.tab.renderedPostSlots != null) {
             slot.tab.renderedPostSlots.add(holder);
         }
-        normalizeRenderedPostSlotLayout(holder, slot);
         if (slot.tab == currentTab()) {
             visiblePostViews.put(slot.item.post.number, postCard.card);
         }
@@ -8149,11 +8081,6 @@ public class MainActivity extends Activity {
             int measured = renderedSlotContentHeight(holder);
             if (measured > 0 && !isSlotFullyAboveViewport(holder, slot.tab)) {
                 slot.height = measured;
-            }
-            if (slot.item != null && slot.item.post != null
-                    && isLastThreadPostSlot(slot.tab, slot.item.post.number)
-                    && isThreadAtBottom(slot.tab == null ? null : slot.tab.threadScroll)) {
-                pinThreadScrollToBottom(slot.tab);
             }
             scheduleThreadScrollChromeRefresh(slot.tab, 3);
         });
@@ -8379,10 +8306,8 @@ public class MainActivity extends Activity {
         scroll.postDelayed(() -> scroll.scrollTo(0, target), 48);
     }
 
-    private void enableBottomPullRefresh(ScrollView scroll, View loader, CuspTab owner, Runnable refresh) {
-        final float[] downX = new float[1];
+    private void enableBottomPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
         final float[] downY = new float[1];
-        final float[] lastY = new float[1];
         final float[] pullDistance = new float[1];
         final boolean[] startedAtBottom = new boolean[1];
         final boolean[] dragging = new boolean[1];
@@ -8401,38 +8326,25 @@ public class MainActivity extends Activity {
                 }
             }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                downX[0] = event.getX();
                 downY[0] = event.getY();
-                lastY[0] = event.getY();
                 pullDistance[0] = 0;
-                startedAtBottom[0] = canStartBottomPullRefresh(scroll, owner);
+                startedAtBottom[0] = !scroll.canScrollVertically(1);
                 dragging[0] = false;
                 if (!refreshing[0]) {
                     resetBottomRefreshLoader(loader);
                 }
             } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                if (!canStartBottomPullRefresh(scroll, owner)) {
-                    startedAtBottom[0] = false;
-                    dragging[0] = false;
-                    pullDistance[0] = 0;
-                    resetBottomRefreshLoader(loader);
-                    return false;
-                }
-                float y = event.getY();
-                if (isBottomJumpActive(owner) && event.getY() > downY[0] + dp(4)) {
-                    cancelBottomJump(owner);
-                    lastY[0] = y;
+                CuspTab tab = currentTab();
+                if (isBottomJumpActive(tab) && event.getY() > downY[0] + dp(4)) {
+                    cancelBottomJump(tab);
                     return false;
                 }
                 if (!startedAtBottom[0] && !dragging[0] && !refreshing[0]
-                        && canStartBottomPullRefresh(scroll, owner)
-                        && lastY[0] - y > dp(2)) {
+                        && !scroll.canScrollVertically(1)) {
                     startedAtBottom[0] = true;
-                    downX[0] = event.getX();
-                    downY[0] = y;
+                    downY[0] = event.getY();
                     pullDistance[0] = 0;
                 }
-                lastY[0] = y;
                 if (startedAtBottom[0] && !refreshing[0]) {
                     if (scroll.canScrollVertically(1)) {
                         startedAtBottom[0] = false;
@@ -8441,17 +8353,9 @@ public class MainActivity extends Activity {
                         resetBottomRefreshLoader(loader);
                         return false;
                     }
-                    float dx = Math.abs(event.getX() - downX[0]);
-                    float dy = event.getY() - downY[0];
-                    if (!dragging[0] && dy > dp(8)) {
-                        startedAtBottom[0] = false;
-                        pullDistance[0] = 0;
-                        resetBottomRefreshLoader(loader);
-                        return false;
-                    }
                     float pull = Math.max(0, downY[0] - event.getY());
                     pullDistance[0] = pull;
-                    if (pull > dp(12) && pull > dx * 1.15f) {
+                    if (pull > dp(4)) {
                         dragging[0] = true;
                         loader.clearAnimation();
                         loader.setVisibility(View.VISIBLE);
@@ -8492,16 +8396,6 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-    }
-
-    private boolean canStartBottomPullRefresh(ScrollView scroll, CuspTab tab) {
-        if (scroll == null || tab == null || tab != currentTab()
-                || scroll != tab.threadScroll || tab.threadRendering
-                || scroll.getChildCount() == 0 || scroll.canScrollVertically(1)) {
-            return false;
-        }
-        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
-        return range > dp(24) && lastPostViewReady(tab);
     }
 
     private void resetBottomRefreshLoader(View loader) {
@@ -9129,7 +9023,8 @@ public class MainActivity extends Activity {
             tab.navigationHistory.set(tab.navigationIndex, redirectedUrl);
         }
         if (tab == currentTab() && addressBar != null) {
-            addressBar.setText(redirectedUrl);
+            addressBar.setText(addressBarTextForUrl(tab.nativeKind, redirectedUrl));
+            resetAddressBarScrollToStart();
         }
         requestSaveTabsSoon();
     }
@@ -21416,6 +21311,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isDefaultSearchUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null) {
+                return false;
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            return lowerHost.equals("find.5ch.io")
+                    && path.equals("/search")
+                    && uri.getQueryParameter("q") != null;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
     private boolean isFullTextSearchUrl(String url) {
         try {
             Uri uri = Uri.parse(url);
@@ -21991,7 +21903,7 @@ public class MainActivity extends Activity {
             boolean keyboardVisible = rootHeight - visibleFrame.height() > rootHeight * 0.15f;
             if (addressKeyboardVisible && !keyboardVisible && addressBar != null && addressBar.hasFocus()) {
                 addressBar.clearFocus();
-                addressBar.setSelection(addressBar.getText().length());
+                updateAddressBarDisplay(false);
                 if (suggestionsPanel != null) {
                     suggestionsPanel.setVisibility(View.GONE);
                 }
@@ -22040,7 +21952,7 @@ public class MainActivity extends Activity {
 
     private void clearAddressFocus() {
         addressBar.clearFocus();
-        addressBar.setSelection(addressBar.getText().length());
+        updateAddressBarDisplay(false);
         hideKeyboard();
         View current = getCurrentFocus();
         if (current == null || current == addressBar) {
