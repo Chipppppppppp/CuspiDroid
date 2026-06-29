@@ -17578,7 +17578,7 @@ public class MainActivity extends Activity {
     }
 
     private Charset postRequestCharset(DatAddress address) {
-        return usesLegacyBbsPost(address) ? LEGACY_BBS_POST_CHARSET : POST_CHARSET;
+        return usesLegacyBbsPost(address) || isBbspinkAddress(address) ? LEGACY_BBS_POST_CHARSET : POST_CHARSET;
     }
 
     private boolean postSubmitFirst(DatAddress address) {
@@ -17586,9 +17586,24 @@ public class MainActivity extends Activity {
     }
 
     private String postContentType(DatAddress address) {
-        return usesLegacyBbsPost(address)
+        return usesLegacyBbsPost(address) || isBbspinkAddress(address)
                 ? "application/x-www-form-urlencoded"
                 : "application/x-www-form-urlencoded; charset=UTF-8";
+    }
+
+    private boolean isBbspinkAddress(DatAddress address) {
+        return address != null && isBbspinkHost(address.host);
+    }
+
+    private boolean isBbspinkHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String lower = host.toLowerCase(Locale.ROOT);
+        return lower.equals("bbspink.com")
+                || lower.endsWith(".bbspink.com")
+                || lower.equals("bbspink.org")
+                || lower.endsWith(".bbspink.org");
     }
 
     private String postEndpoint(DatAddress address) {
@@ -20065,8 +20080,23 @@ public class MainActivity extends Activity {
             throw new IllegalStateException("Unsupported board URL.");
         }
         BoardSubject subject;
+        Uri originalUri = Uri.parse(normalizeUrl(boardUrl));
+        String originalHost = originalUri.getHost();
+        String originalBoard = boardNameFromUrl(boardUrl);
+        if (originalHost != null && originalBoard != null
+                && !sameSavedUrl(boardUrl, redirectedUrl)) {
+            try {
+                subject = downloadBoardSubject(boardUrl, originalHost, originalBoard);
+            } catch (Exception error) {
+                subject = null;
+            }
+        } else {
+            subject = null;
+        }
         try {
-            subject = downloadBoardSubject(redirectedUrl, host, board);
+            if (subject == null) {
+                subject = downloadBoardSubject(redirectedUrl, host, board);
+            }
         } catch (Exception directError) {
             String dataUrl = boardDataUrlFromHtml(redirectedUrl, board);
             if (dataUrl == null || dataUrl.equals(redirectedUrl)) {
@@ -20081,10 +20111,13 @@ public class MainActivity extends Activity {
             subject = downloadBoardSubject(dataUrl, dataHost, dataBoard);
         }
         String body = subject.body;
+        String pageUrl = subject.boardUrl == null || subject.boardUrl.trim().isEmpty()
+                ? redirectedUrl
+                : subject.boardUrl;
 
         SearchPage page = new SearchPage();
-        page.url = redirectedUrl;
-        page.title = boardTitle(redirectedUrl);
+        page.url = pageUrl;
+        page.title = boardTitle(pageUrl);
         int order = 1;
         for (String line : body.split("\\r?\\n")) {
             int sep = line.indexOf("<>");
@@ -20113,8 +20146,8 @@ public class MainActivity extends Activity {
             int readNumber = visibleReadPostNumber(result.url);
             result.hasReadHistory = threadHistoryContains(result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
-            result.boardName = displayBoardTitle(redirectedUrl);
-            result.priorityMatch = matchingBoardPriorityWord(title, redirectedUrl);
+            result.boardName = displayBoardTitle(pageUrl);
+            result.priorityMatch = matchingBoardPriorityWord(title, pageUrl);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
             order++;
@@ -20365,7 +20398,9 @@ public class MainActivity extends Activity {
                 if (!isBoardSubjectBody(body)) {
                     throw new IllegalStateException("Invalid subject.txt response.");
                 }
-                return new BoardSubject(body, threadBaseFromSubjectUrl(connection.getURL().toString(), board));
+                String loadedSubjectUrl = connection.getURL().toString();
+                return new BoardSubject(body, threadBaseFromSubjectUrl(loadedSubjectUrl, board),
+                        boardUrlFromSubjectUrl(loadedSubjectUrl));
             } catch (Exception error) {
                 lastError = error;
             } finally {
@@ -20453,6 +20488,15 @@ public class MainActivity extends Activity {
                 ? "/bbs/read.cgi/"
                 : "/test/read.cgi/";
         return scheme + "://" + host + reader + board + "/";
+    }
+
+    private String boardUrlFromSubjectUrl(String subjectUrl) {
+        String value = trimSlash(normalizeUrl(subjectUrl));
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (lower.endsWith("/subject.txt")) {
+            return value.substring(0, value.length() - "/subject.txt".length()) + "/";
+        }
+        return value;
     }
 
     private boolean usesShortThreadUrls(String url, String host) {
@@ -24187,10 +24231,16 @@ public class MainActivity extends Activity {
     private static class BoardSubject {
         final String body;
         final String threadBase;
+        final String boardUrl;
 
         BoardSubject(String body, String threadBase) {
+            this(body, threadBase, "");
+        }
+
+        BoardSubject(String body, String threadBase, String boardUrl) {
             this.body = body;
             this.threadBase = threadBase;
+            this.boardUrl = boardUrl == null ? "" : boardUrl;
         }
     }
 
