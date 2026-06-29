@@ -19829,7 +19829,8 @@ public class MainActivity extends Activity {
 
     private String threadHtmlUrl(String threadUrl) {
         DatAddress address = datAddress(threadUrl);
-        if (address == null || address.server == null || address.server.trim().isEmpty()) {
+        if (address == null || address.shortThread || !is5chUrl(threadUrl)
+                || address.server == null || address.server.trim().isEmpty()) {
             return threadUrl;
         }
         return "https://" + address.server + ".5ch.io/test/read.cgi/"
@@ -19854,27 +19855,48 @@ public class MainActivity extends Activity {
         if (testIndex < 0) {
             testIndex = parts.indexOf("bbs");
         }
-        if (testIndex < 0 || testIndex + 3 >= parts.size() || !"read.cgi".equals(parts.get(testIndex + 1))) {
-            return null;
+        if (testIndex >= 0 && testIndex + 3 < parts.size()
+                && "read.cgi".equals(parts.get(testIndex + 1))) {
+            String board = parts.get(testIndex + 2);
+            String key = parts.get(testIndex + 3);
+            String server = host.split("\\.")[0];
+            if ("itest".equals(server) && testIndex > 0) {
+                server = parts.get(testIndex - 1);
+            }
+            if ("itest".equals(server) || server.trim().isEmpty()) {
+                return null;
+            }
+            return datAddress(uri, host, server, board, key, false);
         }
+        if (isRegisteredShortThreadPath(threadUrl, parts)) {
+            return datAddress(uri, host, host.split("\\.")[0], parts.get(0), parts.get(1), true);
+        }
+        return null;
+    }
 
-        String board = parts.get(testIndex + 2);
-        String key = parts.get(testIndex + 3);
-        String server = host.split("\\.")[0];
-        if ("itest".equals(server) && testIndex > 0) {
-            server = parts.get(testIndex - 1);
-        }
-        if ("itest".equals(server) || server.trim().isEmpty()) {
-            return null;
-        }
-
+    private DatAddress datAddress(Uri uri, String host, String server, String board, String key, boolean shortThread) {
         DatAddress address = new DatAddress();
         address.scheme = uri.getScheme() == null ? "https" : uri.getScheme();
         address.host = host;
         address.server = server;
         address.board = board;
         address.key = key;
+        address.shortThread = shortThread;
         return address;
+    }
+
+    private boolean isRegisteredShortThreadPath(String url, List<String> parts) {
+        if (parts == null || parts.size() < 2 || is5chUrl(url) || !isRegisteredBbsUrl(url)) {
+            return false;
+        }
+        String board = parts.get(0);
+        String key = parts.get(1);
+        String lowerBoard = board == null ? "" : board.toLowerCase(Locale.ROOT);
+        if (board == null || board.trim().isEmpty()
+                || "test".equals(lowerBoard) || "bbs".equals(lowerBoard) || "dat".equals(lowerBoard)) {
+            return false;
+        }
+        return key != null && key.matches("\\d{9,13}");
     }
 
     private ThreadPage parseDatThread(String threadUrl, String dat) {
@@ -20303,10 +20325,30 @@ public class MainActivity extends Activity {
         if (host == null) {
             return "";
         }
+        if (usesShortThreadUrls(subjectUrl, host)) {
+            return scheme + "://" + host + "/" + board + "/";
+        }
         String reader = host.toLowerCase(Locale.ROOT).endsWith("machi.to")
                 ? "/bbs/read.cgi/"
                 : "/test/read.cgi/";
         return scheme + "://" + host + reader + board + "/";
+    }
+
+    private boolean usesShortThreadUrls(String url, String host) {
+        if (host == null) {
+            return false;
+        }
+        String lowerHost = host.toLowerCase(Locale.ROOT);
+        return isRegisteredBbsUrl(url)
+                && !is5chUrl(url)
+                && !lowerHost.endsWith(".open2ch.net")
+                && !lowerHost.equals("open2ch.net")
+                && !lowerHost.endsWith(".machi.to")
+                && !lowerHost.equals("machi.to")
+                && !lowerHost.endsWith(".2ch.sc")
+                && !lowerHost.equals("2ch.sc")
+                && !lowerHost.endsWith(".bbspink.org")
+                && !lowerHost.equals("bbspink.org");
     }
 
     private int threadResponseCount(String title) {
@@ -22608,7 +22650,8 @@ public class MainActivity extends Activity {
                 || lower.contains(".5ch.io/") && lower.contains("/test/read.cgi/")
                 || lower.contains(".2ch.sc/test/read.cgi/")
                 || lower.contains("/test/read.cgi/")
-                || lower.contains("/bbs/read.cgi/");
+                || lower.contains("/bbs/read.cgi/")
+                || datAddress(url) != null;
     }
 
     private boolean isFindSearchUrl(String url) {
@@ -24219,6 +24262,7 @@ public class MainActivity extends Activity {
         String server;
         String board;
         String key;
+        boolean shortThread;
     }
 
     private static class TouchedLink {
