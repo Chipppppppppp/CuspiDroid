@@ -316,6 +316,7 @@ public class MainActivity extends Activity {
     private static final String NATIVE_HISTORY = "history";
     private static final String INTERNAL_URL_PREFIX = "cuspidroid://";
     private static final Charset POST_CHARSET = Charset.forName("UTF-8");
+    private static final Charset LEGACY_BBS_POST_CHARSET = Charset.forName("MS932");
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
@@ -17508,13 +17509,16 @@ public class MainActivity extends Activity {
     private String postToThreadWithCookieConfirm(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
         String endpoint = postEndpoint(address);
         String referer = postReferer(threadUrl, address);
+        Charset requestCharset = postRequestCharset(address);
+        boolean submitFirst = postSubmitFirst(address);
+        String contentType = postContentType(address);
         Map<String, String> fields = postFields(address, name, mail, message);
-        String payload = postPayload(fields, "\u66f8\u304d\u8fbc\u3080");
+        String payload = postPayload(fields, "\u66f8\u304d\u8fbc\u3080", requestCharset, submitFirst);
 
-        PostResult first = sendPostWithCookie(endpoint, referer, payload, null);
+        PostResult first = sendPostWithCookie(endpoint, referer, payload, null, requestCharset, contentType);
         String firstPlain = cleanText(first.body);
         if (!requiresCookieConfirm(firstPlain)) {
-            return postSucceeded(firstPlain) ? "write done" : first.body;
+            return postSucceeded(firstPlain, address) ? "write done" : first.body;
         }
 
         String cookie = cookieHeader(first.cookies);
@@ -17523,14 +17527,22 @@ public class MainActivity extends Activity {
         } else if (!cookie.contains("MonaTicket=") && !cookie.contains("yuki=")) {
             cookie = cookie + "; yuki=akari";
         }
-        String confirmPayload = confirmPostPayload(first.body, fields);
-        PostResult second = sendPostWithCookie(endpoint, referer, confirmPayload, cookie);
+        String confirmPayload = confirmPostPayload(first.body, fields, requestCharset, submitFirst);
+        PostResult second = sendPostWithCookie(endpoint, referer, confirmPayload, cookie, requestCharset, contentType);
         String secondPlain = cleanText(second.body);
-        return postSucceeded(secondPlain) ? "write done" : second.body;
+        return postSucceeded(secondPlain, address) ? "write done" : second.body;
     }
 
     private Map<String, String> postFields(DatAddress address, String name, String mail, String message) {
         Map<String, String> fields = new LinkedHashMap<>();
+        if (usesLegacyBbsPost(address)) {
+            fields.put("mail", mail);
+            fields.put("FROM", name);
+            fields.put("MESSAGE", message);
+            fields.put("bbs", address.board);
+            fields.put("key", address.key);
+            return fields;
+        }
         fields.put("bbs", address.board);
         fields.put("key", address.key);
         fields.put("time", String.valueOf(System.currentTimeMillis() / 1000L));
@@ -17538,6 +17550,31 @@ public class MainActivity extends Activity {
         fields.put("mail", mail);
         fields.put("MESSAGE", message);
         return fields;
+    }
+
+    private boolean usesLegacyBbsPost(DatAddress address) {
+        if (address == null || !address.shortThread || address.host == null) {
+            return false;
+        }
+        String lowerHost = address.host.toLowerCase(Locale.ROOT);
+        return !lowerHost.equals("5ch.net")
+                && !lowerHost.equals("5ch.io")
+                && !lowerHost.endsWith(".5ch.net")
+                && !lowerHost.endsWith(".5ch.io");
+    }
+
+    private Charset postRequestCharset(DatAddress address) {
+        return usesLegacyBbsPost(address) ? LEGACY_BBS_POST_CHARSET : POST_CHARSET;
+    }
+
+    private boolean postSubmitFirst(DatAddress address) {
+        return usesLegacyBbsPost(address);
+    }
+
+    private String postContentType(DatAddress address) {
+        return usesLegacyBbsPost(address)
+                ? "application/x-www-form-urlencoded"
+                : "application/x-www-form-urlencoded; charset=UTF-8";
     }
 
     private String postEndpoint(DatAddress address) {
@@ -17575,9 +17612,14 @@ public class MainActivity extends Activity {
     }
 
     private String confirmPostPayload(String html, Map<String, String> originalFields) throws Exception {
+        return confirmPostPayload(html, originalFields, POST_CHARSET, false);
+    }
+
+    private String confirmPostPayload(String html, Map<String, String> originalFields,
+                                      Charset charset, boolean submitFirst) throws Exception {
         Map<String, String> fields = hiddenFormFields(html);
         fields.putAll(originalFields);
-        return postPayload(fields, "\u4e0a\u8a18\u5168\u3066\u3092\u627f\u8afe\u3057\u3066\u66f8\u304d\u8fbc\u3080");
+        return postPayload(fields, "\u4e0a\u8a18\u5168\u3066\u3092\u627f\u8afe\u3057\u3066\u66f8\u304d\u8fbc\u3080", charset, submitFirst);
     }
 
     private Map<String, String> hiddenFormFields(String html) {
@@ -17605,7 +17647,15 @@ public class MainActivity extends Activity {
     }
 
     private String postPayload(Map<String, String> fields, String submit) throws Exception {
+        return postPayload(fields, submit, POST_CHARSET, false);
+    }
+
+    private String postPayload(Map<String, String> fields, String submit,
+                               Charset charset, boolean submitFirst) throws Exception {
         StringBuilder payload = new StringBuilder();
+        if (submitFirst) {
+            payload.append(formField("submit", submit, charset));
+        }
         for (Map.Entry<String, String> entry : fields.entrySet()) {
             if ("submit".equalsIgnoreCase(entry.getKey())) {
                 continue;
@@ -17613,17 +17663,25 @@ public class MainActivity extends Activity {
             if (payload.length() > 0) {
                 payload.append('&');
             }
-            payload.append(formField(entry.getKey(), entry.getValue()));
+            payload.append(formField(entry.getKey(), entry.getValue(), charset));
         }
-        if (payload.length() > 0) {
+        if (!submitFirst && payload.length() > 0) {
             payload.append('&');
         }
-        payload.append(formField("submit", submit));
+        if (!submitFirst) {
+            payload.append(formField("submit", submit, charset));
+        }
         return payload.toString();
     }
 
     private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie) throws Exception {
-        byte[] body = payload.getBytes(POST_CHARSET);
+        return sendPostWithCookie(endpoint, referer, payload, cookie,
+                POST_CHARSET, "application/x-www-form-urlencoded; charset=UTF-8");
+    }
+
+    private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie,
+                                          Charset charset, String contentType) throws Exception {
+        byte[] body = payload.getBytes(charset);
         String current = endpoint;
         List<String> allCookies = new ArrayList<>();
         for (int redirect = 0; redirect < 8; redirect++) {
@@ -17635,7 +17693,7 @@ public class MainActivity extends Activity {
             connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("User-Agent", "Monazilla/1.00 CuspiDroid/0.1");
             connection.setRequestProperty("Referer", referer);
-            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            connection.setRequestProperty("Content-Type", contentType);
             connection.setRequestProperty("Content-Length", String.valueOf(body.length));
             applyCookies(connection, current, cookie);
             try (OutputStream stream = connection.getOutputStream()) {
@@ -17816,9 +17874,26 @@ public class MainActivity extends Activity {
                 || text.toLowerCase(Locale.ROOT).contains("write done");
     }
 
+    private boolean postSucceeded(String text, DatAddress address) {
+        if (postSucceeded(text == null ? "" : text)) {
+            return true;
+        }
+        if (!usesLegacyBbsPost(address)) {
+            return false;
+        }
+        String value = text == null ? "" : text;
+        String lower = value.toLowerCase(Locale.ROOT);
+        return !lower.contains("error_code") && !value.contains("ERROR");
+    }
+
     private String formField(String name, String value) throws Exception {
-        return URLEncoder.encode(name, POST_CHARSET.name()) + "="
-                + URLEncoder.encode(value == null ? "" : value, POST_CHARSET.name());
+        return formField(name, value, POST_CHARSET);
+    }
+
+    private String formField(String name, String value, Charset charset) throws Exception {
+        String encoding = (charset == null ? POST_CHARSET : charset).name();
+        return URLEncoder.encode(name, encoding) + "="
+                + URLEncoder.encode(value == null ? "" : value, encoding);
     }
 
     private void rememberThreadScroll(CuspTab tab) {
