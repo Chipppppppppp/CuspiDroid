@@ -4717,6 +4717,7 @@ public class MainActivity extends Activity {
         if (url == null || url.isEmpty()) {
             return;
         }
+        ensureCurrentPageNavigationBase(tab, url);
         if (tab.navigationIndex >= 0
                 && tab.navigationIndex < tab.navigationHistory.size()
                 && url.equals(tab.navigationHistory.get(tab.navigationIndex))) {
@@ -4728,6 +4729,20 @@ public class MainActivity extends Activity {
         tab.navigationHistory.add(url);
         tab.navigationIndex = tab.navigationHistory.size() - 1;
         requestSaveTabsSoon();
+    }
+
+    private void ensureCurrentPageNavigationBase(CuspTab tab, String nextUrl) {
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()
+                || nextUrl == null || nextUrl.trim().isEmpty()
+                || sameSavedUrl(tab.url, nextUrl)) {
+            return;
+        }
+        if (tab.navigationIndex >= 0 && tab.navigationIndex < tab.navigationHistory.size()) {
+            return;
+        }
+        tab.navigationHistory.clear();
+        tab.navigationHistory.add(tab.url);
+        tab.navigationIndex = 0;
     }
 
     private void openPendingNewTabUrl(String url) {
@@ -17398,6 +17413,8 @@ public class MainActivity extends Activity {
             return;
         }
         int readNumberBeforePost = tab.readPostNumber;
+        int lastPostNumberBeforePost = Math.max(tab.knownMaxPostNumber, maxPostNumber(tab.threadPage));
+        long submittedAt = System.currentTimeMillis();
         progressBar.setVisibility(View.VISIBLE);
         Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u4e2d", "Posting..."), Toast.LENGTH_SHORT).show();
         ioExecutor.execute(() -> {
@@ -17419,9 +17436,9 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
                 if (posted) {
                     Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5b8c\u4e86", "Posted."), Toast.LENGTH_SHORT).show();
-                    saveMyPost(tab, message);
                     refreshThreadFromBottom(tab, true, false, true,
-                            () -> markPostedOwnPostReadIfNextUnread(tab, message, readNumberBeforePost));
+                            () -> recordPostedOwnPost(tab, message, readNumberBeforePost,
+                                    lastPostNumberBeforePost, submittedAt));
                 } else {
                     showCopyablePostFailure(messageText);
                 }
@@ -17429,27 +17446,24 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void markPostedOwnPostReadIfNextUnread(CuspTab tab, String body, int readNumberBeforePost) {
+    private void recordPostedOwnPost(CuspTab tab, String body, int readNumberBeforePost,
+                                     int lastPostNumberBeforePost, long submittedAt) {
         if (tab == null || tab.threadPage == null || body == null) {
             return;
         }
-        String submittedHash = postBodyHash(body);
-        if (submittedHash.isEmpty()) {
-            return;
-        }
-        Post firstUnread = null;
+        Post posted = null;
         for (Post post : tab.threadPage.posts) {
-            if (post.number > readNumberBeforePost) {
-                firstUnread = post;
-                break;
+            if (post != null && post.number > lastPostNumberBeforePost
+                    && (posted == null || post.number > posted.number)) {
+                posted = post;
             }
         }
-        if (firstUnread == null || !submittedHash.equals(postBodyHash(firstUnread.body))) {
-            return;
+        int postedNumber = posted == null ? 0 : posted.number;
+        saveMyPost(tab, body, postedNumber, submittedAt);
+        if (postedNumber > 0) {
+            markReadTo(tab, Math.max(readNumberBeforePost, postedNumber), false);
+            renderTabs();
         }
-        saveMyPost(tab, body, firstUnread.number);
-        markReadTo(tab, firstUnread.number, false);
-        renderTabs();
     }
 
     private void showCopyablePostFailure(String messageText) {
@@ -19002,9 +19016,11 @@ public class MainActivity extends Activity {
                 || !NATIVE_BOARD.equals(tab.nativeKind) || page.url == null || page.url.trim().isEmpty()) {
             return;
         }
-        String key = boardHistoryKey(page.url);
-        tab.boardHistoryPages.remove(key);
-        tab.boardHistoryPages.put(key, new BoardHistoryPage(page, view, tab.title));
+        BoardHistoryPage cached = new BoardHistoryPage(page, view, tab.title);
+        for (String key : boardHistoryKeys(tab, page.url)) {
+            tab.boardHistoryPages.remove(key);
+            tab.boardHistoryPages.put(key, cached);
+        }
         while (tab.boardHistoryPages.size() > MAX_BOARD_HISTORY_PAGES) {
             String oldest = tab.boardHistoryPages.keySet().iterator().next();
             tab.boardHistoryPages.remove(oldest);
@@ -19015,12 +19031,19 @@ public class MainActivity extends Activity {
         if (tab == null || url == null || (!isBoardUrl(url) && !isBbsDirectoryUrl(url))) {
             return false;
         }
-        String key = boardHistoryKey(url);
-        BoardHistoryPage cached = tab.boardHistoryPages.remove(key);
+        BoardHistoryPage cached = null;
+        String restoredKey = null;
+        for (String key : boardHistoryRestoreKeys(tab, url)) {
+            cached = tab.boardHistoryPages.remove(key);
+            if (cached != null) {
+                restoredKey = key;
+                break;
+            }
+        }
         if (cached == null || cached.page == null || cached.view == null) {
             return false;
         }
-        tab.boardHistoryPages.put(key, cached);
+        tab.boardHistoryPages.put(restoredKey == null ? boardHistoryKey(url) : restoredKey, cached);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = cached.page.url;
@@ -19040,6 +19063,29 @@ public class MainActivity extends Activity {
 
     private String boardHistoryKey(String url) {
         return trimSlash(normalizeUrl(url));
+    }
+
+    private List<String> boardHistoryKeys(CuspTab tab, String url) {
+        List<String> keys = new ArrayList<>();
+        addUnique(keys, boardHistoryKey(url));
+        if (tab != null) {
+            if (tab.url != null && !tab.url.trim().isEmpty()) {
+                addUnique(keys, boardHistoryKey(tab.url));
+            }
+            if (tab.navigationIndex >= 0 && tab.navigationIndex < tab.navigationHistory.size()) {
+                addUnique(keys, boardHistoryKey(tab.navigationHistory.get(tab.navigationIndex)));
+            }
+        }
+        return keys;
+    }
+
+    private List<String> boardHistoryRestoreKeys(CuspTab tab, String url) {
+        List<String> keys = new ArrayList<>();
+        addUnique(keys, boardHistoryKey(url));
+        if (tab != null && tab.navigationIndex >= 0 && tab.navigationIndex < tab.navigationHistory.size()) {
+            addUnique(keys, boardHistoryKey(tab.navigationHistory.get(tab.navigationIndex)));
+        }
+        return keys;
     }
 
     private boolean restorePendingNewTabFromInternalUrl(CuspTab tab, String url) {
@@ -22057,7 +22103,7 @@ public class MainActivity extends Activity {
                     if (number == post.number) {
                         return true;
                     }
-                } else {
+                } else if (value instanceof String) {
                     hashOnlyMatch = true;
                 }
             }
@@ -22088,6 +22134,10 @@ public class MainActivity extends Activity {
     }
 
     private void saveMyPost(CuspTab tab, String body, int postNumber) {
+        saveMyPost(tab, body, postNumber, System.currentTimeMillis());
+    }
+
+    private void saveMyPost(CuspTab tab, String body, int postNumber, long postedAt) {
         if (isPrivateTab(tab) || !writePostHistoryEnabled()
                 || tab == null || tab.url == null || tab.url.isEmpty()) {
             return;
@@ -22100,26 +22150,20 @@ public class MainActivity extends Activity {
             JSONObject root = new JSONObject(preferences.getString(PREF_MY_POSTS, "{}"));
             JSONArray old = root.optJSONArray(tab.url);
             JSONArray next = new JSONArray();
-            JSONObject previous = findMyPostObject(old, hash);
-            int number = postNumber > 0 ? postNumber : myPostNumber(previous);
-            long postedAt = myPostPostedAt(previous);
-            if (postedAt <= 0) {
-                postedAt = System.currentTimeMillis();
-            }
+            long savedPostedAt = postedAt > 0 ? postedAt : System.currentTimeMillis();
             JSONObject entry = new JSONObject();
             entry.put("hash", hash);
             entry.put("bodyHash", hash);
             entry.put("body", normalizeOwnPostBody(body));
-            entry.put("number", Math.max(0, number));
-            entry.put("postedAt", postedAt);
+            entry.put("number", Math.max(0, postNumber));
+            entry.put("postedAt", savedPostedAt);
             String title = tab.threadPage == null ? tab.title : tab.threadPage.title;
             entry.put("title", title == null ? "" : title);
             next.put(entry);
             if (old != null) {
                 for (int i = 0; i < old.length() && next.length() < 80; i++) {
                     Object value = old.opt(i);
-                    String valueHash = myPostHash(value);
-                    if (!hash.equals(valueHash) && !valueHash.isEmpty()) {
+                    if (!sameMyPostEntry(value, hash, postNumber, savedPostedAt)) {
                         next.put(value);
                     }
                 }
@@ -22128,6 +22172,18 @@ public class MainActivity extends Activity {
             preferences.edit().putString(PREF_MY_POSTS, root.toString()).apply();
         } catch (Exception ignored) {
         }
+    }
+
+    private boolean sameMyPostEntry(Object value, String hash, int postNumber, long postedAt) {
+        if (value instanceof JSONObject) {
+            int number = myPostNumber(value);
+            long savedPostedAt = myPostPostedAt(value);
+            if (postNumber > 0 && number == postNumber) {
+                return true;
+            }
+            return postedAt > 0 && savedPostedAt == postedAt;
+        }
+        return postNumber <= 0 && hash != null && !hash.isEmpty() && hash.equals(myPostHash(value));
     }
 
     private String postBodyHash(String body) {
@@ -22220,19 +22276,6 @@ public class MainActivity extends Activity {
             }
             refreshTabOverviewValuesForTab(tab);
         }
-    }
-
-    private static JSONObject findMyPostObject(JSONArray items, String hash) {
-        if (items == null || hash == null || hash.isEmpty()) {
-            return null;
-        }
-        for (int i = 0; i < items.length(); i++) {
-            Object value = items.opt(i);
-            if (hash.equals(myPostHash(value)) && value instanceof JSONObject) {
-                return (JSONObject) value;
-            }
-        }
-        return null;
     }
 
     private static String myPostHash(Object value) {
