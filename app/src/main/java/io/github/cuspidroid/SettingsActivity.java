@@ -5,7 +5,10 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.ClipDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
@@ -57,6 +60,7 @@ public class SettingsActivity extends Activity {
     private CheckBox cacheEnabled;
     private CheckBox saveBrowsingHistory;
     private CheckBox saveReadHistory;
+    private CheckBox saveWritePostHistory;
     private CheckBox saveWriteIdentityHistory;
     private CheckBox saveUploadHistory;
     private CheckBox showBookmarksInTabOverview;
@@ -436,6 +440,7 @@ public class SettingsActivity extends Activity {
         cacheUsage = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         cacheUsage.setMax(1000);
         cacheUsage.setProgress(0);
+        cacheUsage.setProgressDrawable(cacheUsageDrawable());
         root.addView(cacheUsage, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
 
@@ -469,6 +474,18 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u65e2\u8aad\u5c65\u6b74\u3092\u7ba1\u7406", "Manage read history"),
                 MainActivity.text("\u30b9\u30ec\u3054\u3068\u306e\u65e2\u8aad\u5c65\u6b74\u3092\u78ba\u8a8d\u30fb\u524a\u9664", "Review and delete saved read history by thread"),
                 v -> startActivity(new Intent(this, ReadPostsActivity.class))));
+
+        saveWritePostHistory = new CheckBox(this);
+        saveWritePostHistory.setText(MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u4fdd\u5b58", "Save post history"));
+        saveWritePostHistory.setTextColor(textColor());
+        saveWritePostHistory.setTextSize(16);
+        Theme.tintCompoundButton(this, saveWritePostHistory);
+        root.addView(saveWritePostHistory);
+
+        root.addView(managementRow(R.drawable.ic_reply,
+                MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u7ba1\u7406", "Manage post history"),
+                MainActivity.text("\u81ea\u5206\u306e\u66f8\u304d\u8fbc\u307f\u306b\u79fb\u52d5\u30fb\u5c65\u6b74\u304b\u3089\u524a\u9664", "Jump to your posts and delete saved post history"),
+                v -> startActivity(new Intent(this, WritePostHistoryActivity.class))));
 
         saveWriteIdentityHistory = new CheckBox(this);
         saveWriteIdentityHistory.setText(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u4fdd\u5b58", "Save name/mail history"));
@@ -605,6 +622,8 @@ public class SettingsActivity extends Activity {
                 && preferences.getBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, true));
         saveReadHistory.setChecked(!legacyDisabled
                 && preferences.getBoolean(MainActivity.PREF_SAVE_READ_HISTORY, true));
+        saveWritePostHistory.setChecked(!legacyDisabled
+                && preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, true));
         saveWriteIdentityHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true));
         sync2chEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false));
         sync2chId.setText(preferences.getString(MainActivity.PREF_SYNC2CH_ID, ""));
@@ -692,6 +711,7 @@ public class SettingsActivity extends Activity {
         showHomeBookmarkUnreadBadges.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveBrowsingHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveReadHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        saveWritePostHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveWriteIdentityHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         saveUploadHistory.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         sync2chEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -789,6 +809,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                 .putBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, saveBrowsingHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SAVE_READ_HISTORY, saveReadHistory.isChecked())
+                .putBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, saveWritePostHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, saveWriteIdentityHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, saveUploadHistory.isChecked())
                 .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, sync2chEnabled.isChecked())
@@ -1054,6 +1075,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                 .putBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SAVE_READ_HISTORY, true)
+                .putBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, true)
                 .putBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false)
@@ -1283,6 +1305,24 @@ public class SettingsActivity extends Activity {
         drawable.setColor(Theme.dark(this) ? Color.rgb(17, 55, 58) : Color.rgb(220, 252, 247));
         drawable.setCornerRadius(dp(13));
         return drawable;
+    }
+
+    private Drawable cacheUsageDrawable() {
+        boolean dark = Theme.dark(this);
+        GradientDrawable track = new GradientDrawable();
+        track.setColor(dark ? Color.rgb(34, 45, 56) : Color.rgb(226, 232, 240));
+        track.setStroke(dp(1), dark ? Color.rgb(86, 98, 112) : borderColor());
+        track.setCornerRadius(dp(9));
+
+        GradientDrawable progress = new GradientDrawable();
+        progress.setColor(dark ? Color.rgb(45, 212, 191) : Theme.accent(this));
+        progress.setCornerRadius(dp(9));
+
+        ClipDrawable clippedProgress = new ClipDrawable(progress, Gravity.LEFT, ClipDrawable.HORIZONTAL);
+        LayerDrawable layers = new LayerDrawable(new Drawable[]{track, clippedProgress});
+        layers.setId(0, android.R.id.background);
+        layers.setId(1, android.R.id.progress);
+        return layers;
     }
 
     private GradientDrawable roundedField() {

@@ -343,20 +343,41 @@ final class ChMateBackupImporter {
                     continue;
                 }
                 String url = item.optString("url", "").trim();
-                String hash = postBodyHash(item.optString("body", ""));
+                String body = item.optString("body", "");
+                String hash = item.optString("bodyHash", "").trim();
+                if (isBlank(hash)) {
+                    hash = item.optString("hash", "").trim();
+                }
+                if (isBlank(hash)) {
+                    hash = postBodyHash(body);
+                }
                 if (isBlank(url) || isBlank(hash)) {
                     continue;
                 }
                 JSONArray old = myPosts.optJSONArray(url);
                 JSONArray next = new JSONArray();
-                next.put(hash);
+                JSONObject imported = new JSONObject();
+                imported.put("hash", hash);
+                imported.put("bodyHash", hash);
+                imported.put("body", normalizeOwnPostBody(body));
+                imported.put("number", item.optInt("number", item.optInt("postNumber", item.optInt("resNumber", 0))));
+                long postedAt = item.optLong("postedAt", 0L);
+                if (postedAt <= 0) {
+                    postedAt = item.optLong("posted", item.optLong("time", 0L));
+                }
+                imported.put("postedAt", postedAt);
+                imported.put("posted", postedAt);
+                imported.put("title", item.optString("title", item.optString("targetTitle", "")));
+                imported.put("targetTitle", item.optString("targetTitle", item.optString("title", "")));
+                next.put(imported);
                 boolean exists = false;
                 if (old != null) {
                     for (int j = 0; j < old.length() && next.length() < 80; j++) {
-                        String value = old.optString(j, "");
-                        if (hash.equals(value)) {
+                        Object value = old.opt(j);
+                        String valueHash = myPostHash(value);
+                        if (hash.equals(valueHash)) {
                             exists = true;
-                        } else if (!isBlank(value)) {
+                        } else if (!isBlank(valueHash)) {
                             next.put(value);
                         }
                     }
@@ -566,6 +587,18 @@ final class ChMateBackupImporter {
         } catch (Exception ignored) {
             return normalized;
         }
+    }
+
+    private static String myPostHash(Object value) {
+        if (value instanceof JSONObject) {
+            JSONObject object = (JSONObject) value;
+            String hash = object.optString("hash", "").trim();
+            if (isBlank(hash)) {
+                hash = object.optString("bodyHash", "").trim();
+            }
+            return hash;
+        }
+        return value instanceof String ? ((String) value).trim() : "";
     }
 
     private static String normalizeOwnPostBody(String body) {
