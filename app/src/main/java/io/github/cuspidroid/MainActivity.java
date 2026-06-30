@@ -20263,19 +20263,54 @@ public class MainActivity extends Activity {
                 continue;
             }
             Post post = new Post();
-            post.number = number;
-            post.name = cleanText(fields[0]);
-            post.date = cleanText(fields[2]);
-            post.body = cleanText(fields[3]);
+            boolean machiDat = isMachiDatFields(threadUrl, fields);
+            if (machiDat) {
+                post.number = parsePositiveInt(fields[0], number);
+                post.name = cleanText(fields[1]);
+                post.date = cleanText(fields[3]);
+                post.body = cleanText(fields[4]);
+            } else {
+                post.number = number;
+                post.name = cleanText(fields[0]);
+                post.date = cleanText(fields[2]);
+                post.body = cleanText(fields[3]);
+            }
             post.cachedLikelyAa = likelyAaPost(post.body);
             page.posts.add(post);
             page.postsByNumber.put(post.number, post);
-            if (number == 1 && fields.length >= 5 && !cleanText(fields[4]).isEmpty()) {
-                page.title = cleanText(fields[4]);
+            if (number == 1) {
+                String title = machiDat && fields.length >= 6
+                        ? cleanText(fields[5])
+                        : fields.length >= 5 ? cleanText(fields[4]) : "";
+                if (!title.isEmpty()) {
+                    page.title = title;
+                }
             }
-            number++;
+            number = Math.max(number + 1, post.number + 1);
         }
         return page;
+    }
+
+    private boolean isMachiDatFields(String threadUrl, String[] fields) {
+        if (fields == null || fields.length < 5) {
+            return false;
+        }
+        try {
+            String host = Uri.parse(threadUrl).getHost();
+            String lowerHost = host == null ? "" : host.toLowerCase(Locale.ROOT);
+            if (!lowerHost.equals("machi.to") && !lowerHost.endsWith(".machi.to")) {
+                return false;
+            }
+        } catch (Exception ignored) {
+            return false;
+        }
+        String number = fields[0] == null ? "" : fields[0].trim();
+        if (!number.matches("\\d+")) {
+            return false;
+        }
+        String date = fields[3] == null ? "" : cleanText(fields[3]);
+        String body = fields[4] == null ? "" : cleanText(fields[4]);
+        return !date.isEmpty() && !body.isEmpty();
     }
 
     private SearchPage downloadBoard(String boardUrl) throws Exception {
