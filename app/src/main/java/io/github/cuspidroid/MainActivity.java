@@ -286,6 +286,7 @@ public class MainActivity extends Activity {
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
+    private static final String PREF_FIVE_CH_BBSMENU_CACHE = "five_ch_bbsmenu_cache";
     static final String BOARD_SORT_RESPONSES = "responses";
     static final String BOARD_SORT_VELOCITY = "velocity";
     static final String BOARD_SORT_ORDER = "order";
@@ -338,6 +339,7 @@ public class MainActivity extends Activity {
     private static final long THREAD_POST_VISIBILITY_SCROLL_INTERVAL_MS = 32;
     private static final long SAVE_TABS_DELAY_MS = 500;
     private static final long SAVE_TABS_SCROLL_IDLE_DELAY_MS = 900;
+    private static final long FIVE_CH_BBSMENU_CACHE_REFRESH_MS = 12L * 60L * 60L * 1000L;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
     private static final int THREAD_IDLE_RENDER_BUDGET = 10;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
@@ -461,6 +463,9 @@ public class MainActivity extends Activity {
     private final Map<String, String> tabOverviewBoardTitleCache = new LinkedHashMap<>();
     private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
     private Set<String> tabOverviewHistoryUrlCache;
+    private SearchPage fiveChBbsMenuCache;
+    private long fiveChBbsMenuCacheAt;
+    private boolean fiveChBbsMenuRefreshInFlight;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private boolean addressTouchInProgress;
@@ -3019,18 +3024,10 @@ public class MainActivity extends Activity {
                 tab.overviewBoardName = item.optString("overviewBoardName", "");
                 restoreNavigationHistory(tab, item);
                 tab.readerMode = tab.nativeKind != null || url.isEmpty();
-                tab.readerView = loadingView("");
                 if (isThreadPageNativeKind(tab.nativeKind)) {
                     tab.savedThreadPageJson = item.optJSONObject("threadPage");
                 } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
                     tab.savedSearchPageJson = item.optJSONObject("searchPage");
-                } else if (NATIVE_SAVED.equals(tab.nativeKind) && url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
-                    SavedPage savedPage = savedPageFromToken(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
-                    tab.readerView = buildSavedItemsView(savedPage.key, savedPage.folder);
-                } else if (NATIVE_HISTORY.equals(tab.nativeKind)) {
-                    tab.readerView = buildHistoryView();
-                } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || url.isEmpty()) {
-                    tab.readerView = buildSearchHomeView(true);
                 }
                 if (tab.navigationHistory.isEmpty() && url != null && !url.isEmpty()) {
                     tab.navigationHistory.add(url);
@@ -3042,7 +3039,6 @@ public class MainActivity extends Activity {
             }
             switchToTab(selected);
             renderTabs();
-            mainHandler.post(() -> hydrateRestoredTabs(selected));
             return true;
         } catch (Exception error) {
             return false;
@@ -3051,92 +3047,6 @@ public class MainActivity extends Activity {
 
     private String themeMode() {
         return preferences.getString(PREF_THEME_MODE, Theme.MODE_SYSTEM);
-    }
-
-    private void hydrateRestoredTabs(int selected) {
-        List<Integer> order = new ArrayList<>();
-        if (selected >= 0 && selected < tabs.size()) {
-            order.add(selected);
-        }
-        for (int i = 0; i < tabs.size(); i++) {
-            if (i != selected) {
-                order.add(i);
-            }
-        }
-        hydrateRestoredTabs(order, 0);
-    }
-
-    private void hydrateRestoredTabs(List<Integer> order, int position) {
-        if (position >= order.size()) {
-            renderTabs();
-            return;
-        }
-        int i = order.get(position);
-        if (i >= 0 && i < tabs.size()) {
-            CuspTab tab = tabs.get(i);
-            if (isThreadPageNativeKind(tab.nativeKind)) {
-                if (tab.savedThreadPageJson != null) {
-                    tab.threadPage = threadPageFromJson(tab.savedThreadPageJson);
-                    tab.savedThreadPageJson = null;
-                }
-                if (tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
-                    tab.readerMode = true;
-                    if (NATIVE_THREAD.equals(tab.nativeKind)) {
-                        tab.readPostNumber = readPostNumberForTab(tab, tab.threadPage.url);
-                        updateTabThreadStats(tab, tab.threadPage);
-                    } else {
-                        tab.readPostNumber = 0;
-                    }
-                    if (i == currentIndex) {
-                        tab.postViews = new LinkedHashMap<>();
-                        tab.readerView = buildThreadView(tab.threadPage, tab);
-                    } else {
-                        unloadTabView(tab);
-                    }
-                } else if (i == currentIndex && tab.url != null && !tab.url.isEmpty()) {
-                    openInTab(tab, tab.url, false);
-                } else {
-                    unloadTabView(tab);
-                }
-            } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
-                if (tab.savedSearchPageJson != null) {
-                    tab.searchPage = searchPageFromJson(tab.savedSearchPageJson);
-                    tab.savedSearchPageJson = null;
-                }
-                if (tab.searchPage != null) {
-                    tab.readerMode = true;
-                    if (i == currentIndex) {
-                        tab.readerView = buildSearchView(tab.searchPage, !NATIVE_BOARD.equals(tab.nativeKind));
-                    } else {
-                        unloadTabView(tab);
-                    }
-                } else if (i == currentIndex && tab.url != null && !tab.url.isEmpty()) {
-                    openInTab(tab, tab.url, false);
-                } else {
-                    unloadTabView(tab);
-                }
-            } else if (tab.url == null || tab.url.isEmpty()) {
-                tab.readerMode = true;
-                tab.nativeKind = NATIVE_SEARCH_HOME;
-                if (i == currentIndex) {
-                    tab.readerView = buildSearchHomeView(true);
-                } else {
-                    unloadTabView(tab);
-                }
-            } else if (i == currentIndex && tab.readerView == null) {
-                openInTab(tab, tab.url, false);
-            } else if (i != currentIndex) {
-                unloadTabView(tab);
-            }
-            if (i == currentIndex && !tabOverviewVisible && !pendingNewTab) {
-                switchToTab(i);
-                if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
-                    restoreThreadScroll(tab);
-                }
-            }
-        }
-        renderTabs();
-        mainHandler.post(() -> hydrateRestoredTabs(order, position + 1));
     }
 
     private void openInTab(CuspTab tab, String url, boolean addHistory) {
@@ -3196,11 +3106,20 @@ public class MainActivity extends Activity {
                     history.put(historyUrl);
                 }
                 item.put("navigationHistory", history);
+                boolean currentTabForSave = tab == current;
                 if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
-                    item.put("threadPage", threadPageToJson(tab.threadPage));
+                    updateTabThreadStats(tab, tab.threadPage);
+                    if (currentTabForSave) {
+                        item.put("threadPage", threadPageToJson(tab.threadPage));
+                    }
+                } else if (currentTabForSave && isThreadPageNativeKind(tab.nativeKind) && tab.savedThreadPageJson != null) {
+                    item.put("threadPage", tab.savedThreadPageJson);
                 } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
                         && tab.searchPage != null && tab.searchPage.error == null) {
                     item.put("searchPage", searchPageToJson(tab.searchPage));
+                } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
+                        && tab.savedSearchPageJson != null) {
+                    item.put("searchPage", tab.savedSearchPageJson);
                 }
                 array.put(item);
                 if (tab == current) {
@@ -3538,6 +3457,13 @@ public class MainActivity extends Activity {
             results.put(item);
         }
         object.put("results", results);
+        if (page.categoryCounts != null && !page.categoryCounts.isEmpty()) {
+            JSONObject counts = new JSONObject();
+            for (Map.Entry<String, Integer> entry : page.categoryCounts.entrySet()) {
+                counts.put(entry.getKey(), entry.getValue());
+            }
+            object.put("categoryCounts", counts);
+        }
         object.put("fullTextPage", page.fullTextPage);
         object.put("fullTextHasMore", page.fullTextHasMore);
         object.put("fullTextReachedEnd", page.fullTextReachedEnd);
@@ -3545,6 +3471,10 @@ public class MainActivity extends Activity {
     }
 
     private SearchPage searchPageFromJson(JSONObject object) {
+        return searchPageFromJson(object, true);
+    }
+
+    private SearchPage searchPageFromJson(JSONObject object, boolean refreshReadState) {
         if (object == null) {
             return null;
         }
@@ -3571,10 +3501,10 @@ public class MainActivity extends Activity {
                 result.boardOrder = item.optInt("boardOrder", i);
                 result.createdAt = item.optLong("createdAt", 0L);
                 result.unread = item.optInt("unread", 0);
-                result.hasReadHistory = threadHistoryContains(result.url)
-                        || item.optBoolean("hasReadHistory", result.unread > 0);
+                result.hasReadHistory = item.optBoolean("hasReadHistory", result.unread > 0)
+                        || (refreshReadState && threadHistoryContains(result.url));
                 result.boardName = item.optString("boardName", "");
-                if (result.hasReadHistory && !result.boardName.isEmpty() && result.responses > 0) {
+                if (refreshReadState && result.hasReadHistory && !result.boardName.isEmpty() && result.responses > 0) {
                     result.unread = Math.max(0, result.responses - visibleReadPostNumber(result.url));
                 }
                 Object priority = item.opt("priorityMatch");
@@ -3593,7 +3523,99 @@ public class MainActivity extends Activity {
                 page.results.add(result);
             }
         }
+        JSONObject counts = object.optJSONObject("categoryCounts");
+        if (counts != null) {
+            page.categoryCounts = new LinkedHashMap<>();
+            Iterator<String> keys = counts.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                page.categoryCounts.put(key, counts.optInt(key, 0));
+            }
+        }
         return page;
+    }
+
+    private SearchPage cachedBbsDirectoryPage(String directoryUrl) {
+        if (!isFiveChBbsMenuUrl(directoryUrl)) {
+            return null;
+        }
+        return readFiveChBbsMenuCache();
+    }
+
+    private SearchPage readFiveChBbsMenuCache() {
+        if (fiveChBbsMenuCache != null && !fiveChBbsMenuCache.results.isEmpty()) {
+            fiveChBbsMenuCache.title = text("\u677f\u4e00\u89a7", "Boards");
+            return fiveChBbsMenuCache;
+        }
+        String saved = preferences.getString(PREF_FIVE_CH_BBSMENU_CACHE, "");
+        if (saved == null || saved.isEmpty()) {
+            return null;
+        }
+        try {
+            JSONObject root = new JSONObject(saved);
+            SearchPage page = searchPageFromJson(root.optJSONObject("page"), false);
+            if (page == null || page.results.isEmpty()) {
+                return null;
+            }
+            page.title = text("\u677f\u4e00\u89a7", "Boards");
+            if (page.url == null || page.url.trim().isEmpty()) {
+                page.url = FIVE_CH_BBSMENU_URL;
+            }
+            fiveChBbsMenuCache = page;
+            fiveChBbsMenuCacheAt = Math.max(0L, root.optLong("cachedAt", 0L));
+            return page;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private boolean isFiveChBbsMenuCacheFresh() {
+        return readFiveChBbsMenuCache() != null
+                && fiveChBbsMenuCacheAt > 0L
+                && System.currentTimeMillis() - fiveChBbsMenuCacheAt < FIVE_CH_BBSMENU_CACHE_REFRESH_MS;
+    }
+
+    private SearchPage downloadBbsDirectoryWithCache(String directoryUrl) throws Exception {
+        SearchPage page = downloadBbsDirectory(directoryUrl);
+        cacheFiveChBbsMenu(directoryUrl, page);
+        return page;
+    }
+
+    private void cacheFiveChBbsMenu(String directoryUrl, SearchPage page) {
+        if (page == null || page.error != null || page.results.isEmpty()
+                || (!isFiveChBbsMenuUrl(directoryUrl) && !isFiveChBbsMenuUrl(page.url))) {
+            return;
+        }
+        try {
+            page.title = text("\u677f\u4e00\u89a7", "Boards");
+            long now = System.currentTimeMillis();
+            JSONObject root = new JSONObject();
+            root.put("cachedAt", now);
+            root.put("page", searchPageToJson(page));
+            preferences.edit().putString(PREF_FIVE_CH_BBSMENU_CACHE, root.toString()).apply();
+            fiveChBbsMenuCache = page;
+            fiveChBbsMenuCacheAt = now;
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void refreshFiveChBbsMenuCacheIfStale() {
+        if (fiveChBbsMenuRefreshInFlight || isFiveChBbsMenuCacheFresh()) {
+            return;
+        }
+        fiveChBbsMenuRefreshInFlight = true;
+        ioExecutor.execute(() -> {
+            try {
+                SearchPage page = downloadBbsDirectory(FIVE_CH_BBSMENU_URL);
+                cacheFiveChBbsMenu(FIVE_CH_BBSMENU_URL, page);
+            } catch (Exception ignored) {
+            }
+            runOnUiThread(() -> fiveChBbsMenuRefreshInFlight = false);
+        });
+    }
+
+    private boolean isFiveChBbsMenuUrl(String url) {
+        return url != null && isBbsMenuUrl(url) && is5chUrl(url);
     }
 
     private void restoreNavigationHistory(CuspTab tab, JSONObject item) {
@@ -3781,13 +3803,25 @@ public class MainActivity extends Activity {
             }
         } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
             if (tab.savedSearchPageJson != null) {
-                tab.searchPage = searchPageFromJson(tab.savedSearchPageJson);
+                tab.searchPage = searchPageFromJson(tab.savedSearchPageJson, !isBbsMenuUrl(tab.url));
                 tab.savedSearchPageJson = null;
             }
             if (tab.searchPage != null) {
                 tab.readerMode = true;
+                if (NATIVE_BOARD.equals(tab.nativeKind) && isBbsMenuUrl(tab.searchPage.url)) {
+                    return buildBbsCategoryIndexView(tab.searchPage);
+                }
                 return buildSearchView(tab.searchPage, !NATIVE_BOARD.equals(tab.nativeKind));
             }
+        } else if (NATIVE_SAVED.equals(tab.nativeKind)
+                && tab.url != null && tab.url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
+            SavedPage savedPage = savedPageFromToken(
+                    decodeNewTabToken(tab.url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
+            tab.readerMode = true;
+            return buildSavedItemsView(savedPage.key, savedPage.folder);
+        } else if (NATIVE_HISTORY.equals(tab.nativeKind)) {
+            tab.readerMode = true;
+            return buildHistoryView();
         } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || tab.url == null || tab.url.isEmpty()) {
             tab.readerMode = true;
             tab.nativeKind = NATIVE_SEARCH_HOME;
@@ -6266,6 +6300,22 @@ public class MainActivity extends Activity {
         tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
+        SearchPage cached = cachedBbsDirectoryPage(loadUrl);
+        if (cached != null) {
+            tab.title = cached.title;
+            tab.searchPage = cached;
+            tab.readerView = isBbsMenuUrl(cached.url) ? buildBbsCategoryIndexView(cached) : buildSearchView(cached, false);
+            cacheBoardHistoryPage(tab, cached, tab.readerView);
+            if (foreground) {
+                progressBar.setVisibility(View.GONE);
+                switchToTab(tabs.indexOf(tab));
+            } else if (tab == currentTab() && !tabOverviewVisible) {
+                switchToTab(currentIndex);
+            }
+            renderTabs();
+            refreshFiveChBbsMenuCacheIfStale();
+            return;
+        }
         if (foreground) {
             switchToTab(tabs.indexOf(tab));
             progressBar.setVisibility(View.VISIBLE);
@@ -6274,7 +6324,7 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                page = downloadBbsDirectory(loadUrl);
+                page = downloadBbsDirectoryWithCache(loadUrl);
             } catch (Exception error) {
                 page = SearchPage.error(loadUrl, error.getMessage());
             }
@@ -9416,10 +9466,6 @@ public class MainActivity extends Activity {
 
     private void showFiveChBoardsView(boolean recordHistory) {
         String pageKey = "5ch";
-        if (pendingNewTab) {
-            openPendingNewTabUrl(FIVE_CH_BBSMENU_URL);
-            return;
-        }
         if (recordHistory) {
             recordNewTabPage(pageKey);
         }
@@ -9428,6 +9474,12 @@ public class MainActivity extends Activity {
         if (forNewTab && restoreNewTabHistoryPage(pageKey)) {
             updateBottomThreadBar(null);
             renderTabs();
+            return;
+        }
+        SearchPage cached = cachedBbsDirectoryPage(FIVE_CH_BBSMENU_URL);
+        if (cached != null) {
+            applyBbsDirectoryResult(pageKey, forNewTab, targetTab, cached, true);
+            refreshFiveChBbsMenuCacheIfStale();
             return;
         }
         prepareChromeForLoading();
@@ -9446,44 +9498,13 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                page = downloadBbsDirectory(FIVE_CH_BBSMENU_URL);
+                page = downloadBbsDirectoryWithCache(FIVE_CH_BBSMENU_URL);
                 page.title = text("\u677f\u4e00\u89a7", "Boards");
             } catch (Exception error) {
                 page = SearchPage.error(FIVE_CH_BBSMENU_URL, error.getMessage());
             }
             SearchPage result = page;
-            runOnUiThread(() -> {
-                View resultView = buildBbsCategoryIndexView(result);
-                if (forNewTab && result.error == null) {
-                    cacheNewTabHistoryPage(pageKey, resultView);
-                }
-                if (forNewTab) {
-                    if (!isCurrentNewTabPage(pageKey)) {
-                        return;
-                    }
-                    progressBar.setVisibility(View.GONE);
-                    contentFrame.removeAllViews();
-                    contentFrame.addView(resultView);
-                } else if (targetTab != null && tabs.contains(targetTab)) {
-                    targetTab.readerMode = true;
-                    targetTab.nativeKind = NATIVE_BOARD;
-                    targetTab.url = FIVE_CH_BBSMENU_URL;
-                    targetTab.title = result.title;
-                    targetTab.searchPage = result;
-                    targetTab.readerView = resultView;
-                    targetTab.threadPage = null;
-                    targetTab.threadScroll = null;
-                    targetTab.postViews = null;
-                    cacheBoardHistoryPage(targetTab, result, resultView);
-                    if (targetTab == currentTab() && !tabOverviewVisible) {
-                        progressBar.setVisibility(View.GONE);
-                        contentFrame.removeAllViews();
-                        contentFrame.addView(resultView);
-                    }
-                }
-                updateBottomThreadBar(forNewTab ? null : currentTab());
-                renderTabs();
-            });
+            runOnUiThread(() -> applyBbsDirectoryResult(pageKey, forNewTab, targetTab, result, true));
         });
     }
 
@@ -9506,6 +9527,14 @@ public class MainActivity extends Activity {
             renderTabs();
             return;
         }
+        SearchPage cached = cachedBbsDirectoryPage(menuUrl);
+        if (cached != null) {
+            SearchPage page = filterBbsCategory(cached, category);
+            page.title = category == null || category.isEmpty() ? cached.title : category;
+            applyBbsDirectoryResult(pageKey, forNewTab, targetTab, page, false);
+            refreshFiveChBbsMenuCacheIfStale();
+            return;
+        }
         prepareChromeForLoading();
         View view = loadingView("");
         if (forNewTab) {
@@ -9522,7 +9551,7 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                SearchPage all = downloadBbsDirectory(menuUrl);
+                SearchPage all = downloadBbsDirectoryWithCache(menuUrl);
                 page = filterBbsCategory(all, category);
                 page.title = category == null || category.isEmpty()
                         ? all.title
@@ -9531,39 +9560,42 @@ public class MainActivity extends Activity {
                 page = SearchPage.error(menuUrl, error.getMessage());
             }
             SearchPage result = page;
-            runOnUiThread(() -> {
-                View resultView = buildSearchView(result, false);
-                if (forNewTab && result.error == null) {
-                    cacheNewTabHistoryPage(pageKey, resultView);
-                }
-                if (forNewTab) {
-                    if (!isCurrentNewTabPage(pageKey)) {
-                        return;
-                    }
-                    progressBar.setVisibility(View.GONE);
-                    contentFrame.removeAllViews();
-                    contentFrame.addView(resultView);
-                } else if (targetTab != null && tabs.contains(targetTab)) {
-                    targetTab.readerMode = true;
-                    targetTab.nativeKind = NATIVE_BOARD;
-                    targetTab.url = result.url;
-                    targetTab.title = result.title;
-                    targetTab.searchPage = result;
-                    targetTab.readerView = resultView;
-                    targetTab.threadPage = null;
-                    targetTab.threadScroll = null;
-                    targetTab.postViews = null;
-                    cacheBoardHistoryPage(targetTab, result, resultView);
-                    if (targetTab == currentTab() && !tabOverviewVisible) {
-                        progressBar.setVisibility(View.GONE);
-                        contentFrame.removeAllViews();
-                        contentFrame.addView(resultView);
-                    }
-                }
-                updateBottomThreadBar(forNewTab ? null : currentTab());
-                renderTabs();
-            });
+            runOnUiThread(() -> applyBbsDirectoryResult(pageKey, forNewTab, targetTab, result, false));
         });
+    }
+
+    private void applyBbsDirectoryResult(String pageKey, boolean forNewTab, CuspTab targetTab,
+                                         SearchPage result, boolean categoryIndex) {
+        View resultView = categoryIndex ? buildBbsCategoryIndexView(result) : buildSearchView(result, false);
+        if (forNewTab && result.error == null) {
+            cacheNewTabHistoryPage(pageKey, resultView);
+        }
+        if (forNewTab) {
+            if (!isCurrentNewTabPage(pageKey)) {
+                return;
+            }
+            progressBar.setVisibility(View.GONE);
+            contentFrame.removeAllViews();
+            contentFrame.addView(resultView);
+        } else if (targetTab != null && tabs.contains(targetTab)) {
+            targetTab.readerMode = true;
+            targetTab.nativeKind = NATIVE_BOARD;
+            targetTab.url = result.url == null || result.url.trim().isEmpty() ? FIVE_CH_BBSMENU_URL : result.url;
+            targetTab.title = result.title;
+            targetTab.searchPage = result;
+            targetTab.readerView = resultView;
+            targetTab.threadPage = null;
+            targetTab.threadScroll = null;
+            targetTab.postViews = null;
+            cacheBoardHistoryPage(targetTab, result, resultView);
+            if (targetTab == currentTab() && !tabOverviewVisible) {
+                progressBar.setVisibility(View.GONE);
+                contentFrame.removeAllViews();
+                contentFrame.addView(resultView);
+            }
+        }
+        updateBottomThreadBar(forNewTab ? null : currentTab());
+        renderTabs();
     }
 
     private boolean restoreNewTabHistoryPage(String pageKey) {
