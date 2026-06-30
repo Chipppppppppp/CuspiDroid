@@ -199,6 +199,9 @@ public class MainActivity extends Activity {
     static final String PREF_EXTERNAL_LINK_IN_APP = "external_link_in_app";
     static final String PREF_THEME_MODE = "theme_mode";
     static final String PREF_BBS_LINKS = "bbs_links";
+    static final String PREF_DEFAULT_CUSTOM_BBS_ADDED = "default_custom_bbs_added";
+    static final String SHITARABA_BBSMENU_URL = "https://bbs-menu.pages.dev/shitaraba_bbsmenu/bbsmenu.json";
+    static final String FUTABA_BBSMENU_URL = "https://www.2chan.net/bbsmenu.html";
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_NG_RULES = "ng_rules";
     static final String PREF_READ_POSTS = "read_posts";
@@ -782,6 +785,15 @@ public class MainActivity extends Activity {
                 .apply();
     }
 
+    private void ensureDefaultCustomBbsLinks() {
+        if (preferences.getBoolean(PREF_DEFAULT_CUSTOM_BBS_ADDED, false)) {
+            return;
+        }
+        addBbsLink(preferences, "\u3057\u305f\u3089\u3070\u63b2\u793a\u677f", SHITARABA_BBSMENU_URL);
+        addBbsLink(preferences, "\u3075\u305f\u3070\u3061\u3083\u3093\u306d\u308b", FUTABA_BBSMENU_URL);
+        preferences.edit().putBoolean(PREF_DEFAULT_CUSTOM_BBS_ADDED, true).apply();
+    }
+
     private List<String> addressBarButtonIds() {
         List<String> ids = orderedButtonIdsFromPreferences(PREF_ADDRESS_BAR_BUTTONS, DEFAULT_ADDRESS_BAR_BUTTONS, ADDRESS_BUTTON_IDS);
         if (!ids.contains(ADDRESS_BAR_MENU)) {
@@ -863,6 +875,7 @@ public class MainActivity extends Activity {
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         migrateAddressMenuNavigationPreference();
         migrateFavoriteBoardsToBookmarks();
+        ensureDefaultCustomBbsLinks();
         appliedThemeMode = themeMode();
         appliedSync2chUpdateAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
         appliedLocalBackupRestoreAt = preferences.getLong(PREF_LOCAL_BACKUP_RESTORED_AT, 0L);
@@ -3534,6 +3547,122 @@ public class MainActivity extends Activity {
             }
         }
         return page;
+    }
+
+    private SearchPage parseShitarabaBbsMenuJson(String menuUrl, String json) throws Exception {
+        JSONObject root = new JSONObject(json);
+        SearchPage page = new SearchPage();
+        page.url = menuUrl;
+        page.title = "\u3057\u305f\u3089\u3070\u63b2\u793a\u677f";
+        Map<String, Integer> categoryCounts = new LinkedHashMap<>();
+        Map<String, String> boardNames = new LinkedHashMap<>();
+        Set<String> seen = new LinkedHashSet<>();
+        JSONArray menus = root.optJSONArray("menu_list");
+        if (menus != null) {
+            for (int i = 0; i < menus.length(); i++) {
+                JSONObject category = menus.optJSONObject(i);
+                if (category == null) {
+                    continue;
+                }
+                String categoryName = cleanText(category.optString("category_name", ""));
+                JSONArray boards = category.optJSONArray("category_content");
+                if (boards == null) {
+                    continue;
+                }
+                for (int j = 0; j < boards.length(); j++) {
+                    JSONObject board = boards.optJSONObject(j);
+                    if (board == null) {
+                        continue;
+                    }
+                    String url = normalizeUrl(board.optString("url", ""));
+                    if (url.isEmpty() || !seen.add(url)) {
+                        continue;
+                    }
+                    String title = cleanText(board.optString("board_name", ""));
+                    if (title.isEmpty()) {
+                        title = boardNameFromUrl(url);
+                    }
+                    SearchResult result = new SearchResult();
+                    result.title = title == null || title.isEmpty() ? hostTitle(url) : title;
+                    result.url = url;
+                    result.meta = Uri.parse(url).getHost();
+                    result.category = categoryName;
+                    page.results.add(result);
+                    boardNames.put(url, result.title);
+                    categoryCounts.put(categoryName, categoryCounts.containsKey(categoryName)
+                            ? categoryCounts.get(categoryName) + 1 : 1);
+                }
+            }
+        }
+        page.categoryCounts = categoryCounts;
+        saveBoardDisplayNames(boardNames);
+        if (page.results.isEmpty()) {
+            throw new IllegalStateException(text("\u677f\u30ea\u30f3\u30af\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board links found."));
+        }
+        return page;
+    }
+
+    private SearchPage parseFutabaBoard(String boardUrl, String html) {
+        SearchPage page = new SearchPage();
+        page.url = boardUrl;
+        page.title = boardTitle(boardUrl);
+        Pattern pattern = Pattern.compile(
+                "<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])thre(?![A-Za-z0-9_-])[^\"']*[\"'][^>]*data-res=[\"']?(\\d+)[\"']?[^>]*>(.*?)(?=<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])thre(?![A-Za-z0-9_-])|<table[^>]+align=left|</body>)",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(html == null ? "" : html);
+        int order = 1;
+        while (matcher.find()) {
+            String key = matcher.group(1);
+            String block = matcher.group(2);
+            String rawTitle = firstMatch(block, "<blockquote[^>]*>(.*?)</blockquote>");
+            String title = rawTitle == null ? "" : cleanText(rawTitle);
+            if (title.isEmpty()) {
+                title = "No." + key;
+            }
+            int responses = futabaResponseCount(block);
+            SearchResult result = new SearchResult();
+            result.title = title;
+            result.url = futabaThreadUrl(boardUrl, key);
+            result.responses = responses;
+            result.velocity = threadVelocity(key, responses);
+            result.boardOrder = order;
+            result.createdAt = threadCreatedAtMillis(key);
+            int readNumber = visibleReadPostNumber(result.url);
+            result.hasReadHistory = threadHistoryContains(result.url);
+            result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
+            result.boardName = displayBoardTitle(boardUrl);
+            result.priorityMatch = matchingBoardPriorityWord(title, boardUrl);
+            result.meta = boardThreadMeta(result);
+            page.results.add(result);
+            order++;
+        }
+        sortBoardResults(page.results);
+        return page;
+    }
+
+    private int futabaResponseCount(String block) {
+        int replies = 0;
+        Matcher matcher = Pattern.compile("class=[\"']rsc[\"']", Pattern.CASE_INSENSITIVE).matcher(block == null ? "" : block);
+        while (matcher.find()) {
+            replies++;
+        }
+        return replies + 1;
+    }
+
+    private String futabaThreadUrl(String boardUrl, String key) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(boardUrl));
+            String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+            String host = uri.getHost();
+            List<String> parts = pathParts(uri.getPath());
+            if (host == null || parts.isEmpty()) {
+                return trimSlash(boardUrl) + "/res/" + key + ".htm";
+            }
+            String board = parts.get(0);
+            return scheme + "://" + host + "/" + board + "/res/" + key + ".htm";
+        } catch (Exception ignored) {
+            return trimSlash(boardUrl) + "/res/" + key + ".htm";
+        }
     }
 
     private SearchPage cachedBbsDirectoryPage(String directoryUrl) {
@@ -20074,7 +20203,9 @@ public class MainActivity extends Activity {
             throw new IllegalStateException("HTTP " + code);
         }
         byte[] bytes = readBytes(stream);
-        String body = new String(bytes, Charset.forName("MS932"));
+        String host = Uri.parse(url).getHost();
+        Charset charset = isShitarabaHost(host) ? Charset.forName("EUC-JP") : Charset.forName("MS932");
+        String body = new String(bytes, charset);
         if (code >= 400) {
             throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
         }
@@ -20129,6 +20260,10 @@ public class MainActivity extends Activity {
         if (address.host != null && !address.host.isEmpty()
                 && !"itest.5ch.io".equalsIgnoreCase(address.host)) {
             String base = (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/" + address.board;
+            if (isShitarabaHost(address.host)) {
+                addUnique(candidates, (address.scheme == null ? "https" : address.scheme)
+                        + "://" + address.host + "/bbs/rawmode.cgi/" + address.board + "/" + address.key + "/");
+            }
             addUnique(candidates, base + "/dat/" + address.key + ".dat");
             if (address.key.length() >= 4) {
                 String bucket = address.key.substring(0, 4);
@@ -20202,6 +20337,11 @@ public class MainActivity extends Activity {
         }
         if (testIndex >= 0 && testIndex + 3 < parts.size()
                 && "read.cgi".equals(parts.get(testIndex + 1))) {
+            if (isShitarabaHost(host) && testIndex + 4 < parts.size()) {
+                String board = parts.get(testIndex + 2) + "/" + parts.get(testIndex + 3);
+                String key = parts.get(testIndex + 4);
+                return datAddress(uri, host, host.split("\\.")[0], board, key, false);
+            }
             String board = parts.get(testIndex + 2);
             String key = parts.get(testIndex + 3);
             String server = host.split("\\.")[0];
@@ -20298,7 +20438,8 @@ public class MainActivity extends Activity {
         try {
             String host = Uri.parse(threadUrl).getHost();
             String lowerHost = host == null ? "" : host.toLowerCase(Locale.ROOT);
-            if (!lowerHost.equals("machi.to") && !lowerHost.endsWith(".machi.to")) {
+            if (!lowerHost.equals("machi.to") && !lowerHost.endsWith(".machi.to")
+                    && !isShitarabaHost(lowerHost)) {
                 return false;
             }
         } catch (Exception ignored) {
@@ -20322,6 +20463,9 @@ public class MainActivity extends Activity {
         String board = boardNameFromUrl(redirectedUrl);
         if (host == null || board == null) {
             throw new IllegalStateException("Unsupported board URL.");
+        }
+        if (isFutabaBoardUrl(redirectedUrl)) {
+            return parseFutabaBoard(redirectedUrl, download(redirectedUrl));
         }
         BoardSubject subject;
         Uri originalUri = Uri.parse(normalizeUrl(boardUrl));
@@ -20433,6 +20577,9 @@ public class MainActivity extends Activity {
                 directoryUrl,
                 "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
         String html = download(redirectedUrl);
+        if (isShitarabaBbsMenuJsonUrl(redirectedUrl)) {
+            return parseShitarabaBbsMenuJson(redirectedUrl, html);
+        }
         Uri base = Uri.parse(normalizeUrl(redirectedUrl));
         String baseHost = base.getHost();
         SearchPage page = new SearchPage();
@@ -20557,6 +20704,9 @@ public class MainActivity extends Activity {
                     && "read.cgi".equalsIgnoreCase(nonEmpty.get(1))) {
                 return true;
             }
+            if (isShitarabaBoardUrl(url) || isFutabaBoardUrl(url)) {
+                return true;
+            }
             if (isRegisteredBbsMenuChild(url, nonEmpty)) {
                 return true;
             }
@@ -20605,6 +20755,9 @@ public class MainActivity extends Activity {
     }
 
     private String boardUrlFromDirectoryLink(String url, String board) {
+        if (isShitarabaBoardUrl(url) || isFutabaBoardUrl(url)) {
+            return normalizeUrl(url);
+        }
         Uri uri = Uri.parse(url);
         String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
         String host = uri.getHost();
@@ -20635,7 +20788,7 @@ public class MainActivity extends Activity {
                 if (stream == null) {
                     throw new IllegalStateException("HTTP " + code);
                 }
-                String body = readText(stream, responseCharset(connection, Charset.forName("MS932")));
+                String body = readText(stream, responseCharset(connection, boardSubjectFallbackCharset(subjectUrl)));
                 if (code >= 400) {
                     throw new IllegalStateException("HTTP " + code + "\n" + cleanText(body));
                 }
@@ -20654,6 +20807,16 @@ public class MainActivity extends Activity {
             }
         }
         throw lastError == null ? new IllegalStateException("subject.txt not found.") : lastError;
+    }
+
+    private Charset boardSubjectFallbackCharset(String subjectUrl) {
+        try {
+            return isShitarabaHost(Uri.parse(subjectUrl).getHost())
+                    ? Charset.forName("EUC-JP")
+                    : Charset.forName("MS932");
+        } catch (Exception ignored) {
+            return Charset.forName("MS932");
+        }
     }
 
     private boolean isBoardSubjectBody(String body) {
@@ -20727,6 +20890,9 @@ public class MainActivity extends Activity {
         }
         if (usesShortThreadUrls(subjectUrl, host)) {
             return scheme + "://" + host + "/" + board + "/";
+        }
+        if (isShitarabaHost(host)) {
+            return scheme + "://" + host + "/bbs/read.cgi/" + board + "/";
         }
         String reader = host.toLowerCase(Locale.ROOT).endsWith("machi.to")
                 ? "/bbs/read.cgi/"
@@ -20914,6 +21080,7 @@ public class MainActivity extends Activity {
         }
         page.title = cleanText(page.title);
 
+        parseFutabaPosts(html, page.posts);
         parseMachiPosts(html, page.posts);
         if (page.posts.isEmpty()) {
             parseKakoPosts(html, page.posts);
@@ -20926,6 +21093,30 @@ public class MainActivity extends Activity {
         }
         indexPosts(page);
         return page;
+    }
+
+    private void parseFutabaPosts(String html, List<Post> posts) {
+        if (html == null || !html.contains("2chan.net") && !html.contains("GazouBBS")) {
+            return;
+        }
+        Pattern pattern = Pattern.compile(
+                "<span[^>]+class=[\"']cno[\"'][^>]*>\\s*No\\.(\\d+)\\s*</span>(.*?)(?=<span[^>]+class=[\"']cno[\"']|<div[^>]+style=[\"']clear:left|</div><!--\\s*\\u30b9\\u30ec\\u30c3\\u30c9\\u7d42\\u4e86|<hr)",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(html);
+        while (matcher.find()) {
+            String block = matcher.group(2);
+            String body = firstMatch(block, "<blockquote[^>]*>(.*?)</blockquote>");
+            if (body == null || cleanText(body).isEmpty()) {
+                continue;
+            }
+            Post post = new Post();
+            post.number = parsePositiveInt(matcher.group(1), posts.size() + 1);
+            post.name = valueOr(firstMatch(block, "<span[^>]+class=[\"']cnm[\"'][^>]*>(.*?)</span>"), "anonymous");
+            post.date = valueOr(firstMatch(block, "<span[^>]+class=[\"']cnw[\"'][^>]*>(.*?)</span>"), "");
+            post.body = cleanText(body);
+            post.cachedLikelyAa = likelyAaPost(post.body);
+            posts.add(post);
+        }
     }
 
     private void indexPosts(ThreadPage page) {
@@ -23057,6 +23248,7 @@ public class MainActivity extends Activity {
                 || lower.contains(".2ch.sc/test/read.cgi/")
                 || lower.contains("/test/read.cgi/")
                 || lower.contains("/bbs/read.cgi/")
+                || isFutabaThreadUrl(url)
                 || datAddress(url) != null;
     }
 
@@ -23159,6 +23351,7 @@ public class MainActivity extends Activity {
             }
             String lower = path.toLowerCase(Locale.ROOT);
             return lower.endsWith("/bbsmenu.html") || lower.endsWith("/bbsmenu.htm")
+                    || lower.endsWith("/bbsmenu.json")
                     || lower.endsWith("/menu.html") || lower.endsWith("/menu.htm");
         } catch (Exception error) {
             return false;
@@ -23206,7 +23399,86 @@ public class MainActivity extends Activity {
         if (left.endsWith(".bbspink.org") || left.equals("bbspink.org")) {
             return right.endsWith(".bbspink.org") || right.equals("bbspink.org");
         }
+        if (isFutabaHost(left)) {
+            return isFutabaHost(right);
+        }
+        if (isShitarabaMenuHost(left)) {
+            return isShitarabaHost(right);
+        }
+        if (isShitarabaHost(left)) {
+            return isShitarabaHost(right) || isShitarabaMenuHost(right);
+        }
         return false;
+    }
+
+    private boolean isFutabaHost(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        return lower.equals("2chan.net") || lower.endsWith(".2chan.net");
+    }
+
+    private boolean isShitarabaMenuHost(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        return lower.equals("bbs-menu.pages.dev");
+    }
+
+    private boolean isShitarabaHost(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        return lower.equals("shitaraba.net") || lower.endsWith(".shitaraba.net")
+                || lower.equals("jbbs.livedoor.jp") || lower.endsWith(".jbbs.livedoor.jp");
+    }
+
+    private boolean isShitarabaBbsMenuJsonUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String host = uri.getHost();
+            String path = uri.getPath();
+            return isShitarabaMenuHost(host)
+                    && path != null
+                    && path.toLowerCase(Locale.ROOT).endsWith("/bbsmenu.json");
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private boolean isShitarabaBoardUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            if (!isShitarabaHost(uri.getHost())) {
+                return false;
+            }
+            List<String> parts = pathParts(uri.getPath());
+            return parts.size() == 2 && parts.get(1).matches("\\d+");
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private boolean isFutabaBoardUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            if (!isFutabaHost(uri.getHost())) {
+                return false;
+            }
+            List<String> parts = pathParts(uri.getPath());
+            return parts.size() == 2 && "futaba.htm".equalsIgnoreCase(parts.get(1));
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private boolean isFutabaThreadUrl(String url) {
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            if (!isFutabaHost(uri.getHost())) {
+                return false;
+            }
+            List<String> parts = pathParts(uri.getPath());
+            return parts.size() >= 3
+                    && "res".equalsIgnoreCase(parts.get(1))
+                    && parts.get(2).toLowerCase(Locale.ROOT).matches("\\d+\\.htm");
+        } catch (Exception error) {
+            return false;
+        }
     }
 
     private String boardNameFromUrl(String url) {
@@ -23215,6 +23487,20 @@ public class MainActivity extends Activity {
             return registeredBoard;
         }
         Uri uri = Uri.parse(url);
+        if (isShitarabaHost(uri.getHost())) {
+            List<String> parts = pathParts(uri.getPath());
+            if (parts.size() >= 2 && !"bbs".equalsIgnoreCase(parts.get(0))) {
+                return parts.get(0) + "/" + parts.get(1);
+            }
+            if (parts.size() >= 4 && "bbs".equalsIgnoreCase(parts.get(0))
+                    && "read.cgi".equalsIgnoreCase(parts.get(1))) {
+                return parts.get(2) + "/" + parts.get(3);
+            }
+        }
+        if (isFutabaBoardUrl(url) || isFutabaThreadUrl(url)) {
+            List<String> parts = pathParts(uri.getPath());
+            return parts.isEmpty() ? null : parts.get(0);
+        }
         String path = uri.getPath();
         if (path == null) {
             return null;
@@ -23355,6 +23641,12 @@ public class MainActivity extends Activity {
                 return null;
             }
             String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+            if (isShitarabaHost(host)) {
+                return normalizeHistoryUrl(scheme + "://" + host + "/" + board + "/");
+            }
+            if (isFutabaBoardUrl(url) || isFutabaThreadUrl(url)) {
+                return normalizeHistoryUrl(scheme + "://" + host + "/" + board + "/futaba.htm");
+            }
             return normalizeHistoryUrl(scheme + "://" + host + "/" + board + "/");
         } catch (Exception ignored) {
             return null;
