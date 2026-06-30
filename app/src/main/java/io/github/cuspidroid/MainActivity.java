@@ -348,6 +348,7 @@ public class MainActivity extends Activity {
     private static final long SAVE_TABS_SCROLL_IDLE_DELAY_MS = 900;
     private static final long FIVE_CH_BBSMENU_CACHE_REFRESH_MS = 12L * 60L * 60L * 1000L;
     private static final long BBS_INTERNAL_LOAD_DELAY_MS = 48L;
+    private static final long BACKGROUND_TRIM_DELAY_MS = 220L;
     private static final int MAX_BBSMENU_CACHE_ENTRIES = 16;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
     private static final int THREAD_IDLE_RENDER_BUDGET = 10;
@@ -458,6 +459,7 @@ public class MainActivity extends Activity {
     private int pageSearchGeneration;
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
+    private Runnable backgroundTrimTask;
     private long appliedSync2chUpdateAt;
     private long appliedLocalBackupRestoreAt;
     private ScrollView dragAutoScrollView;
@@ -3007,8 +3009,12 @@ public class MainActivity extends Activity {
     }
 
     private void showPendingNewTab(boolean privateBrowsing) {
+        showPendingNewTab(privateBrowsing, true);
+    }
+
+    private void showPendingNewTab(boolean privateBrowsing, boolean rememberCurrentTab) {
         rememberTabOverviewScroll();
-        CuspTab previous = currentTab();
+        CuspTab previous = rememberCurrentTab ? currentTab() : null;
         if (previous != null) {
             rememberThreadScroll(previous);
             requestSaveTabsSoon();
@@ -3026,7 +3032,7 @@ public class MainActivity extends Activity {
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
-        contentFrame.addView(buildSearchHomeView(false));
+        contentFrame.addView(buildSearchHomeView(false, true));
         addressBar.setText("");
         updateBottomThreadBar(null);
         clearAddressFocus();
@@ -3244,6 +3250,20 @@ public class MainActivity extends Activity {
             scheduleTabUnload();
         };
         mainHandler.postDelayed(unloadTabsTask, TAB_UNLOAD_INTERVAL_MS);
+    }
+
+    private void scheduleBackgroundTrim() {
+        if (backgroundTrimTask != null) {
+            return;
+        }
+        backgroundTrimTask = () -> {
+            backgroundTrimTask = null;
+            if (!tabs.isEmpty() && !pendingNewTab) {
+                trimBackgroundTabViews();
+                trimBackgroundPageData();
+            }
+        };
+        mainHandler.postDelayed(backgroundTrimTask, BACKGROUND_TRIM_DELAY_MS);
     }
 
     private void unloadIdleTabs() {
@@ -3996,8 +4016,7 @@ public class MainActivity extends Activity {
         renderTabs();
         scheduleThreadScrollChromeRefresh(tab, 5);
         scheduleTabUnload();
-        trimBackgroundTabViews();
-        trimBackgroundPageData();
+        scheduleBackgroundTrim();
     }
 
     private void ensureTabViewLoaded(CuspTab tab) {
@@ -8919,7 +8938,6 @@ public class MainActivity extends Activity {
         prepareBbsInternalPageLoad(tab, url, true);
         switchToTab(tabs.size() - 1);
         scheduleBbsInternalPageLoad(tab, url);
-        renderTabs();
     }
 
     private void createBbsInternalTab(String url, int returnToIndex, boolean backToNewTab,
@@ -8935,7 +8953,6 @@ public class MainActivity extends Activity {
         prepareBbsInternalPageLoad(tab, url, true);
         switchToTab(tabs.size() - 1);
         scheduleBbsInternalPageLoad(tab, url);
-        renderTabs();
     }
 
     private void beginBbsInternalPageLoad(CuspTab tab, String url, boolean addHistory) {
@@ -8947,7 +8964,6 @@ public class MainActivity extends Activity {
         if (index >= 0 && !tabOverviewVisible) {
             switchToTab(index);
         }
-        renderTabs();
         scheduleBbsInternalPageLoad(tab, url);
     }
 
@@ -9713,6 +9729,10 @@ public class MainActivity extends Activity {
     }
 
     private View buildSearchHomeView(boolean fullHistory) {
+        return buildSearchHomeView(fullHistory, false);
+    }
+
+    private View buildSearchHomeView(boolean fullHistory, boolean deferSecondarySections) {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(bgColor());
         ScrollView scroll = new ScrollView(this);
@@ -9743,7 +9763,15 @@ public class MainActivity extends Activity {
         list.addView(fullTextSearch);
 
         List<BbsLink> customLinks = readBbsLinks(preferences);
-        preloadHomeBbsMenuCaches(customLinks);
+        if (deferSecondarySections) {
+            root.post(() -> {
+                if (pendingNewTab && root.getParent() != null) {
+                    preloadHomeBbsMenuCaches(customLinks);
+                }
+            });
+        } else {
+            preloadHomeBbsMenuCaches(customLinks);
+        }
         if (!customLinks.isEmpty()) {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
             for (BbsLink link : customLinks) {
@@ -9759,10 +9787,26 @@ public class MainActivity extends Activity {
         LinearLayout bookmarkSection = new LinearLayout(this);
         bookmarkSection.setOrientation(LinearLayout.VERTICAL);
         bookmarkSection.setTag(HOME_BOOKMARK_SECTION_TAG);
-        populateHomeBookmarkSection(bookmarkSection);
+        if (deferSecondarySections) {
+            bookmarkSection.post(() -> {
+                if (pendingNewTab && root.getParent() != null) {
+                    populateHomeBookmarkSection(bookmarkSection);
+                }
+            });
+        } else {
+            populateHomeBookmarkSection(bookmarkSection);
+        }
         list.addView(bookmarkSection);
         if (showHistoryOnHome()) {
-            addHistorySection(list, fullHistory);
+            if (deferSecondarySections) {
+                list.post(() -> {
+                    if (pendingNewTab && root.getParent() != null) {
+                        addHistorySection(list, fullHistory);
+                    }
+                });
+            } else {
+                addHistorySection(list, fullHistory);
+            }
         }
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -19688,8 +19732,10 @@ public class MainActivity extends Activity {
         if (tab == null || tab.navigationIndex <= 0 || tab.navigationIndex > tab.navigationHistory.size() - 1) {
             clearAddressFocus();
             if (tab != null && tab.backToNewTab) {
-                closeCurrentTab();
-                showPendingNewTab();
+                boolean privateBrowsing = isPrivateTab(tab);
+                rememberThreadScroll(tab);
+                closeCurrentTabWithoutSwitch();
+                showPendingNewTab(privateBrowsing, false);
             } else if (tab != null && tab.returnToIndex >= 0) {
                 int returnIndex = Math.max(0, Math.min(tab.returnToIndex, tabs.size() - 1));
                 closeCurrentTab();
@@ -20312,6 +20358,14 @@ public class MainActivity extends Activity {
         closeTab(currentIndex);
     }
 
+    private void closeCurrentTabWithoutSwitch() {
+        if (tabs.isEmpty() || currentIndex < 0 || currentIndex >= tabs.size()) {
+            return;
+        }
+        removeTabWithoutSwitch(currentIndex);
+        requestSaveTabsSoon();
+    }
+
     private void switchRelativeTab(int delta) {
         if (tabs.isEmpty() || pendingNewTab) {
             return;
@@ -20354,6 +20408,31 @@ public class MainActivity extends Activity {
             currentIndex = Math.max(0, Math.min(currentIndex, tabs.size() - 1));
         }
         switchToTab(currentIndex);
+    }
+
+    private void removeTabWithoutSwitch(int index) {
+        if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
+            return;
+        }
+        tabs.remove(index);
+        for (CuspTab tab : tabs) {
+            if (tab.returnToIndex == index) {
+                tab.returnToIndex = -1;
+            } else if (tab.returnToIndex > index) {
+                tab.returnToIndex--;
+            }
+        }
+        if (tabs.isEmpty()) {
+            currentIndex = -1;
+            return;
+        }
+        if (index < currentIndex) {
+            currentIndex--;
+        } else if (index == currentIndex) {
+            currentIndex = Math.max(0, Math.min(index, tabs.size() - 1));
+        } else {
+            currentIndex = Math.max(0, Math.min(currentIndex, tabs.size() - 1));
+        }
     }
 
     private CuspTab currentTab() {
