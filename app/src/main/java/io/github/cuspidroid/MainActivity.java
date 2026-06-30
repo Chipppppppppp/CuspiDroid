@@ -449,6 +449,7 @@ public class MainActivity extends Activity {
     private View tabOverviewPrivateView;
     private final Map<CuspTab, SearchResult> tabOverviewResultCache = new LinkedHashMap<>();
     private final Map<String, String> tabOverviewBoardTitleCache = new LinkedHashMap<>();
+    private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
     private Set<String> tabOverviewHistoryUrlCache;
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
@@ -639,7 +640,7 @@ public class MainActivity extends Activity {
 
     private int bgColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(0, 18, 12) : Color.rgb(220, 252, 231);
+            return privateChromeColor();
         }
         return Theme.background(this);
     }
@@ -670,9 +671,17 @@ public class MainActivity extends Activity {
 
     private int barColor() {
         if (privateUiActive()) {
-            return Theme.dark(this) ? Color.rgb(2, 44, 34) : Color.rgb(187, 247, 208);
+            return privateChromeColor();
         }
         return Theme.topBar(this);
+    }
+
+    private int privateChromeColor() {
+        return Theme.dark(this) ? Color.rgb(0, 14, 10) : Color.rgb(187, 247, 208);
+    }
+
+    private int chromeBorderColor() {
+        return privateUiActive() ? privateStrokeColor() : borderColor();
     }
 
     private int hintTextColor() {
@@ -684,14 +693,14 @@ public class MainActivity extends Activity {
     }
 
     private int privateStrokeColor() {
-        return Theme.dark(this) ? Color.rgb(5, 120, 89) : Color.rgb(22, 101, 52);
+        return Theme.dark(this) ? Color.rgb(4, 83, 63) : Color.rgb(20, 83, 45);
     }
 
     private int privateButtonFill(boolean active) {
         if (!active) {
             return Theme.dark(this) ? Color.rgb(17, 24, 39) : menuColor();
         }
-        return Theme.dark(this) ? Color.rgb(6, 78, 59) : Color.rgb(187, 247, 208);
+        return privateChromeColor();
     }
 
     private int privateButtonStroke(boolean active) {
@@ -1262,15 +1271,19 @@ public class MainActivity extends Activity {
                 return;
             }
             addressBar.requestFocus();
-            addressBar.selectAll();
+            if (!addressFocusedOnDown) {
+                focusAddressBarText();
+            }
             showKeyboardSoon();
         });
         addressBar.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
-                addressBar.selectAll();
+                focusAddressBarText();
                 if (!addressTouchInProgress) {
                     showKeyboardSoon();
                 }
+            } else {
+                updateAddressBarDisplay(false);
             }
             updateAddressFocusUi(hasFocus);
         });
@@ -1320,7 +1333,7 @@ public class MainActivity extends Activity {
             return false;
         });
         addressBar.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-            if (scrollX != 0 || scrollY != 0) {
+            if (!addressBar.hasFocus() && (scrollX != 0 || scrollY != 0)) {
                 addressBar.scrollTo(0, 0);
             }
         });
@@ -1391,7 +1404,7 @@ public class MainActivity extends Activity {
 
     private TextView tabCountIconSquare(boolean selected) {
         TextView view = new TextView(this);
-        int count = normalTabCount();
+        int count = tabCountForCurrentScope();
         view.setText(count > 99 ? "\u221e" : String.valueOf(count));
         view.setTextColor(textColor());
         view.setTextSize(13);
@@ -1406,15 +1419,16 @@ public class MainActivity extends Activity {
         if (tabCountLabel == null) {
             return;
         }
-        int count = normalTabCount();
+        int count = tabCountForCurrentScope();
         tabCountLabel.setText(count > 99 ? "\u221e" : String.valueOf(count));
         tabCountLabel.setBackground(tabCountBackground(tabOverviewVisible));
     }
 
-    private int normalTabCount() {
+    private int tabCountForCurrentScope() {
+        boolean privateScope = tabOverviewVisible ? tabOverviewPrivateMode : currentTabIsPrivate();
         int count = 0;
         for (CuspTab tab : tabs) {
-            if (tab != null && !tab.bookmarkOverviewTab) {
+            if (tab != null && tab.privateBrowsing == privateScope && isNormalTabScope(tab)) {
                 count++;
             }
         }
@@ -1689,7 +1703,7 @@ public class MainActivity extends Activity {
     private GradientDrawable compactSuggestionPanelBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(menuColor());
-        drawable.setStroke(dp(1), borderColor());
+        drawable.setStroke(dp(1), chromeBorderColor());
         drawable.setCornerRadius(0);
         return drawable;
     }
@@ -1715,7 +1729,7 @@ public class MainActivity extends Activity {
 
     private View suggestionDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(borderColor());
+        divider.setBackgroundColor(chromeBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
@@ -2630,14 +2644,14 @@ public class MainActivity extends Activity {
 
     private View verticalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(borderColor());
+        divider.setBackgroundColor(chromeBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT));
         return divider;
     }
 
     private View horizontalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(borderColor());
+        divider.setBackgroundColor(chromeBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
     }
@@ -2730,7 +2744,7 @@ public class MainActivity extends Activity {
     private GradientDrawable addressBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Theme.field(this));
-        drawable.setStroke(dp(1), borderColor());
+        drawable.setStroke(dp(1), chromeBorderColor());
         drawable.setCornerRadius(dp(20));
         return drawable;
     }
@@ -2738,7 +2752,7 @@ public class MainActivity extends Activity {
     private GradientDrawable menuBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(menuColor());
-        drawable.setStroke(dp(2), Theme.strongBorder(this));
+        drawable.setStroke(dp(2), chromeBorderColor());
         drawable.setCornerRadius(dp(10));
         return drawable;
     }
@@ -2746,14 +2760,14 @@ public class MainActivity extends Activity {
     private GradientDrawable bottomBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(barColor());
-        drawable.setStroke(dp(1), privateUiActive() ? privateStrokeColor() : borderColor());
+        drawable.setStroke(dp(1), chromeBorderColor());
         return drawable;
     }
 
     private void updatePrivateChrome() {
         int bg = bgColor();
         int bar = barColor();
-        int stroke = privateUiActive() ? privateStrokeColor() : borderColor();
+        int stroke = chromeBorderColor();
         boolean privateActive = privateUiActive();
         boolean dark = Theme.dark(this);
         if (bg == appliedChromeBgColor
@@ -2825,17 +2839,15 @@ public class MainActivity extends Activity {
             return;
         }
         rememberTabOverviewScroll();
-        int existingIndex = openBookmarkOverviewTabIndex(item);
-        if (existingIndex >= 0) {
-            switchToTab(existingIndex);
-            refreshTabOverviewValuesForTab(tabs.get(existingIndex));
+        int existing = bookmarkOverviewTabIndex(item);
+        if (existing >= 0) {
+            reopenExistingBookmarkOverviewTab(existing, item);
             return;
         }
         CuspTab tab = new CuspTab();
         tab.title = text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
         tab.url = "";
-        tab.bookmarkOverviewTab = true;
-        tab.bookmarkOverviewFolder = item == null ? "" : normalizeSavedFolder(item.folder);
+        applyThreadTabScope(tab, TabScope.BOOKMARK, item == null ? "" : item.folder);
         tab.privateBrowsing = currentTabIsPrivate();
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tabs.add(tab);
@@ -2844,22 +2856,38 @@ public class MainActivity extends Activity {
         tabOverviewVisible = false;
         contentFrame.removeAllViews();
         contentFrame.addView(loadingView(""));
-        openInCurrentTab(normalizeUrl(url), true, true);
+        openInCurrentTab(normalizeUrl(url), true, TabScope.BOOKMARK,
+                item == null ? "" : item.folder, false);
         renderTabs();
     }
 
-    private int openBookmarkOverviewTabIndex(SavedItem item) {
+    private void reopenExistingBookmarkOverviewTab(int index, SavedItem item) {
+        if (index < 0 || index >= tabs.size() || item == null || item.url == null
+                || item.url.trim().isEmpty()) {
+            return;
+        }
+        String folder = normalizeSavedFolder(item.folder);
+        CuspTab tab = tabs.get(index);
+        applyThreadTabScope(tab, TabScope.BOOKMARK, folder);
+        clearTabViewState(tab);
+        tab.readerView = loadingView("");
+        tabOverviewVisible = false;
+        pendingNewTab = false;
+        pendingHistoryAll = false;
+        switchToTab(index);
+        openInCurrentTab(normalizeUrl(item.url), true, TabScope.BOOKMARK, folder, false);
+    }
+
+    private int bookmarkOverviewTabIndex(SavedItem item) {
         if (item == null || item.url == null || item.url.trim().isEmpty()) {
             return -1;
         }
         String folder = normalizeSavedFolder(item.folder);
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
-            if (tab == null || !tab.bookmarkOverviewTab) {
-                continue;
-            }
-            if (sameSavedUrl(threadUrl(tab), item.url)
-                    && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(folder)) {
+            if (tab != null && isBookmarkTabScope(tab)
+                    && sameSavedUrl(threadUrl(tab), item.url)
+                    && bookmarkTabFolder(tab).equals(folder)) {
                 return i;
             }
         }
@@ -2955,8 +2983,9 @@ public class MainActivity extends Activity {
                 tab.title = item.optString("title", text("\u65b0\u898f\u30bf\u30d6", "New tab"));
                 tab.url = url;
                 tab.privateBrowsing = item.optBoolean("privateBrowsing", false);
-                tab.bookmarkOverviewTab = item.optBoolean("bookmarkOverviewTab", false);
-                tab.bookmarkOverviewFolder = normalizeSavedFolder(item.optString("bookmarkOverviewFolder", ""));
+                applyThreadTabScope(tab,
+                        tabScopeFromSavedItem(item),
+                        item.optString("bookmarkOverviewFolder", ""));
                 String nativeKind = item.optString("nativeKind", "");
                 tab.nativeKind = nativeKind.isEmpty() || "null".equals(nativeKind) ? null : nativeKind;
                 tab.threadScrollRatio = (float) item.optDouble("threadScrollRatio", 0);
@@ -3124,7 +3153,8 @@ public class MainActivity extends Activity {
                 item.put("url", tab.url == null ? "" : tab.url);
                 item.put("title", tab.title == null ? "Tab" : tab.title);
                 item.put("privateBrowsing", false);
-                item.put("bookmarkOverviewTab", tab.bookmarkOverviewTab);
+                item.put("tabScope", tab.tabScope.name());
+                item.put("bookmarkOverviewTab", isBookmarkTabScope(tab));
                 item.put("bookmarkOverviewFolder", normalizeSavedFolder(tab.bookmarkOverviewFolder));
                 item.put("nativeKind", tab.nativeKind == null ? JSONObject.NULL : tab.nativeKind);
                 item.put("threadScrollRatio", tab.threadScrollRatio);
@@ -3303,13 +3333,19 @@ public class MainActivity extends Activity {
             return;
         }
         rememberThreadScroll(tab);
-        ViewGroup parent = (ViewGroup) tab.readerView.getParent();
-        if (parent != null) {
-            parent.removeView(tab.readerView);
+        clearTabViewState(tab);
+    }
+
+    private void clearTabViewState(CuspTab tab) {
+        if (tab == null) {
+            return;
         }
-        if (tab.threadScrollChromeTask != null) {
-            mainHandler.removeCallbacks(tab.threadScrollChromeTask);
-            tab.threadScrollChromeTask = null;
+        cancelThreadChunkRender(tab);
+        if (tab.threadBottomLoader != null) {
+            resetBottomRefreshLoader(tab.threadBottomLoader);
+        }
+        if (tab.readerView != null && tab.readerView.getParent() instanceof ViewGroup) {
+            ((ViewGroup) tab.readerView.getParent()).removeView(tab.readerView);
         }
         tab.threadScrollChromeFrames = 0;
         tab.readerView = null;
@@ -3604,7 +3640,7 @@ public class MainActivity extends Activity {
         } else {
             hideCenterSpinner();
         }
-        addressBar.setText(tab.url == null ? "" : tab.url);
+        updateAddressBarDisplay(false);
         updateBottomThreadBar(tab);
         updateThreadSearchBar(tab);
         renderTabs();
@@ -3884,20 +3920,20 @@ public class MainActivity extends Activity {
         }
         CuspTab current = tabs.get(currentIndex);
         List<Integer> candidates = new ArrayList<>();
-        if (current.bookmarkOverviewTab) {
-            String folder = normalizeSavedFolder(current.bookmarkOverviewFolder);
+        if (isBookmarkTabScope(current)) {
+            String folder = bookmarkTabFolder(current);
             for (int i = 0; i < tabs.size(); i++) {
                 CuspTab tab = tabs.get(i);
-                if (tab.bookmarkOverviewTab
+                if (isBookmarkTabScope(tab)
                         && tab.privateBrowsing == current.privateBrowsing
-                        && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(folder)) {
+                        && bookmarkTabFolder(tab).equals(folder)) {
                     candidates.add(i);
                 }
             }
         } else {
             for (int i = 0; i < tabs.size(); i++) {
                 CuspTab tab = tabs.get(i);
-                if (!tab.bookmarkOverviewTab && tab.privateBrowsing == current.privateBrowsing) {
+                if (isNormalTabScope(tab) && tab.privateBrowsing == current.privateBrowsing) {
                     candidates.add(i);
                 }
             }
@@ -4242,6 +4278,91 @@ public class MainActivity extends Activity {
         updateBottomThreadBar(tab);
     }
 
+    private void updateAddressBarDisplay(boolean focusText) {
+        if (addressBar == null || addressBar.hasFocus() && !focusText) {
+            return;
+        }
+        addressBar.setText(addressBarTextForTab(currentTab()));
+        if (focusText) {
+            focusAddressBarText();
+        } else {
+            resetAddressBarScrollToStart();
+        }
+    }
+
+    private String addressBarTextForTab(CuspTab tab) {
+        if (tab == null || tab.url == null) {
+            return "";
+        }
+        return addressBarTextForUrl(tab.nativeKind, tab.url);
+    }
+
+    private String addressBarTextForUrl(String nativeKind, String url) {
+        if (url == null) {
+            return "";
+        }
+        if (shouldDisplaySearchQueryInAddress(nativeKind, url)) {
+            String query = searchQueryFromUrl(url);
+            if (query != null && !query.trim().isEmpty()) {
+                return query.trim();
+            }
+        }
+        return url;
+    }
+
+    private boolean shouldDisplaySearchQueryInAddress(CuspTab tab) {
+        return tab != null && shouldDisplaySearchQueryInAddress(tab.nativeKind, tab.url);
+    }
+
+    private boolean shouldDisplaySearchQueryInAddress(String nativeKind, String url) {
+        return NATIVE_SEARCH.equals(nativeKind) && isDefaultSearchUrl(url);
+    }
+
+    private void focusAddressBarText() {
+        if (addressBar == null) {
+            return;
+        }
+        addressBar.setEllipsize(null);
+        addressBar.setHorizontallyScrolling(true);
+        addressBar.selectAll();
+        scrollAddressBarToEndSoon();
+    }
+
+    private void resetAddressBarScrollToStart() {
+        if (addressBar == null) {
+            return;
+        }
+        addressBar.setEllipsize(TextUtils.TruncateAt.END);
+        addressBar.setHorizontallyScrolling(true);
+        addressBar.setSelection(0);
+        addressBar.scrollTo(0, 0);
+        addressBar.post(() -> {
+            if (addressBar != null && !addressBar.hasFocus()) {
+                addressBar.scrollTo(0, 0);
+            }
+        });
+    }
+
+    private void scrollAddressBarToEndSoon() {
+        if (addressBar == null) {
+            return;
+        }
+        addressBar.post(() -> scrollAddressBarToEnd());
+        addressBar.postDelayed(() -> scrollAddressBarToEnd(), 80);
+    }
+
+    private void scrollAddressBarToEnd() {
+        if (addressBar == null || !addressBar.hasFocus()) {
+            return;
+        }
+        android.text.Layout layout = addressBar.getLayout();
+        int contentWidth = layout == null ? 0 : (int) Math.ceil(layout.getLineWidth(0));
+        int viewportWidth = Math.max(0, addressBar.getWidth()
+                - addressBar.getTotalPaddingLeft() - addressBar.getTotalPaddingRight());
+        int maxScroll = Math.max(0, contentWidth - viewportWidth);
+        addressBar.scrollTo(maxScroll, 0);
+    }
+
     private void openFromAddressBar() {
         String input = addressBar.getText().toString().trim();
         if (input.isEmpty()) {
@@ -4266,10 +4387,23 @@ public class MainActivity extends Activity {
     }
 
     private void openInCurrentTab(String url, boolean addHistory, boolean bookmarkOverviewTab) {
-        openInCurrentTab(url, addHistory, bookmarkOverviewTab, false);
+        CuspTab tab = currentTab();
+        openInCurrentTab(url, addHistory,
+                bookmarkOverviewTab ? TabScope.BOOKMARK : TabScope.NORMAL,
+                bookmarkTabFolder(tab),
+                false);
     }
 
     private void openInCurrentTab(String url, boolean addHistory, boolean bookmarkOverviewTab,
+                                  boolean redirectResolved) {
+        CuspTab tab = currentTab();
+        openInCurrentTab(url, addHistory,
+                bookmarkOverviewTab ? TabScope.BOOKMARK : TabScope.NORMAL,
+                bookmarkTabFolder(tab),
+                redirectResolved);
+    }
+
+    private void openInCurrentTab(String url, boolean addHistory, TabScope scope, String bookmarkFolder,
                                   boolean redirectResolved) {
         if (pendingNewTab) {
             openPendingNewTabUrl(url);
@@ -4280,10 +4414,7 @@ public class MainActivity extends Activity {
             createTab(url, true);
             return;
         }
-        tab.bookmarkOverviewTab = bookmarkOverviewTab;
-        if (!bookmarkOverviewTab) {
-            tab.bookmarkOverviewFolder = "";
-        }
+        applyThreadTabScope(tab, scope, bookmarkFolder);
         if (!redirectResolved) {
             int redirectGeneration = ++tab.redirectGeneration;
             String normalizedUrl = isInternalPageUrl(url) ? url : normalizeUrl(url);
@@ -4302,7 +4433,7 @@ public class MainActivity extends Activity {
                                 || tab != currentTab() || !tabs.contains(tab)) {
                             return;
                         }
-                        openInCurrentTab(resultUrl, addHistory, bookmarkOverviewTab, true);
+                        openInCurrentTab(resultUrl, addHistory, scope, bookmarkFolder, true);
                     });
                 });
                 return;
@@ -4359,6 +4490,48 @@ public class MainActivity extends Activity {
             return;
         }
         openExternal(url);
+    }
+
+    private void applyThreadTabScope(CuspTab tab, TabScope scope, String bookmarkFolder) {
+        if (tab == null) {
+            return;
+        }
+        tab.tabScope = scope == null ? TabScope.NORMAL : scope;
+        if (tab.tabScope == TabScope.BOOKMARK) {
+            tab.bookmarkOverviewTab = true;
+            tab.bookmarkOverviewFolder = normalizeSavedFolder(bookmarkFolder);
+        } else {
+            tab.bookmarkOverviewTab = false;
+            tab.bookmarkOverviewFolder = "";
+        }
+    }
+
+    private TabScope tabScopeFromSavedItem(JSONObject item) {
+        if (item != null) {
+            String value = item.optString("tabScope", "");
+            if (!value.isEmpty()) {
+                try {
+                    return TabScope.valueOf(value);
+                } catch (Exception ignored) {
+                }
+            }
+            if (item.optBoolean("bookmarkOverviewTab", false)) {
+                return TabScope.BOOKMARK;
+            }
+        }
+        return TabScope.NORMAL;
+    }
+
+    private boolean isBookmarkTabScope(CuspTab tab) {
+        return tab != null && tab.tabScope == TabScope.BOOKMARK;
+    }
+
+    private boolean isNormalTabScope(CuspTab tab) {
+        return tab != null && tab.tabScope != TabScope.BOOKMARK;
+    }
+
+    private String bookmarkTabFolder(CuspTab tab) {
+        return normalizeSavedFolder(tab == null ? "" : tab.bookmarkOverviewFolder);
     }
 
     private boolean shouldResolveBbsRedirectBeforeOpening(String url) {
@@ -5803,6 +5976,7 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleThreadMediaLoads);
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
@@ -5935,10 +6109,12 @@ public class MainActivity extends Activity {
                 showPostActionMenu(card, tab, post);
             }
         });
-        card.addView(metaView);
+        card.addView(metaView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         View bodyView = postBodyView(card, page, tab, post, depth);
-        card.addView(bodyView);
+        card.addView(bodyView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         attachPostSwipeDeep(metaView, card, readAction, replyAction, tab, post);
         attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         if (showTreeConnector) {
@@ -6323,7 +6499,7 @@ public class MainActivity extends Activity {
                 if (dragging[0]) {
                     float tx = card.getTranslationX();
                     post.lastSwipeAt = System.currentTimeMillis();
-                    card.animate().translationX(0).setDuration(130).start();
+                    resetPostSwipeCard(card, true);
                     readAction.animate().alpha(0f).setDuration(130).start();
                     replyAction.animate().alpha(0f).setDuration(130).start();
                     mainHandler.postDelayed(() -> post.swiping = false, 220);
@@ -6342,17 +6518,56 @@ public class MainActivity extends Activity {
                 if (horizontalIntent[0]) {
                     post.swiping = false;
                     post.lastSwipeAt = System.currentTimeMillis();
+                    resetPostSwipeCard(card, false);
                     requestDisallowInterceptDeep(v, false);
                     restoreLongClickableStates(longClickStates);
                     return true;
                 }
                 post.swiping = false;
                 post.lastSwipeAt = System.currentTimeMillis();
+                resetPostSwipeCard(card, false);
                 requestDisallowInterceptDeep(v, false);
                 restoreLongClickableStates(longClickStates);
             }
             return false;
         });
+    }
+
+    private void resetPostSwipeCard(View card, boolean animated) {
+        if (card == null) {
+            return;
+        }
+        card.animate().cancel();
+        Runnable reset = () -> {
+            card.setTranslationX(0f);
+            card.setScaleX(1f);
+            card.setScaleY(1f);
+            ViewGroup.LayoutParams params = card.getLayoutParams();
+            if (params != null && params.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+                params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                card.setLayoutParams(params);
+            }
+            card.requestLayout();
+        };
+        if (animated) {
+            card.animate().translationX(0f).scaleX(1f).scaleY(1f).setDuration(130)
+                    .withEndAction(reset).start();
+        } else {
+            reset.run();
+        }
+    }
+
+    private FrameLayout lastThreadPostSlot(CuspTab tab) {
+        if (tab == null || tab.threadList == null) {
+            return null;
+        }
+        for (int i = tab.threadList.getChildCount() - 1; i >= 0; i--) {
+            View child = tab.threadList.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualPostSlot) {
+                return (FrameLayout) child;
+            }
+        }
+        return null;
     }
 
     private void setLongClickableDeep(View view, boolean enabled, Map<View, Boolean> oldStates) {
@@ -7923,8 +8138,7 @@ public class MainActivity extends Activity {
         int lines = post == null ? bodyLineCount(body) : bodyLineCount(post);
         boolean aaLike = post != null && (Boolean.TRUE.equals(post.cachedLikelyAa)
                 || post.aaMode || maybeHeavyAaBody(body));
-        int wrapped = aaLike ? 0 : Math.max(0, body.length() / 38);
-        int textLines = aaLike ? lines : Math.min(42, lines + wrapped);
+        int textLines = aaLike ? lines : Math.min(42, estimateWrappedBodyLineCount(body, item));
         int mediaRows = post == null ? 0 : (int) Math.ceil(imgurLinks(post).size() / 3.0);
         int depthPad = item == null ? 0 : Math.min(item.depth, 8) * 2;
         int lineHeight = aaLike ? estimateAaLineHeight(post, item) : dp(18);
@@ -7955,6 +8169,34 @@ public class MainActivity extends Activity {
         int safeDepth = Math.min(Math.max(0, depth), 8);
         int reservedDp = 24 + POST_OUTER_GAP_DP * 2 + 20 + safeDepth * 18;
         return Math.max(dp(80), getResources().getDisplayMetrics().widthPixels - dp(reservedDp));
+    }
+
+    private int estimateWrappedBodyLineCount(String body, PostRenderItem item) {
+        if (body == null || body.isEmpty()) {
+            return 1;
+        }
+        int available = estimatePostTextWidth(item == null ? 0 : item.depth);
+        TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, POST_TEXT_SIZE_SP, getResources().getDisplayMetrics()));
+        int total = 0;
+        int start = 0;
+        for (int i = 0; i <= body.length(); i++) {
+            if (i == body.length() || body.charAt(i) == '\n') {
+                int end = i;
+                if (end > start && body.charAt(end - 1) == '\r') {
+                    end--;
+                }
+                if (end <= start) {
+                    total++;
+                } else {
+                    float lineWidth = paint.measureText(body, start, end);
+                    total += Math.max(1, (int) Math.ceil(lineWidth / Math.max(1, available)));
+                }
+                start = i + 1;
+            }
+        }
+        return Math.max(1, total);
     }
 
     private Post copyPasteSourcePost(ThreadPage page, Post post) {
@@ -8717,8 +8959,13 @@ public class MainActivity extends Activity {
         }
         contentFrame.addView(view);
         View attachedView = view;
-        if (!newlyBuilt && !refreshTabOverviewTabSlotsOnly()) {
-            refreshTabOverviewListOnly();
+        if (!newlyBuilt) {
+            boolean updatedTabs = refreshTabOverviewTabSlotsOnly();
+            boolean updatedBookmarks = !tabOverviewPrivateMode && showBookmarksInTabOverview()
+                    && refreshTabOverviewBookmarkSectionOnly(attachedView);
+            if (!updatedTabs && !updatedBookmarks) {
+                refreshTabOverviewListOnly();
+            }
         }
         if (newlyBuilt && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
             mainHandler.postDelayed(() -> {
@@ -8778,7 +9025,8 @@ public class MainActivity extends Activity {
             tab.navigationHistory.set(tab.navigationIndex, redirectedUrl);
         }
         if (tab == currentTab() && addressBar != null) {
-            addressBar.setText(redirectedUrl);
+            addressBar.setText(addressBarTextForUrl(tab.nativeKind, redirectedUrl));
+            resetAddressBarScrollToStart();
         }
         requestSaveTabsSoon();
     }
@@ -9135,6 +9383,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         slot.rendered = true;
         slot.selected = !pendingNewTab && slot.index == currentIndex;
+        tabOverviewValueDirtyTabs.remove(slot.tab);
         if (holder.getParent() instanceof View) {
             View parent = (View) holder.getParent();
             if (parent instanceof LinearLayout && parent.getTag() instanceof VirtualTabOverviewState) {
@@ -9187,7 +9436,29 @@ public class MainActivity extends Activity {
             return;
         }
         tabOverviewResultCache.remove(tab);
+        tabOverviewValueDirtyTabs.add(tab);
+        refreshBookmarkOverviewValuesForTab(tab);
+        if (tabOverviewVisible && preferences != null && preferences.getBoolean(PREF_TAB_SORT_ENABLED, false)) {
+            refreshTabOverviewTabSlotsOnly();
+            return;
+        }
         refreshTabOverviewSlotForTab(tab);
+    }
+
+    private void refreshBookmarkOverviewValuesForTab(CuspTab tab) {
+        String url = threadUrl(tab);
+        if (url == null || url.trim().isEmpty()
+                || !showBookmarksInTabOverview()
+                || !savedItemExists(PREF_THREAD_BOOKMARKS, url)) {
+            return;
+        }
+        if (tabOverviewVisible && !tabOverviewPrivateMode && contentFrame != null) {
+            refreshTabOverviewBookmarkSectionOnly(contentFrame);
+            return;
+        }
+        if (tabOverviewNormalView != null) {
+            refreshTabOverviewBookmarkSectionOnly(tabOverviewNormalView);
+        }
     }
 
     private void recycleTabOverviewSlot(FrameLayout holder, VirtualTabOverviewSlot slot) {
@@ -9218,7 +9489,7 @@ public class MainActivity extends Activity {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
-            if (tab.privateBrowsing == privateSection && !tab.bookmarkOverviewTab) {
+            if (tab.privateBrowsing == privateSection && isNormalTabScope(tab)) {
                 indices.add(i);
             }
         }
@@ -9688,6 +9959,9 @@ public class MainActivity extends Activity {
             return false;
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        if (!isTabOverviewList(list)) {
+            return false;
+        }
         setTabOverviewListPadding(list);
         List<FrameLayout> holders = tabOverviewSlotHolders(list);
         if (holders.isEmpty()) {
@@ -9832,7 +10106,9 @@ public class MainActivity extends Activity {
             CuspTab tab = desiredTabs.get(i);
             int nextIndex = desiredIndexByTab.get(tab);
             boolean nextSelected = !pendingNewTab && nextIndex == currentIndex;
-            boolean needsRender = slot.rendered && (slot.index != nextIndex || slot.selected != nextSelected);
+            boolean needsRender = slot.rendered && (slot.index != nextIndex
+                    || slot.selected != nextSelected
+                    || tabOverviewValueDirtyTabs.contains(tab));
             slot.index = nextIndex;
             slot.tab = tab;
             bindTabOverviewSlot(holder, slot);
@@ -10262,7 +10538,7 @@ public class MainActivity extends Activity {
         }
         SavedItem item = items.get(bookmarkIndex);
         CuspTab tab = bookmarkOverviewTab(item);
-        tab.bookmarkOverviewTab = false;
+        applyThreadTabScope(tab, TabScope.NORMAL, "");
         tab.readerView = loadingView("");
         int insert = Math.max(0, Math.min(to, tabs.size()));
         tabs.add(insert, tab);
@@ -10317,10 +10593,19 @@ public class MainActivity extends Activity {
             SavedItem bookmark = bookmarks.get(i);
             itemIndices.put(savedItemIdentity(bookmark.url, bookmark.folder), i);
             BookmarkOverviewStatus status = bookmarkOverviewStatus(bookmark.url, statusRoot);
-            if (status == null || status.responseCount <= 0) {
+            int responseCount = status == null ? 0 : status.responseCount;
+            CuspTab openTab = matchingThreadTab(bookmark.url);
+            if (openTab != null && openTab.hasThreadStats) {
+                responseCount = Math.max(responseCount, Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount));
+            }
+            if (responseCount <= 0) {
                 continue;
             }
-            int unread = Math.max(0, status.responseCount - readPosts.optInt(bookmark.url, 0));
+            int read = readPosts.optInt(bookmark.url, 0);
+            if (openTab != null) {
+                read = Math.max(read, openTab.readPostNumber);
+            }
+            int unread = Math.max(0, responseCount - read);
             if (unread <= 0) {
                 continue;
             }
@@ -10993,10 +11278,10 @@ public class MainActivity extends Activity {
 
     private boolean bookmarkOverviewItemSelected(SavedItem item) {
         CuspTab tab = currentTab();
-        return tab != null && tab.bookmarkOverviewTab
+        return isBookmarkTabScope(tab)
                 && item != null && item.url != null
                 && sameSavedUrl(threadUrl(tab), item.url)
-                && normalizeSavedFolder(tab.bookmarkOverviewFolder).equals(normalizeSavedFolder(item.folder));
+                && bookmarkTabFolder(tab).equals(normalizeSavedFolder(item.folder));
     }
 
     private CuspTab bookmarkOverviewTab(SavedItem item) {
@@ -11007,8 +11292,7 @@ public class MainActivity extends Activity {
         CuspTab tab = new CuspTab();
         tab.url = item == null ? "" : item.url;
         tab.title = item == null ? "" : item.title;
-        tab.bookmarkOverviewTab = true;
-        tab.bookmarkOverviewFolder = item == null ? "" : normalizeSavedFolder(item.folder);
+        applyThreadTabScope(tab, TabScope.BOOKMARK, item == null ? "" : item.folder);
         tab.readerMode = true;
         tab.nativeKind = isThreadUrl(tab.url) ? NATIVE_THREAD
                 : isBoardUrl(tab.url) || isBbsDirectoryUrl(tab.url) ? NATIVE_BOARD : null;
@@ -11039,13 +11323,13 @@ public class MainActivity extends Activity {
             }
             tab.knownThreadArchived = tab.knownThreadArchived || openTab.knownThreadArchived
                     || (openTab.threadPage != null && openTab.threadPage.archived);
-            if (!tab.hasThreadStats && openTab.hasThreadStats) {
-                tab.knownMaxPostNumber = openTab.knownMaxPostNumber;
-                tab.knownPostCount = openTab.knownPostCount;
-                tab.readPostNumber = snapshot == null
-                        ? visibleReadPostNumber(tab.url)
-                        : snapshot.readPosts.optInt(tab.url, 0);
-                tab.cachedUnreadCount = Math.max(0, tab.knownMaxPostNumber - tab.readPostNumber);
+            if (openTab.hasThreadStats) {
+                tab.knownMaxPostNumber = Math.max(tab.knownMaxPostNumber, openTab.knownMaxPostNumber);
+                tab.knownPostCount = Math.max(tab.knownPostCount, openTab.knownPostCount);
+                int read = snapshot == null ? visibleReadPostNumber(tab.url) : snapshot.readPosts.optInt(tab.url, 0);
+                tab.readPostNumber = Math.max(read, openTab.readPostNumber);
+                tab.cachedUnreadCount = Math.max(0,
+                        Math.max(tab.knownMaxPostNumber, tab.knownPostCount) - tab.readPostNumber);
                 tab.hasThreadStats = true;
             }
         }
@@ -11057,7 +11341,7 @@ public class MainActivity extends Activity {
             return null;
         }
         for (CuspTab tab : tabs) {
-            if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind)) {
+            if (tab == null || isBookmarkTabScope(tab) || !NATIVE_THREAD.equals(tab.nativeKind)) {
                 continue;
             }
             String tabUrl = threadUrl(tab);
@@ -11183,7 +11467,7 @@ public class MainActivity extends Activity {
             return;
         }
         addBookmarkFromTab(tab, folder, beforeItemIndex);
-        tab.bookmarkOverviewTab = true;
+        applyThreadTabScope(tab, TabScope.BOOKMARK, folder);
         currentIndex = tabIndex;
         pendingNewTab = false;
         requestSaveTabsSoon();
@@ -11368,12 +11652,12 @@ public class MainActivity extends Activity {
             return false;
         }
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
-        setTabOverviewListPadding(list);
         int sectionStart = 1;
         int tabSectionStart = tabOverviewTabSectionStart(list);
         if (tabSectionStart < sectionStart) {
             return false;
         }
+        setTabOverviewListPadding(list);
         for (int i = tabSectionStart - 1; i >= sectionStart; i--) {
             list.removeViewAt(i);
         }
@@ -11476,14 +11760,16 @@ public class MainActivity extends Activity {
     }
 
     private void syncClosedTabUndoBar() {
-        if (contentFrame == null || contentFrame.getChildCount() == 0
-                || !(contentFrame.getChildAt(0) instanceof FrameLayout)) {
+        FrameLayout root = tabOverviewFrameRoot(contentFrame);
+        if (root == null) {
             return;
         }
-        FrameLayout root = (FrameLayout) contentFrame.getChildAt(0);
         ScrollView scroll = findScrollView(root);
         if (scroll != null && scroll.getChildCount() > 0 && scroll.getChildAt(0) instanceof LinearLayout) {
-            setTabOverviewListPadding((LinearLayout) scroll.getChildAt(0));
+            LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+            if (isTabOverviewList(list)) {
+                setTabOverviewListPadding(list);
+            }
         }
         for (int i = root.getChildCount() - 1; i >= 0; i--) {
             View child = root.getChildAt(i);
@@ -11494,6 +11780,35 @@ public class MainActivity extends Activity {
         if (recentlyClosedTab != null) {
             root.addView(closedTabUndoBar(), closedTabUndoParams());
         }
+    }
+
+    private FrameLayout tabOverviewFrameRoot(View root) {
+        if (root == null) {
+            return null;
+        }
+        if (root == contentFrame && contentFrame != null && contentFrame.getChildCount() > 0
+                && contentFrame.getChildAt(0) instanceof FrameLayout
+                && containsTabOverviewList(contentFrame.getChildAt(0))) {
+            return (FrameLayout) contentFrame.getChildAt(0);
+        }
+        if (root instanceof FrameLayout && containsTabOverviewList(root)) {
+            return (FrameLayout) root;
+        }
+        return null;
+    }
+
+    private boolean containsTabOverviewList(View root) {
+        ScrollView scroll = findScrollView(root);
+        return scroll != null
+                && scroll.getChildCount() > 0
+                && scroll.getChildAt(0) instanceof LinearLayout
+                && isTabOverviewList((LinearLayout) scroll.getChildAt(0));
+    }
+
+    private boolean isTabOverviewList(LinearLayout list) {
+        return list != null
+                && (list.getTag() instanceof VirtualTabOverviewState
+                || tabOverviewTabSectionStart(list) >= 1);
     }
 
     private View buildSavedItemsView(String key) {
@@ -11920,7 +12235,8 @@ public class MainActivity extends Activity {
                 return true;
             });
         }
-        box.addView(bodyText);
+        box.addView(bodyText, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         if (!mediaLinks.isEmpty()) {
             box.addView(mediaGrid(mediaLinks, longClickAction));
@@ -12697,7 +13013,9 @@ public class MainActivity extends Activity {
         LinearLayout card = (LinearLayout) cardView;
         if (card.getChildCount() >= 2) {
             card.removeViewAt(1);
-            card.addView(postBodyView(card, tab.threadPage, tab, post), 1);
+            card.addView(postBodyView(card, tab.threadPage, tab, post), 1,
+                    new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             View holder = (View) card.getParent();
             if (holder != null && holder.getParent() instanceof FrameLayout
                     && ((View) holder.getParent()).getTag() instanceof VirtualPostSlot) {
@@ -15180,15 +15498,22 @@ public class MainActivity extends Activity {
     }
 
     private boolean lastPostViewReady(CuspTab tab) {
-        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty()) {
+        if (tab == null) {
             return true;
         }
-        Post last = tab.threadPage.posts.get(tab.threadPage.posts.size() - 1);
-        View view = tab.postViews == null ? null : tab.postViews.get(last.number);
-        if (view == null && tab.postSlots != null) {
-            view = tab.postSlots.get(last.number);
+        FrameLayout holder = lastThreadPostSlot(tab);
+        if (holder == null) {
+            return true;
         }
-        return view != null && view.getHeight() > 0 && view.isShown();
+        if (!(holder.getTag() instanceof VirtualPostSlot)) {
+            return holder.getHeight() > 0 && holder.isShown();
+        }
+        VirtualPostSlot slot = (VirtualPostSlot) holder.getTag();
+        if (!slot.rendered || slot.card == null) {
+            renderVirtualPostSlot(holder, slot);
+            return false;
+        }
+        return slot.card.getHeight() > 0 && holder.getHeight() > 0 && holder.isShown();
     }
 
     private boolean isThreadAtBottom(ScrollView scroll) {
@@ -17392,7 +17717,8 @@ public class MainActivity extends Activity {
         }
         card.removeViewAt(1);
         View bodyView = postBodyView(card, tab.threadPage, tab, post);
-        card.addView(bodyView, 1);
+        card.addView(bodyView, 1, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         View parent = (View) card.getParent();
         if (parent instanceof ViewGroup && ((ViewGroup) parent).getChildCount() >= 3) {
             ViewGroup shell = (ViewGroup) parent;
@@ -17970,9 +18296,21 @@ public class MainActivity extends Activity {
         }
         BookmarkOverviewStatus status = bookmarkOverviewStatus(item.url);
         if (status == null || status.responseCount <= 0) {
-            return 0;
+            CuspTab openTab = matchingThreadTab(item.url);
+            int responseCount = openTab != null && openTab.hasThreadStats
+                    ? Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount) : 0;
+            return Math.max(0, responseCount - (openTab == null ? visibleReadPostNumber(item.url) : openTab.readPostNumber));
         }
-        return Math.max(0, status.responseCount - visibleReadPostNumber(item.url));
+        int responseCount = status.responseCount;
+        CuspTab openTab = matchingThreadTab(item.url);
+        if (openTab != null && openTab.hasThreadStats) {
+            responseCount = Math.max(responseCount, Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount));
+        }
+        int read = visibleReadPostNumber(item.url);
+        if (openTab != null) {
+            read = Math.max(read, openTab.readPostNumber);
+        }
+        return Math.max(0, responseCount - read);
     }
 
     private int bookmarkOverviewUnread(SavedItem item, BookmarkOverviewSnapshot snapshot) {
@@ -17983,18 +18321,29 @@ public class MainActivity extends Activity {
                 ? bookmarkOverviewStatus(item.url)
                 : bookmarkOverviewStatus(item.url, snapshot.statusRoot);
         if (status == null || status.responseCount <= 0) {
-            return 0;
+            CuspTab openTab = matchingThreadTab(item.url);
+            int responseCount = openTab != null && openTab.hasThreadStats
+                    ? Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount) : 0;
+            int read = snapshot == null ? visibleReadPostNumber(item.url) : snapshot.readPosts.optInt(item.url, 0);
+            if (openTab != null) {
+                read = Math.max(read, openTab.readPostNumber);
+            }
+            return Math.max(0, responseCount - read);
+        }
+        int responseCount = status.responseCount;
+        CuspTab openTab = matchingThreadTab(item.url);
+        if (openTab != null && openTab.hasThreadStats) {
+            responseCount = Math.max(responseCount, Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount));
         }
         int read = snapshot == null ? visibleReadPostNumber(item.url) : snapshot.readPosts.optInt(item.url, 0);
-        return Math.max(0, status.responseCount - read);
+        if (openTab != null) {
+            read = Math.max(read, openTab.readPostNumber);
+        }
+        return Math.max(0, responseCount - read);
     }
 
     private boolean showHomeBookmarkUnreadBadges() {
         return preferences == null || preferences.getBoolean(PREF_HOME_BOOKMARK_UNREAD_BADGES, true);
-    }
-
-    private boolean markExistingReadOnThreadUpdate() {
-        return preferences == null || preferences.getBoolean(PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true);
     }
 
     private boolean bookmarkSortEnabled() {
@@ -20340,6 +20689,10 @@ public class MainActivity extends Activity {
         return preferences == null || preferences.getBoolean(PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true);
     }
 
+    private boolean markExistingReadOnThreadUpdate() {
+        return preferences == null || preferences.getBoolean(PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true);
+    }
+
     private boolean showHistoryOnHome() {
         return preferences == null || preferences.getBoolean(PREF_SHOW_HISTORY_ON_HOME, true);
     }
@@ -20476,6 +20829,7 @@ public class MainActivity extends Activity {
         updateTabThreadStats(tab, tab.threadPage);
         refreshUnreadColors(tab);
         refreshTabOverviewValuesForTab(tab);
+        syncReadPositionForMatchingTabs(tab, tab.threadPage.url, tab.readPostNumber, false);
         if (refreshOverview) {
             renderTabs();
         }
@@ -20490,6 +20844,7 @@ public class MainActivity extends Activity {
         updateTabThreadStats(tab, tab.threadPage);
         refreshUnreadColors(tab);
         refreshTabOverviewValuesForTab(tab);
+        syncReadPositionForMatchingTabs(tab, tab.threadPage.url, tab.readPostNumber, true);
         renderTabs();
     }
 
@@ -20498,6 +20853,42 @@ public class MainActivity extends Activity {
             return;
         }
         setReadThrough(tab, post.number);
+    }
+
+    private void syncReadPositionForMatchingTabs(CuspTab source, String url, int readPostNumber, boolean allowDecrease) {
+        if (url == null || url.trim().isEmpty()) {
+            return;
+        }
+        for (CuspTab tab : tabs) {
+            if (tab == null || tab == source
+                    || !sameThreadTabScope(source, tab)
+                    || !sameSavedUrl(threadUrl(tab), url)) {
+                continue;
+            }
+            int nextRead = allowDecrease ? Math.max(0, readPostNumber) : Math.max(tab.readPostNumber, readPostNumber);
+            if (tab.readPostNumber == nextRead) {
+                refreshTabOverviewValuesForTab(tab);
+                continue;
+            }
+            tab.readPostNumber = nextRead;
+            if (tab.threadPage != null) {
+                updateTabThreadStats(tab, tab.threadPage);
+                if (tab == currentTab()) {
+                    refreshUnreadColors(tab);
+                }
+            } else if (tab.hasThreadStats) {
+                tab.cachedUnreadCount = Math.max(0, Math.max(tab.knownMaxPostNumber, tab.knownPostCount) - tab.readPostNumber);
+            }
+            refreshTabOverviewValuesForTab(tab);
+        }
+    }
+
+    private boolean sameThreadTabScope(CuspTab left, CuspTab right) {
+        if (left == null || right == null || left.tabScope != right.tabScope) {
+            return false;
+        }
+        return left.tabScope != TabScope.BOOKMARK
+                || bookmarkTabFolder(left).equals(bookmarkTabFolder(right));
     }
 
     private int lastExistingPostNumber(ThreadPage page, int oldCount) {
@@ -20917,6 +21308,23 @@ public class MainActivity extends Activity {
             String lowerHost = host.toLowerCase(Locale.ROOT);
             return (lowerHost.equals("find.5ch.io") || lowerHost.equals("find.5ch.net"))
                     && path.equals("/search");
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private boolean isDefaultSearchUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null) {
+                return false;
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            return lowerHost.equals("find.5ch.io")
+                    && path.equals("/search")
+                    && uri.getQueryParameter("q") != null;
         } catch (Exception error) {
             return false;
         }
@@ -21497,7 +21905,7 @@ public class MainActivity extends Activity {
             boolean keyboardVisible = rootHeight - visibleFrame.height() > rootHeight * 0.15f;
             if (addressKeyboardVisible && !keyboardVisible && addressBar != null && addressBar.hasFocus()) {
                 addressBar.clearFocus();
-                addressBar.setSelection(addressBar.getText().length());
+                updateAddressBarDisplay(false);
                 if (suggestionsPanel != null) {
                     suggestionsPanel.setVisibility(View.GONE);
                 }
@@ -21546,7 +21954,7 @@ public class MainActivity extends Activity {
 
     private void clearAddressFocus() {
         addressBar.clearFocus();
-        addressBar.setSelection(addressBar.getText().length());
+        updateAddressBarDisplay(false);
         hideKeyboard();
         View current = getCurrentFocus();
         if (current == null || current == addressBar) {
@@ -21765,6 +22173,11 @@ public class MainActivity extends Activity {
         }
     }
 
+    private enum TabScope {
+        NORMAL,
+        BOOKMARK
+    }
+
     private static class CuspTab {
         String title;
         String url;
@@ -21812,6 +22225,7 @@ public class MainActivity extends Activity {
         int returnToIndex = -1;
         boolean backToNewTab;
         boolean privateBrowsing;
+        TabScope tabScope = TabScope.NORMAL;
         boolean bookmarkOverviewTab;
         String bookmarkOverviewFolder = "";
         boolean readerMode;

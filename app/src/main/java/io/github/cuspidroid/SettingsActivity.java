@@ -194,7 +194,7 @@ public class SettingsActivity extends Activity {
         root.addView(showHistoryOnHome);
 
         showHomeBookmarkUnreadBadges = new CheckBox(this);
-        showHomeBookmarkUnreadBadges.setText(MainActivity.text("\u65b0\u898f\u30bf\u30d6\u306e\u30d6\u30c3\u30af\u30de\u30fc\u30af\u306b\u672a\u8aad\u6570\u3092\u8868\u793a", "Show unread counts on bookmarks in new tabs"));
+        showHomeBookmarkUnreadBadges.setText(MainActivity.text("\u65b0\u898f\u30bf\u30d6\u306e\u30d6\u30c3\u30af\u30de\u30fc\u30af\u306b\u672a\u8aad\u6570\u3092\u8868\u793a", "Show unread counts on new tab bookmarks"));
         showHomeBookmarkUnreadBadges.setTextColor(textColor());
         showHomeBookmarkUnreadBadges.setTextSize(16);
         Theme.tintCompoundButton(this, showHomeBookmarkUnreadBadges);
@@ -779,8 +779,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY,
                         treeView.isChecked() && treeSkipFirstReply.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, autoScrollUnread.isChecked())
-                .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE,
-                        markExistingReadOnThreadUpdate.isChecked())
+                .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, markExistingReadOnThreadUpdate.isChecked())
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, colorUnreadPosts.isChecked())
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
