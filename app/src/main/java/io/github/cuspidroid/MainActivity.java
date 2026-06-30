@@ -323,6 +323,7 @@ public class MainActivity extends Activity {
     private static final String INTERNAL_URL_PREFIX = "cuspidroid://";
     private static final Charset POST_CHARSET = Charset.forName("UTF-8");
     private static final Charset LEGACY_BBS_POST_CHARSET = Charset.forName("MS932");
+    private static final Charset SHITARABA_POST_CHARSET = Charset.forName("EUC-JP");
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
@@ -17961,6 +17962,15 @@ public class MainActivity extends Activity {
 
     private Map<String, String> postFields(DatAddress address, String name, String mail, String message) {
         Map<String, String> fields = new LinkedHashMap<>();
+        if (isShitarabaAddress(address)) {
+            fields.put("BBS", shitarabaBbsId(address));
+            fields.put("KEY", address.key);
+            fields.put("DIR", shitarabaDir(address));
+            fields.put("NAME", name);
+            fields.put("MAIL", mail);
+            fields.put("MESSAGE", message);
+            return fields;
+        }
         if (isMachiAddress(address)) {
             fields.put("NAME", name);
             fields.put("MAIL", mail);
@@ -18001,6 +18011,9 @@ public class MainActivity extends Activity {
     }
 
     private Charset postRequestCharset(DatAddress address) {
+        if (isShitarabaAddress(address)) {
+            return SHITARABA_POST_CHARSET;
+        }
         return usesLegacyBbsPost(address) || isBbspinkAddress(address) || isMachiAddress(address)
                 ? LEGACY_BBS_POST_CHARSET : POST_CHARSET;
     }
@@ -18010,9 +18023,31 @@ public class MainActivity extends Activity {
     }
 
     private String postContentType(DatAddress address) {
-        return usesLegacyBbsPost(address) || isBbspinkAddress(address) || isMachiAddress(address)
+        return usesLegacyBbsPost(address) || isBbspinkAddress(address) || isMachiAddress(address) || isShitarabaAddress(address)
                 ? "application/x-www-form-urlencoded"
                 : "application/x-www-form-urlencoded; charset=UTF-8";
+    }
+
+    private boolean isShitarabaAddress(DatAddress address) {
+        return address != null && isShitarabaHost(address.host);
+    }
+
+    private String shitarabaDir(DatAddress address) {
+        if (address == null || address.board == null) {
+            return "";
+        }
+        int split = address.board.indexOf('/');
+        return split <= 0 ? address.board : address.board.substring(0, split);
+    }
+
+    private String shitarabaBbsId(DatAddress address) {
+        if (address == null || address.board == null) {
+            return "";
+        }
+        int split = address.board.indexOf('/');
+        return split < 0 || split + 1 >= address.board.length()
+                ? address.board
+                : address.board.substring(split + 1);
     }
 
     private boolean isMachiAddress(DatAddress address) {
@@ -18039,6 +18074,10 @@ public class MainActivity extends Activity {
     }
 
     private String postEndpoint(DatAddress address) {
+        if (isShitarabaAddress(address)) {
+            return postScheme(address) + "://" + postHost(address) + "/bbs/write.cgi/"
+                    + address.board + "/" + address.key + "/";
+        }
         if (isMachiAddress(address)) {
             return postScheme(address) + "://" + postHost(address) + "/bbs/write.cgi?guid=ON";
         }
@@ -18051,6 +18090,9 @@ public class MainActivity extends Activity {
             return threadUrl;
         }
         String originalHost = address.host == null ? "" : address.host.trim();
+        if (isShitarabaAddress(address)) {
+            return postScheme(address) + "://" + host + "/bbs/read.cgi/" + address.board + "/" + address.key + "/";
+        }
         if (isMachiAddress(address)) {
             return postScheme(address) + "://" + host + "/bbs/read.cgi/" + address.board + "/" + address.key + "/";
         }
@@ -18352,6 +18394,15 @@ public class MainActivity extends Activity {
                     && !lower.contains("error")
                     && !value.contains("ERROR")
                     && !value.contains("\u30a8\u30e9\u30fc");
+        }
+        if (isShitarabaAddress(address)) {
+            String value = text == null ? "" : text;
+            String lower = value.toLowerCase(Locale.ROOT);
+            return !value.trim().isEmpty()
+                    && !lower.contains("error")
+                    && !value.contains("ERROR")
+                    && !value.contains("\u30a8\u30e9\u30fc")
+                    && !value.contains("\u66f8\u304d\u8fbc\u307f\u5931\u6557");
         }
         if (!usesLegacyBbsPost(address)) {
             return false;
