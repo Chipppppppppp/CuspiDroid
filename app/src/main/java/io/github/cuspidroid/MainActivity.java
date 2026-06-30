@@ -473,6 +473,7 @@ public class MainActivity extends Activity {
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private boolean addressTouchInProgress;
+    private boolean addressTouchStartedUnfocused;
     private boolean addressKeyboardVisible;
     private View imageOverlay;
     private View highlightedPostView;
@@ -1352,20 +1353,37 @@ public class MainActivity extends Activity {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 addressFocusedOnDown = addressBar.hasFocus();
                 addressTouchInProgress = true;
+                addressTouchStartedUnfocused = !addressFocusedOnDown;
+                if (addressTouchStartedUnfocused) {
+                    addressBar.requestFocus();
+                    focusAddressBarText();
+                    showKeyboardSoon();
+                    return true;
+                }
             }
             if (suppressNextAddressClick
                     && (event.getActionMasked() == MotionEvent.ACTION_UP
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL)) {
                 suppressNextAddressClick = false;
                 addressTouchInProgress = false;
+                addressTouchStartedUnfocused = false;
                 if (!addressFocusedOnDown) {
                     clearAddressFocus();
+                }
+                return true;
+            }
+            if (addressTouchStartedUnfocused) {
+                if (event.getActionMasked() == MotionEvent.ACTION_UP
+                        || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                    addressTouchInProgress = false;
+                    addressTouchStartedUnfocused = false;
                 }
                 return true;
             }
             if (event.getActionMasked() == MotionEvent.ACTION_UP
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 addressTouchInProgress = false;
+                addressTouchStartedUnfocused = false;
             }
             return false;
         });
@@ -17887,6 +17905,17 @@ public class MainActivity extends Activity {
 
     private Map<String, String> postFields(DatAddress address, String name, String mail, String message) {
         Map<String, String> fields = new LinkedHashMap<>();
+        if (isMachiAddress(address)) {
+            fields.put("NAME", name);
+            fields.put("MAIL", mail);
+            fields.put("MESSAGE", message);
+            fields.put("BBS", address.board);
+            fields.put("KEY", address.key);
+            fields.put("TIME", String.valueOf(System.currentTimeMillis() / 1000L));
+            fields.put("READ", "TRUE");
+            fields.put("CC", "\u3042");
+            return fields;
+        }
         if (usesLegacyBbsPost(address)) {
             fields.put("mail", mail);
             fields.put("FROM", name);
@@ -17916,17 +17945,26 @@ public class MainActivity extends Activity {
     }
 
     private Charset postRequestCharset(DatAddress address) {
-        return usesLegacyBbsPost(address) || isBbspinkAddress(address) ? LEGACY_BBS_POST_CHARSET : POST_CHARSET;
+        return usesLegacyBbsPost(address) || isBbspinkAddress(address) || isMachiAddress(address)
+                ? LEGACY_BBS_POST_CHARSET : POST_CHARSET;
     }
 
     private boolean postSubmitFirst(DatAddress address) {
-        return usesLegacyBbsPost(address);
+        return usesLegacyBbsPost(address) || isMachiAddress(address);
     }
 
     private String postContentType(DatAddress address) {
-        return usesLegacyBbsPost(address) || isBbspinkAddress(address)
+        return usesLegacyBbsPost(address) || isBbspinkAddress(address) || isMachiAddress(address)
                 ? "application/x-www-form-urlencoded"
                 : "application/x-www-form-urlencoded; charset=UTF-8";
+    }
+
+    private boolean isMachiAddress(DatAddress address) {
+        if (address == null || address.host == null) {
+            return false;
+        }
+        String lower = address.host.toLowerCase(Locale.ROOT);
+        return lower.equals("machi.to") || lower.endsWith(".machi.to");
     }
 
     private boolean isBbspinkAddress(DatAddress address) {
@@ -17945,6 +17983,9 @@ public class MainActivity extends Activity {
     }
 
     private String postEndpoint(DatAddress address) {
+        if (isMachiAddress(address)) {
+            return postScheme(address) + "://" + postHost(address) + "/bbs/write.cgi?guid=ON";
+        }
         return postScheme(address) + "://" + postHost(address) + "/test/bbs.cgi";
     }
 
@@ -17954,6 +17995,9 @@ public class MainActivity extends Activity {
             return threadUrl;
         }
         String originalHost = address.host == null ? "" : address.host.trim();
+        if (isMachiAddress(address)) {
+            return postScheme(address) + "://" + host + "/bbs/read.cgi/" + address.board + "/" + address.key + "/";
+        }
         if (!host.equalsIgnoreCase(originalHost)) {
             return postScheme(address) + "://" + host + "/test/read.cgi/" + address.board + "/" + address.key + "/";
         }
@@ -18244,6 +18288,14 @@ public class MainActivity extends Activity {
     private boolean postSucceeded(String text, DatAddress address) {
         if (postSucceeded(text == null ? "" : text)) {
             return true;
+        }
+        if (isMachiAddress(address)) {
+            String value = text == null ? "" : text;
+            String lower = value.toLowerCase(Locale.ROOT);
+            return !value.trim().isEmpty()
+                    && !lower.contains("error")
+                    && !value.contains("ERROR")
+                    && !value.contains("\u30a8\u30e9\u30fc");
         }
         if (!usesLegacyBbsPost(address)) {
             return false;
