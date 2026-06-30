@@ -287,6 +287,7 @@ public class MainActivity extends Activity {
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
     private static final String PREF_FIVE_CH_BBSMENU_CACHE = "five_ch_bbsmenu_cache";
+    private static final String PREF_BBSMENU_CACHE = "bbsmenu_cache";
     static final String BOARD_SORT_RESPONSES = "responses";
     static final String BOARD_SORT_VELOCITY = "velocity";
     static final String BOARD_SORT_ORDER = "order";
@@ -340,6 +341,7 @@ public class MainActivity extends Activity {
     private static final long SAVE_TABS_DELAY_MS = 500;
     private static final long SAVE_TABS_SCROLL_IDLE_DELAY_MS = 900;
     private static final long FIVE_CH_BBSMENU_CACHE_REFRESH_MS = 12L * 60L * 60L * 1000L;
+    private static final int MAX_BBSMENU_CACHE_ENTRIES = 16;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
     private static final int THREAD_IDLE_RENDER_BUDGET = 10;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
@@ -463,9 +465,8 @@ public class MainActivity extends Activity {
     private final Map<String, String> tabOverviewBoardTitleCache = new LinkedHashMap<>();
     private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
     private Set<String> tabOverviewHistoryUrlCache;
-    private SearchPage fiveChBbsMenuCache;
-    private long fiveChBbsMenuCacheAt;
-    private boolean fiveChBbsMenuRefreshInFlight;
+    private final LinkedHashMap<String, CachedBbsMenu> bbsMenuCache = new LinkedHashMap<>();
+    private final Set<String> bbsMenuRefreshInFlight = new LinkedHashSet<>();
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private boolean addressTouchInProgress;
@@ -3536,82 +3537,163 @@ public class MainActivity extends Activity {
     }
 
     private SearchPage cachedBbsDirectoryPage(String directoryUrl) {
-        if (!isFiveChBbsMenuUrl(directoryUrl)) {
-            return null;
-        }
-        return readFiveChBbsMenuCache();
+        CachedBbsMenu cached = readBbsMenuCache(directoryUrl);
+        return cached == null ? null : cached.page;
     }
 
-    private SearchPage readFiveChBbsMenuCache() {
-        if (fiveChBbsMenuCache != null && !fiveChBbsMenuCache.results.isEmpty()) {
-            fiveChBbsMenuCache.title = text("\u677f\u4e00\u89a7", "Boards");
-            return fiveChBbsMenuCache;
-        }
-        String saved = preferences.getString(PREF_FIVE_CH_BBSMENU_CACHE, "");
-        if (saved == null || saved.isEmpty()) {
+    private CachedBbsMenu readBbsMenuCache(String directoryUrl) {
+        String key = bbsMenuCacheKey(directoryUrl);
+        if (key.isEmpty() || !isCacheableBbsMenuUrl(directoryUrl)) {
             return null;
         }
+        CachedBbsMenu memory = bbsMenuCache.get(key);
+        if (memory != null && memory.page != null && !memory.page.results.isEmpty()) {
+            memory.page.title = bbsMenuTitle(directoryUrl, memory.page.title);
+            bbsMenuCache.remove(key);
+            bbsMenuCache.put(key, memory);
+            return memory;
+        }
         try {
-            JSONObject root = new JSONObject(saved);
-            SearchPage page = searchPageFromJson(root.optJSONObject("page"), false);
+            JSONObject item = preferenceJsonObject(PREF_BBSMENU_CACHE).optJSONObject(key);
+            if (item == null && isFiveChBbsMenuUrl(directoryUrl)) {
+                item = legacyFiveChBbsMenuCache();
+            }
+            if (item == null) {
+                return null;
+            }
+            SearchPage page = searchPageFromJson(item.optJSONObject("page"), false);
             if (page == null || page.results.isEmpty()) {
                 return null;
             }
-            page.title = text("\u677f\u4e00\u89a7", "Boards");
+            page.title = bbsMenuTitle(directoryUrl, page.title);
             if (page.url == null || page.url.trim().isEmpty()) {
-                page.url = FIVE_CH_BBSMENU_URL;
+                page.url = directoryUrl;
             }
-            fiveChBbsMenuCache = page;
-            fiveChBbsMenuCacheAt = Math.max(0L, root.optLong("cachedAt", 0L));
-            return page;
+            CachedBbsMenu cached = new CachedBbsMenu(page, Math.max(0L, item.optLong("cachedAt", 0L)));
+            bbsMenuCache.put(key, cached);
+            trimMemoryBbsMenuCache();
+            return cached;
         } catch (Exception ignored) {
             return null;
         }
     }
 
-    private boolean isFiveChBbsMenuCacheFresh() {
-        return readFiveChBbsMenuCache() != null
-                && fiveChBbsMenuCacheAt > 0L
-                && System.currentTimeMillis() - fiveChBbsMenuCacheAt < FIVE_CH_BBSMENU_CACHE_REFRESH_MS;
+    private JSONObject legacyFiveChBbsMenuCache() {
+        try {
+            String saved = preferences.getString(PREF_FIVE_CH_BBSMENU_CACHE, "");
+            return saved == null || saved.isEmpty() ? null : new JSONObject(saved);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private boolean isBbsMenuCacheFresh(String directoryUrl) {
+        CachedBbsMenu cached = readBbsMenuCache(directoryUrl);
+        return cached != null
+                && cached.cachedAt > 0L
+                && System.currentTimeMillis() - cached.cachedAt < FIVE_CH_BBSMENU_CACHE_REFRESH_MS;
     }
 
     private SearchPage downloadBbsDirectoryWithCache(String directoryUrl) throws Exception {
         SearchPage page = downloadBbsDirectory(directoryUrl);
-        cacheFiveChBbsMenu(directoryUrl, page);
+        cacheBbsMenu(directoryUrl, page);
         return page;
     }
 
-    private void cacheFiveChBbsMenu(String directoryUrl, SearchPage page) {
+    private void cacheBbsMenu(String directoryUrl, SearchPage page) {
         if (page == null || page.error != null || page.results.isEmpty()
-                || (!isFiveChBbsMenuUrl(directoryUrl) && !isFiveChBbsMenuUrl(page.url))) {
+                || (!isCacheableBbsMenuUrl(directoryUrl) && !isCacheableBbsMenuUrl(page.url))) {
             return;
         }
         try {
-            page.title = text("\u677f\u4e00\u89a7", "Boards");
+            page.title = bbsMenuTitle(directoryUrl, page.title);
             long now = System.currentTimeMillis();
-            JSONObject root = new JSONObject();
-            root.put("cachedAt", now);
-            root.put("page", searchPageToJson(page));
-            preferences.edit().putString(PREF_FIVE_CH_BBSMENU_CACHE, root.toString()).apply();
-            fiveChBbsMenuCache = page;
-            fiveChBbsMenuCacheAt = now;
+            JSONObject root = preferenceJsonObject(PREF_BBSMENU_CACHE);
+            JSONObject item = new JSONObject();
+            item.put("cachedAt", now);
+            item.put("page", searchPageToJson(page));
+            for (String key : bbsMenuCacheKeys(directoryUrl, page.url)) {
+                root.put(key, item);
+                bbsMenuCache.remove(key);
+                bbsMenuCache.put(key, new CachedBbsMenu(page, now));
+            }
+            trimStoredBbsMenuCache(root);
+            preferences.edit().putString(PREF_BBSMENU_CACHE, root.toString()).apply();
+            if (isFiveChBbsMenuUrl(directoryUrl) || isFiveChBbsMenuUrl(page.url)) {
+                preferences.edit().putString(PREF_FIVE_CH_BBSMENU_CACHE, item.toString()).apply();
+            }
+            trimMemoryBbsMenuCache();
         } catch (Exception ignored) {
         }
     }
 
-    private void refreshFiveChBbsMenuCacheIfStale() {
-        if (fiveChBbsMenuRefreshInFlight || isFiveChBbsMenuCacheFresh()) {
+    private void refreshBbsMenuCacheIfStale(String directoryUrl) {
+        String key = bbsMenuCacheKey(directoryUrl);
+        if (key.isEmpty() || bbsMenuRefreshInFlight.contains(key) || isBbsMenuCacheFresh(directoryUrl)) {
             return;
         }
-        fiveChBbsMenuRefreshInFlight = true;
+        bbsMenuRefreshInFlight.add(key);
         ioExecutor.execute(() -> {
             try {
-                SearchPage page = downloadBbsDirectory(FIVE_CH_BBSMENU_URL);
-                cacheFiveChBbsMenu(FIVE_CH_BBSMENU_URL, page);
+                SearchPage page = downloadBbsDirectory(directoryUrl);
+                cacheBbsMenu(directoryUrl, page);
             } catch (Exception ignored) {
             }
-            runOnUiThread(() -> fiveChBbsMenuRefreshInFlight = false);
+            runOnUiThread(() -> bbsMenuRefreshInFlight.remove(key));
         });
+    }
+
+    private String bbsMenuCacheKey(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return "";
+        }
+        return boardHistoryKey(url);
+    }
+
+    private List<String> bbsMenuCacheKeys(String originalUrl, String pageUrl) {
+        List<String> keys = new ArrayList<>();
+        if (isCacheableBbsMenuUrl(originalUrl)) {
+            addUnique(keys, bbsMenuCacheKey(originalUrl));
+        }
+        if (isCacheableBbsMenuUrl(pageUrl)) {
+            addUnique(keys, bbsMenuCacheKey(pageUrl));
+        }
+        return keys;
+    }
+
+    private void trimMemoryBbsMenuCache() {
+        while (bbsMenuCache.size() > MAX_BBSMENU_CACHE_ENTRIES) {
+            String oldest = bbsMenuCache.keySet().iterator().next();
+            bbsMenuCache.remove(oldest);
+        }
+    }
+
+    private void trimStoredBbsMenuCache(JSONObject root) {
+        if (root == null || root.length() <= MAX_BBSMENU_CACHE_ENTRIES) {
+            return;
+        }
+        List<String> keys = new ArrayList<>();
+        Iterator<String> iterator = root.keys();
+        while (iterator.hasNext()) {
+            keys.add(iterator.next());
+        }
+        Collections.sort(keys, (left, right) -> {
+            JSONObject leftItem = root.optJSONObject(left);
+            JSONObject rightItem = root.optJSONObject(right);
+            long leftTime = leftItem == null ? 0L : leftItem.optLong("cachedAt", 0L);
+            long rightTime = rightItem == null ? 0L : rightItem.optLong("cachedAt", 0L);
+            return Long.compare(leftTime, rightTime);
+        });
+        for (String key : keys) {
+            if (root.length() <= MAX_BBSMENU_CACHE_ENTRIES) {
+                break;
+            }
+            root.remove(key);
+        }
+    }
+
+    private boolean isCacheableBbsMenuUrl(String url) {
+        return url != null && isBbsMenuUrl(url) && (is5chUrl(url) || isRegisteredBbsUrl(url));
     }
 
     private boolean isFiveChBbsMenuUrl(String url) {
@@ -4297,6 +4379,9 @@ public class MainActivity extends Activity {
         if ("fulltext-search".equals(page)) {
             return text("\u5168\u6587\u691c\u7d22", "Full-text Search");
         }
+        if (page != null && page.startsWith("bbs:")) {
+            return bbsMenuTitle(decodeNewTabToken(page.substring("bbs:".length())), "");
+        }
         if (page != null && page.startsWith("saved:")) {
             SavedPage savedPage = savedPageFromToken(page.substring("saved:".length()));
             return savedListTitle(savedPage.key, savedPage.folder);
@@ -4315,6 +4400,23 @@ public class MainActivity extends Activity {
             }
         }
         return text("\u65b0\u898f\u30bf\u30d6", "New tab");
+    }
+
+    private String bbsMenuTitle(String menuUrl, String fallback) {
+        if (isFiveChBbsMenuUrl(menuUrl)) {
+            return text("\u677f\u4e00\u89a7", "Boards");
+        }
+        String normalized = bbsMenuCacheKey(menuUrl);
+        for (BbsLink link : readBbsLinks(preferences)) {
+            if (normalized.equals(bbsMenuCacheKey(link.url))) {
+                return link.name == null || link.name.trim().isEmpty()
+                        ? hostTitle(menuUrl) : link.name.trim();
+            }
+        }
+        if (fallback != null && !fallback.trim().isEmpty()) {
+            return fallback.trim();
+        }
+        return hostTitle(menuUrl);
     }
 
     private void setThreadTitleText(TextView view, ThreadPage page, String fallback) {
@@ -4659,6 +4761,18 @@ public class MainActivity extends Activity {
         return INTERNAL_URL_PREFIX + "saved/" + encodeNewTabToken(savedPageToken(key, folder));
     }
 
+    private String bbsRootPageKey(String menuUrl) {
+        return "bbs:" + encodeNewTabToken(menuUrl);
+    }
+
+    private String bbsRootPageUrl(String menuUrl) {
+        return INTERNAL_URL_PREFIX + "bbs/" + encodeNewTabToken(menuUrl);
+    }
+
+    private String bbsCategoryPageUrl(String menuUrl, String category) {
+        return INTERNAL_URL_PREFIX + "bbs-category/" + encodeNewTabToken(bbsCategoryToken(menuUrl, category));
+    }
+
     private String historyPageUrl() {
         return INTERNAL_URL_PREFIX + "history";
     }
@@ -4706,6 +4820,18 @@ public class MainActivity extends Activity {
         if (url.equals(fullTextSearchPageUrl())) {
             return text("\u5168\u6587\u691c\u7d22", "Full-text Search");
         }
+        if (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")) {
+            String menuUrl = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs/").length()));
+            return bbsMenuTitle(menuUrl, "");
+        }
+        if (url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/")) {
+            BbsCategoryRequest request = decodeBbsCategoryToken(
+                    decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs-category/").length())));
+            if (request.category != null && !request.category.trim().isEmpty()) {
+                return request.category.trim();
+            }
+            return bbsMenuTitle(request.menuUrl, "");
+        }
         if (url.startsWith(INTERNAL_URL_PREFIX + "newtab-history/")) {
             List<String> pages = decodeNewTabHistoryPages(url);
             int index = decodeNewTabHistoryIndex(url, pages);
@@ -4735,6 +4861,14 @@ public class MainActivity extends Activity {
         } else if (url.equals(fullTextSearchPageUrl())) {
             tab.nativeKind = NATIVE_SEARCH_HOME;
             tab.readerView = buildFullTextSearchHomeView(true);
+        } else if (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")) {
+            String menuUrl = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs/").length()));
+            showBbsDirectoryIndexView(menuUrl, bbsRootPageKey(menuUrl), false);
+            return;
+        } else if (url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/")) {
+            String token = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs-category/").length()));
+            showBbsCategoryView(token, false);
+            return;
         } else {
             tab.nativeKind = NATIVE_SEARCH_HOME;
             tab.readerView = buildSearchHomeView(true);
@@ -6313,7 +6447,7 @@ public class MainActivity extends Activity {
                 switchToTab(currentIndex);
             }
             renderTabs();
-            refreshFiveChBbsMenuCacheIfStale();
+            refreshBbsMenuCacheIfStale(loadUrl);
             return;
         }
         if (foreground) {
@@ -8502,11 +8636,7 @@ public class MainActivity extends Activity {
 
     private void openBbsCategory(String menuUrl, String category) {
         String token = bbsCategoryToken(menuUrl, category);
-        if (pendingNewTab) {
-            showBbsCategoryView(token, true);
-            return;
-        }
-        showBbsCategoryView(token, false);
+        showBbsCategoryView(token, true);
     }
 
     private TextView categoryHeader(String value) {
@@ -9278,7 +9408,8 @@ public class MainActivity extends Activity {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
             for (BbsLink link : customLinks) {
                 TextView row = actionRow(link.name);
-                row.setOnClickListener(v -> openBoardUrl(link.url));
+                row.setOnClickListener(v -> showBbsDirectoryIndexView(
+                        link.url, bbsRootPageKey(link.url), true));
                 row.setOnLongClickListener(v -> {
                     showValueCopyPopup(row, link.url);
                     return true;
@@ -9465,9 +9596,26 @@ public class MainActivity extends Activity {
     }
 
     private void showFiveChBoardsView(boolean recordHistory) {
-        String pageKey = "5ch";
+        showBbsDirectoryIndexView(FIVE_CH_BBSMENU_URL, "5ch", recordHistory);
+    }
+
+    private void showBbsDirectoryIndexView(String menuUrl, String pageKey, boolean recordHistory) {
+        if (menuUrl == null || menuUrl.trim().isEmpty()) {
+            menuUrl = FIVE_CH_BBSMENU_URL;
+        }
+        if (pageKey == null || pageKey.trim().isEmpty()) {
+            pageKey = isFiveChBbsMenuUrl(menuUrl) ? "5ch" : bbsRootPageKey(menuUrl);
+        }
         if (recordHistory) {
-            recordNewTabPage(pageKey);
+            if (pendingNewTab) {
+                recordNewTabPage(pageKey);
+            } else {
+                CuspTab tab = currentTab();
+                if (tab != null) {
+                    recordNavigation(tab, isFiveChBbsMenuUrl(menuUrl)
+                            ? menuUrl : bbsRootPageUrl(menuUrl));
+                }
+            }
         }
         final boolean forNewTab = pendingNewTab;
         final CuspTab targetTab = forNewTab ? null : currentTab();
@@ -9476,10 +9624,13 @@ public class MainActivity extends Activity {
             renderTabs();
             return;
         }
-        SearchPage cached = cachedBbsDirectoryPage(FIVE_CH_BBSMENU_URL);
+        final String loadUrl = menuUrl;
+        final String targetPageKey = pageKey;
+        SearchPage cached = cachedBbsDirectoryPage(loadUrl);
         if (cached != null) {
-            applyBbsDirectoryResult(pageKey, forNewTab, targetTab, cached, true);
-            refreshFiveChBbsMenuCacheIfStale();
+            cached.title = bbsMenuTitle(loadUrl, cached.title);
+            applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, cached, true);
+            refreshBbsMenuCacheIfStale(loadUrl);
             return;
         }
         prepareChromeForLoading();
@@ -9498,13 +9649,13 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                page = downloadBbsDirectoryWithCache(FIVE_CH_BBSMENU_URL);
-                page.title = text("\u677f\u4e00\u89a7", "Boards");
+                page = downloadBbsDirectoryWithCache(loadUrl);
+                page.title = bbsMenuTitle(loadUrl, page.title);
             } catch (Exception error) {
-                page = SearchPage.error(FIVE_CH_BBSMENU_URL, error.getMessage());
+                page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
-            runOnUiThread(() -> applyBbsDirectoryResult(pageKey, forNewTab, targetTab, result, true));
+            runOnUiThread(() -> applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, result, true));
         });
     }
 
@@ -9518,7 +9669,14 @@ public class MainActivity extends Activity {
         String category = request.category;
         String pageKey = "bbs-category:" + bbsCategoryToken(menuUrl, category);
         if (record) {
-            recordNewTabPage(pageKey);
+            if (pendingNewTab) {
+                recordNewTabPage(pageKey);
+            } else {
+                CuspTab tab = currentTab();
+                if (tab != null) {
+                    recordNavigation(tab, bbsCategoryPageUrl(menuUrl, category));
+                }
+            }
         }
         final boolean forNewTab = pendingNewTab;
         final CuspTab targetTab = forNewTab ? null : currentTab();
@@ -9532,7 +9690,7 @@ public class MainActivity extends Activity {
             SearchPage page = filterBbsCategory(cached, category);
             page.title = category == null || category.isEmpty() ? cached.title : category;
             applyBbsDirectoryResult(pageKey, forNewTab, targetTab, page, false);
-            refreshFiveChBbsMenuCacheIfStale();
+            refreshBbsMenuCacheIfStale(menuUrl);
             return;
         }
         prepareChromeForLoading();
@@ -9580,7 +9738,8 @@ public class MainActivity extends Activity {
         } else if (targetTab != null && tabs.contains(targetTab)) {
             targetTab.readerMode = true;
             targetTab.nativeKind = NATIVE_BOARD;
-            targetTab.url = result.url == null || result.url.trim().isEmpty() ? FIVE_CH_BBSMENU_URL : result.url;
+            targetTab.url = result.url == null || result.url.trim().isEmpty()
+                    ? bbsMenuUrlFromPageKey(pageKey) : result.url;
             targetTab.title = result.title;
             targetTab.searchPage = result;
             targetTab.readerView = resultView;
@@ -9596,6 +9755,21 @@ public class MainActivity extends Activity {
         }
         updateBottomThreadBar(forNewTab ? null : currentTab());
         renderTabs();
+    }
+
+    private String bbsMenuUrlFromPageKey(String pageKey) {
+        if ("5ch".equals(pageKey) || pageKey != null && pageKey.startsWith("5ch-category:")) {
+            return FIVE_CH_BBSMENU_URL;
+        }
+        if (pageKey != null && pageKey.startsWith("bbs:")) {
+            String value = decodeNewTabToken(pageKey.substring("bbs:".length()));
+            return value.isEmpty() ? FIVE_CH_BBSMENU_URL : value;
+        }
+        if (pageKey != null && pageKey.startsWith("bbs-category:")) {
+            BbsCategoryRequest request = decodeBbsCategoryToken(pageKey.substring("bbs-category:".length()));
+            return request.menuUrl == null || request.menuUrl.isEmpty() ? FIVE_CH_BBSMENU_URL : request.menuUrl;
+        }
+        return FIVE_CH_BBSMENU_URL;
     }
 
     private boolean restoreNewTabHistoryPage(String pageKey) {
@@ -11209,6 +11383,9 @@ public class MainActivity extends Activity {
             contentFrame.addView(buildFullTextSearchHomeView(false));
         } else if ("5ch".equals(page)) {
             showFiveChBoardsView(record);
+        } else if (page != null && page.startsWith("bbs:")) {
+            String menuUrl = decodeNewTabToken(page.substring("bbs:".length()));
+            showBbsDirectoryIndexView(menuUrl, bbsRootPageKey(menuUrl), record);
         } else if (page != null && page.startsWith("5ch-category:")) {
             showFiveChCategoryView(page.substring("5ch-category:".length()), record);
         } else if (page != null && page.startsWith("bbs-category:")) {
@@ -23808,6 +23985,16 @@ public class MainActivity extends Activity {
 
         NewTabHistoryPage(View view) {
             this.view = view;
+        }
+    }
+
+    private static class CachedBbsMenu {
+        final SearchPage page;
+        final long cachedAt;
+
+        CachedBbsMenu(SearchPage page, long cachedAt) {
+            this.page = page;
+            this.cachedAt = cachedAt;
         }
     }
 
