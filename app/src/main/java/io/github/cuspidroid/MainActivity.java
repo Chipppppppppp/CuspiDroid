@@ -1344,6 +1344,9 @@ public class MainActivity extends Activity {
             }
         });
         addressBar.setOnLongClickListener(v -> {
+            if (addressBar.hasFocus()) {
+                return false;
+            }
             suppressNextAddressClick = true;
             mainHandler.postDelayed(() -> suppressNextAddressClick = false, 900);
             addressTouchInProgress = false;
@@ -1710,7 +1713,6 @@ public class MainActivity extends Activity {
             item.setOnClickListener(v -> {
                 addressBar.setText(clipboardLink);
                 addressBar.setSelection(addressBar.getText().length());
-                openFromAddressBar();
             });
             suggestionsPanel.addView(item);
         }
@@ -23559,7 +23561,11 @@ public class MainActivity extends Activity {
                 return false;
             }
             List<String> parts = pathParts(uri.getPath());
-            return parts.size() == 2 && parts.get(1).matches("\\d+");
+            return parts.size() == 2 && parts.get(1).matches("\\d+")
+                    || parts.size() >= 4
+                    && "bbs".equalsIgnoreCase(parts.get(0))
+                    && "subject.cgi".equalsIgnoreCase(parts.get(1))
+                    && parts.get(3).matches("\\d+");
         } catch (Exception error) {
             return false;
         }
@@ -23601,6 +23607,10 @@ public class MainActivity extends Activity {
         Uri uri = Uri.parse(url);
         if (isShitarabaHost(uri.getHost())) {
             List<String> parts = pathParts(uri.getPath());
+            if (parts.size() >= 4 && "bbs".equalsIgnoreCase(parts.get(0))
+                    && "subject.cgi".equalsIgnoreCase(parts.get(1))) {
+                return parts.get(2) + "/" + parts.get(3);
+            }
             if (parts.size() >= 2 && !"bbs".equalsIgnoreCase(parts.get(0))) {
                 return parts.get(0) + "/" + parts.get(1);
             }
