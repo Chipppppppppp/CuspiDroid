@@ -4796,6 +4796,10 @@ public class MainActivity extends Activity {
                 return;
             }
         }
+        if (isBbsInternalPageUrl(url)) {
+            beginBbsInternalPageLoad(tab, url, addHistory);
+            return;
+        }
         if (isInternalPageUrl(url)) {
             if (addHistory) {
                 recordNavigation(tab, url);
@@ -4920,6 +4924,11 @@ public class MainActivity extends Activity {
 
     private boolean isInternalPageUrl(String url) {
         return url != null && url.startsWith(INTERNAL_URL_PREFIX);
+    }
+
+    private boolean isBbsInternalPageUrl(String url) {
+        return url != null && (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")
+                || url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/"));
     }
 
     private boolean isHissiCheckerUrl(String url) {
@@ -8829,7 +8838,7 @@ public class MainActivity extends Activity {
         }
         String url = bbsRootPageUrl(menuUrl);
         if (pendingNewTab) {
-            openPendingNewTabUrl(url);
+            openPendingNewTabBbsInternalPage(url);
             return true;
         }
         openBbsInternalPage(url);
@@ -8839,7 +8848,7 @@ public class MainActivity extends Activity {
     private void openBbsCategoryPage(String menuUrl, String category) {
         String url = bbsCategoryPageUrl(menuUrl, category);
         if (pendingNewTab) {
-            openPendingNewTabUrl(url);
+            openPendingNewTabBbsInternalPage(url);
             return;
         }
         openBbsInternalPage(url);
@@ -8848,10 +8857,85 @@ public class MainActivity extends Activity {
     private void openBbsInternalPage(String url) {
         CuspTab source = currentTab();
         if (source != null && isBookmarkTabScope(source)) {
-            createTab(url, true, tabs.indexOf(source), false, isPrivateTab(source));
+            createBbsInternalTab(url, tabs.indexOf(source), false, isPrivateTab(source));
         } else {
-            openInCurrentTab(url);
+            CuspTab tab = currentTab();
+            if (tab == null) {
+                createBbsInternalTab(url, -1, false, currentTabIsPrivate());
+            } else {
+                beginBbsInternalPageLoad(tab, url, true);
+            }
         }
+    }
+
+    private void openPendingNewTabBbsInternalPage(String url) {
+        boolean privateBrowsing = pendingPrivateNewTab;
+        String returnUrl = newTabReturnPageUrl();
+        pendingNewTab = false;
+        pendingPrivateNewTab = false;
+        if (returnUrl == null) {
+            createBbsInternalTab(url, -1, true, privateBrowsing);
+            return;
+        }
+        CuspTab tab = new CuspTab();
+        tab.title = text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        tab.url = "";
+        tab.privateBrowsing = privateBrowsing;
+        tab.backToNewTab = false;
+        tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        tab.navigationHistory.add(returnUrl);
+        tab.navigationIndex = 0;
+        tabs.add(tab);
+        switchToTab(tabs.size() - 1);
+        beginBbsInternalPageLoad(tab, url, true);
+        renderTabs();
+    }
+
+    private void createBbsInternalTab(String url, int returnToIndex, boolean backToNewTab,
+                                      boolean privateBrowsing) {
+        CuspTab tab = new CuspTab();
+        tab.title = text("\u65b0\u898f\u30bf\u30d6", "New tab");
+        tab.url = "";
+        tab.returnToIndex = returnToIndex;
+        tab.backToNewTab = backToNewTab;
+        tab.privateBrowsing = privateBrowsing;
+        tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        tabs.add(tab);
+        switchToTab(tabs.size() - 1);
+        beginBbsInternalPageLoad(tab, url, true);
+        renderTabs();
+    }
+
+    private void beginBbsInternalPageLoad(CuspTab tab, String url, boolean addHistory) {
+        if (tab == null || url == null || url.trim().isEmpty()) {
+            return;
+        }
+        applyThreadTabScope(tab, TabScope.NORMAL, "");
+        if (addHistory) {
+            recordNavigation(tab, url);
+        }
+        prepareChromeForLoading();
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_BOARD;
+        tab.url = url;
+        tab.title = internalPageTitle(url);
+        tab.searchPage = null;
+        tab.threadPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        tab.readerView = loadingView("");
+        int index = tabs.indexOf(tab);
+        if (index >= 0 && !tabOverviewVisible) {
+            switchToTab(index);
+        }
+        progressBar.setVisibility(View.VISIBLE);
+        showCenterSpinner();
+        renderTabs();
+        mainHandler.post(() -> {
+            if (tabs.contains(tab) && url.equals(tab.url)) {
+                loadInternalPage(tab, url);
+            }
+        });
     }
 
     private TextView categoryHeader(String value) {
@@ -9843,26 +9927,14 @@ public class MainActivity extends Activity {
         }
         final String loadUrl = menuUrl;
         final String targetPageKey = pageKey;
+        showBbsDirectoryLoading(forNewTab, targetTab);
         SearchPage cached = cachedBbsDirectoryPage(loadUrl);
         if (cached != null) {
             cached.title = bbsMenuTitle(loadUrl, cached.title);
-            applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, cached, true);
+            mainHandler.post(() -> applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, cached, true));
             refreshBbsMenuCacheIfStale(loadUrl);
             return;
         }
-        prepareChromeForLoading();
-        View view = loadingView("");
-        if (forNewTab) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(view);
-        } else if (targetTab != null) {
-            targetTab.readerView = view;
-            if (targetTab == currentTab()) {
-                contentFrame.removeAllViews();
-                contentFrame.addView(view);
-            }
-        }
-        progressBar.setVisibility(View.VISIBLE);
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
@@ -9902,27 +9974,15 @@ public class MainActivity extends Activity {
             renderTabs();
             return;
         }
+        showBbsDirectoryLoading(forNewTab, targetTab);
         SearchPage cached = cachedBbsDirectoryPage(menuUrl);
         if (cached != null) {
             SearchPage page = filterBbsCategory(cached, category);
             page.title = category == null || category.isEmpty() ? cached.title : category;
-            applyBbsDirectoryResult(pageKey, forNewTab, targetTab, page, false);
+            mainHandler.post(() -> applyBbsDirectoryResult(pageKey, forNewTab, targetTab, page, false));
             refreshBbsMenuCacheIfStale(menuUrl);
             return;
         }
-        prepareChromeForLoading();
-        View view = loadingView("");
-        if (forNewTab) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(view);
-        } else if (targetTab != null) {
-            targetTab.readerView = view;
-            if (targetTab == currentTab()) {
-                contentFrame.removeAllViews();
-                contentFrame.addView(view);
-            }
-        }
-        progressBar.setVisibility(View.VISIBLE);
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
@@ -9939,17 +9999,46 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void showBbsDirectoryLoading(boolean forNewTab, CuspTab targetTab) {
+        prepareChromeForLoading();
+        View view = loadingView("");
+        if (forNewTab) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(view);
+        } else if (targetTab != null) {
+            targetTab.readerView = view;
+            if (targetTab == currentTab()) {
+                contentFrame.removeAllViews();
+                contentFrame.addView(view);
+            }
+        }
+        progressBar.setVisibility(View.VISIBLE);
+        showCenterSpinner();
+    }
+
     private void applyBbsDirectoryResult(String pageKey, boolean forNewTab, CuspTab targetTab,
                                          SearchPage result, boolean categoryIndex) {
+        if (forNewTab && !isCurrentNewTabPage(pageKey)) {
+            if (!tabOverviewVisible) {
+                progressBar.setVisibility(View.GONE);
+                hideCenterSpinner();
+            }
+            return;
+        }
+        if (!forNewTab && (targetTab == null || !tabs.contains(targetTab))) {
+            if (!tabOverviewVisible) {
+                progressBar.setVisibility(View.GONE);
+                hideCenterSpinner();
+            }
+            return;
+        }
         View resultView = categoryIndex ? buildBbsCategoryIndexView(result) : buildSearchView(result, false);
         if (forNewTab && result.error == null) {
             cacheNewTabHistoryPage(pageKey, resultView);
         }
         if (forNewTab) {
-            if (!isCurrentNewTabPage(pageKey)) {
-                return;
-            }
             progressBar.setVisibility(View.GONE);
+            hideCenterSpinner();
             contentFrame.removeAllViews();
             contentFrame.addView(resultView);
         } else if (targetTab != null && tabs.contains(targetTab)) {
@@ -9965,8 +10054,12 @@ public class MainActivity extends Activity {
             cacheBoardHistoryPage(targetTab, result, resultView);
             if (targetTab == currentTab() && !tabOverviewVisible) {
                 progressBar.setVisibility(View.GONE);
+                hideCenterSpinner();
                 contentFrame.removeAllViews();
                 contentFrame.addView(resultView);
+            } else {
+                progressBar.setVisibility(View.GONE);
+                hideCenterSpinner();
             }
         }
         updateBottomThreadBar(forNewTab ? null : currentTab());
