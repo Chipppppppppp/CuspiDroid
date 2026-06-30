@@ -473,10 +473,12 @@ public class MainActivity extends Activity {
     private Set<String> tabOverviewHistoryUrlCache;
     private final LinkedHashMap<String, CachedBbsMenu> bbsMenuCache = new LinkedHashMap<>();
     private final Set<String> bbsMenuRefreshInFlight = new LinkedHashSet<>();
+    private final Set<String> bbsMenuPreloadInFlight = new LinkedHashSet<>();
     private boolean suppressNextAddressClick;
     private boolean addressFocusedOnDown;
     private boolean addressTouchInProgress;
     private boolean addressTouchStartedUnfocused;
+    private boolean addressUnfocusedLongPressTriggered;
     private Runnable addressUnfocusedLongPressTask;
     private boolean addressKeyboardVisible;
     private View imageOverlay;
@@ -1362,10 +1364,8 @@ public class MainActivity extends Activity {
                 addressFocusedOnDown = addressBar.hasFocus();
                 addressTouchInProgress = true;
                 addressTouchStartedUnfocused = !addressFocusedOnDown;
+                addressUnfocusedLongPressTriggered = false;
                 if (addressTouchStartedUnfocused) {
-                    addressBar.requestFocus();
-                    focusAddressBarText();
-                    showKeyboardSoon();
                     scheduleAddressUnfocusedLongPress();
                     return true;
                 }
@@ -1376,6 +1376,7 @@ public class MainActivity extends Activity {
                 suppressNextAddressClick = false;
                 addressTouchInProgress = false;
                 addressTouchStartedUnfocused = false;
+                addressUnfocusedLongPressTriggered = false;
                 cancelAddressUnfocusedLongPress();
                 if (!addressFocusedOnDown) {
                     clearAddressFocus();
@@ -1385,9 +1386,16 @@ public class MainActivity extends Activity {
             if (addressTouchStartedUnfocused) {
                 if (event.getActionMasked() == MotionEvent.ACTION_UP
                         || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                    boolean shouldFocus = event.getActionMasked() == MotionEvent.ACTION_UP
+                            && !addressUnfocusedLongPressTriggered;
                     addressTouchInProgress = false;
                     addressTouchStartedUnfocused = false;
                     cancelAddressUnfocusedLongPress();
+                    if (shouldFocus) {
+                        addressBar.requestFocus();
+                        focusAddressBarText();
+                        showKeyboardSoon();
+                    }
                 }
                 return true;
             }
@@ -1395,6 +1403,7 @@ public class MainActivity extends Activity {
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 addressTouchInProgress = false;
                 addressTouchStartedUnfocused = false;
+                addressUnfocusedLongPressTriggered = false;
                 cancelAddressUnfocusedLongPress();
             }
             return false;
@@ -1475,6 +1484,7 @@ public class MainActivity extends Activity {
             if (addressBar == null || !addressTouchStartedUnfocused || !addressTouchInProgress) {
                 return;
             }
+            addressUnfocusedLongPressTriggered = true;
             suppressNextAddressClick = true;
             mainHandler.postDelayed(() -> suppressNextAddressClick = false, 900);
             addressTouchInProgress = false;
@@ -3821,6 +3831,25 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
             runOnUiThread(() -> bbsMenuRefreshInFlight.remove(key));
+        });
+    }
+
+    private void preloadBbsMenuCache(String directoryUrl) {
+        String key = bbsMenuCacheKey(directoryUrl);
+        if (key.isEmpty() || bbsMenuCache.containsKey(key) || bbsMenuPreloadInFlight.contains(key)) {
+            return;
+        }
+        bbsMenuPreloadInFlight.add(key);
+        ioExecutor.execute(() -> {
+            try {
+                CachedBbsMenu cached = readBbsMenuCache(directoryUrl);
+                if (cached == null || cached.cachedAt <= 0L
+                        || System.currentTimeMillis() - cached.cachedAt >= FIVE_CH_BBSMENU_CACHE_REFRESH_MS) {
+                    downloadBbsDirectoryWithCache(directoryUrl);
+                }
+            } catch (Exception ignored) {
+            }
+            runOnUiThread(() -> bbsMenuPreloadInFlight.remove(key));
         });
     }
 
@@ -8886,8 +8915,9 @@ public class MainActivity extends Activity {
         tab.navigationHistory.add(returnUrl);
         tab.navigationIndex = 0;
         tabs.add(tab);
+        prepareBbsInternalPageLoad(tab, url, true);
         switchToTab(tabs.size() - 1);
-        beginBbsInternalPageLoad(tab, url, true);
+        scheduleBbsInternalPageLoad(tab, url);
         renderTabs();
     }
 
@@ -8901,8 +8931,9 @@ public class MainActivity extends Activity {
         tab.privateBrowsing = privateBrowsing;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tabs.add(tab);
+        prepareBbsInternalPageLoad(tab, url, true);
         switchToTab(tabs.size() - 1);
-        beginBbsInternalPageLoad(tab, url, true);
+        scheduleBbsInternalPageLoad(tab, url);
         renderTabs();
     }
 
@@ -8910,6 +8941,16 @@ public class MainActivity extends Activity {
         if (tab == null || url == null || url.trim().isEmpty()) {
             return;
         }
+        prepareBbsInternalPageLoad(tab, url, addHistory);
+        int index = tabs.indexOf(tab);
+        if (index >= 0 && !tabOverviewVisible) {
+            switchToTab(index);
+        }
+        renderTabs();
+        scheduleBbsInternalPageLoad(tab, url);
+    }
+
+    private void prepareBbsInternalPageLoad(CuspTab tab, String url, boolean addHistory) {
         applyThreadTabScope(tab, TabScope.NORMAL, "");
         if (addHistory) {
             recordNavigation(tab, url);
@@ -8924,13 +8965,11 @@ public class MainActivity extends Activity {
         tab.threadScroll = null;
         tab.postViews = null;
         tab.readerView = loadingView("");
-        int index = tabs.indexOf(tab);
-        if (index >= 0 && !tabOverviewVisible) {
-            switchToTab(index);
-        }
         progressBar.setVisibility(View.VISIBLE);
         showCenterSpinner();
-        renderTabs();
+    }
+
+    private void scheduleBbsInternalPageLoad(CuspTab tab, String url) {
         mainHandler.post(() -> {
             if (tabs.contains(tab) && url.equals(tab.url)) {
                 loadInternalPage(tab, url);
@@ -9703,6 +9742,7 @@ public class MainActivity extends Activity {
         list.addView(fullTextSearch);
 
         List<BbsLink> customLinks = readBbsLinks(preferences);
+        preloadHomeBbsMenuCaches(customLinks);
         if (!customLinks.isEmpty()) {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
             for (BbsLink link : customLinks) {
@@ -9727,6 +9767,18 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         addPrivateModeOverlay(root, currentTabIsPrivate(), v -> togglePendingPrivateNewTab());
         return root;
+    }
+
+    private void preloadHomeBbsMenuCaches(List<BbsLink> customLinks) {
+        preloadBbsMenuCache(FIVE_CH_BBSMENU_URL);
+        if (customLinks == null) {
+            return;
+        }
+        for (BbsLink link : customLinks) {
+            if (link != null && link.url != null && !link.url.trim().isEmpty()) {
+                preloadBbsMenuCache(link.url);
+            }
+        }
     }
 
     private void showFullTextSearchHomeView(boolean recordHistory) {
