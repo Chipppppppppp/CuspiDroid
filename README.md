@@ -12,18 +12,6 @@
 
 [English README](README.en.md)
 
-## カスタムBBS一覧
-
-| 名前 | URL |
-| --- | --- |
-| まちBBS | `https://machi.to/bbsmenu.html` |
-| したらば掲示板 | `https://bbs-menu.pages.dev/shitaraba_bbsmenu/bbsmenu.json` |
-| ふたばちゃんねる | `https://www.2chan.net/bbsmenu.html` |
-| BBSPINK | `https://bbspink.org/ex0ch/bbsmenu.html` |
-| おーぷん2ちゃんねる | `https://menu.open2ch.net/bbsmenu.html` |
-| エッヂ | `https://bbs.eddibb.cc/liveedge/` |
-| AfternoonTea | `https://afternoontea.st/boards/bbsmenu.html` |
-
 CuspiDroid は、5ch 互換の掲示板をブラウザライクな UI で閲覧する Android アプリです。
 
 ## 機能
@@ -64,6 +52,18 @@ Android Studio でこのリポジトリを開くか、次のコマンドを実�
 ```powershell
 .\gradlew.bat assembleRelease
 ```
+
+## カスタムBBS一覧
+
+| 名前 | URL |
+| --- | --- |
+| まちBBS | `https://machi.to/bbsmenu.html` |
+| したらば掲示板 | `https://bbs-menu.pages.dev/shitaraba_bbsmenu/bbsmenu.json` |
+| ふたばちゃんねる | `https://www.2chan.net/bbsmenu.html` |
+| BBSPINK | `https://bbspink.org/ex0ch/bbsmenu.html` |
+| おーぷん2ちゃんねる | `https://menu.open2ch.net/bbsmenu.html` |
+| エッヂ | `https://bbs.eddibb.cc/liveedge/` |
+| AfternoonTea | `https://afternoontea.st/boards/bbsmenu.html` |
 
 ## ライセンス
 

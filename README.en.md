@@ -48,6 +48,18 @@ To build an optimized release APK:
 .\gradlew.bat assembleRelease
 ```
 
+## Custom BBS List
+
+| Name | URL |
+| --- | --- |
+| Machi BBS | `https://machi.to/bbsmenu.html` |
+| Shitaraba | `https://bbs-menu.pages.dev/shitaraba_bbsmenu/bbsmenu.json` |
+| Futaba Channel | `https://www.2chan.net/bbsmenu.html` |
+| BBSPINK | `https://bbspink.org/ex0ch/bbsmenu.html` |
+| Open2ch | `https://menu.open2ch.net/bbsmenu.html` |
+| Edge | `https://bbs.eddibb.cc/liveedge/` |
+| AfternoonTea | `https://afternoontea.st/boards/bbsmenu.html` |
+
 ## License
 
 CuspiDroid is distributed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
