@@ -200,6 +200,7 @@ public class MainActivity extends Activity {
     static final String PREF_THEME_MODE = "theme_mode";
     static final String PREF_BBS_LINKS = "bbs_links";
     static final String PREF_DEFAULT_CUSTOM_BBS_ADDED = "default_custom_bbs_added";
+    static final String PREF_DEFAULT_CUSTOM_BBS_REMOVED = "default_custom_bbs_removed";
     static final String SHITARABA_BBSMENU_URL = "https://bbs-menu.pages.dev/shitaraba_bbsmenu/bbsmenu.json";
     static final String FUTABA_BBSMENU_URL = "https://www.2chan.net/bbsmenu.html";
     static final String PREF_NG_WORDS = "ng_words";
@@ -787,12 +788,13 @@ public class MainActivity extends Activity {
     }
 
     private void ensureDefaultCustomBbsLinks() {
-        if (preferences.getBoolean(PREF_DEFAULT_CUSTOM_BBS_ADDED, false)) {
+        if (!preferences.getBoolean(PREF_DEFAULT_CUSTOM_BBS_ADDED, false)
+                || preferences.getBoolean(PREF_DEFAULT_CUSTOM_BBS_REMOVED, false)) {
             return;
         }
-        addBbsLink(preferences, "\u3057\u305f\u3089\u3070\u63b2\u793a\u677f", SHITARABA_BBSMENU_URL);
-        addBbsLink(preferences, "\u3075\u305f\u3070\u3061\u3083\u3093\u306d\u308b", FUTABA_BBSMENU_URL);
-        preferences.edit().putBoolean(PREF_DEFAULT_CUSTOM_BBS_ADDED, true).apply();
+        removeBbsLink(preferences, SHITARABA_BBSMENU_URL);
+        removeBbsLink(preferences, FUTABA_BBSMENU_URL);
+        preferences.edit().putBoolean(PREF_DEFAULT_CUSTOM_BBS_REMOVED, true).apply();
     }
 
     private List<String> addressBarButtonIds() {
@@ -4770,6 +4772,10 @@ public class MainActivity extends Activity {
             return;
         }
         url = normalizeUrl(url);
+        if (isBbsMenuUrl(url) && isBbsDirectoryUrl(url)) {
+            openInCurrentTab(bbsRootPageUrl(url), addHistory, scope, bookmarkFolder, true);
+            return;
+        }
         if (isThreadUrl(url)) {
             if (addHistory) {
                 recordNavigation(tab, url);
@@ -8782,8 +8788,38 @@ public class MainActivity extends Activity {
     }
 
     private void openBbsCategory(String menuUrl, String category) {
-        String token = bbsCategoryToken(menuUrl, category);
-        showBbsCategoryView(token, true);
+        openBbsCategoryPage(menuUrl, category);
+    }
+
+    private boolean openBbsDirectoryPage(String menuUrl) {
+        if (menuUrl == null || menuUrl.trim().isEmpty()) {
+            menuUrl = FIVE_CH_BBSMENU_URL;
+        }
+        String url = bbsRootPageUrl(menuUrl);
+        if (pendingNewTab) {
+            openPendingNewTabUrl(url);
+            return true;
+        }
+        openBbsInternalPage(url);
+        return true;
+    }
+
+    private void openBbsCategoryPage(String menuUrl, String category) {
+        String url = bbsCategoryPageUrl(menuUrl, category);
+        if (pendingNewTab) {
+            openPendingNewTabUrl(url);
+            return;
+        }
+        openBbsInternalPage(url);
+    }
+
+    private void openBbsInternalPage(String url) {
+        CuspTab source = currentTab();
+        if (source != null && isBookmarkTabScope(source)) {
+            createTab(url, true, tabs.indexOf(source), false, isPrivateTab(source));
+        } else {
+            openInCurrentTab(url);
+        }
     }
 
     private TextView categoryHeader(String value) {
@@ -9555,8 +9591,7 @@ public class MainActivity extends Activity {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
             for (BbsLink link : customLinks) {
                 TextView row = actionRow(link.name);
-                row.setOnClickListener(v -> showBbsDirectoryIndexView(
-                        link.url, bbsRootPageKey(link.url), true));
+                row.setOnClickListener(v -> openBbsDirectoryPage(link.url));
                 row.setOnLongClickListener(v -> {
                     showValueCopyPopup(row, link.url);
                     return true;
@@ -9743,6 +9778,9 @@ public class MainActivity extends Activity {
     }
 
     private void showFiveChBoardsView(boolean recordHistory) {
+        if (recordHistory && openBbsDirectoryPage(FIVE_CH_BBSMENU_URL)) {
+            return;
+        }
         showBbsDirectoryIndexView(FIVE_CH_BBSMENU_URL, "5ch", recordHistory);
     }
 
@@ -9885,8 +9923,7 @@ public class MainActivity extends Activity {
         } else if (targetTab != null && tabs.contains(targetTab)) {
             targetTab.readerMode = true;
             targetTab.nativeKind = NATIVE_BOARD;
-            targetTab.url = result.url == null || result.url.trim().isEmpty()
-                    ? bbsMenuUrlFromPageKey(pageKey) : result.url;
+            targetTab.url = bbsInternalUrlFromPageKey(pageKey);
             targetTab.title = result.title;
             targetTab.searchPage = result;
             targetTab.readerView = resultView;
@@ -9917,6 +9954,23 @@ public class MainActivity extends Activity {
             return request.menuUrl == null || request.menuUrl.isEmpty() ? FIVE_CH_BBSMENU_URL : request.menuUrl;
         }
         return FIVE_CH_BBSMENU_URL;
+    }
+
+    private String bbsInternalUrlFromPageKey(String pageKey) {
+        if ("5ch".equals(pageKey)) {
+            return bbsRootPageUrl(FIVE_CH_BBSMENU_URL);
+        }
+        if (pageKey != null && pageKey.startsWith("bbs:")) {
+            String value = decodeNewTabToken(pageKey.substring("bbs:".length()));
+            return bbsRootPageUrl(value.isEmpty() ? FIVE_CH_BBSMENU_URL : value);
+        }
+        if (pageKey != null && pageKey.startsWith("bbs-category:")) {
+            BbsCategoryRequest request = decodeBbsCategoryToken(pageKey.substring("bbs-category:".length()));
+            return bbsCategoryPageUrl(
+                    request.menuUrl == null || request.menuUrl.isEmpty() ? FIVE_CH_BBSMENU_URL : request.menuUrl,
+                    request.category);
+        }
+        return bbsRootPageUrl(bbsMenuUrlFromPageKey(pageKey));
     }
 
     private boolean restoreNewTabHistoryPage(String pageKey) {
@@ -18646,6 +18700,10 @@ public class MainActivity extends Activity {
             openPendingNewTabUrl(url);
             return true;
         }
+        if (isBbsMenuUrl(url) && isBbsDirectoryUrl(url)) {
+            openBbsDirectoryPage(url);
+            return true;
+        }
         if (isThreadUrl(url)) {
             if (open5chLinksInNewTab()) {
                 CuspTab source = sourceTab == null ? currentTab() : sourceTab;
@@ -20315,6 +20373,7 @@ public class MainActivity extends Activity {
             if (isShitarabaHost(address.host)) {
                 addUnique(candidates, (address.scheme == null ? "https" : address.scheme)
                         + "://" + address.host + "/bbs/rawmode.cgi/" + address.board + "/" + address.key + "/");
+                return candidates;
             }
             addUnique(candidates, base + "/dat/" + address.key + ".dat");
             if (address.key.length() >= 4) {
@@ -20940,11 +20999,11 @@ public class MainActivity extends Activity {
         if (host == null) {
             return "";
         }
-        if (usesShortThreadUrls(subjectUrl, host)) {
-            return scheme + "://" + host + "/" + board + "/";
-        }
         if (isShitarabaHost(host)) {
             return scheme + "://" + host + "/bbs/read.cgi/" + board + "/";
+        }
+        if (usesShortThreadUrls(subjectUrl, host)) {
+            return scheme + "://" + host + "/" + board + "/";
         }
         String reader = host.toLowerCase(Locale.ROOT).endsWith("machi.to")
                 ? "/bbs/read.cgi/"
@@ -20975,7 +21034,8 @@ public class MainActivity extends Activity {
                 && !lowerHost.endsWith(".2ch.sc")
                 && !lowerHost.equals("2ch.sc")
                 && !lowerHost.endsWith(".bbspink.org")
-                && !lowerHost.equals("bbspink.org");
+                && !lowerHost.equals("bbspink.org")
+                && !isShitarabaHost(lowerHost);
     }
 
     private int threadResponseCount(String title) {
