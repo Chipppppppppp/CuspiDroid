@@ -62,6 +62,7 @@ import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.view.ViewConfiguration;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -476,6 +477,7 @@ public class MainActivity extends Activity {
     private boolean addressFocusedOnDown;
     private boolean addressTouchInProgress;
     private boolean addressTouchStartedUnfocused;
+    private Runnable addressUnfocusedLongPressTask;
     private boolean addressKeyboardVisible;
     private View imageOverlay;
     private View highlightedPostView;
@@ -1364,6 +1366,7 @@ public class MainActivity extends Activity {
                     addressBar.requestFocus();
                     focusAddressBarText();
                     showKeyboardSoon();
+                    scheduleAddressUnfocusedLongPress();
                     return true;
                 }
             }
@@ -1373,6 +1376,7 @@ public class MainActivity extends Activity {
                 suppressNextAddressClick = false;
                 addressTouchInProgress = false;
                 addressTouchStartedUnfocused = false;
+                cancelAddressUnfocusedLongPress();
                 if (!addressFocusedOnDown) {
                     clearAddressFocus();
                 }
@@ -1383,6 +1387,7 @@ public class MainActivity extends Activity {
                         || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                     addressTouchInProgress = false;
                     addressTouchStartedUnfocused = false;
+                    cancelAddressUnfocusedLongPress();
                 }
                 return true;
             }
@@ -1390,6 +1395,7 @@ public class MainActivity extends Activity {
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 addressTouchInProgress = false;
                 addressTouchStartedUnfocused = false;
+                cancelAddressUnfocusedLongPress();
             }
             return false;
         });
@@ -1461,6 +1467,29 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(42), dp(40));
         view.setLayoutParams(params);
         return view;
+    }
+
+    private void scheduleAddressUnfocusedLongPress() {
+        cancelAddressUnfocusedLongPress();
+        addressUnfocusedLongPressTask = () -> {
+            if (addressBar == null || !addressTouchStartedUnfocused || !addressTouchInProgress) {
+                return;
+            }
+            suppressNextAddressClick = true;
+            mainHandler.postDelayed(() -> suppressNextAddressClick = false, 900);
+            addressTouchInProgress = false;
+            addressTouchStartedUnfocused = false;
+            clearAddressFocus();
+            showAddressEditMenu();
+        };
+        mainHandler.postDelayed(addressUnfocusedLongPressTask, ViewConfiguration.getLongPressTimeout());
+    }
+
+    private void cancelAddressUnfocusedLongPress() {
+        if (addressUnfocusedLongPressTask != null) {
+            mainHandler.removeCallbacks(addressUnfocusedLongPressTask);
+            addressUnfocusedLongPressTask = null;
+        }
     }
 
     private TextView tabCountIconSquare(boolean selected) {
@@ -17836,12 +17865,16 @@ public class MainActivity extends Activity {
             try {
                 result = postToThreadWithCookieConfirm(tab.url, address, name, mail, message);
                 String plain = cleanText(result);
-                success = postSucceeded(plain);
+                success = postSucceeded(plain, address);
                 if (!success) {
                     result = shorten(plain.replace('\n', ' '), 220);
                 }
             } catch (Exception error) {
                 result = error.getMessage() == null ? text("\u66f8\u304d\u8fbc\u307f\u5931\u6557", "Post failed.") : error.getMessage();
+                success = isLikelyAcceptedShitarabaPostError(address, result);
+                if (success) {
+                    result = "write done";
+                }
             }
             String messageText = result;
             boolean posted = success;
@@ -17941,8 +17974,9 @@ public class MainActivity extends Activity {
         String contentType = postContentType(address);
         Map<String, String> fields = postFields(address, name, mail, message);
         String payload = postPayload(fields, "\u66f8\u304d\u8fbc\u3080", requestCharset, submitFirst);
+        boolean redirectSuccess = isShitarabaAddress(address);
 
-        PostResult first = sendPostWithCookie(endpoint, referer, payload, null, requestCharset, contentType);
+        PostResult first = sendPostWithCookie(endpoint, referer, payload, null, requestCharset, contentType, redirectSuccess);
         String firstPlain = cleanText(first.body);
         if (!requiresCookieConfirm(firstPlain)) {
             return postSucceeded(firstPlain, address) ? "write done" : first.body;
@@ -17955,7 +17989,7 @@ public class MainActivity extends Activity {
             cookie = cookie + "; yuki=akari";
         }
         String confirmPayload = confirmPostPayload(first.body, fields, requestCharset, submitFirst);
-        PostResult second = sendPostWithCookie(endpoint, referer, confirmPayload, cookie, requestCharset, contentType);
+        PostResult second = sendPostWithCookie(endpoint, referer, confirmPayload, cookie, requestCharset, contentType, redirectSuccess);
         String secondPlain = cleanText(second.body);
         return postSucceeded(secondPlain, address) ? "write done" : second.body;
     }
@@ -18190,6 +18224,11 @@ public class MainActivity extends Activity {
 
     private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie,
                                           Charset charset, String contentType) throws Exception {
+        return sendPostWithCookie(endpoint, referer, payload, cookie, charset, contentType, false);
+    }
+
+    private PostResult sendPostWithCookie(String endpoint, String referer, String payload, String cookie,
+                                          Charset charset, String contentType, boolean redirectSuccess) throws Exception {
         byte[] body = payload.getBytes(charset);
         String current = endpoint;
         List<String> allCookies = new ArrayList<>();
@@ -18217,6 +18256,12 @@ public class MainActivity extends Activity {
             if (isPostRedirectStatus(code)) {
                 String location = connection.getHeaderField("Location");
                 connection.disconnect();
+                if (redirectSuccess) {
+                    PostResult result = new PostResult();
+                    result.body = "write done";
+                    result.cookies = allCookies;
+                    return result;
+                }
                 if (location == null || location.trim().isEmpty()) {
                     throw new IllegalStateException("Redirect without Location");
                 }
@@ -18387,6 +18432,9 @@ public class MainActivity extends Activity {
         if (postSucceeded(text == null ? "" : text)) {
             return true;
         }
+        if (isLikelyAcceptedShitarabaPostError(address, text)) {
+            return true;
+        }
         if (isMachiAddress(address)) {
             String value = text == null ? "" : text;
             String lower = value.toLowerCase(Locale.ROOT);
@@ -18410,6 +18458,15 @@ public class MainActivity extends Activity {
         String value = text == null ? "" : text;
         String lower = value.toLowerCase(Locale.ROOT);
         return !lower.contains("error_code") && !value.contains("ERROR");
+    }
+
+    private boolean isLikelyAcceptedShitarabaPostError(DatAddress address, String text) {
+        if (!isShitarabaAddress(address) || text == null) {
+            return false;
+        }
+        return text.contains("\u591a\u91cd\u66f8\u304d\u8fbc\u307f")
+                || text.contains("\u591a\u91cd\u66f8\u304d\u8fbc\u307f\u3067\u3059")
+                || text.toLowerCase(Locale.ROOT).contains("multiple");
     }
 
     private String formField(String name, String value) throws Exception {
