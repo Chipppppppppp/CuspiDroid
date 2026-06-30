@@ -4587,6 +4587,9 @@ public class MainActivity extends Activity {
             return text("\u30bf\u30d6", "Tab");
         }
         if (NATIVE_BOARD.equals(tab.nativeKind) && tab.url != null && !tab.url.trim().isEmpty()) {
+            if (isBbsInternalPageUrl(tab.url)) {
+                return internalPageTitle(tab.url);
+            }
             return displayBoardTitle(tab.url);
         }
         String title = tab.title;
@@ -4618,10 +4621,11 @@ public class MainActivity extends Activity {
         }
         if (page != null && page.startsWith("bbs-category:")) {
             BbsCategoryRequest request = decodeBbsCategoryToken(page.substring("bbs-category:".length()));
-            if (request.category != null && !request.category.trim().isEmpty()) {
-                return request.category;
+            if (request.category != null && !request.category.trim().isEmpty()
+                    && !looksLikeUrlFragmentTitle(request.category)) {
+                return request.category.trim();
             }
-            return text("\u677f\u4e00\u89a7", "Boards");
+            return bbsMenuTitle(request.menuUrl, "");
         }
         if (page != null && page.startsWith("5ch-category:")) {
             String category = decodeNewTabToken(page.substring("5ch-category:".length()));
@@ -4643,7 +4647,7 @@ public class MainActivity extends Activity {
                         ? hostTitle(menuUrl) : link.name.trim();
             }
         }
-        if (fallback != null && !fallback.trim().isEmpty()) {
+        if (fallback != null && !fallback.trim().isEmpty() && !looksLikeUrlFragmentTitle(fallback)) {
             return fallback.trim();
         }
         return hostTitle(menuUrl);
@@ -5070,7 +5074,8 @@ public class MainActivity extends Activity {
         if (url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/")) {
             BbsCategoryRequest request = decodeBbsCategoryToken(
                     decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs-category/").length())));
-            if (request.category != null && !request.category.trim().isEmpty()) {
+            if (request.category != null && !request.category.trim().isEmpty()
+                    && !looksLikeUrlFragmentTitle(request.category)) {
                 return request.category.trim();
             }
             return bbsMenuTitle(request.menuUrl, "");
@@ -10142,6 +10147,7 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        result.title = bbsPageTitleFromPageKey(pageKey, result.title);
         View resultView = categoryIndex ? buildBbsCategoryIndexView(result) : buildSearchView(result, false);
         if (forNewTab && result.error == null) {
             cacheNewTabHistoryPage(pageKey, resultView);
@@ -10174,6 +10180,37 @@ public class MainActivity extends Activity {
         }
         updateBottomThreadBar(forNewTab ? null : currentTab());
         renderTabs();
+    }
+
+    private String bbsPageTitleFromPageKey(String pageKey, String fallback) {
+        if ("5ch".equals(pageKey)) {
+            return text("\u677f\u4e00\u89a7", "Boards");
+        }
+        if (pageKey != null && pageKey.startsWith("bbs:")) {
+            String menuUrl = decodeNewTabToken(pageKey.substring("bbs:".length()));
+            return bbsMenuTitle(menuUrl, fallback);
+        }
+        if (pageKey != null && pageKey.startsWith("bbs-category:")) {
+            BbsCategoryRequest request = decodeBbsCategoryToken(pageKey.substring("bbs-category:".length()));
+            if (request.category != null && !request.category.trim().isEmpty()
+                    && !looksLikeUrlFragmentTitle(request.category)) {
+                return request.category.trim();
+            }
+            return bbsMenuTitle(request.menuUrl, fallback);
+        }
+        if (fallback != null && !fallback.trim().isEmpty() && !looksLikeUrlFragmentTitle(fallback)) {
+            return fallback.trim();
+        }
+        return text("\u677f\u4e00\u89a7", "Boards");
+    }
+
+    private boolean looksLikeUrlFragmentTitle(String value) {
+        if (value == null) {
+            return false;
+        }
+        String trimmed = value.trim().toLowerCase(Locale.ROOT);
+        return "http:".equals(trimmed) || "https:".equals(trimmed)
+                || trimmed.startsWith("http://") || trimmed.startsWith("https://");
     }
 
     private String bbsMenuUrlFromPageKey(String pageKey) {
