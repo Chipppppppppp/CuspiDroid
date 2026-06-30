@@ -347,6 +347,7 @@ public class MainActivity extends Activity {
     private static final long SAVE_TABS_DELAY_MS = 500;
     private static final long SAVE_TABS_SCROLL_IDLE_DELAY_MS = 900;
     private static final long FIVE_CH_BBSMENU_CACHE_REFRESH_MS = 12L * 60L * 60L * 1000L;
+    private static final long BBS_INTERNAL_LOAD_DELAY_MS = 48L;
     private static final int MAX_BBSMENU_CACHE_ENTRIES = 16;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
     private static final int THREAD_IDLE_RENDER_BUDGET = 10;
@@ -8970,11 +8971,11 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleBbsInternalPageLoad(CuspTab tab, String url) {
-        mainHandler.post(() -> {
+        mainHandler.postDelayed(() -> {
             if (tabs.contains(tab) && url.equals(tab.url)) {
                 loadInternalPage(tab, url);
             }
-        });
+        }, BBS_INTERNAL_LOAD_DELAY_MS);
     }
 
     private TextView categoryHeader(String value) {
@@ -9980,23 +9981,29 @@ public class MainActivity extends Activity {
         final String loadUrl = menuUrl;
         final String targetPageKey = pageKey;
         showBbsDirectoryLoading(forNewTab, targetTab);
-        SearchPage cached = cachedBbsDirectoryPage(loadUrl);
-        if (cached != null) {
-            cached.title = bbsMenuTitle(loadUrl, cached.title);
-            mainHandler.post(() -> applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, cached, true));
-            refreshBbsMenuCacheIfStale(loadUrl);
-            return;
-        }
         ioExecutor.execute(() -> {
             SearchPage page;
+            boolean usedCached = false;
             try {
-                page = downloadBbsDirectoryWithCache(loadUrl);
+                page = cachedBbsDirectoryPage(loadUrl);
+                if (page != null) {
+                    usedCached = true;
+                } else {
+                    page = downloadBbsDirectoryWithCache(loadUrl);
+                }
                 page.title = bbsMenuTitle(loadUrl, page.title);
+                bbsCategoryCounts(page);
             } catch (Exception error) {
                 page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
-            runOnUiThread(() -> applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, result, true));
+            boolean refresh = usedCached;
+            runOnUiThread(() -> {
+                applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, result, true);
+                if (refresh) {
+                    refreshBbsMenuCacheIfStale(loadUrl);
+                }
+            });
         });
     }
 
@@ -10026,28 +10033,35 @@ public class MainActivity extends Activity {
             renderTabs();
             return;
         }
+        final String loadUrl = menuUrl;
+        final String targetCategory = category;
+        final String targetPageKey = pageKey;
         showBbsDirectoryLoading(forNewTab, targetTab);
-        SearchPage cached = cachedBbsDirectoryPage(menuUrl);
-        if (cached != null) {
-            SearchPage page = filterBbsCategory(cached, category);
-            page.title = category == null || category.isEmpty() ? cached.title : category;
-            mainHandler.post(() -> applyBbsDirectoryResult(pageKey, forNewTab, targetTab, page, false));
-            refreshBbsMenuCacheIfStale(menuUrl);
-            return;
-        }
         ioExecutor.execute(() -> {
             SearchPage page;
+            boolean usedCached = false;
             try {
-                SearchPage all = downloadBbsDirectoryWithCache(menuUrl);
-                page = filterBbsCategory(all, category);
-                page.title = category == null || category.isEmpty()
+                SearchPage all = cachedBbsDirectoryPage(loadUrl);
+                if (all != null) {
+                    usedCached = true;
+                } else {
+                    all = downloadBbsDirectoryWithCache(loadUrl);
+                }
+                page = filterBbsCategory(all, targetCategory);
+                page.title = targetCategory == null || targetCategory.isEmpty()
                         ? all.title
-                        : category;
+                        : targetCategory;
             } catch (Exception error) {
-                page = SearchPage.error(menuUrl, error.getMessage());
+                page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
-            runOnUiThread(() -> applyBbsDirectoryResult(pageKey, forNewTab, targetTab, result, false));
+            boolean refresh = usedCached;
+            runOnUiThread(() -> {
+                applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, result, false);
+                if (refresh) {
+                    refreshBbsMenuCacheIfStale(loadUrl);
+                }
+            });
         });
     }
 
