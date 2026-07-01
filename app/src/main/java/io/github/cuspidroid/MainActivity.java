@@ -960,6 +960,7 @@ public class MainActivity extends Activity {
     private boolean isSupportedBbsLink(String url) {
         return is5chUrl(url)
                 || isRegisteredBbsUrl(url)
+                || isKnownCustomBbsUrl(url)
                 || isThreadUrl(url)
                 || isBoardUrl(url)
                 || isBbsDirectoryUrl(url)
@@ -24511,7 +24512,8 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
             return host != null
-                    && (is5chUrl(url) || isRegisteredBbsUrl(url)) && boardNameFromUrl(url) != null;
+                    && (is5chUrl(url) || isRegisteredBbsUrl(url) || isKnownCustomBbsUrl(url))
+                    && boardNameFromUrl(url) != null;
         } catch (Exception error) {
             return false;
         }
@@ -24525,9 +24527,9 @@ public class MainActivity extends Activity {
                 return false;
             }
             if (isBbsMenuUrl(url)) {
-                return is5chUrl(url) || isRegisteredBbsUrl(url);
+                return is5chUrl(url) || isRegisteredBbsUrl(url) || isKnownCustomBbsUrl(url);
             }
-            return isRegisteredBbsUrl(url) && boardNameFromUrl(url) == null;
+            return (isRegisteredBbsUrl(url) || isKnownCustomBbsUrl(url)) && boardNameFromUrl(url) == null;
         } catch (Exception error) {
             return false;
         }
@@ -24570,6 +24572,28 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return false;
+    }
+
+    private boolean isKnownCustomBbsUrl(String url) {
+        try {
+            String host = Uri.parse(normalizeUrl(url)).getHost();
+            return isKnownCustomBbsHost(host);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isKnownCustomBbsHost(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        return lower.equals("open2ch.net") || lower.endsWith(".open2ch.net")
+                || lower.equals("machi.to") || lower.endsWith(".machi.to")
+                || lower.equals("bbspink.org") || lower.endsWith(".bbspink.org")
+                || lower.equals("2chan.net") || lower.endsWith(".2chan.net")
+                || lower.equals("bbs-menu.pages.dev")
+                || lower.equals("shitaraba.net") || lower.endsWith(".shitaraba.net")
+                || lower.equals("jbbs.livedoor.jp") || lower.endsWith(".jbbs.livedoor.jp")
+                || lower.equals("bbs.eddibb.cc")
+                || lower.equals("afternoontea.st") || lower.endsWith(".afternoontea.st");
     }
 
     private boolean isSameBbsHostFamily(String leftHost, String rightHost) {

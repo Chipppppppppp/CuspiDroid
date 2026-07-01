@@ -100,6 +100,20 @@
                 <data android:scheme="https" android:host="bbspink.org" />
                 <data android:scheme="http" android:host="*.bbspink.org" />
                 <data android:scheme="https" android:host="*.bbspink.org" />
+                <data android:scheme="http" android:host="2chan.net" />
+                <data android:scheme="https" android:host="2chan.net" />
+                <data android:scheme="http" android:host="*.2chan.net" />
+                <data android:scheme="https" android:host="*.2chan.net" />
+                <data android:scheme="http" android:host="jbbs.shitaraba.net" />
+                <data android:scheme="https" android:host="jbbs.shitaraba.net" />
+                <data android:scheme="http" android:host="bbs-menu.pages.dev" />
+                <data android:scheme="https" android:host="bbs-menu.pages.dev" />
+                <data android:scheme="http" android:host="bbs.eddibb.cc" />
+                <data android:scheme="https" android:host="bbs.eddibb.cc" />
+                <data android:scheme="http" android:host="afternoontea.st" />
+                <data android:scheme="https" android:host="afternoontea.st" />
+                <data android:scheme="http" android:host="*.afternoontea.st" />
+                <data android:scheme="https" android:host="*.afternoontea.st" />
             </intent-filter>
         </activity>
     </application>
