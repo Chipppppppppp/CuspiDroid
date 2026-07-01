@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.text.InputType;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -101,7 +102,11 @@ public class BbsLinksActivity extends Activity {
             row.setPadding(dp(10), dp(8), dp(8), dp(8));
             row.setBackground(rowBackground());
 
-            TextView text = helperText(link.name + "\n" + link.url);
+            String summary = link.name + "\n" + link.url;
+            if (link.hissiUrl != null && !link.hissiUrl.trim().isEmpty()) {
+                summary += "\n" + MainActivity.text("\u5fc5\u6b7b: ", "Hissi: ") + link.hissiUrl.trim();
+            }
+            TextView text = helperText(summary);
             text.setTextColor(textColor());
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
@@ -142,10 +147,35 @@ public class BbsLinksActivity extends Activity {
         urlParams.setMargins(0, dp(10), 0, 0);
         content.addView(url, urlParams);
 
+        EditText hissiUrl = field(MainActivity.text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fcURL\uff08\u4efb\u610f\uff09", "Hissi Checker URL (optional)"));
+        hissiUrl.setSingleLine(false);
+        hissiUrl.setMinLines(2);
+        hissiUrl.setMaxLines(4);
+        hissiUrl.setGravity(Gravity.TOP | Gravity.START);
+        hissiUrl.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        hissiUrl.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_URI
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        LinearLayout.LayoutParams hissiParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(88));
+        hissiParams.setMargins(0, dp(10), 0, 0);
+        content.addView(hissiUrl, hissiParams);
+
+        TextView templateHelp = helperText(MainActivity.text(
+                "\u4f8b: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}{$host[match:bbs\\.eddibb\\.cc$]}",
+                "Example: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}{$host[match:bbs\\.eddibb\\.cc$]}"));
+        templateHelp.setTextColor(mutedColor());
+        LinearLayout.LayoutParams helpParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        helpParams.setMargins(0, dp(6), 0, 0);
+        content.addView(templateHelp, helpParams);
+
         if (existing != null) {
             name.setText(existing.name);
             url.setText(existing.url);
             url.setSelection(url.length());
+            hissiUrl.setText(existing.hissiUrl);
+            hissiUrl.setSelection(hissiUrl.length());
         }
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -163,6 +193,7 @@ public class BbsLinksActivity extends Activity {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String nameValue = name.getText().toString().trim();
             String urlValue = url.getText().toString().trim();
+            String hissiUrlValue = hissiUrl.getText().toString().trim();
             if (nameValue.isEmpty() || urlValue.isEmpty()) {
                 Toast.makeText(this, MainActivity.text("BBS\u540d\u3068\u677fURL\u3092\u5165\u529b", "Enter a BBS name and board URL."), Toast.LENGTH_SHORT).show();
                 return;
@@ -170,7 +201,7 @@ public class BbsLinksActivity extends Activity {
             if (existing != null) {
                 MainActivity.removeBbsLink(preferences, existing.url);
             }
-            MainActivity.addBbsLink(preferences, nameValue, urlValue);
+            MainActivity.addBbsLink(preferences, nameValue, urlValue, hissiUrlValue);
             renderLinks();
             dialog.dismiss();
             });

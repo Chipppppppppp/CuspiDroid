@@ -964,6 +964,7 @@ public class MainActivity extends Activity {
                 || isThreadUrl(url)
                 || isBoardUrl(url)
                 || isBbsDirectoryUrl(url)
+                || isHissiCheckerUrl(url)
                 || isFindSearchUrl(url)
                 || isFindHomeUrl(url)
                 || isFullTextSearchUrl(url);
@@ -5211,10 +5212,30 @@ public class MainActivity extends Activity {
             }
             String lowerHost = host.toLowerCase(Locale.ROOT);
             return (lowerHost.equals("hissi.org") || lowerHost.equals("www.hissi.org"))
-                    && path.matches("/read\\.php/[^/]+/\\d{8}/[^/]+\\.html");
+                    && path.matches("/read\\.php/[^/]+/\\d{8}/[^/]+\\.html")
+                    || isCustomHissiCheckerHost(lowerHost);
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private boolean isCustomHissiCheckerHost(String lowerHost) {
+        if (lowerHost == null || lowerHost.isEmpty() || preferences == null) {
+            return false;
+        }
+        for (BbsLink link : readBbsLinks(preferences)) {
+            if (link.hissiUrl == null || link.hissiUrl.trim().isEmpty()) {
+                continue;
+            }
+            try {
+                String host = Uri.parse(link.hissiUrl.trim()).getHost();
+                if (host != null && lowerHost.equals(host.toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
     }
 
     private String savedPageUrl(String key) {
@@ -8125,9 +8146,107 @@ public class MainActivity extends Activity {
         if (board.isEmpty() || date.isEmpty() || id == null || id.isEmpty()) {
             return "";
         }
+        String custom = customHissiCheckerUrl(page, board, date, id);
+        if (!custom.isEmpty()) {
+            return custom;
+        }
         String encodedId = Base64.encodeToString(id.getBytes(POST_CHARSET), Base64.NO_WRAP)
                 .replaceAll("=+$", "");
         return "http://hissi.org/read.php/" + board + "/" + date + "/" + encodedId + ".html";
+    }
+
+    private String customHissiCheckerUrl(ThreadPage page, String board, String date, String id) {
+        String threadUrl = page == null ? "" : page.url;
+        if (threadUrl == null || threadUrl.trim().isEmpty()) {
+            return "";
+        }
+        try {
+            Uri threadUri = Uri.parse(normalizeUrl(threadUrl));
+            String threadHost = threadUri.getHost();
+            String key = "";
+            DatAddress address = datAddress(threadUrl);
+            if (address != null && address.key != null) {
+                key = address.key;
+            }
+            for (BbsLink link : readBbsLinks(preferences)) {
+                if (link.hissiUrl == null || link.hissiUrl.trim().isEmpty()) {
+                    continue;
+                }
+                Uri linkUri = Uri.parse(normalizeUrl(link.url));
+                String linkHost = linkUri.getHost();
+                if (!isSameBbsHostFamily(linkHost, threadHost)
+                        && (linkHost == null || !linkHost.equalsIgnoreCase(threadHost))) {
+                    continue;
+                }
+                String expanded = expandHissiTemplate(link.hissiUrl.trim(), threadHost, board, key, date, id);
+                if (!expanded.isEmpty()) {
+                    return expanded;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private String expandHissiTemplate(String template, String host, String board, String key, String date, String id) {
+        if (template == null || template.trim().isEmpty()) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("\\{\\$(host|bbs|key|id|date)(?:\\[([^\\]]+)\\])?\\}").matcher(template);
+        StringBuffer result = new StringBuffer();
+        while (matcher.find()) {
+            String name = matcher.group(1);
+            String option = matcher.group(2);
+            String replacement;
+            if ("host".equals(name)) {
+                if (option != null && option.startsWith("match:")) {
+                    String regex = option.substring("match:".length());
+                    if (host == null || !Pattern.compile(regex).matcher(host).find()) {
+                        return "";
+                    }
+                    replacement = "";
+                } else {
+                    replacement = host == null ? "" : host;
+                }
+            } else if ("bbs".equals(name)) {
+                replacement = board == null ? "" : board;
+            } else if ("key".equals(name)) {
+                replacement = key == null ? "" : key;
+            } else if ("id".equals(name)) {
+                replacement = urlEncode(id == null ? "" : id);
+            } else if ("date".equals(name)) {
+                replacement = formatHissiDate(date, option);
+            } else {
+                replacement = "";
+            }
+            matcher.appendReplacement(result, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(result);
+        String value = result.toString().trim();
+        return value.startsWith("http://") || value.startsWith("https://") ? value : "";
+    }
+
+    private String formatHissiDate(String yyyymmdd, String format) {
+        if (yyyymmdd == null || !yyyymmdd.matches("\\d{8}")) {
+            return "";
+        }
+        String year = yyyymmdd.substring(0, 4);
+        String month = yyyymmdd.substring(4, 6);
+        String day = yyyymmdd.substring(6, 8);
+        if (format == null || format.trim().isEmpty() || "yyyyMMdd".equals(format)) {
+            return year + month + day;
+        }
+        return format.replace("yyyy", year)
+                .replace("MM", month)
+                .replace("dd", day);
+    }
+
+    private String urlEncode(String value) {
+        try {
+            return URLEncoder.encode(value == null ? "" : value, "UTF-8");
+        } catch (Exception ignored) {
+            return value == null ? "" : value;
+        }
     }
 
     private String hissiBoardName(ThreadPage page) {
@@ -24169,8 +24288,9 @@ public class MainActivity extends Activity {
                 }
                 String name = item.optString("name", "").trim();
                 String url = item.optString("url", "").trim();
+                String hissiUrl = item.optString("hissiUrl", "").trim();
                 if (!name.isEmpty() && !url.isEmpty()) {
-                    links.add(new BbsLink(name, url));
+                    links.add(new BbsLink(name, url, hissiUrl));
                 }
             }
         } catch (Exception ignored) {
@@ -24179,6 +24299,10 @@ public class MainActivity extends Activity {
     }
 
     static void addBbsLink(SharedPreferences preferences, String name, String url) {
+        addBbsLink(preferences, name, url, "");
+    }
+
+    static void addBbsLink(SharedPreferences preferences, String name, String url, String hissiUrl) {
         List<BbsLink> links = readBbsLinks(preferences);
         JSONArray array = new JSONArray();
         try {
@@ -24188,12 +24312,14 @@ public class MainActivity extends Activity {
                     JSONObject item = new JSONObject();
                     item.put("name", link.name);
                     item.put("url", link.url);
+                    item.put("hissiUrl", link.hissiUrl);
                     array.put(item);
                 }
             }
             JSONObject added = new JSONObject();
             added.put("name", name.trim());
             added.put("url", normalized);
+            added.put("hissiUrl", hissiUrl == null ? "" : hissiUrl.trim());
             array.put(added);
         } catch (Exception ignored) {
         }
@@ -24209,6 +24335,7 @@ public class MainActivity extends Activity {
                     JSONObject item = new JSONObject();
                     item.put("name", link.name);
                     item.put("url", link.url);
+                    item.put("hissiUrl", link.hissiUrl);
                     array.put(item);
                 }
             }
@@ -25757,10 +25884,16 @@ public class MainActivity extends Activity {
     static class BbsLink {
         final String name;
         final String url;
+        final String hissiUrl;
 
         BbsLink(String name, String url) {
+            this(name, url, "");
+        }
+
+        BbsLink(String name, String url, String hissiUrl) {
             this.name = name;
             this.url = url;
+            this.hissiUrl = hissiUrl == null ? "" : hissiUrl;
         }
     }
 
