@@ -305,6 +305,8 @@ public class MainActivity extends Activity {
     private static final String TAB_OVERVIEW_EMPTY_TAG = "tab_overview_empty";
     private static final String TAB_OVERVIEW_NORMAL_SCROLL_KEY = "tabOverviewNormalScrollY";
     private static final String TAB_OVERVIEW_PRIVATE_SCROLL_KEY = "tabOverviewPrivateScrollY";
+    private static final String TAB_OVERVIEW_NORMAL_ORDER_KEY = "tabOverviewNormalOrder";
+    private static final String TAB_OVERVIEW_ORDER_SIGNATURE_KEY = "tabOverviewOrderSignature";
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -479,6 +481,10 @@ public class MainActivity extends Activity {
     private final Map<String, String> tabOverviewBoardTitleCache = new LinkedHashMap<>();
     private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
     private Set<String> tabOverviewHistoryUrlCache;
+    private final List<String> restoredTabOverviewNormalOrder = new ArrayList<>();
+    private String restoredTabOverviewOrderSignature = "";
+    private final List<String> lastTabOverviewNormalOrder = new ArrayList<>();
+    private String lastTabOverviewOrderSignature = "";
     private final LinkedHashMap<String, CachedBbsMenu> bbsMenuCache = new LinkedHashMap<>();
     private final Set<String> bbsMenuRefreshInFlight = new LinkedHashSet<>();
     private final Set<String> bbsMenuPreloadInFlight = new LinkedHashSet<>();
@@ -3094,6 +3100,12 @@ public class MainActivity extends Activity {
             tabOverviewNormalScrollY = Math.max(0, root.optInt(TAB_OVERVIEW_NORMAL_SCROLL_KEY, 0));
             tabOverviewPrivateScrollY = Math.max(0, root.optInt(TAB_OVERVIEW_PRIVATE_SCROLL_KEY, 0));
             tabOverviewScrollY = currentTabIsPrivate() ? tabOverviewPrivateScrollY : tabOverviewNormalScrollY;
+            restoredTabOverviewNormalOrder.clear();
+            restoredTabOverviewNormalOrder.addAll(stringListFromJson(root.optJSONArray(TAB_OVERVIEW_NORMAL_ORDER_KEY)));
+            restoredTabOverviewOrderSignature = root.optString(TAB_OVERVIEW_ORDER_SIGNATURE_KEY, "");
+            lastTabOverviewNormalOrder.clear();
+            lastTabOverviewNormalOrder.addAll(restoredTabOverviewNormalOrder);
+            lastTabOverviewOrderSignature = restoredTabOverviewOrderSignature;
             int selected = Math.max(0, Math.min(root.optInt("current", 0), array.length() - 1));
             for (int i = 0; i < array.length(); i++) {
                 JSONObject item = array.getJSONObject(i);
@@ -3118,6 +3130,7 @@ public class MainActivity extends Activity {
                 tab.hasThreadStats = item.optBoolean("hasThreadStats", tab.knownMaxPostNumber > 0);
                 tab.knownThreadArchived = item.optBoolean("knownThreadArchived", false);
                 tab.overviewBoardName = item.optString("overviewBoardName", "");
+                tab.overviewTitle = item.optString("overviewTitle", "");
                 restoreNavigationHistory(tab, item);
                 tab.readerMode = tab.nativeKind != null || url.isEmpty();
                 if (isThreadPageNativeKind(tab.nativeKind)) {
@@ -3196,6 +3209,7 @@ public class MainActivity extends Activity {
                 item.put("hasThreadStats", tab.hasThreadStats);
                 item.put("knownThreadArchived", tab.knownThreadArchived);
                 item.put("overviewBoardName", overviewBoardNameForSave(tab));
+                item.put("overviewTitle", overviewTitleForSave(tab));
                 item.put("navigationIndex", tab.navigationIndex);
                 JSONArray history = new JSONArray();
                 for (String historyUrl : tab.navigationHistory) {
@@ -3227,6 +3241,7 @@ public class MainActivity extends Activity {
             root.put("current", Math.max(0, savedCurrent));
             root.put(TAB_OVERVIEW_NORMAL_SCROLL_KEY, tabOverviewNormalScrollY);
             root.put(TAB_OVERVIEW_PRIVATE_SCROLL_KEY, tabOverviewPrivateScrollY);
+            writeTabOverviewOrderSnapshot(root);
             root.put("tabs", array);
             SharedPreferences.Editor editor = preferences.edit().putString(PREF_TABS, root.toString());
             if (synchronous) {
@@ -3251,6 +3266,44 @@ public class MainActivity extends Activity {
             saveTabs(false);
         };
         mainHandler.postDelayed(saveTabsTask, Math.max(0L, delayMs));
+    }
+
+    private List<String> stringListFromJson(JSONArray array) {
+        List<String> result = new ArrayList<>();
+        if (array == null) {
+            return result;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            String value = array.optString(i, "");
+            if (!value.isEmpty()) {
+                result.add(value);
+            }
+        }
+        return result;
+    }
+
+    private JSONArray stringListToJson(List<String> values) {
+        JSONArray array = new JSONArray();
+        if (values == null) {
+            return array;
+        }
+        for (String value : values) {
+            array.put(value == null ? "" : value);
+        }
+        return array;
+    }
+
+    private void writeTabOverviewOrderSnapshot(JSONObject root) {
+        if (root == null || lastTabOverviewNormalOrder.isEmpty()
+                || !tabOverviewSortSignature().equals(lastTabOverviewOrderSignature)
+                || !tabOverviewOrderMatchesCurrent(lastTabOverviewNormalOrder, false)) {
+            return;
+        }
+        try {
+            root.put(TAB_OVERVIEW_NORMAL_ORDER_KEY, stringListToJson(lastTabOverviewNormalOrder));
+            root.put(TAB_OVERVIEW_ORDER_SIGNATURE_KEY, lastTabOverviewOrderSignature);
+        } catch (Exception ignored) {
+        }
     }
 
     private void scheduleTabUnload() {
@@ -4664,6 +4717,10 @@ public class MainActivity extends Activity {
     private String displayTitleForTab(CuspTab tab) {
         if (tab == null) {
             return text("\u30bf\u30d6", "Tab");
+        }
+        if (tab.overviewTitle != null && !tab.overviewTitle.trim().isEmpty()
+                && tab.readerView == null) {
+            return tab.overviewTitle.trim();
         }
         if (NATIVE_BOARD.equals(tab.nativeKind) && tab.url != null && !tab.url.trim().isEmpty()) {
             if (isBbsInternalPageUrl(tab.url)) {
@@ -11175,7 +11232,13 @@ public class MainActivity extends Activity {
                 indices.add(i);
             }
         }
+        List<Integer> restored = restoredTabOverviewIndices(privateSection, indices);
+        if (restored != null) {
+            rememberTabOverviewOrderSnapshot(privateSection, restored);
+            return restored;
+        }
         if (!preferences.getBoolean(PREF_TAB_SORT_ENABLED, false)) {
+            rememberTabOverviewOrderSnapshot(privateSection, indices);
             return indices;
         }
         final String key = preferences.getString(PREF_TAB_SORT_KEY, BOARD_SORT_VELOCITY);
@@ -11203,7 +11266,104 @@ public class MainActivity extends Activity {
             }
             return Integer.compare(leftIndex, rightIndex);
         });
+        rememberTabOverviewOrderSnapshot(privateSection, indices);
         return indices;
+    }
+
+    private List<Integer> restoredTabOverviewIndices(boolean privateSection, List<Integer> availableIndices) {
+        if (privateSection || availableIndices == null || restoredTabOverviewNormalOrder.isEmpty()
+                || !tabOverviewSortSignature().equals(restoredTabOverviewOrderSignature)
+                || !tabOverviewOrderMatchesCurrent(restoredTabOverviewNormalOrder, false)) {
+            return null;
+        }
+        Map<String, List<Integer>> indicesByKey = new LinkedHashMap<>();
+        for (int index : availableIndices) {
+            String key = tabOverviewIdentity(tabs.get(index));
+            List<Integer> values = indicesByKey.get(key);
+            if (values == null) {
+                values = new ArrayList<>();
+                indicesByKey.put(key, values);
+            }
+            values.add(index);
+        }
+        List<Integer> result = new ArrayList<>();
+        for (String key : restoredTabOverviewNormalOrder) {
+            List<Integer> values = indicesByKey.get(key);
+            if (values == null || values.isEmpty()) {
+                return null;
+            }
+            result.add(values.remove(0));
+        }
+        if (result.size() != availableIndices.size()) {
+            return null;
+        }
+        clearRestoredTabOverviewOrderSnapshot();
+        return result;
+    }
+
+    private void rememberTabOverviewOrderSnapshot(boolean privateSection, List<Integer> indices) {
+        if (privateSection || indices == null) {
+            return;
+        }
+        lastTabOverviewNormalOrder.clear();
+        for (int index : indices) {
+            if (index >= 0 && index < tabs.size()) {
+                lastTabOverviewNormalOrder.add(tabOverviewIdentity(tabs.get(index)));
+            }
+        }
+        lastTabOverviewOrderSignature = tabOverviewSortSignature();
+    }
+
+    private void clearRestoredTabOverviewOrderSnapshot() {
+        restoredTabOverviewNormalOrder.clear();
+        restoredTabOverviewOrderSignature = "";
+    }
+
+    private boolean tabOverviewOrderMatchesCurrent(List<String> order, boolean privateSection) {
+        if (order == null) {
+            return false;
+        }
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        int currentCount = 0;
+        for (CuspTab tab : tabs) {
+            if (tab == null || tab.privateBrowsing != privateSection || !isNormalTabScope(tab)) {
+                continue;
+            }
+            String key = tabOverviewIdentity(tab);
+            counts.put(key, counts.containsKey(key) ? counts.get(key) + 1 : 1);
+            currentCount++;
+        }
+        if (order.size() != currentCount) {
+            return false;
+        }
+        for (String key : order) {
+            Integer count = counts.get(key);
+            if (count == null || count <= 0) {
+                return false;
+            }
+            counts.put(key, count - 1);
+        }
+        return true;
+    }
+
+    private String tabOverviewIdentity(CuspTab tab) {
+        if (tab == null) {
+            return "";
+        }
+        return (tab.nativeKind == null ? "" : tab.nativeKind) + "\n"
+                + tab.tabScope.name() + "\n"
+                + normalizeSavedFolder(tab.bookmarkOverviewFolder) + "\n"
+                + normalizeHistoryUrl(tab.url == null ? "" : tab.url);
+    }
+
+    private String tabOverviewSortSignature() {
+        if (preferences == null || !preferences.getBoolean(PREF_TAB_SORT_ENABLED, false)) {
+            return "off";
+        }
+        return "on\n"
+                + preferences.getString(PREF_TAB_SORT_KEY, BOARD_SORT_VELOCITY) + "\n"
+                + preferences.getBoolean(PREF_TAB_SORT_DESC, true) + "\n"
+                + preferences.getBoolean(PREF_TAB_NON_THREAD_TOP, true);
     }
 
     private boolean moveBookmarkToTabsFromPayload(DragPayload payload, int index) {
@@ -11374,6 +11534,7 @@ public class MainActivity extends Activity {
         } else {
             title.setText(rowTitle);
         }
+        tab.overviewTitle = rowTitle;
         title.setTextColor(textColor());
         title.setOnDragListener(dragListener);
         title.setTextSize(14);
@@ -11547,6 +11708,17 @@ public class MainActivity extends Activity {
         return "";
     }
 
+    private String overviewTitleForSave(CuspTab tab) {
+        if (tab == null) {
+            return "";
+        }
+        if (tab.overviewTitle != null && !tab.overviewTitle.trim().isEmpty()) {
+            return tab.overviewTitle.trim();
+        }
+        String title = tab.title;
+        return title == null ? "" : title.trim();
+    }
+
     private interface TabOverviewLongClick {
         boolean onLongClick(View row, FrameLayout shell);
     }
@@ -11626,6 +11798,7 @@ public class MainActivity extends Activity {
         CuspTab selected = currentTab();
         CuspTab moved = tabs.remove(from);
         tabs.add(to, moved);
+        clearRestoredTabOverviewOrderSnapshot();
         currentIndex = selected == null ? Math.min(to, tabs.size() - 1) : tabs.indexOf(selected);
         payload.index = to;
         renderTabs();
@@ -25041,6 +25214,7 @@ public class MainActivity extends Activity {
         boolean hasThreadStats;
         boolean knownThreadArchived;
         String overviewBoardName = "";
+        String overviewTitle = "";
         long bottomScrollLockUntil;
         long lastActivatedAt = android.os.SystemClock.uptimeMillis();
         long lastScrollAt;
