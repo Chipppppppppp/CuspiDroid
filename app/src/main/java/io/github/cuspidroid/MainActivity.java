@@ -5212,30 +5212,10 @@ public class MainActivity extends Activity {
             }
             String lowerHost = host.toLowerCase(Locale.ROOT);
             return (lowerHost.equals("hissi.org") || lowerHost.equals("www.hissi.org"))
-                    && path.matches("/read\\.php/[^/]+/\\d{8}/[^/]+\\.html")
-                    || isCustomHissiCheckerHost(lowerHost);
+                    && path.matches("/read\\.php/[^/]+/\\d{8}/[^/]+\\.html");
         } catch (Exception ignored) {
             return false;
         }
-    }
-
-    private boolean isCustomHissiCheckerHost(String lowerHost) {
-        if (lowerHost == null || lowerHost.isEmpty() || preferences == null) {
-            return false;
-        }
-        for (BbsLink link : readBbsLinks(preferences)) {
-            if (link.hissiUrl == null || link.hissiUrl.trim().isEmpty()) {
-                continue;
-            }
-            try {
-                String host = Uri.parse(link.hissiUrl.trim()).getHost();
-                if (host != null && lowerHost.equals(host.toLowerCase(Locale.ROOT))) {
-                    return true;
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return false;
     }
 
     private String savedPageUrl(String key) {
@@ -8134,6 +8114,10 @@ public class MainActivity extends Activity {
         String url = hissiCheckerUrl(page, post, id);
         if (url.isEmpty()) {
             Toast.makeText(this, text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc\u306eURL\u3092\u4f5c\u6210\u3067\u304d\u307e\u305b\u3093", "Could not create Hissi Checker URL."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!isHissiCheckerUrl(url)) {
+            openInDefaultBrowser(url);
             return;
         }
         CuspTab current = currentTab();
