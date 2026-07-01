@@ -5233,7 +5233,7 @@ public class MainActivity extends Activity {
 
     private void loadThreadAfterLoading(CuspTab tab, String loadUrl, boolean keepExistingScroll,
                                         boolean showFullLoading) {
-        if (tab == null || !loadUrl.equals(tab.url)) {
+        if (tab == null || !tabs.contains(tab) || !loadUrl.equals(tab.url)) {
             return;
         }
         ThreadPage cached = readCachedThreadPage(loadUrl);
@@ -5261,7 +5261,7 @@ public class MainActivity extends Activity {
             }
                 ThreadPage result = page;
             runOnUiThread(() -> {
-                if (!loadUrl.equals(tab.url)) {
+                if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
                     if (tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
                     }
@@ -5368,7 +5368,7 @@ public class MainActivity extends Activity {
             }
             ThreadPage result = page;
             runOnUiThread(() -> {
-                if (!loadUrl.equals(tab.url) || !NATIVE_HISSI.equals(tab.nativeKind)) {
+                if (!tabs.contains(tab) || !loadUrl.equals(tab.url) || !NATIVE_HISSI.equals(tab.nativeKind)) {
                     if (tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
                     }
@@ -5829,7 +5829,7 @@ public class MainActivity extends Activity {
             }
             SearchPage result = page;
             runOnUiThread(() -> {
-                if (!loadUrl.equals(tab.url)) {
+                if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
                     if (foreground && tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
                     }
@@ -6073,7 +6073,7 @@ public class MainActivity extends Activity {
     private void extractFullTextSearchResults(CuspTab tab, String loadUrl, WebView webView,
                                               int attempt, int pageNumber, boolean append,
                                               boolean pageClicked) {
-        if (tab == null || webView == null || !loadUrl.equals(tab.url)) {
+        if (tab == null || webView == null || !tabs.contains(tab) || !loadUrl.equals(tab.url)) {
             cleanupHiddenSearchWebView(webView);
             return;
         }
@@ -6432,7 +6432,7 @@ public class MainActivity extends Activity {
         if (page == null) {
             page = SearchPage.error(loadUrl, text("\u5168\u6587\u691c\u7d22\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002", "Could not load full-text search."));
         }
-        if (tab == null || !loadUrl.equals(tab.url)) {
+        if (tab == null || !tabs.contains(tab) || !loadUrl.equals(tab.url)) {
             if (tab == currentTab()) {
                 progressBar.setVisibility(View.GONE);
             }
@@ -6658,7 +6658,7 @@ public class MainActivity extends Activity {
             }
             SearchPage result = page;
             runOnUiThread(() -> {
-                if (!loadUrl.equals(tab.url)) {
+                if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
                     if (foreground && tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
                     }
@@ -6726,7 +6726,7 @@ public class MainActivity extends Activity {
             SearchPage result = page;
             boolean refresh = usedCached;
             runOnUiThread(() -> {
-                if (!loadUrl.equals(tab.url)) {
+                if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
                     if (foreground && tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
                     }
@@ -20436,6 +20436,8 @@ public class MainActivity extends Activity {
             return;
         }
         CuspTab closing = tabs.get(index);
+        boolean closingCurrent = index == currentIndex;
+        clearLoadingUiForClosedTab(closing, closingCurrent);
         int returnToIndex = closing.returnToIndex;
         tabs.remove(index);
         for (CuspTab tab : tabs) {
@@ -20468,6 +20470,8 @@ public class MainActivity extends Activity {
         if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
             return;
         }
+        CuspTab closing = tabs.get(index);
+        clearLoadingUiForClosedTab(closing, index == currentIndex);
         tabs.remove(index);
         for (CuspTab tab : tabs) {
             if (tab.returnToIndex == index) {
@@ -20487,6 +20491,14 @@ public class MainActivity extends Activity {
         } else {
             currentIndex = Math.max(0, Math.min(currentIndex, tabs.size() - 1));
         }
+    }
+
+    private void clearLoadingUiForClosedTab(CuspTab closing, boolean closingCurrent) {
+        if (!closingCurrent || closing == null || !isLoadingReaderView(closing.readerView)) {
+            return;
+        }
+        progressBar.setVisibility(View.GONE);
+        hideCenterSpinner();
     }
 
     private CuspTab currentTab() {
