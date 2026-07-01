@@ -44,13 +44,20 @@ public class AuthActivity extends Activity {
         close.setOnClickListener(v -> finish());
         bar.addView(nativeButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
         bar.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        root.addView(bar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         webView = new WebView(this);
         webView.setBackgroundColor(Theme.background(this));
+        boolean barAtTop = addressBarOnTop();
+        if (barAtTop) {
+            root.addView(bar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         root.addView(webView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        if (!barAtTop) {
+            root.addView(bar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         setContentView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -105,6 +112,11 @@ public class AuthActivity extends Activity {
             return trimmed;
         }
         return "https://" + trimmed;
+    }
+
+    private boolean addressBarOnTop() {
+        return getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false);
     }
 
     private ImageButton iconButton(int iconRes, String description) {
