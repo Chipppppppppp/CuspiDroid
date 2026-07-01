@@ -367,6 +367,8 @@ public class MainActivity extends Activity {
     private static final int EXTRACT_VISIBLE_RENDER_BUDGET = 8;
     private static final int EXTRACT_SCROLL_RENDER_BUDGET = 12;
     private static final int EXTRACT_IDLE_RENDER_BUDGET = 24;
+    private static final int TAB_OVERVIEW_INITIAL_SLOT_BATCH = 16;
+    private static final int TAB_OVERVIEW_DEFERRED_SLOT_BATCH = 32;
     private static final int TAB_OVERVIEW_VISIBLE_RENDER_BUDGET = 10;
     private static final int TAB_OVERVIEW_SCROLL_RENDER_BUDGET = 16;
     private static final int TAB_OVERVIEW_IDLE_RENDER_BUDGET = 32;
@@ -1047,7 +1049,7 @@ public class MainActivity extends Activity {
         }
         if (tabOverviewVisible) {
             tabOverviewVisible = false;
-            switchToTab(currentIndex);
+            switchToTab(currentIndex, true);
             return;
         }
         if (pendingNewTab) {
@@ -3966,6 +3968,10 @@ public class MainActivity extends Activity {
     }
 
     private void switchToTab(int index) {
+        switchToTab(index, false);
+    }
+
+    private void switchToTab(int index, boolean deferViewLoad) {
         if (index < 0 || index >= tabs.size()) {
             return;
         }
@@ -3989,10 +3995,19 @@ public class MainActivity extends Activity {
         currentIndex = index;
         CuspTab tab = target;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
-        ensureTabViewLoaded(tab);
+        if (deferViewLoad && tab.readerView == null) {
+            tab.readerView = loadingView("");
+            scheduleDeferredTabViewLoad(tab);
+        } else {
+            ensureTabViewLoaded(tab);
+        }
         if (NATIVE_THREAD.equals(tab.nativeKind)) {
             adoptSharedThreadScroll(tab);
-            refreshThreadReadStateOnOpen(tab);
+            if (deferViewLoad) {
+                scheduleDeferredThreadReadStateRefresh(tab);
+            } else {
+                refreshThreadReadStateOnOpen(tab);
+            }
         }
         contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
@@ -4013,11 +4028,15 @@ public class MainActivity extends Activity {
                 visiblePostViews.putAll(tab.postViews);
             }
             if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && !tab.threadPage.posts.isEmpty()) {
-                refreshUnreadColors(tab);
-                if (shouldRestoreThreadScroll(tab)) {
-                    tab.readerView.setVisibility(View.INVISIBLE);
+                if (deferViewLoad) {
+                    scheduleDeferredThreadActivation(tab);
+                } else {
+                    refreshUnreadColors(tab);
+                    if (shouldRestoreThreadScroll(tab)) {
+                        tab.readerView.setVisibility(View.INVISIBLE);
+                    }
+                    restoreThreadScroll(tab);
                 }
-                restoreThreadScroll(tab);
             }
         }
         syncLoadingUiWithCurrentSurface();
@@ -4028,6 +4047,42 @@ public class MainActivity extends Activity {
         scheduleThreadScrollChromeRefresh(tab, 5);
         scheduleTabUnload();
         scheduleBackgroundTrim();
+    }
+
+    private void scheduleDeferredTabViewLoad(CuspTab tab) {
+        mainHandler.post(() -> {
+            if (tab == null || tab != currentTab() || !tabs.contains(tab) || tabOverviewVisible) {
+                return;
+            }
+            if (isLoadingReaderView(tab.readerView)) {
+                tab.readerView = null;
+            }
+            ensureTabViewLoaded(tab);
+            if (tab == currentTab() && !tabOverviewVisible && !isLoadingReaderView(tab.readerView)) {
+                switchToTab(tabs.indexOf(tab));
+            }
+        });
+    }
+
+    private void scheduleDeferredThreadReadStateRefresh(CuspTab tab) {
+        mainHandler.post(() -> {
+            if (tab != null && tab == currentTab() && tabs.contains(tab) && !tabOverviewVisible) {
+                refreshThreadReadStateOnOpen(tab);
+            }
+        });
+    }
+
+    private void scheduleDeferredThreadActivation(CuspTab tab) {
+        mainHandler.post(() -> {
+            if (tab == null || tab != currentTab() || !tabs.contains(tab) || tabOverviewVisible
+                    || tab.threadPage == null || tab.threadPage.posts.isEmpty()) {
+                return;
+            }
+            refreshUnreadColors(tab);
+            if (shouldRestoreThreadScroll(tab)) {
+                restoreThreadScroll(tab);
+            }
+        });
     }
 
     private void ensureTabViewLoaded(CuspTab tab) {
@@ -10505,32 +10560,42 @@ public class MainActivity extends Activity {
 
     private void showTabOverview() {
         CuspTab current = currentTab();
-        if (current != null) {
-            rememberThreadScroll(current);
-        }
-        clearAddressFocus();
-        closeThreadSearch();
-        if (!replyPopups.isEmpty()) {
-            dismissThreadPopups();
-        }
-        tabOverviewPrivateMode = pendingNewTab ? pendingPrivateNewTab : currentTabIsPrivate();
+        boolean targetPrivateMode = pendingNewTab ? pendingPrivateNewTab : currentTabIsPrivate();
+        tabOverviewPrivateMode = targetPrivateMode;
         pendingNewTab = false;
         pendingHistoryAll = false;
         tabOverviewVisible = true;
         contentFrame.removeAllViews();
+        contentFrame.addView(loadingView(""));
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
         syncLoadingUiWithCurrentSurface();
-        attachTabOverviewView();
         updateBottomThreadBar(currentTab());
         renderTabs();
-        mainHandler.postDelayed(() -> {
-            if (tabOverviewVisible) {
-                trimBackgroundTabViews();
-                trimBackgroundPageData();
+        mainHandler.post(() -> {
+            if (!tabOverviewVisible || tabOverviewPrivateMode != targetPrivateMode) {
+                return;
             }
-        }, 250);
+            if (current != null) {
+                rememberThreadScroll(current);
+            }
+            clearAddressFocus();
+            closeThreadSearch();
+            if (!replyPopups.isEmpty()) {
+                dismissThreadPopups();
+            }
+            contentFrame.removeAllViews();
+            attachTabOverviewView();
+            updateBottomThreadBar(currentTab());
+            renderTabs();
+            mainHandler.postDelayed(() -> {
+                if (tabOverviewVisible) {
+                    trimBackgroundTabViews();
+                    trimBackgroundPageData();
+                }
+            }, 250);
+        });
     }
 
     private void attachTabOverviewView() {
@@ -10760,12 +10825,8 @@ public class MainActivity extends Activity {
     }
 
     private void addTabOverviewSection(ScrollView scroll, LinearLayout list, boolean privateSection) {
-        boolean any = false;
-        for (int index : tabOverviewIndices(privateSection)) {
-            addVirtualTabOverviewSlot(list, new VirtualTabOverviewSlot(index, tabs.get(index)));
-            any = true;
-        }
-        if (!any) {
+        List<Integer> indices = tabOverviewIndices(privateSection);
+        if (indices.isEmpty()) {
             TextView empty = helperLine(privateSection
                     ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
                     : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs."));
@@ -10782,7 +10843,42 @@ public class MainActivity extends Activity {
             });
             list.addView(empty);
         } else {
-            setupVirtualTabOverviewRefresh(scroll, list);
+            renderVirtualTabOverviewSlots(scroll, list, indices);
+        }
+    }
+
+    private void renderVirtualTabOverviewSlots(ScrollView scroll, LinearLayout list, List<Integer> indices) {
+        int initialCount = Math.min(indices.size(), TAB_OVERVIEW_INITIAL_SLOT_BATCH);
+        appendVirtualTabOverviewSlots(list, indices, 0, initialCount);
+        VirtualTabOverviewState state = setupVirtualTabOverviewRefresh(scroll, list);
+        if (initialCount < indices.size()) {
+            list.post(() -> appendDeferredVirtualTabOverviewSlots(scroll, list, indices, state, initialCount));
+        }
+    }
+
+    private void appendDeferredVirtualTabOverviewSlots(ScrollView scroll, LinearLayout list,
+                                                       List<Integer> indices,
+                                                       VirtualTabOverviewState state, int start) {
+        if (list == null || indices == null || list.getTag() != state) {
+            return;
+        }
+        int end = Math.min(indices.size(), start + TAB_OVERVIEW_DEFERRED_SLOT_BATCH);
+        appendVirtualTabOverviewSlots(list, indices, start, end);
+        scheduleTabOverviewSlotRefresh(list);
+        if (end < indices.size()) {
+            list.postDelayed(() -> appendDeferredVirtualTabOverviewSlots(scroll, list, indices, state, end), 8L);
+        }
+    }
+
+    private void appendVirtualTabOverviewSlots(LinearLayout list, List<Integer> indices, int start, int end) {
+        if (list == null || indices == null) {
+            return;
+        }
+        for (int i = Math.max(0, start); i < end && i < indices.size(); i++) {
+            int index = indices.get(i);
+            if (index >= 0 && index < tabs.size()) {
+                addVirtualTabOverviewSlot(list, new VirtualTabOverviewSlot(index, tabs.get(index)));
+            }
         }
     }
 
@@ -10833,7 +10929,7 @@ public class MainActivity extends Activity {
         };
     }
 
-    private void setupVirtualTabOverviewRefresh(ScrollView scroll, LinearLayout list) {
+    private VirtualTabOverviewState setupVirtualTabOverviewRefresh(ScrollView scroll, LinearLayout list) {
         VirtualTabOverviewState state = new VirtualTabOverviewState();
         list.setTag(state);
         state.refreshTask = () -> {
@@ -10847,6 +10943,7 @@ public class MainActivity extends Activity {
             scheduleTabOverviewSlotRefresh(list);
         });
         scheduleTabOverviewSlotRefresh(list);
+        return state;
     }
 
     private void scheduleTabOverviewSlotRefresh(LinearLayout list) {
@@ -11518,7 +11615,7 @@ public class MainActivity extends Activity {
         contentFrame.addView(loadingView(""));
         updateBottomThreadBar(tabs.get(index));
         renderTabs();
-        mainHandler.post(() -> switchToTab(index));
+        mainHandler.post(() -> switchToTab(index, true));
     }
 
     private void moveTabInOverview(DragPayload payload, int to) {
