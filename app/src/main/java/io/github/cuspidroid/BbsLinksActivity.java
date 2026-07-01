@@ -162,8 +162,8 @@ public class BbsLinksActivity extends Activity {
         content.addView(hissiUrl, hissiParams);
 
         TextView templateHelp = helperText(MainActivity.text(
-                "\u4f8b: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}{$host[match:bbs\\.eddibb\\.cc$]}",
-                "Example: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}{$host[match:bbs\\.eddibb\\.cc$]}"));
+                "\u4f8b: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}",
+                "Example: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}"));
         templateHelp.setTextColor(mutedColor());
         LinearLayout.LayoutParams helpParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);

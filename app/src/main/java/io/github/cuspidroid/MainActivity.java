@@ -8178,7 +8178,7 @@ public class MainActivity extends Activity {
                         && (linkHost == null || !linkHost.equalsIgnoreCase(threadHost))) {
                     continue;
                 }
-                String expanded = expandHissiTemplate(link.hissiUrl.trim(), threadHost, board, key, date, id);
+                String expanded = expandHissiTemplate(link.hissiUrl.trim(), board, key, date, id);
                 if (!expanded.isEmpty()) {
                     return expanded;
                 }
@@ -8188,27 +8188,17 @@ public class MainActivity extends Activity {
         return "";
     }
 
-    private String expandHissiTemplate(String template, String host, String board, String key, String date, String id) {
+    private String expandHissiTemplate(String template, String board, String key, String date, String id) {
         if (template == null || template.trim().isEmpty()) {
             return "";
         }
-        Matcher matcher = Pattern.compile("\\{\\$(host|bbs|key|id|date)(?:\\[([^\\]]+)\\])?\\}").matcher(template);
+        Matcher matcher = Pattern.compile("\\{\\$(bbs|key|id|date)(?:\\[([^\\]]+)\\])?\\}").matcher(template);
         StringBuffer result = new StringBuffer();
         while (matcher.find()) {
             String name = matcher.group(1);
             String option = matcher.group(2);
             String replacement;
-            if ("host".equals(name)) {
-                if (option != null && option.startsWith("match:")) {
-                    String regex = option.substring("match:".length());
-                    if (host == null || !Pattern.compile(regex).matcher(host).find()) {
-                        return "";
-                    }
-                    replacement = "";
-                } else {
-                    replacement = host == null ? "" : host;
-                }
-            } else if ("bbs".equals(name)) {
+            if ("bbs".equals(name)) {
                 replacement = board == null ? "" : board;
             } else if ("key".equals(name)) {
                 replacement = key == null ? "" : key;
