@@ -4973,6 +4973,9 @@ public class MainActivity extends Activity {
         if (url == null || url.isEmpty() || is5chUrl(url) || !isRegisteredBbsUrl(url)) {
             return false;
         }
+        if (isBbsMenuUrl(url) || isBbsDirectoryUrl(url) || isBoardUrl(url) || isThreadUrl(url)) {
+            return false;
+        }
         try {
             String scheme = Uri.parse(url).getScheme();
             return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
@@ -20494,7 +20497,7 @@ public class MainActivity extends Activity {
     }
 
     private void clearLoadingUiForClosedTab(CuspTab closing, boolean closingCurrent) {
-        if (!closingCurrent || closing == null || !isLoadingReaderView(closing.readerView)) {
+        if (!closingCurrent || closing == null) {
             return;
         }
         progressBar.setVisibility(View.GONE);
@@ -20980,9 +20983,20 @@ public class MainActivity extends Activity {
     }
 
     private SearchPage downloadBoard(String boardUrl) throws Exception {
-        String redirectedUrl = resolveRedirectedUrl(
-                boardUrl,
-                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+        BoardSubject subject = null;
+        Uri originalUri = Uri.parse(normalizeUrl(boardUrl));
+        String originalHost = originalUri.getHost();
+        String originalBoard = boardNameFromUrl(boardUrl);
+        if (originalHost != null && originalBoard != null && !isFutabaBoardUrl(boardUrl)) {
+            try {
+                subject = downloadBoardSubject(boardUrl, originalHost, originalBoard);
+            } catch (Exception ignored) {
+                subject = null;
+            }
+        }
+        String redirectedUrl = subject == null
+                ? resolveRedirectedUrl(boardUrl, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1")
+                : boardUrl;
         Uri uri = Uri.parse(redirectedUrl);
         String host = uri.getHost();
         String board = boardNameFromUrl(redirectedUrl);
@@ -20992,19 +21006,13 @@ public class MainActivity extends Activity {
         if (isFutabaBoardUrl(redirectedUrl)) {
             return parseFutabaBoard(redirectedUrl, download(redirectedUrl));
         }
-        BoardSubject subject;
-        Uri originalUri = Uri.parse(normalizeUrl(boardUrl));
-        String originalHost = originalUri.getHost();
-        String originalBoard = boardNameFromUrl(boardUrl);
-        if (originalHost != null && originalBoard != null
+        if (subject == null && originalHost != null && originalBoard != null
                 && !sameSavedUrl(boardUrl, redirectedUrl)) {
             try {
                 subject = downloadBoardSubject(boardUrl, originalHost, originalBoard);
             } catch (Exception error) {
                 subject = null;
             }
-        } else {
-            subject = null;
         }
         try {
             if (subject == null) {
