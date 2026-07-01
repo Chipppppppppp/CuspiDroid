@@ -348,6 +348,7 @@ public class MainActivity extends Activity {
     private static final long SAVE_TABS_SCROLL_IDLE_DELAY_MS = 900;
     private static final long FIVE_CH_BBSMENU_CACHE_REFRESH_MS = 12L * 60L * 60L * 1000L;
     private static final long BBS_INTERNAL_LOAD_DELAY_MS = 48L;
+    private static final long HOME_BBS_PRELOAD_DELAY_MS = 700L;
     private static final long BACKGROUND_TRIM_DELAY_MS = 220L;
     private static final int MAX_BBSMENU_CACHE_ENTRIES = 16;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
@@ -3032,6 +3033,8 @@ public class MainActivity extends Activity {
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
+        progressBar.setVisibility(View.GONE);
+        hideCenterSpinner();
         contentFrame.addView(buildSearchHomeView(false, true));
         addressBar.setText("");
         updateBottomThreadBar(null);
@@ -3050,6 +3053,8 @@ public class MainActivity extends Activity {
         tabOverviewVisible = false;
         contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
+        progressBar.setVisibility(View.GONE);
+        hideCenterSpinner();
         contentFrame.addView(fullHistory ? buildHistoryView() : buildSearchHomeView(false));
         addressBar.setText("");
         clearAddressFocus();
@@ -3689,6 +3694,9 @@ public class MainActivity extends Activity {
         SearchPage page = new SearchPage();
         page.url = boardUrl;
         page.title = boardTitle(boardUrl);
+        JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
+        Set<String> historyUrls = threadHistoryUrlSnapshot();
+        String boardDisplay = displayBoardTitle(boardUrl);
         Pattern pattern = Pattern.compile(
                 "<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])thre(?![A-Za-z0-9_-])[^\"']*[\"'][^>]*data-res=[\"']?(\\d+)[\"']?[^>]*>(.*?)(?=<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])thre(?![A-Za-z0-9_-])|<table[^>]+align=left|</body>)",
                 Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
@@ -3710,10 +3718,10 @@ public class MainActivity extends Activity {
             result.velocity = threadVelocity(key, responses);
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
-            int readNumber = visibleReadPostNumber(result.url);
-            result.hasReadHistory = threadHistoryContains(result.url);
+            int readNumber = readPosts.optInt(result.url, 0);
+            result.hasReadHistory = threadHistoryContains(historyUrls, result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
-            result.boardName = displayBoardTitle(boardUrl);
+            result.boardName = boardDisplay;
             result.priorityMatch = matchingBoardPriorityWord(title, boardUrl);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
@@ -3841,7 +3849,8 @@ public class MainActivity extends Activity {
 
     private void refreshBbsMenuCacheIfStale(String directoryUrl) {
         String key = bbsMenuCacheKey(directoryUrl);
-        if (key.isEmpty() || bbsMenuRefreshInFlight.contains(key) || isBbsMenuCacheFresh(directoryUrl)) {
+        if (key.isEmpty() || !isCacheableBbsMenuUrl(directoryUrl)
+                || bbsMenuRefreshInFlight.contains(key) || isBbsMenuCacheFresh(directoryUrl)) {
             return;
         }
         bbsMenuRefreshInFlight.add(key);
@@ -3857,7 +3866,8 @@ public class MainActivity extends Activity {
 
     private void preloadBbsMenuCache(String directoryUrl) {
         String key = bbsMenuCacheKey(directoryUrl);
-        if (key.isEmpty() || bbsMenuCache.containsKey(key) || bbsMenuPreloadInFlight.contains(key)) {
+        if (key.isEmpty() || !isCacheableBbsMenuUrl(directoryUrl)
+                || bbsMenuCache.containsKey(key) || bbsMenuPreloadInFlight.contains(key)) {
             return;
         }
         bbsMenuPreloadInFlight.add(key);
@@ -4006,8 +4016,10 @@ public class MainActivity extends Activity {
             }
         }
         if (loading) {
+            progressBar.setVisibility(View.VISIBLE);
             showCenterSpinner();
         } else {
+            progressBar.setVisibility(View.GONE);
             hideCenterSpinner();
         }
         updateAddressBarDisplay(false);
@@ -9789,11 +9801,11 @@ public class MainActivity extends Activity {
 
         List<BbsLink> customLinks = readBbsLinks(preferences);
         if (deferSecondarySections) {
-            root.post(() -> {
+            root.postDelayed(() -> {
                 if (pendingNewTab && root.getParent() != null) {
                     preloadHomeBbsMenuCaches(customLinks);
                 }
-            });
+            }, HOME_BBS_PRELOAD_DELAY_MS);
         } else {
             preloadHomeBbsMenuCaches(customLinks);
         }
@@ -20497,7 +20509,14 @@ public class MainActivity extends Activity {
     }
 
     private void clearLoadingUiForClosedTab(CuspTab closing, boolean closingCurrent) {
-        if (!closingCurrent || closing == null) {
+        if (closing == null) {
+            return;
+        }
+        CuspTab current = currentTab();
+        if (!closingCurrent && (current != null && isLoadingReaderView(current.readerView))) {
+            return;
+        }
+        if (!closingCurrent && !isLoadingReaderView(closing.readerView)) {
             return;
         }
         progressBar.setVisibility(View.GONE);
@@ -21039,6 +21058,9 @@ public class MainActivity extends Activity {
         SearchPage page = new SearchPage();
         page.url = pageUrl;
         page.title = boardTitle(pageUrl);
+        JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
+        Set<String> historyUrls = threadHistoryUrlSnapshot();
+        String boardDisplay = displayBoardTitle(pageUrl);
         int order = 1;
         for (String line : body.split("\\r?\\n")) {
             int sep = line.indexOf("<>");
@@ -21064,10 +21086,10 @@ public class MainActivity extends Activity {
             result.velocity = threadVelocity(key, responses);
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
-            int readNumber = visibleReadPostNumber(result.url);
-            result.hasReadHistory = threadHistoryContains(result.url);
+            int readNumber = readPosts.optInt(result.url, 0);
+            result.hasReadHistory = threadHistoryContains(historyUrls, result.url);
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
-            result.boardName = displayBoardTitle(pageUrl);
+            result.boardName = boardDisplay;
             result.priorityMatch = matchingBoardPriorityWord(title, pageUrl);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
@@ -22033,16 +22055,28 @@ public class MainActivity extends Activity {
     }
 
     private boolean threadHistoryContains(String url) {
+        return threadHistoryContains(threadHistoryUrlSnapshot(), url);
+    }
+
+    private boolean threadHistoryContains(Set<String> historyUrls, String url) {
         String target = normalizeHistoryUrl(url);
         if (target.isEmpty()) {
             return false;
         }
+        return historyUrls != null && historyUrls.contains(target);
+    }
+
+    private Set<String> threadHistoryUrlSnapshot() {
+        Set<String> urls = new LinkedHashSet<>();
         for (ThreadHistoryItem item : threadHistory()) {
-            if (target.equals(normalizeHistoryUrl(item.url))) {
-                return true;
+            if (item != null) {
+                String url = normalizeHistoryUrl(item.url);
+                if (!url.isEmpty()) {
+                    urls.add(url);
+                }
             }
         }
-        return false;
+        return urls;
     }
 
     private String normalizeHistoryUrl(String url) {
