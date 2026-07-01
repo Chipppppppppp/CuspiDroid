@@ -359,6 +359,8 @@ public class MainActivity extends Activity {
     private static final int POPUP_INITIAL_RENDER_COUNT = 1;
     private static final int POPUP_RENDER_CHUNK_SIZE = 1;
     private static final int DEFERRED_TEXT_DECORATION_BUDGET = 4;
+    private static final int SEARCH_INITIAL_SLOT_BATCH = 40;
+    private static final int SEARCH_DEFERRED_SLOT_BATCH = 80;
     private static final int SEARCH_VISIBLE_RENDER_BUDGET = 24;
     private static final int SEARCH_SCROLL_RENDER_BUDGET = 48;
     private static final int SEARCH_IDLE_RENDER_BUDGET = 96;
@@ -2934,9 +2936,10 @@ public class MainActivity extends Activity {
                 tab.readerView = loadingView("");
             }
             switchToTab(tabs.size() - 1);
-            openInCurrentTab(url);
+            postOpenInSelectedTab(tab, url);
+        } else {
+            renderTabs();
         }
-        renderTabs();
     }
 
     private void createBookmarkOverviewTab(SavedItem item) {
@@ -4805,18 +4808,72 @@ public class MainActivity extends Activity {
         if (input.isEmpty()) {
             return;
         }
-        clearAddressFocus();
         boolean urlLike = looksLikeUrl(input);
         String url = urlLike ? normalizeUrl(input) : searchUrl(input);
         if (pendingNewTab) {
+            clearAddressFocus();
             openPendingNewTabUrl(url);
             return;
         }
+        CuspTab tab = currentTab();
+        if (urlLike && shouldPreviewNativeBbsLoading(url) && showImmediateNavigationLoading(tab)) {
+            clearAddressFocus();
+            postOpenInSelectedTab(tab, url);
+            return;
+        }
+        clearAddressFocus();
         openInCurrentTab(url);
     }
 
     private void openInCurrentTab(String url) {
         openInCurrentTab(url, true);
+    }
+
+    private void postOpenInSelectedTab(CuspTab tab, String url) {
+        mainHandler.post(() -> {
+            if (tab == null || !tabs.contains(tab) || tab != currentTab() || tabOverviewVisible) {
+                return;
+            }
+            openInCurrentTab(url);
+        });
+    }
+
+    private boolean showImmediateNavigationLoading(CuspTab tab) {
+        if (tab == null || !tabs.contains(tab)) {
+            return false;
+        }
+        prepareChromeForLoading();
+        tab.readerView = loadingView("");
+        tab.searchPage = null;
+        tab.threadPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        if (tab == currentTab() && !tabOverviewVisible) {
+            contentFrame.removeAllViews();
+            contentFrame.addView(tab.readerView);
+            visibleThreadPage = null;
+            visibleThreadScroll = null;
+            visiblePostViews.clear();
+        }
+        syncLoadingUiWithCurrentSurface();
+        renderTabs();
+        return true;
+    }
+
+    private boolean shouldPreviewNativeBbsLoading(String url) {
+        if (url == null || isInternalPageUrl(url)) {
+            return false;
+        }
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            String scheme = uri.getScheme();
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                return false;
+            }
+        } catch (Exception ignored) {
+            return false;
+        }
+        return is5chUrl(url) || isBbsMenuUrl(url) || isRegisteredBbsUrl(url);
     }
 
     private void openInCurrentTab(String url, boolean addHistory) {
@@ -5226,8 +5283,7 @@ public class MainActivity extends Activity {
         tab.navigationIndex = 0;
         tabs.add(tab);
         switchToTab(tabs.size() - 1);
-        openInCurrentTab(url);
-        renderTabs();
+        postOpenInSelectedTab(tab, url);
     }
 
     private void loadThread(CuspTab tab, String url) {
@@ -8408,8 +8464,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderSearchSlots(ScrollView scroll, LinearLayout list, SearchPage page) {
-        VirtualSearchState state = new VirtualSearchState();
-        list.setTag(state);
+        List<VirtualSearchSlot> slots = new ArrayList<>();
         String renderedCategory = null;
         int count = 0;
         for (SearchResult result : page.results) {
@@ -8419,14 +8474,54 @@ public class MainActivity extends Activity {
             if (result.category != null && !result.category.trim().isEmpty()
                     && !result.category.equals(renderedCategory)) {
                 renderedCategory = result.category;
-                addVirtualSearchSlot(list, new VirtualSearchSlot(renderedCategory, null, true));
+                slots.add(new VirtualSearchSlot(renderedCategory, null, true));
             }
-            addVirtualSearchSlot(list, new VirtualSearchSlot(null, result, false));
+            slots.add(new VirtualSearchSlot(null, result, false));
             count++;
         }
         if (count > 0) {
-            ensureSearchSlotRefresh(scroll, list);
-            scheduleSearchSlotRefresh(list);
+            renderVirtualSearchSlots(scroll, list, slots, !isFullTextSearchUrl(page.url));
+        }
+    }
+
+    private void renderVirtualSearchSlots(ScrollView scroll, LinearLayout list, List<VirtualSearchSlot> slots,
+                                          boolean deferSlots) {
+        VirtualSearchState state = new VirtualSearchState();
+        list.setTag(state);
+        if (slots == null || slots.isEmpty()) {
+            return;
+        }
+        int initialCount = deferSlots
+                ? Math.min(slots.size(), SEARCH_INITIAL_SLOT_BATCH)
+                : slots.size();
+        appendVirtualSearchSlots(list, slots, 0, initialCount);
+        ensureSearchSlotRefresh(scroll, list);
+        scheduleSearchSlotRefresh(list);
+        if (initialCount < slots.size()) {
+            list.post(() -> appendDeferredVirtualSearchSlots(scroll, list, slots, state, initialCount));
+        }
+    }
+
+    private void appendDeferredVirtualSearchSlots(ScrollView scroll, LinearLayout list,
+                                                  List<VirtualSearchSlot> slots,
+                                                  VirtualSearchState state, int start) {
+        if (list == null || slots == null || list.getTag() != state) {
+            return;
+        }
+        int end = Math.min(slots.size(), start + SEARCH_DEFERRED_SLOT_BATCH);
+        appendVirtualSearchSlots(list, slots, start, end);
+        scheduleSearchSlotRefresh(list);
+        if (end < slots.size()) {
+            list.postDelayed(() -> appendDeferredVirtualSearchSlots(scroll, list, slots, state, end), 8L);
+        }
+    }
+
+    private void appendVirtualSearchSlots(LinearLayout list, List<VirtualSearchSlot> slots, int start, int end) {
+        if (list == null || slots == null) {
+            return;
+        }
+        for (int i = Math.max(0, start); i < end && i < slots.size(); i++) {
+            addVirtualSearchSlot(list, slots.get(i));
         }
     }
 
@@ -8873,17 +8968,13 @@ public class MainActivity extends Activity {
         }
 
         Map<String, Integer> counts = bbsCategoryCounts(page);
-        list.setTag(new VirtualSearchState());
+        List<VirtualSearchSlot> slots = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : counts.entrySet()) {
             String category = entry.getKey();
             String label = category.isEmpty() ? text("\u305d\u306e\u4ed6", "Other") : category;
-            addVirtualSearchSlot(list, new VirtualSearchSlot(
-                    new BbsCategoryRow(page.url, category, label, entry.getValue())));
+            slots.add(new VirtualSearchSlot(new BbsCategoryRow(page.url, category, label, entry.getValue())));
         }
-        if (!counts.isEmpty()) {
-            ensureSearchSlotRefresh(scroll, list);
-            scheduleSearchSlotRefresh(list);
-        }
+        renderVirtualSearchSlots(scroll, list, slots, true);
         return scroll;
     }
 
@@ -16849,8 +16940,7 @@ public class MainActivity extends Activity {
         tab.readerView = loadingView("");
         tabs.add(tab);
         switchToTab(tabs.size() - 1);
-        openInCurrentTab(url);
-        renderTabs();
+        postOpenInSelectedTab(tab, url);
     }
 
     private CuspTab normalThreadTab(String url) {
