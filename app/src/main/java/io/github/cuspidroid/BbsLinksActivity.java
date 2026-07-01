@@ -2,6 +2,9 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -21,6 +24,9 @@ import android.widget.Toast;
 import java.util.List;
 
 public class BbsLinksActivity extends Activity {
+    private static final String HISSI_TEMPLATE_EXAMPLE =
+            "https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}";
+
     private SharedPreferences preferences;
     private LinearLayout list;
 
@@ -147,7 +153,16 @@ public class BbsLinksActivity extends Activity {
         urlParams.setMargins(0, dp(10), 0, 0);
         content.addView(url, urlParams);
 
-        EditText hissiUrl = field(MainActivity.text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fcURL\uff08\u4efb\u610f\uff09", "Hissi Checker URL (optional)"));
+        TextView hissiLabel = helperText(MainActivity.text(
+                "\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fcURL\uff08\u4efb\u610f\uff09",
+                "Hissi Checker URL (optional)"));
+        hissiLabel.setTextColor(textColor());
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(0, dp(14), 0, dp(4));
+        content.addView(hissiLabel, labelParams);
+
+        EditText hissiUrl = field(MainActivity.text("URL\u30c6\u30f3\u30d7\u30ec\u30fc\u30c8", "URL template"));
         hissiUrl.setSingleLine(false);
         hissiUrl.setMinLines(2);
         hissiUrl.setMaxLines(4);
@@ -156,19 +171,28 @@ public class BbsLinksActivity extends Activity {
         hissiUrl.setInputType(InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_VARIATION_URI
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        hissiUrl.setPadding(dp(12), dp(9), dp(12), dp(9));
         LinearLayout.LayoutParams hissiParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(88));
-        hissiParams.setMargins(0, dp(10), 0, 0);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
         content.addView(hissiUrl, hissiParams);
 
-        TextView templateHelp = helperText(MainActivity.text(
-                "\u4f8b: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}",
-                "Example: https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}"));
+        LinearLayout exampleRow = new LinearLayout(this);
+        exampleRow.setOrientation(LinearLayout.HORIZONTAL);
+        exampleRow.setGravity(Gravity.CENTER_VERTICAL);
+        exampleRow.setPadding(dp(10), dp(8), dp(6), dp(8));
+        exampleRow.setBackground(rowBackground());
+        TextView templateHelp = helperText(MainActivity.text("\u4f8b: ", "Example: ") + HISSI_TEMPLATE_EXAMPLE);
         templateHelp.setTextColor(mutedColor());
-        LinearLayout.LayoutParams helpParams = new LinearLayout.LayoutParams(
+        exampleRow.addView(templateHelp, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton copyExample = iconButton(R.drawable.ic_copy,
+                MainActivity.text("\u4f8b\u3092\u30b3\u30d4\u30fc", "Copy example"));
+        copyExample.setOnClickListener(v -> copyHissiTemplateExample());
+        exampleRow.addView(copyExample, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout.LayoutParams exampleParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        helpParams.setMargins(0, dp(6), 0, 0);
-        content.addView(templateHelp, helpParams);
+        exampleParams.setMargins(0, dp(8), 0, 0);
+        content.addView(exampleRow, exampleParams);
 
         if (existing != null) {
             name.setText(existing.name);
@@ -207,6 +231,14 @@ public class BbsLinksActivity extends Activity {
             });
         });
         dialog.show();
+    }
+
+    private void copyHissiTemplateExample() {
+        ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (manager != null) {
+            manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid Hissi template", HISSI_TEMPLATE_EXAMPLE));
+            Toast.makeText(this, MainActivity.text("\u4f8b\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Example copied."), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private EditText field(String hint) {
