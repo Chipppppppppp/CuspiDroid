@@ -3448,6 +3448,7 @@ public class MainActivity extends Activity {
         if (tab.threadBottomLoader != null) {
             resetBottomRefreshLoader(tab.threadBottomLoader);
         }
+        clearBoardTopRefreshState(tab);
         if (tab.readerView != null && tab.readerView.getParent() instanceof ViewGroup) {
             ((ViewGroup) tab.readerView.getParent()).removeView(tab.readerView);
         }
@@ -4255,7 +4256,7 @@ public class MainActivity extends Activity {
                 if (NATIVE_BOARD.equals(tab.nativeKind) && isBbsMenuUrl(tab.searchPage.url)) {
                     return buildBbsCategoryIndexView(tab.searchPage);
                 }
-                return buildSearchView(tab.searchPage, !NATIVE_BOARD.equals(tab.nativeKind));
+                return buildSearchView(tab.searchPage, !NATIVE_BOARD.equals(tab.nativeKind), tab);
             }
         } else if (NATIVE_SAVED.equals(tab.nativeKind)
                 && tab.url != null && tab.url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
@@ -4960,6 +4961,7 @@ public class MainActivity extends Activity {
         tab.threadPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
+        clearBoardTopRefreshState(tab);
         if (tab == currentTab() && !tabOverviewVisible) {
             contentFrame.removeAllViews();
             contentFrame.addView(tab.readerView);
@@ -5408,6 +5410,7 @@ public class MainActivity extends Activity {
         if (showFullLoading) {
             prepareChromeForLoading();
         }
+        clearBoardTopRefreshState(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
         tab.url = loadUrl;
@@ -5996,6 +5999,7 @@ public class MainActivity extends Activity {
         if (foreground) {
             prepareChromeForLoading();
         }
+        clearBoardTopRefreshState(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH;
         tab.url = loadUrl;
@@ -6045,6 +6049,7 @@ public class MainActivity extends Activity {
     private void loadFullTextSearchResults(CuspTab tab, String url) {
         final String loadUrl = url;
         prepareChromeForLoading();
+        clearBoardTopRefreshState(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH;
         tab.url = loadUrl;
@@ -6801,6 +6806,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadSearchHome(CuspTab tab, String url, boolean foreground) {
+        clearBoardTopRefreshState(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH_HOME;
         tab.url = url;
@@ -6826,6 +6832,7 @@ public class MainActivity extends Activity {
         if (foreground) {
             prepareChromeForLoading();
         }
+        clearBoardTopRefreshState(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = loadUrl;
@@ -6863,7 +6870,7 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = buildSearchView(result, false);
+                tab.readerView = buildSearchView(result, false, tab);
                 cacheBoardHistoryPage(tab, result, tab.readerView);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
@@ -6876,6 +6883,83 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void refreshBoardFromTop(CuspTab tab) {
+        if (tab == null || tab.boardRefreshing) {
+            return;
+        }
+        final String loadUrl = tab.url;
+        final View oldLoader = tab.boardTopLoader;
+        if (loadUrl == null || loadUrl.trim().isEmpty() || !isBoardUrl(loadUrl)) {
+            resetTopRefreshLoader(oldLoader);
+            return;
+        }
+        tab.boardRefreshing = true;
+        final boolean showProgress = tab == currentTab() && !tabOverviewVisible;
+        if (showProgress) {
+            progressBar.setVisibility(View.VISIBLE);
+        }
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                page = downloadBoard(loadUrl);
+            } catch (Exception error) {
+                page = SearchPage.error(loadUrl, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                tab.boardRefreshing = false;
+                if (!tabs.contains(tab) || !NATIVE_BOARD.equals(tab.nativeKind)
+                        || tab.url == null || !sameSavedUrl(loadUrl, tab.url)) {
+                    resetTopRefreshLoader(oldLoader);
+                    if (showProgress) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
+                if (result.error != null) {
+                    resetTopRefreshLoader(oldLoader);
+                    if (showProgress) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    Toast.makeText(this,
+                            text("\u677f\u3092\u66f4\u65b0\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f", "Could not refresh board."),
+                            Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                resetTopRefreshLoader(oldLoader);
+                if (result.url != null && !result.url.trim().isEmpty()) {
+                    replaceCurrentNavigationUrl(tab, loadUrl, result.url);
+                    tab.url = result.url;
+                }
+                tab.title = result.title;
+                tab.searchPage = result;
+                tab.threadPage = null;
+                tab.threadScroll = null;
+                tab.threadList = null;
+                tab.postViews = null;
+                tab.readerView = buildSearchView(result, false, tab);
+                cacheBoardHistoryPage(tab, result, tab.readerView);
+                if (tab == currentTab() && !tabOverviewVisible) {
+                    switchToTab(currentIndex);
+                }
+                if (showProgress) {
+                    progressBar.setVisibility(View.GONE);
+                }
+                refreshTabOverviewValuesForTab(tab);
+                renderTabs();
+            });
+        });
+    }
+
+    private void clearBoardTopRefreshState(CuspTab tab) {
+        if (tab == null) {
+            return;
+        }
+        resetTopRefreshLoader(tab.boardTopLoader);
+        tab.boardTopLoader = null;
+        tab.boardRefreshing = false;
+    }
+
     private void loadBbsDirectory(CuspTab tab, String url) {
         loadBbsDirectory(tab, url, true);
     }
@@ -6885,6 +6969,7 @@ public class MainActivity extends Activity {
         if (foreground) {
             prepareChromeForLoading();
         }
+        clearBoardTopRefreshState(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = loadUrl;
@@ -6931,7 +7016,7 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result) : buildSearchView(result, false);
+                tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result) : buildSearchView(result, false, tab);
                 cacheBoardHistoryPage(tab, result, tab.readerView);
                 if (foreground) {
                     progressBar.setVisibility(View.GONE);
@@ -8385,10 +8470,14 @@ public class MainActivity extends Activity {
     }
 
     private View buildSearchView(SearchPage page) {
-        return buildSearchView(page, true);
+        return buildSearchView(page, true, null);
     }
 
     private View buildSearchView(SearchPage page, boolean showSearchControls) {
+        return buildSearchView(page, showSearchControls, null);
+    }
+
+    private View buildSearchView(SearchPage page, boolean showSearchControls, CuspTab tab) {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) ->
@@ -8474,7 +8563,39 @@ public class MainActivity extends Activity {
             }
         }
         View wrapped = withScrollScrubber(scroll);
+        if (shouldEnableBoardTopRefresh(page, showSearchControls, tab)) {
+            return withBoardTopPullRefresh(wrapped, scroll, tab);
+        }
         return wrapped;
+    }
+
+    private boolean shouldEnableBoardTopRefresh(SearchPage page, boolean showSearchControls, CuspTab tab) {
+        return tab != null
+                && !showSearchControls
+                && NATIVE_BOARD.equals(tab.nativeKind)
+                && page != null
+                && page.error == null
+                && page.url != null
+                && isBoardUrl(page.url);
+    }
+
+    private View withBoardTopPullRefresh(View content, ScrollView scroll, CuspTab tab) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(bgColor());
+        frame.addView(content, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout loader = bottomRefreshLoader();
+        loader.setVisibility(View.GONE);
+        loader.setTranslationY(-dp(58));
+        if (tab != null) {
+            tab.boardTopLoader = loader;
+        }
+        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(66), dp(66),
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        loaderParams.setMargins(0, dp(2), 0, 0);
+        frame.addView(loader, loaderParams);
+        enableTopPullRefresh(scroll, loader, () -> refreshBoardFromTop(tab));
+        return frame;
     }
 
     private void maybeLoadMoreFullTextResults(SearchPage page, ScrollView scroll) {
@@ -9223,6 +9344,7 @@ public class MainActivity extends Activity {
             recordNavigation(tab, url);
         }
         prepareChromeForLoading();
+        clearBoardTopRefreshState(tab);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = url;
@@ -9916,6 +10038,7 @@ public class MainActivity extends Activity {
                     pullDistance[0] = pull;
                     if (pull > dp(4)) {
                         dragging[0] = true;
+                        loader.animate().cancel();
                         loader.clearAnimation();
                         loader.setVisibility(View.VISIBLE);
                         float clampedPull = Math.min(pull, maxPull);
@@ -9940,28 +10063,152 @@ public class MainActivity extends Activity {
                     loader.setVisibility(View.VISIBLE);
                     loader.setRotation(0f);
                     setBottomRefreshSpinning(loader, true);
+                    loader.animate().cancel();
+                    loader.clearAnimation();
                     loader.animate().translationY(triggerOffset).setDuration(110).withEndAction(() -> {
                         refresh.run();
                     }).start();
                     return true;
                 }
                 if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
-                    loader.animate().translationY(hiddenOffset).setDuration(140)
-                            .withEndAction(() -> {
-                                resetBottomRefreshLoader(loader);
-                            }).start();
-                    return dragging[0];
+                    boolean consumed = dragging[0] || loader.getVisibility() == View.VISIBLE;
+                    startedAtBottom[0] = false;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
+                    animateBottomRefreshLoaderClosed(loader);
+                    return consumed;
                 }
             }
             return false;
         });
     }
 
+    private void enableTopPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
+        final float[] downY = new float[1];
+        final float[] pullDistance = new float[1];
+        final boolean[] startedAtTop = new boolean[1];
+        final boolean[] dragging = new boolean[1];
+        final boolean[] refreshing = new boolean[1];
+        scroll.setOnTouchListener((v, event) -> {
+            int hiddenOffset = -dp(58);
+            int maxOffset = dp(86);
+            int maxPull = dp(164);
+            int triggerPull = maxPull / 2;
+            int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
+            if (refreshing[0]) {
+                if (loader.getVisibility() == View.GONE) {
+                    refreshing[0] = false;
+                } else {
+                    return false;
+                }
+            }
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                startedAtTop[0] = !scroll.canScrollVertically(-1);
+                dragging[0] = false;
+                if (!refreshing[0]) {
+                    resetTopRefreshLoader(loader);
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                if (!startedAtTop[0] && !dragging[0] && !refreshing[0]
+                        && !scroll.canScrollVertically(-1)) {
+                    startedAtTop[0] = true;
+                    downY[0] = event.getY();
+                    pullDistance[0] = 0;
+                }
+                if (startedAtTop[0] && !refreshing[0]) {
+                    if (scroll.canScrollVertically(-1)) {
+                        startedAtTop[0] = false;
+                        dragging[0] = false;
+                        pullDistance[0] = 0;
+                        resetTopRefreshLoader(loader);
+                        return false;
+                    }
+                    float pull = Math.max(0, event.getY() - downY[0]);
+                    pullDistance[0] = pull;
+                    if (pull > dp(4)) {
+                        dragging[0] = true;
+                        loader.animate().cancel();
+                        loader.clearAnimation();
+                        loader.setVisibility(View.VISIBLE);
+                        float clampedPull = Math.min(pull, maxPull);
+                        float progress = clampedPull / maxPull;
+                        setBottomRefreshSpinning(loader, false);
+                        loader.setTranslationY(hiddenOffset + (maxOffset - hiddenOffset) * progress);
+                        loader.setRotation(progress * 270f);
+                        return true;
+                    }
+                    if (dragging[0]) {
+                        loader.setTranslationY(hiddenOffset);
+                        loader.setRotation(0f);
+                        return true;
+                    }
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= triggerPull) {
+                    refreshing[0] = true;
+                    startedAtTop[0] = false;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
+                    loader.setVisibility(View.VISIBLE);
+                    loader.setRotation(0f);
+                    setBottomRefreshSpinning(loader, true);
+                    loader.animate().cancel();
+                    loader.clearAnimation();
+                    loader.animate().translationY(triggerOffset).setDuration(110).withEndAction(() -> {
+                        refresh.run();
+                    }).start();
+                    return true;
+                }
+                if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
+                    boolean consumed = dragging[0] || loader.getVisibility() == View.VISIBLE;
+                    startedAtTop[0] = false;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
+                    animateTopRefreshLoaderClosed(loader);
+                    return consumed;
+                }
+            }
+            return false;
+        });
+    }
+
+    private void animateBottomRefreshLoaderClosed(View loader) {
+        animateRefreshLoaderClosed(loader, dp(58));
+    }
+
+    private void animateTopRefreshLoaderClosed(View loader) {
+        animateRefreshLoaderClosed(loader, -dp(58));
+    }
+
+    private void animateRefreshLoaderClosed(View loader, int hiddenOffset) {
+        if (loader == null) {
+            return;
+        }
+        loader.animate().cancel();
+        loader.clearAnimation();
+        setBottomRefreshSpinning(loader, false);
+        loader.animate().translationY(hiddenOffset).rotation(0f).setDuration(140)
+                .withEndAction(() -> resetRefreshLoader(loader, hiddenOffset)).start();
+    }
+
     private void resetBottomRefreshLoader(View loader) {
+        resetRefreshLoader(loader, dp(58));
+    }
+
+    private void resetTopRefreshLoader(View loader) {
+        resetRefreshLoader(loader, -dp(58));
+    }
+
+    private void resetRefreshLoader(View loader, int hiddenOffset) {
+        if (loader == null) {
+            return;
+        }
         loader.clearAnimation();
         loader.animate().cancel();
         setBottomRefreshSpinning(loader, false);
-        loader.setTranslationY(dp(58));
+        loader.setTranslationY(hiddenOffset);
         loader.setRotation(0f);
         loader.setVisibility(View.GONE);
     }
@@ -10393,7 +10640,7 @@ public class MainActivity extends Activity {
             return;
         }
         result.title = bbsPageTitleFromPageKey(pageKey, result.title);
-        View resultView = categoryIndex ? buildBbsCategoryIndexView(result) : buildSearchView(result, false);
+        View resultView = categoryIndex ? buildBbsCategoryIndexView(result) : buildSearchView(result, false, targetTab);
         if (forNewTab && result.error == null) {
             cacheNewTabHistoryPage(pageKey, resultView);
         }
@@ -25197,6 +25444,7 @@ public class MainActivity extends Activity {
         ScrollView threadScroll;
         LinearLayout threadList;
         View threadBottomLoader;
+        View boardTopLoader;
         FrameLayout scrollScrubber;
         ViewGroup unreadMarkerLayer;
         Map<Integer, View> postViews;
@@ -25244,6 +25492,7 @@ public class MainActivity extends Activity {
         int threadRenderGeneration;
         boolean fastRenderToBottom;
         boolean threadRendering;
+        boolean boardRefreshing;
         Runnable threadScrollChromeTask;
         Runnable threadPostVisibilityTask;
     }
