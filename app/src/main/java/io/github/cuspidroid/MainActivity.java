@@ -4711,6 +4711,12 @@ public class MainActivity extends Activity {
         if (url == null) {
             return "";
         }
+        if (isBbsInternalPageUrl(url)) {
+            String externalUrl = externalUrlFromBbsInternalPage(url);
+            if (externalUrl != null && !externalUrl.trim().isEmpty()) {
+                return externalUrl;
+            }
+        }
         if (shouldDisplaySearchQueryInAddress(nativeKind, url)) {
             String query = searchQueryFromUrl(url);
             if (query != null && !query.trim().isEmpty()) {
@@ -4982,6 +4988,21 @@ public class MainActivity extends Activity {
     private boolean isBbsInternalPageUrl(String url) {
         return url != null && (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")
                 || url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/"));
+    }
+
+    private String externalUrlFromBbsInternalPage(String url) {
+        if (url == null) {
+            return "";
+        }
+        if (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")) {
+            return decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs/").length()));
+        }
+        if (url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/")) {
+            BbsCategoryRequest request = decodeBbsCategoryToken(
+                    decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs-category/").length())));
+            return request.menuUrl == null ? "" : request.menuUrl;
+        }
+        return "";
     }
 
     private boolean isHissiCheckerUrl(String url) {
@@ -6682,22 +6703,6 @@ public class MainActivity extends Activity {
         tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
-        SearchPage cached = cachedBbsDirectoryPage(loadUrl);
-        if (cached != null) {
-            tab.title = cached.title;
-            tab.searchPage = cached;
-            tab.readerView = isBbsMenuUrl(cached.url) ? buildBbsCategoryIndexView(cached) : buildSearchView(cached, false);
-            cacheBoardHistoryPage(tab, cached, tab.readerView);
-            if (foreground) {
-                progressBar.setVisibility(View.GONE);
-                switchToTab(tabs.indexOf(tab));
-            } else if (tab == currentTab() && !tabOverviewVisible) {
-                switchToTab(currentIndex);
-            }
-            renderTabs();
-            refreshBbsMenuCacheIfStale(loadUrl);
-            return;
-        }
         if (foreground) {
             switchToTab(tabs.indexOf(tab));
             progressBar.setVisibility(View.VISIBLE);
@@ -6705,12 +6710,21 @@ public class MainActivity extends Activity {
 
         ioExecutor.execute(() -> {
             SearchPage page;
+            boolean usedCached = false;
             try {
-                page = downloadBbsDirectoryWithCache(loadUrl);
+                page = cachedBbsDirectoryPage(loadUrl);
+                if (page != null) {
+                    usedCached = true;
+                } else {
+                    page = downloadBbsDirectoryWithCache(loadUrl);
+                }
+                page.title = bbsMenuTitle(loadUrl, page.title);
+                bbsCategoryCounts(page);
             } catch (Exception error) {
                 page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
+            boolean refresh = usedCached;
             runOnUiThread(() -> {
                 if (!loadUrl.equals(tab.url)) {
                     if (foreground && tab == currentTab()) {
@@ -6733,6 +6747,9 @@ public class MainActivity extends Activity {
                     switchToTab(currentIndex);
                 }
                 renderTabs();
+                if (refresh) {
+                    refreshBbsMenuCacheIfStale(loadUrl);
+                }
             });
         });
     }
@@ -23983,6 +24000,9 @@ public class MainActivity extends Activity {
     }
 
     private String boardNameFromUrl(String url) {
+        if (isRegisteredBbsRootLinkUrl(url)) {
+            return null;
+        }
         String registeredBoard = registeredMenuBoardName(url);
         if (registeredBoard != null) {
             return registeredBoard;
@@ -24215,6 +24235,25 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    private boolean isRegisteredBbsRootLinkUrl(String url) {
+        try {
+            String normalized = normalizeHistoryUrl(normalizeUrl(url));
+            if (normalized == null || normalized.trim().isEmpty()) {
+                return false;
+            }
+            for (BbsLink link : readBbsLinks(preferences)) {
+                if (link == null || link.url == null || link.url.trim().isEmpty()) {
+                    continue;
+                }
+                if (sameSavedUrl(normalized, normalizeHistoryUrl(normalizeUrl(link.url)))) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private List<String> pathParts(String path) {
