@@ -2930,6 +2930,9 @@ public class MainActivity extends Activity {
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tabs.add(tab);
         if (select) {
+            if (url != null && !url.trim().isEmpty()) {
+                tab.readerView = loadingView("");
+            }
             switchToTab(tabs.size() - 1);
             openInCurrentTab(url);
         }
@@ -3988,7 +3991,6 @@ public class MainActivity extends Activity {
             adoptSharedThreadScroll(tab);
             refreshThreadReadStateOnOpen(tab);
         }
-        boolean loading = isLoadingReaderView(tab.readerView);
         contentFrame.setBackgroundColor(bgColor());
         contentFrame.removeAllViews();
         visibleThreadPage = null;
@@ -4015,13 +4017,7 @@ public class MainActivity extends Activity {
                 restoreThreadScroll(tab);
             }
         }
-        if (loading) {
-            progressBar.setVisibility(View.VISIBLE);
-            showCenterSpinner();
-        } else {
-            progressBar.setVisibility(View.GONE);
-            hideCenterSpinner();
-        }
+        syncLoadingUiWithCurrentSurface();
         updateAddressBarDisplay(false);
         updateBottomThreadBar(tab);
         updateThreadSearchBar(tab);
@@ -4048,6 +4044,19 @@ public class MainActivity extends Activity {
 
     private boolean isLoadingReaderView(View view) {
         return view != null && LOADING_VIEW_TAG.equals(view.getTag());
+    }
+
+    private void syncLoadingUiWithCurrentSurface() {
+        CuspTab tab = currentTab();
+        boolean loading = !pendingNewTab && !tabOverviewVisible
+                && tab != null && isLoadingReaderView(tab.readerView);
+        if (loading) {
+            progressBar.setVisibility(View.VISIBLE);
+            showCenterSpinner();
+        } else {
+            progressBar.setVisibility(View.GONE);
+            hideCenterSpinner();
+        }
     }
 
     private View previewTabReaderViewForSwipe(CuspTab tab) {
@@ -5212,6 +5221,7 @@ public class MainActivity extends Activity {
         tab.privateBrowsing = privateBrowsing;
         tab.backToNewTab = false;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        tab.readerView = loadingView("");
         tab.navigationHistory.add(returnUrl);
         tab.navigationIndex = 0;
         tabs.add(tab);
@@ -10420,6 +10430,7 @@ public class MainActivity extends Activity {
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
+        syncLoadingUiWithCurrentSurface();
         attachTabOverviewView();
         updateBottomThreadBar(currentTab());
         renderTabs();
@@ -11775,6 +11786,7 @@ public class MainActivity extends Activity {
         syncClosedTabUndoBar();
         tabOverviewVisible = true;
         pendingNewTab = tabs.isEmpty();
+        syncLoadingUiWithCurrentSurface();
         updateBottomThreadBar(currentTab());
         renderTabs();
         if (rowView == null || rowView.getParent() == null) {
@@ -11912,8 +11924,10 @@ public class MainActivity extends Activity {
         if (tabs.isEmpty() || index < 0 || index >= tabs.size()) {
             return null;
         }
-        CuspTab closing = tabs.remove(index);
         int oldCurrent = currentIndex;
+        CuspTab closing = tabs.get(index);
+        clearLoadingUiForClosedTab(closing, index == oldCurrent);
+        tabs.remove(index);
         for (CuspTab tab : tabs) {
             if (tab.returnToIndex == index) {
                 tab.returnToIndex = -1;
@@ -16832,6 +16846,7 @@ public class MainActivity extends Activity {
         tab.privateBrowsing = privateBrowsing;
         tab.pendingJumpPostNumber = postNumber;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
+        tab.readerView = loadingView("");
         tabs.add(tab);
         switchToTab(tabs.size() - 1);
         openInCurrentTab(url);
@@ -20506,6 +20521,7 @@ public class MainActivity extends Activity {
         } else {
             currentIndex = Math.max(0, Math.min(currentIndex, tabs.size() - 1));
         }
+        syncLoadingUiWithCurrentSurface();
     }
 
     private void clearLoadingUiForClosedTab(CuspTab closing, boolean closingCurrent) {
