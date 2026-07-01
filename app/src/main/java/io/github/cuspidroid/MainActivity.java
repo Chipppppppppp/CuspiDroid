@@ -9798,7 +9798,7 @@ public class MainActivity extends Activity {
             list.addView(sectionTitleView(text("\u30ab\u30b9\u30bf\u30e0BBS", "Custom BBS")));
             for (BbsLink link : customLinks) {
                 TextView row = actionRow(link.name);
-                row.setOnClickListener(v -> openBbsDirectoryPage(link.url));
+                row.setOnClickListener(v -> routeLink(link.url, currentTab()));
                 row.setOnLongClickListener(v -> {
                     showValueCopyPopup(row, link.url);
                     return true;
@@ -24000,9 +24000,6 @@ public class MainActivity extends Activity {
     }
 
     private String boardNameFromUrl(String url) {
-        if (isRegisteredBbsRootLinkUrl(url)) {
-            return null;
-        }
         String registeredBoard = registeredMenuBoardName(url);
         if (registeredBoard != null) {
             return registeredBoard;
@@ -24235,25 +24232,6 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return null;
-    }
-
-    private boolean isRegisteredBbsRootLinkUrl(String url) {
-        try {
-            String normalized = normalizeHistoryUrl(normalizeUrl(url));
-            if (normalized == null || normalized.trim().isEmpty()) {
-                return false;
-            }
-            for (BbsLink link : readBbsLinks(preferences)) {
-                if (link == null || link.url == null || link.url.trim().isEmpty()) {
-                    continue;
-                }
-                if (sameSavedUrl(normalized, normalizeHistoryUrl(normalizeUrl(link.url)))) {
-                    return true;
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
     }
 
     private List<String> pathParts(String path) {
