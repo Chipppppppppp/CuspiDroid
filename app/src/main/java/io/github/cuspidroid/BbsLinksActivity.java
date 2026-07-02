@@ -2,14 +2,12 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.text.InputType;
@@ -25,7 +23,7 @@ import java.util.List;
 
 public class BbsLinksActivity extends Activity {
     private static final String HISSI_TEMPLATE_EXAMPLE =
-            "https://www.kyodemo.net/sdemo/b/e_e_{$bbs}/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}";
+            "https://www.kyodemo.net/sdemo/b/e_e_liveedge/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}";
 
     private SharedPreferences preferences;
     private LinearLayout list;
@@ -104,17 +102,27 @@ public class BbsLinksActivity extends Activity {
         for (MainActivity.BbsLink link : links) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(10), dp(8), dp(8), dp(8));
+            row.setGravity(Gravity.TOP);
+            row.setPadding(dp(12), dp(10), dp(8), dp(10));
             row.setBackground(rowBackground());
 
-            String summary = link.name + "\n" + link.url;
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(LinearLayout.VERTICAL);
+            TextView name = new TextView(this);
+            name.setText(link.name);
+            name.setTextColor(textColor());
+            name.setTextSize(16);
+            texts.addView(name);
+
+            TextView url = helperText(link.url);
+            url.setTextColor(mutedColor());
+            url.setTextIsSelectable(true);
+            texts.addView(url);
+
             if (link.hissiUrl != null && !link.hissiUrl.trim().isEmpty()) {
-                summary += "\n" + MainActivity.text("\u5fc5\u6b7b: ", "Hissi: ") + link.hissiUrl.trim();
+                texts.addView(hissiUrlSummary(link.hissiUrl.trim()));
             }
-            TextView text = helperText(summary);
-            text.setTextColor(textColor());
-            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
             edit.setOnClickListener(v -> showLinkDialog(link));
@@ -176,19 +184,7 @@ public class BbsLinksActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
         content.addView(hissiUrl, hissiParams);
 
-        LinearLayout exampleRow = new LinearLayout(this);
-        exampleRow.setOrientation(LinearLayout.HORIZONTAL);
-        exampleRow.setGravity(Gravity.CENTER_VERTICAL);
-        exampleRow.setPadding(dp(10), dp(8), dp(6), dp(8));
-        exampleRow.setBackground(rowBackground());
-        TextView templateHelp = helperText(MainActivity.text("\u4f8b: ", "Example: ") + HISSI_TEMPLATE_EXAMPLE);
-        templateHelp.setTextColor(mutedColor());
-        exampleRow.addView(templateHelp, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        ImageButton copyExample = iconButton(R.drawable.ic_copy,
-                MainActivity.text("\u4f8b\u3092\u30b3\u30d4\u30fc", "Copy example"));
-        copyExample.setOnClickListener(v -> copyHissiTemplateExample());
-        exampleRow.addView(copyExample, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        TextView exampleRow = selectableExampleText(MainActivity.text("\u4f8b: ", "Example: ") + HISSI_TEMPLATE_EXAMPLE);
         LinearLayout.LayoutParams exampleParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         exampleParams.setMargins(0, dp(8), 0, 0);
@@ -231,14 +227,6 @@ public class BbsLinksActivity extends Activity {
             });
         });
         dialog.show();
-    }
-
-    private void copyHissiTemplateExample() {
-        ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        if (manager != null) {
-            manager.setPrimaryClip(ClipData.newPlainText("CuspiDroid Hissi template", HISSI_TEMPLATE_EXAMPLE));
-            Toast.makeText(this, MainActivity.text("\u4f8b\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Example copied."), Toast.LENGTH_SHORT).show();
-        }
     }
 
     private EditText field(String hint) {
@@ -298,6 +286,40 @@ public class BbsLinksActivity extends Activity {
         return view;
     }
 
+    private View hissiUrlSummary(String value) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(10), dp(7), dp(10), dp(8));
+        box.setBackground(subtleBoxBackground());
+        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        boxParams.setMargins(0, dp(6), 0, 0);
+        box.setLayoutParams(boxParams);
+
+        TextView label = new TextView(this);
+        label.setText(MainActivity.text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fcURL", "Hissi Checker URL"));
+        label.setTextColor(mutedColor());
+        label.setTextSize(12);
+        box.addView(label);
+
+        TextView url = new TextView(this);
+        url.setText(value);
+        url.setTextColor(textColor());
+        url.setTextSize(13);
+        url.setTextIsSelectable(true);
+        url.setPadding(0, dp(2), 0, 0);
+        box.addView(url);
+        return box;
+    }
+
+    private TextView selectableExampleText(String value) {
+        TextView view = helperText(value);
+        view.setTextIsSelectable(true);
+        view.setPadding(dp(10), dp(8), dp(10), dp(8));
+        view.setBackground(subtleBoxBackground());
+        return view;
+    }
+
     private ImageButton iconButton(int iconRes, String description) {
         ImageButton button = new ImageButton(this);
         button.setImageResource(iconRes);
@@ -328,6 +350,14 @@ public class BbsLinksActivity extends Activity {
         drawable.setColor(surfaceColor());
         drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable subtleBoxBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(bgColor());
+        drawable.setStroke(dp(1), borderColor());
+        drawable.setCornerRadius(dp(7));
         return drawable;
     }
 

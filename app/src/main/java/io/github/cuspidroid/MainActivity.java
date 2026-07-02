@@ -8251,7 +8251,7 @@ public class MainActivity extends Activity {
                         && (linkHost == null || !linkHost.equalsIgnoreCase(threadHost))) {
                     continue;
                 }
-                String expanded = expandHissiTemplate(link.hissiUrl.trim(), board, key, date, id);
+                String expanded = expandHissiTemplate(link.hissiUrl.trim(), key, date, id);
                 if (!expanded.isEmpty()) {
                     return expanded;
                 }
@@ -8261,19 +8261,17 @@ public class MainActivity extends Activity {
         return "";
     }
 
-    private String expandHissiTemplate(String template, String board, String key, String date, String id) {
+    private String expandHissiTemplate(String template, String key, String date, String id) {
         if (template == null || template.trim().isEmpty()) {
             return "";
         }
-        Matcher matcher = Pattern.compile("\\{\\$(bbs|key|id|date)(?:\\[([^\\]]+)\\])?\\}").matcher(template);
+        Matcher matcher = Pattern.compile("\\{\\$(key|id|date)(?:\\[([^\\]]+)\\])?\\}").matcher(template);
         StringBuffer result = new StringBuffer();
         while (matcher.find()) {
             String name = matcher.group(1);
             String option = matcher.group(2);
             String replacement;
-            if ("bbs".equals(name)) {
-                replacement = board == null ? "" : board;
-            } else if ("key".equals(name)) {
+            if ("key".equals(name)) {
                 replacement = key == null ? "" : key;
             } else if ("id".equals(name)) {
                 replacement = urlEncode(id == null ? "" : id);
@@ -8286,6 +8284,9 @@ public class MainActivity extends Activity {
         }
         matcher.appendTail(result);
         String value = result.toString().trim();
+        if (value.contains("{$")) {
+            return "";
+        }
         return value.startsWith("http://") || value.startsWith("https://") ? value : "";
     }
 
