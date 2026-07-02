@@ -2203,7 +2203,7 @@ public class MainActivity extends Activity {
         } else if (THREAD_BUTTON_NEXT.equals(id)) {
             searchNextThread();
         } else if (THREAD_BUTTON_NG.equals(id)) {
-            addCurrentThreadToNgThread(tab);
+            openCurrentThreadNgThreadAdd(tab);
         } else if (THREAD_BUTTON_MEDIA.equals(id)) {
             showThreadExtractList(true);
         } else if (THREAD_BUTTON_LINKS.equals(id)) {
@@ -2213,7 +2213,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void addCurrentThreadToNgThread(CuspTab tab) {
+    private void openCurrentThreadNgThreadAdd(CuspTab tab) {
         if (tab == null || tab.threadPage == null) {
             return;
         }
@@ -2226,14 +2226,7 @@ public class MainActivity extends Activity {
                     Toast.LENGTH_SHORT).show();
             return;
         }
-        String boardUrl = currentThreadBoardUrl(tab);
-        String scopeUrl = ngTargetUrlForPage(boardUrl == null || boardUrl.trim().isEmpty() ? tab.url : boardUrl);
-        String scopeTitle = ngTargetTitleForPage(scopeUrl, displayTitleForTab(tab));
-        boolean added = addScopedNgRule("NGThread", value.trim(), false, scopeUrl, scopeTitle);
-        Toast.makeText(this,
-                added ? text("NGThread\u306b\u8ffd\u52a0\u3057\u307e\u3057\u305f", "Added to NGThread.")
-                        : text("\u3059\u3067\u306bNGThread\u306b\u8ffd\u52a0\u6e08\u307f\u3067\u3059", "Already added to NGThread."),
-                Toast.LENGTH_SHORT).show();
+        openNgRuleAdd(tab.threadPage, "NGThread", value);
     }
 
     private void showThreadJumpMenu(View anchor) {
@@ -2505,15 +2498,16 @@ public class MainActivity extends Activity {
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        PopupWindow popup = new PopupWindow(menu, dp(188), ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
 
-        menu.addView(menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9", "Priority words"), v -> {
+        menu.addView(menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words"), v -> {
             dismissPopupAnimated(popup);
             openBoardPriorityRules(tab.url, displayTitleForTab(tab));
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_close, text("NG\u7ba1\u7406", "Manage NG rules"), v -> {
             dismissPopupAnimated(popup);
             openThreadNgRules(tab.url, displayTitleForTab(tab));
@@ -2557,35 +2551,6 @@ public class MainActivity extends Activity {
         intent.putExtra(EXTRA_NG_PRESET_CATEGORY, category == null ? "" : category);
         intent.putExtra(EXTRA_NG_PRESET_VALUE, normalizedValue);
         startActivity(intent);
-    }
-
-    private boolean addScopedNgRule(String category, String value, boolean regex,
-                                    String targetUrl, String targetTitle) {
-        String normalizedValue = value == null ? "" : value.trim();
-        if (normalizedValue.isEmpty()) {
-            return false;
-        }
-        String normalizedCategory = category == null || category.trim().isEmpty() ? "NGWord" : category.trim();
-        String scopeUrl = normalizeNgTargetUrl(targetUrl);
-        List<ScopedNgRule> rules = readNgRules(preferences);
-        for (ScopedNgRule rule : rules) {
-            if (normalizedCategory.equals(rule.category)
-                    && rule.regex == regex
-                    && normalizedValue.equals(rule.value.trim())
-                    && scopeUrl.equals(normalizeNgTargetUrl(rule.targetUrl))) {
-                return false;
-            }
-        }
-        rules.add(new ScopedNgRule(normalizedCategory, normalizedValue, regex, scopeUrl,
-                targetTitle == null ? "" : targetTitle));
-        saveNgRules(preferences, rules);
-        invalidateNgRulesCache();
-        return true;
-    }
-
-    private void invalidateNgRulesCache() {
-        cachedNgRulesKey = null;
-        cachedNgRules = null;
     }
 
     private String ngTargetUrlForPage(String url) {
@@ -8866,10 +8831,16 @@ public class MainActivity extends Activity {
         }));
         menu.addView(dialogAction(R.drawable.ic_text_fields, "NGBe", () -> {
             dialog.dismiss();
-            openNgRuleAdd(page, "NGBe", post == null ? "" : post.be());
+            openNgRuleAdd(page, "NGBe", ngBePresetValue(post));
         }));
         dialog.show();
         Theme.styleDialog(dialog, this);
+    }
+
+    private String ngBePresetValue(Post post) {
+        String value = post == null ? "" : post.be();
+        value = value == null ? "" : value.trim();
+        return value.isEmpty() ? "0" : value;
     }
 
     private View postActionPreview(CuspTab tab, Post post) {
