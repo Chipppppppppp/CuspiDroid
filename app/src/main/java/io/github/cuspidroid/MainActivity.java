@@ -2203,7 +2203,7 @@ public class MainActivity extends Activity {
         } else if (THREAD_BUTTON_NEXT.equals(id)) {
             searchNextThread();
         } else if (THREAD_BUTTON_NG.equals(id)) {
-            openThreadNgRules(tab.url, tab.title);
+            addCurrentThreadToNgThread(tab);
         } else if (THREAD_BUTTON_MEDIA.equals(id)) {
             showThreadExtractList(true);
         } else if (THREAD_BUTTON_LINKS.equals(id)) {
@@ -2211,6 +2211,29 @@ public class MainActivity extends Activity {
         } else if (THREAD_BUTTON_COPY.equals(id)) {
             copyVisibleTitle();
         }
+    }
+
+    private void addCurrentThreadToNgThread(CuspTab tab) {
+        if (tab == null || tab.threadPage == null) {
+            return;
+        }
+        String value = tab.threadPage.title == null || tab.threadPage.title.trim().isEmpty()
+                ? displayTitleForTab(tab)
+                : tab.threadPage.title.trim();
+        if (value == null || value.trim().isEmpty()) {
+            Toast.makeText(this,
+                    text("NGThread\u306b\u8ffd\u52a0\u3067\u304d\u308b\u30b9\u30ec\u30bf\u30a4\u304c\u3042\u308a\u307e\u305b\u3093", "No thread title to add to NGThread."),
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String boardUrl = currentThreadBoardUrl(tab);
+        String scopeUrl = ngTargetUrlForPage(boardUrl == null || boardUrl.trim().isEmpty() ? tab.url : boardUrl);
+        String scopeTitle = ngTargetTitleForPage(scopeUrl, displayTitleForTab(tab));
+        boolean added = addScopedNgRule("NGThread", value.trim(), false, scopeUrl, scopeTitle);
+        Toast.makeText(this,
+                added ? text("NGThread\u306b\u8ffd\u52a0\u3057\u307e\u3057\u305f", "Added to NGThread.")
+                        : text("\u3059\u3067\u306bNGThread\u306b\u8ffd\u52a0\u6e08\u307f\u3067\u3059", "Already added to NGThread."),
+                Toast.LENGTH_SHORT).show();
     }
 
     private void showThreadJumpMenu(View anchor) {
@@ -2491,6 +2514,10 @@ public class MainActivity extends Activity {
             dismissPopupAnimated(popup);
             openBoardPriorityRules(tab.url, displayTitleForTab(tab));
         }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(menuIconItem(R.drawable.ic_close, text("NG\u7ba1\u7406", "Manage NG rules"), v -> {
+            dismissPopupAnimated(popup);
+            openThreadNgRules(tab.url, displayTitleForTab(tab));
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_copy, text("\u30b3\u30d4\u30fc", "Copy"), v -> {
             dismissPopupAnimated(popup);
@@ -2530,6 +2557,35 @@ public class MainActivity extends Activity {
         intent.putExtra(EXTRA_NG_PRESET_CATEGORY, category == null ? "" : category);
         intent.putExtra(EXTRA_NG_PRESET_VALUE, normalizedValue);
         startActivity(intent);
+    }
+
+    private boolean addScopedNgRule(String category, String value, boolean regex,
+                                    String targetUrl, String targetTitle) {
+        String normalizedValue = value == null ? "" : value.trim();
+        if (normalizedValue.isEmpty()) {
+            return false;
+        }
+        String normalizedCategory = category == null || category.trim().isEmpty() ? "NGWord" : category.trim();
+        String scopeUrl = normalizeNgTargetUrl(targetUrl);
+        List<ScopedNgRule> rules = readNgRules(preferences);
+        for (ScopedNgRule rule : rules) {
+            if (normalizedCategory.equals(rule.category)
+                    && rule.regex == regex
+                    && normalizedValue.equals(rule.value.trim())
+                    && scopeUrl.equals(normalizeNgTargetUrl(rule.targetUrl))) {
+                return false;
+            }
+        }
+        rules.add(new ScopedNgRule(normalizedCategory, normalizedValue, regex, scopeUrl,
+                targetTitle == null ? "" : targetTitle));
+        saveNgRules(preferences, rules);
+        invalidateNgRulesCache();
+        return true;
+    }
+
+    private void invalidateNgRulesCache() {
+        cachedNgRulesKey = null;
+        cachedNgRules = null;
     }
 
     private String ngTargetUrlForPage(String url) {
@@ -2765,7 +2821,7 @@ public class MainActivity extends Activity {
         if (THREAD_BUTTON_MENU.equals(id)) return text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu");
         if (THREAD_BUTTON_BOARD.equals(id)) return text("\u677f\u3078", "Go to board");
         if (THREAD_BUTTON_NEXT.equals(id)) return text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread");
-        if (THREAD_BUTTON_NG.equals(id)) return text("NG\u7ba1\u7406", "Manage NG rules");
+        if (THREAD_BUTTON_NG.equals(id)) return text("NGThread\u306b\u8ffd\u52a0", "Add to NGThread");
         if (THREAD_BUTTON_MEDIA.equals(id)) return text("\u30e1\u30c7\u30a3\u30a2", "Media");
         if (THREAD_BUTTON_LINKS.equals(id)) return text("\u30ea\u30f3\u30af", "Links");
         if (THREAD_BUTTON_COPY.equals(id)) return text("\u30b3\u30d4\u30fc", "Copy");
@@ -8768,6 +8824,10 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             toggleAaMode(tab, post, anchor);
         }));
+        menu.addView(dialogAction(R.drawable.ic_close, text("NG\u306b\u8ffd\u52a0", "Add to NG"), () -> {
+            dialog.dismiss();
+            showPostNgAddMenu(tab, post);
+        }));
         if (tab == null || NATIVE_THREAD.equals(tab.nativeKind)) {
             menu.addView(dialogAction(R.drawable.ic_reply, text("\u8fd4\u4fe1", "Reply"), () -> {
                 dialog.dismiss();
@@ -8778,6 +8838,36 @@ public class MainActivity extends Activity {
                 setReadThroughPost(tab, post);
             }));
         }
+        dialog.show();
+        Theme.styleDialog(dialog, this);
+    }
+
+    private void showPostNgAddMenu(CuspTab tab, Post post) {
+        ThreadPage page = tab == null ? null : tab.threadPage;
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setPadding(dp(18), dp(8), dp(18), 0);
+        menu.setBackgroundColor(surfaceColor());
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("NG\u306b\u8ffd\u52a0", "Add to NG"))
+                .setView(menu)
+                .create();
+        menu.addView(dialogAction(R.drawable.ic_text_fields, "NGWord", () -> {
+            dialog.dismiss();
+            openNgRuleAdd(page, "NGWord", post == null ? "" : post.body);
+        }));
+        menu.addView(dialogAction(R.drawable.ic_text_fields, "NGName", () -> {
+            dialog.dismiss();
+            openNgRuleAdd(page, "NGName", post == null ? "" : post.name);
+        }));
+        menu.addView(dialogAction(R.drawable.ic_text_fields, "NGID", () -> {
+            dialog.dismiss();
+            openNgRuleAdd(page, "NGID", post == null ? "" : post.id());
+        }));
+        menu.addView(dialogAction(R.drawable.ic_text_fields, "NGBe", () -> {
+            dialog.dismiss();
+            openNgRuleAdd(page, "NGBe", post == null ? "" : post.be());
+        }));
         dialog.show();
         Theme.styleDialog(dialog, this);
     }

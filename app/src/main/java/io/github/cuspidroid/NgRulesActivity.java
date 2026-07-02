@@ -40,6 +40,7 @@ public class NgRulesActivity extends Activity {
     private String currentCategory = CATEGORIES[0];
     private String presetValue = "";
     private boolean targetSelected;
+    private boolean resumedOnce;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +62,19 @@ public class NgRulesActivity extends Activity {
             if (!presetValue.isEmpty()) {
                 list.post(() -> showRuleDialog(null, -1, presetValue));
             }
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!targetSelected) {
+            if (resumedOnce) {
+                allRules.clear();
+                allRules.addAll(MainActivity.readNgRules(preferences));
+                buildLayout();
+            }
+            resumedOnce = true;
         }
     }
 
@@ -336,6 +350,9 @@ public class NgRulesActivity extends Activity {
         }
         String nextTarget = currentTargetUrl();
         for (MainActivity.ScopedNgRule rule : pageRules) {
+            if (rule.value == null || rule.value.trim().isEmpty()) {
+                continue;
+            }
             saved.add(new MainActivity.ScopedNgRule(
                     rule.category, rule.value, rule.regex, nextTarget, targetTitle));
         }
