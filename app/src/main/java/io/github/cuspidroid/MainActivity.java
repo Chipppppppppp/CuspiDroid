@@ -9345,12 +9345,12 @@ public class MainActivity extends Activity {
                     setBottomRefreshSpinning(loader, false);
                     loader.setTranslationY(hiddenOffset + (maxOffset - hiddenOffset) * progress);
                     loader.setRotation(progress * 270f);
-                    return true;
+                    return false;
                 }
                 if (draggingTop[0]) {
                     loader.setTranslationY(hiddenOffset);
                     loader.setRotation(0f);
-                    return true;
+                    return false;
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP
                     || event.getAction() == MotionEvent.ACTION_CANCEL) {
@@ -9367,15 +9367,14 @@ public class MainActivity extends Activity {
                     loader.clearAnimation();
                     loader.animate().translationY(triggerOffset).setDuration(110)
                             .withEndAction(refresh).start();
-                    return true;
+                    return false;
                 }
                 if (draggingTop[0] || loader.getVisibility() == View.VISIBLE) {
-                    boolean consumed = draggingTop[0] || loader.getVisibility() == View.VISIBLE;
                     startedAtTop[0] = false;
                     draggingTop[0] = false;
                     pullDistance[0] = 0;
                     resetTopRefreshLoader(loader);
-                    return consumed;
+                    return false;
                 }
             }
             return false;
@@ -10831,12 +10830,12 @@ public class MainActivity extends Activity {
                         setBottomRefreshSpinning(loader, false);
                         loader.setTranslationY(hiddenOffset + (maxOffset - hiddenOffset) * progress);
                         loader.setRotation(progress * 270f);
-                        return true;
+                        return false;
                     }
                     if (dragging[0]) {
                         loader.setTranslationY(hiddenOffset);
                         loader.setRotation(0f);
-                        return true;
+                        return false;
                     }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
@@ -10853,15 +10852,14 @@ public class MainActivity extends Activity {
                     loader.animate().translationY(triggerOffset).setDuration(110).withEndAction(() -> {
                         refresh.run();
                     }).start();
-                    return true;
+                    return false;
                 }
                 if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
-                    boolean consumed = dragging[0] || loader.getVisibility() == View.VISIBLE;
                     startedAtBottom[0] = false;
                     dragging[0] = false;
                     pullDistance[0] = 0;
                     resetBottomRefreshLoader(loader);
-                    return consumed;
+                    return false;
                 }
             }
             return false;
@@ -10960,7 +10958,7 @@ public class MainActivity extends Activity {
                         setBottomRefreshSpinning(topLoader, false);
                         topLoader.setTranslationY(topHidden + (topMax - topHidden) * progress);
                         topLoader.setRotation(progress * 270f);
-                        return true;
+                        return false;
                     }
                 } else if (activeEdge[0] > 0) {
                     if (isBottomJumpActive(tab) && event.getY() > downY[0] + dp(4)) {
@@ -10993,7 +10991,7 @@ public class MainActivity extends Activity {
                         setBottomRefreshSpinning(bottomLoader, false);
                         bottomLoader.setTranslationY(bottomHidden + (bottomMax - bottomHidden) * progress);
                         bottomLoader.setRotation(progress * 270f);
-                        return true;
+                        return false;
                     }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
@@ -11011,7 +11009,7 @@ public class MainActivity extends Activity {
                         topLoader.clearAnimation();
                         topLoader.animate().translationY(topTrigger).setDuration(110)
                                 .withEndAction(() -> refreshTabFromTop(tab)).start();
-                        return true;
+                        return false;
                     }
                     if (edge > 0) {
                         refreshingBottom[0] = true;
@@ -11022,15 +11020,12 @@ public class MainActivity extends Activity {
                         bottomLoader.clearAnimation();
                         bottomLoader.animate().translationY(bottomTrigger).setDuration(110)
                                 .withEndAction(() -> refreshThreadFromBottom(tab)).start();
-                        return true;
+                        return false;
                     }
                 }
                 if (dragging[0] || activeEdge[0] != 0
                         || topLoader.getVisibility() == View.VISIBLE
                         || bottomLoader.getVisibility() == View.VISIBLE) {
-                    boolean consumed = dragging[0] || activeEdge[0] != 0
-                            || topLoader.getVisibility() == View.VISIBLE
-                            || bottomLoader.getVisibility() == View.VISIBLE;
                     int edge = activeEdge[0];
                     activeEdge[0] = 0;
                     dragging[0] = false;
@@ -11043,7 +11038,7 @@ public class MainActivity extends Activity {
                     if (edge > 0 || bottomLoader.getVisibility() == View.VISIBLE) {
                         resetBottomRefreshLoader(bottomLoader);
                     }
-                    return consumed;
+                    return false;
                 }
             }
             return false;
@@ -11111,12 +11106,12 @@ public class MainActivity extends Activity {
                         setBottomRefreshSpinning(loader, false);
                         loader.setTranslationY(hiddenOffset + (maxOffset - hiddenOffset) * progress);
                         loader.setRotation(progress * 270f);
-                        return true;
+                        return false;
                     }
                     if (dragging[0]) {
                         loader.setTranslationY(hiddenOffset);
                         loader.setRotation(0f);
-                        return true;
+                        return false;
                     }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
@@ -11133,15 +11128,14 @@ public class MainActivity extends Activity {
                     loader.animate().translationY(triggerOffset).setDuration(110).withEndAction(() -> {
                         refresh.run();
                     }).start();
-                    return true;
+                    return false;
                 }
                 if (dragging[0] || loader.getVisibility() == View.VISIBLE) {
-                    boolean consumed = dragging[0] || loader.getVisibility() == View.VISIBLE;
                     startedAtTop[0] = false;
                     dragging[0] = false;
                     pullDistance[0] = 0;
                     resetTopRefreshLoader(loader);
-                    return consumed;
+                    return false;
                 }
             }
             return false;
@@ -11179,12 +11173,24 @@ public class MainActivity extends Activity {
         if (loader == null) {
             return;
         }
-        loader.clearAnimation();
+        loader.animate().setListener(null);
+        loader.animate().withEndAction(null);
         loader.animate().cancel();
+        loader.clearAnimation();
         setBottomRefreshSpinning(loader, false);
         loader.setTranslationY(hiddenOffset);
         loader.setRotation(0f);
         loader.setVisibility(View.GONE);
+        loader.post(() -> {
+            if (loader.getVisibility() == View.GONE) {
+                loader.animate().setListener(null);
+                loader.animate().withEndAction(null);
+                loader.animate().cancel();
+                loader.clearAnimation();
+                loader.setTranslationY(hiddenOffset);
+                loader.setRotation(0f);
+            }
+        });
     }
 
     private void setBottomRefreshSpinning(View loader, boolean spinning) {
