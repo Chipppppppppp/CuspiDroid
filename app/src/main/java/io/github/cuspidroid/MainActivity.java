@@ -48,7 +48,6 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.text.TextPaint;
 import android.text.style.BackgroundColorSpan;
-import android.text.style.CharacterStyle;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.text.method.LinkMovementMethod;
@@ -208,6 +207,9 @@ public class MainActivity extends Activity {
     static final String FUTABA_BBSMENU_URL = "https://www.2chan.net/bbsmenu.html";
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_NG_RULES = "ng_rules";
+    static final String PREF_NG_DISPLAY_MODE = "ng_display_mode";
+    static final String NG_DISPLAY_OMIT = "omit";
+    static final String NG_DISPLAY_HIDE = "hide";
     static final String PREF_READ_POSTS = "read_posts";
     static final String PREF_AA_POSTS = "aa_posts";
     static final String PREF_AUTO_AA = "auto_aa";
@@ -7256,7 +7258,8 @@ public class MainActivity extends Activity {
     private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item) {
         Post post = item.post;
         int depth = item.depth;
-        if (matchesNgPost(post)) {
+        String ngCategory = ngMatchCategory(post);
+        if (ngCategory != null && ngDisplayHide()) {
             return null;
         }
         post.aaMode = aaModeForPost(page, post);
@@ -7273,7 +7276,8 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setTag(R.id.tag_post_card, true);
-        boolean copyPasteOmitted = copyPasteSourcePost(page, post) != null;
+        boolean ngOmitted = ngCategory != null;
+        boolean copyPasteOmitted = !ngOmitted && copyPasteSourcePost(page, post) != null;
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(isPostUnread(page, tab, post), isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
@@ -7298,6 +7302,23 @@ public class MainActivity extends Activity {
 
         if (copyPasteOmitted) {
             TextView omitted = copyPasteOmittedView(page, post, card, tab, readAction, replyAction);
+            card.addView(omitted, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+            if (allowSwipeActions) {
+                attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
+            }
+            if (showTreeConnector) {
+                shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
+                        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            shell.addView(card, cardFrameParams);
+            return new PostCardShell(shell, card);
+        }
+
+        if (ngOmitted) {
+            TextView omitted = omittedPostView(page, post, card, tab,
+                    "[" + ngCategory + "]", readAction, replyAction);
             card.addView(omitted, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
             if (allowSwipeActions) {
@@ -7493,8 +7514,14 @@ public class MainActivity extends Activity {
 
     private TextView copyPasteOmittedView(ThreadPage page, Post post, View card, CuspTab tab,
                                          View readAction, View replyAction) {
+        return omittedPostView(page, post, card, tab, text("\u30b3\u30d4\u30da", "Copy-paste"), readAction, replyAction);
+    }
+
+    private TextView omittedPostView(ThreadPage page, Post post, View card, CuspTab tab,
+                                     String label, View readAction, View replyAction) {
         TextView view = new TextView(this);
-        view.setText(text("\u30b3\u30d4\u30da", "Copy-paste"));
+        String number = post == null ? "" : String.valueOf(post.number);
+        view.setText((number.isEmpty() ? "" : number + "  ") + (label == null ? "" : label));
         view.setTextColor(TEAL);
         view.setTextSize(15);
         view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -7651,7 +7678,7 @@ public class MainActivity extends Activity {
         List<PostRenderItem> items = new ArrayList<>();
         for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
             Post post = page.posts.get(i);
-            if (!matchesNgPost(post)) {
+            if (shouldRenderPost(post)) {
                 items.add(new PostRenderItem(post, 0, new LinkedHashSet<>(), false));
             }
         }
@@ -7675,7 +7702,7 @@ public class MainActivity extends Activity {
         Set<Integer> visibleNumbers = new LinkedHashSet<>();
         for (int i = Math.max(0, fromPostIndex); i < page.posts.size(); i++) {
             Post post = page.posts.get(i);
-            if (!matchesNgPost(post)) {
+            if (shouldRenderPost(post)) {
                 visible.add(post);
                 visibleNumbers.add(post.number);
             }
@@ -7735,7 +7762,7 @@ public class MainActivity extends Activity {
         List<Post> visible = new ArrayList<>();
         Set<Integer> visibleNumbers = new LinkedHashSet<>();
         for (Post post : page.posts) {
-            if (!matchesNgPost(post)) {
+            if (shouldRenderPost(post)) {
                 visible.add(post);
                 visibleNumbers.add(post.number);
             }
@@ -8037,10 +8064,23 @@ public class MainActivity extends Activity {
         SpannableString text = new SpannableString(value);
         int numberEnd = String.valueOf(displayNumber).length();
         text.setSpan(new StyleSpan(Typeface.BOLD), 0, numberEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        int nameStart = numberEnd + 2;
-        int nameEnd = Math.min(value.length(), nameStart + name.length());
+        String actionName = postActionName(name);
+        int nameOffset = actionName.isEmpty() ? -1 : name.indexOf(actionName);
+        int nameStart = numberEnd + 2 + Math.max(0, nameOffset);
+        int nameEnd = actionName.isEmpty() ? nameStart : Math.min(value.length(), nameStart + actionName.length());
         if (nameEnd > nameStart) {
-            text.setSpan(new PostNameSpan(), nameStart, nameEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.setSpan(new PostNameSpan(actionName) {
+                @Override
+                public void onClick(View widget) {
+                    if (suppressNextLinkClick.remove(widget)) {
+                        return;
+                    }
+                    if (consumePostPopupTap(widget)) {
+                        return;
+                    }
+                    showNamePopup(widget, page, name);
+                }
+            }, nameStart, nameEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         Matcher matcher = POST_ID_PATTERN.matcher(value);
         while (matcher.find()) {
@@ -8227,7 +8267,7 @@ public class MainActivity extends Activity {
             int start = spanned.getSpanStart(span);
             int end = spanned.getSpanEnd(span);
             if (start <= offset && end > offset) {
-                String name = spanned.subSequence(start, end).toString().trim();
+                String name = span.name;
                 if (name.isEmpty()) {
                     continue;
                 }
@@ -8741,26 +8781,45 @@ public class MainActivity extends Activity {
     }
 
     private boolean matchesNgPost(Post post) {
+        return ngMatchCategory(post) != null;
+    }
+
+    private boolean shouldRenderPost(Post post) {
+        return ngMatchCategory(post) == null || !ngDisplayHide();
+    }
+
+    private String ngMatchCategory(Post post) {
         if (post == null) {
-            return false;
+            return null;
         }
         NgRules rules = ngRules();
         String targetUrl = currentNgThreadUrl();
         String cacheKey = cachedNgRulesKey + "\n" + targetUrl;
         if (post.cachedNgRulesKey != null && post.cachedNgRulesKey.equals(cacheKey)) {
-            return post.cachedNgMatch;
+            return post.cachedNgMatch ? post.cachedNgCategory : null;
         }
-        boolean match = rules.matches("NGWord", post.body, targetUrl)
-                || rules.matches("NGName", post.name, targetUrl)
-                || rules.matches("NGID", post.id(), targetUrl)
-                || rules.matches("NGBe", post.be(), targetUrl);
+        String match = null;
+        if (rules.matches("NGWord", post.body, targetUrl)) {
+            match = "NGWord";
+        } else if (rules.matches("NGName", post.name, targetUrl)) {
+            match = "NGName";
+        } else if (rules.matches("NGID", post.id(), targetUrl)) {
+            match = "NGID";
+        } else if (rules.matches("NGBe", post.be(), targetUrl)) {
+            match = "NGBe";
+        }
         post.cachedNgRulesKey = cacheKey;
-        post.cachedNgMatch = match;
+        post.cachedNgCategory = match == null ? "" : match;
+        post.cachedNgMatch = match != null;
         return match;
     }
 
     private boolean matchesNgThread(String title) {
         return ngRules().matches("NGThread", title, currentNgThreadUrl());
+    }
+
+    private boolean ngDisplayHide() {
+        return NG_DISPLAY_HIDE.equals(preferences.getString(PREF_NG_DISPLAY_MODE, NG_DISPLAY_OMIT));
     }
 
     private String currentNgThreadUrl() {
@@ -10196,6 +10255,10 @@ public class MainActivity extends Activity {
 
     private int estimatePostSlotHeight(PostRenderItem item) {
         Post post = item == null ? null : item.post;
+        if (post != null && ngMatchCategory(post) != null && !ngDisplayHide()) {
+            int depth = item == null ? 0 : item.depth;
+            return dp(52 + Math.min(depth, 8) * 2);
+        }
         if (post != null && copyPasteOmitEnabled() && post.copyPasteSourceNumber > 0) {
             return dp(52 + Math.min(item.depth, 8) * 2);
         }
@@ -17123,6 +17186,45 @@ public class MainActivity extends Activity {
             return;
         }
         showPostsPopup(anchor, page, targets, true);
+    }
+
+    private void showNamePopup(View anchor, ThreadPage page, String name) {
+        String targetName = postActionName(name);
+        if (page == null || targetName.isEmpty()) {
+            return;
+        }
+        List<Post> targets = new ArrayList<>();
+        for (Post post : page.posts) {
+            if (targetName.equals(postActionName(post.name))) {
+                targets.add(post);
+            }
+        }
+        if (targets.isEmpty()) {
+            return;
+        }
+        showPostsPopup(anchor, page, targets, true);
+    }
+
+    private String postActionName(String name) {
+        String value = name == null ? "" : name.trim();
+        while (!value.isEmpty()) {
+            int close = value.length() - 1;
+            char closeChar = value.charAt(close);
+            char openChar;
+            if (closeChar == ')') {
+                openChar = '(';
+            } else if (closeChar == '\uff09') {
+                openChar = '\uff08';
+            } else {
+                break;
+            }
+            int open = value.lastIndexOf(openChar);
+            if (open <= 0) {
+                break;
+            }
+            value = value.substring(0, open).trim();
+        }
+        return value;
     }
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
@@ -26893,9 +26995,18 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static class PostNameSpan extends CharacterStyle {
+    private static abstract class PostNameSpan extends ClickableSpan {
+        final String name;
+
+        PostNameSpan(String name) {
+            this.name = name == null ? "" : name;
+        }
+
         @Override
-        public void updateDrawState(TextPaint tp) {
+        public void updateDrawState(TextPaint ds) {
+            super.updateDrawState(ds);
+            ds.setColor(TEAL);
+            ds.setUnderlineText(false);
         }
     }
 
@@ -26936,6 +27047,7 @@ public class MainActivity extends Activity {
         String cachedId;
         String cachedBe;
         String cachedNgRulesKey;
+        String cachedNgCategory;
         boolean cachedNgMatch;
         Boolean cachedLikelyAa;
         String cachedAaBody;

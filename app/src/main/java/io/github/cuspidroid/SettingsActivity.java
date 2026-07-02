@@ -56,6 +56,9 @@ public class SettingsActivity extends Activity {
     private CheckBox markExistingReadOnThreadUpdate;
     private CheckBox colorUnreadPosts;
     private CheckBox omitCopyPaste;
+    private RadioGroup ngDisplayGroup;
+    private RadioButton ngDisplayOmit;
+    private RadioButton ngDisplayHide;
     private CheckBox autoAa;
     private CheckBox cacheEnabled;
     private CheckBox saveBrowsingHistory;
@@ -367,8 +370,19 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoplayGifs);
         root.addView(autoplayGifs);
 
+        root.addView(helperText(MainActivity.text("NG\u306e\u8868\u793a", "NG display")));
+        ngDisplayGroup = new RadioGroup(this);
+        ngDisplayGroup.setOrientation(RadioGroup.HORIZONTAL);
+        ngDisplayOmit = radio(MainActivity.text("\u7701\u7565", "Omit"));
+        ngDisplayHide = radio(MainActivity.text("\u975e\u8868\u793a", "Hide"));
+        ngDisplayOmit.setId(View.generateViewId());
+        ngDisplayHide.setId(View.generateViewId());
+        ngDisplayGroup.addView(ngDisplayOmit, new RadioGroup.LayoutParams(0, dp(44), 1));
+        ngDisplayGroup.addView(ngDisplayHide, new RadioGroup.LayoutParams(0, dp(44), 1));
+        root.addView(ngDisplayGroup);
+
         root.addView(managementRow(R.drawable.ic_close,
-                MainActivity.text("NG\u8a2d\u5b9a", "NG settings"),
+                MainActivity.text("NG\u7ba1\u7406", "NG management"),
                 MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u7ba1\u7406", "Manage NGWord, NGName, NGID, and related rules"),
                 v -> startActivity(new Intent(this, NgRulesActivity.class))));
 
@@ -611,6 +625,12 @@ public class SettingsActivity extends Activity {
         markExistingReadOnThreadUpdate.setChecked(preferences.getBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true));
         colorUnreadPosts.setChecked(preferences.getBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true));
         omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
+        if (MainActivity.NG_DISPLAY_HIDE.equals(preferences.getString(
+                MainActivity.PREF_NG_DISPLAY_MODE, MainActivity.NG_DISPLAY_OMIT))) {
+            ngDisplayHide.setChecked(true);
+        } else {
+            ngDisplayOmit.setChecked(true);
+        }
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
@@ -705,6 +725,7 @@ public class SettingsActivity extends Activity {
         markExistingReadOnThreadUpdate.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         colorUnreadPosts.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        ngDisplayGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -802,6 +823,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, markExistingReadOnThreadUpdate.isChecked())
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, colorUnreadPosts.isChecked())
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
+                .putString(MainActivity.PREF_NG_DISPLAY_MODE,
+                        ngDisplayHide.isChecked() ? MainActivity.NG_DISPLAY_HIDE : MainActivity.NG_DISPLAY_OMIT)
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
@@ -835,7 +858,7 @@ public class SettingsActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("\u8a2d\u5b9a\u3092\u30c7\u30d5\u30a9\u30eb\u30c8\u306b\u623b\u3059", "Reset all settings"))
                 .setMessage(MainActivity.text(
-                        "\u8868\u793a\u3001\u64cd\u4f5c\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3057\u307e\u3059\u3002BBS\u30ea\u30f3\u30af\u3001NG\u8a2d\u5b9a\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u81ea\u5206\u306e\u66f8\u304d\u8fbc\u307f\u60c5\u5831\u306f\u6b8b\u308a\u307e\u3059\u3002",
+                        "\u8868\u793a\u3001\u64cd\u4f5c\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3057\u307e\u3059\u3002BBS\u30ea\u30f3\u30af\u3001NG\u7ba1\u7406\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u81ea\u5206\u306e\u66f8\u304d\u8fbc\u307f\u60c5\u5831\u306f\u6b8b\u308a\u307e\u3059\u3002",
                         "Restore display, controls, search, gesture, and related settings. BBS links, NG rules, history, read positions, bookmarks, and your post markers are kept."))
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(MainActivity.text("\u623b\u3059", "Reset"), (d, which) -> resetSettingsDefaults())
@@ -1045,6 +1068,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true)
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true)
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, false)
+                .putString(MainActivity.PREF_NG_DISPLAY_MODE, MainActivity.NG_DISPLAY_OMIT)
                 .putBoolean(MainActivity.PREF_AUTO_AA, true)
                 .putBoolean(MainActivity.PREF_AA_DEBUG, false)
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)

@@ -87,7 +87,7 @@ public class NgRulesActivity extends Activity {
     }
 
     private void buildTargetList(LinearLayout root) {
-        TextView title = textView(MainActivity.text("NG\u8a2d\u5b9a", "NG settings"), 24, Theme.text(this));
+        TextView title = textView(MainActivity.text("NG\u7ba1\u7406", "NG management"), 24, Theme.text(this));
         title.setPadding(dp(4), 0, dp(4), dp(14));
         root.addView(title);
         ScrollView scroll = new ScrollView(this);
@@ -152,7 +152,7 @@ public class NgRulesActivity extends Activity {
     }
 
     private void buildEditor(LinearLayout root) {
-        root.addView(textView(MainActivity.text("NG\u8a2d\u5b9a", "NG settings"), 24, Theme.text(this)));
+        root.addView(textView(MainActivity.text("NG\u7ba1\u7406", "NG management"), 24, Theme.text(this)));
         if (!targetUrl.isEmpty()) {
             TextView name = textView(targetTitle.isEmpty()
                     ? MainActivity.text("\u677f", "Board") : targetTitle, 16, Theme.text(this));
@@ -165,7 +165,7 @@ public class NgRulesActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
         } else {
             TextView description = textView(
-                    MainActivity.text("\u5168\u677f\u306b\u9069\u7528\u3059\u308bNG\u8a2d\u5b9a", "NG settings applied to all boards"),
+                    MainActivity.text("\u5168\u677f\u306b\u9069\u7528\u3059\u308bNG\u7ba1\u7406", "NG management applied to all boards"),
                     13, Theme.muted(this));
             description.setPadding(dp(4), dp(8), dp(4), dp(8));
             root.addView(description);
