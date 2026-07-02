@@ -449,7 +449,7 @@ public class ButtonLayoutSettingsActivity extends Activity {
         if (MainActivity.THREAD_BUTTON_MENU.equals(id)) return MainActivity.text("\u30b9\u30ec\u30e1\u30cb\u30e5\u30fc", "Thread menu");
         if (MainActivity.THREAD_BUTTON_BOARD.equals(id)) return MainActivity.text("\u677f\u3078", "Go to board");
         if (MainActivity.THREAD_BUTTON_NEXT.equals(id)) return MainActivity.text("\u6b21\u30b9\u30ec\u691c\u7d22", "Search next thread");
-        if (MainActivity.THREAD_BUTTON_NG.equals(id)) return MainActivity.text("NG\u7ba1\u7406", "Manage NG rules");
+        if (MainActivity.THREAD_BUTTON_NG.equals(id)) return MainActivity.text("NGThread\u306b\u8ffd\u52a0", "Add to NGThread");
         if (MainActivity.THREAD_BUTTON_MEDIA.equals(id)) return MainActivity.text("\u30e1\u30c7\u30a3\u30a2", "Media");
         if (MainActivity.THREAD_BUTTON_LINKS.equals(id)) return MainActivity.text("\u30ea\u30f3\u30af", "Links");
         if (MainActivity.THREAD_BUTTON_COPY.equals(id)) return MainActivity.text("\u30b3\u30d4\u30fc", "Copy");

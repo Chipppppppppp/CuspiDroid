@@ -2588,7 +2588,10 @@ public class MainActivity extends Activity {
     }
 
     private void showThreadTitleMenuWithinScreen(PopupWindow popup, View menu) {
-        int width = dp(164);
+        int width = popup.getWidth();
+        if (width <= 0) {
+            width = dp(164);
+        }
         menu.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int height = menu.getMeasuredHeight();
@@ -2596,7 +2599,7 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
         int[] titleLocation = new int[2];
         bottomThreadBar.getLocationOnScreen(titleLocation);
-        int x = frame.right - width;
+        int x = Math.max(frame.left, frame.right - width);
         int y = Math.max(frame.top, titleLocation[1] - height);
         popup.setClippingEnabled(true);
         popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
@@ -4807,18 +4810,43 @@ public class MainActivity extends Activity {
         if (tab == null) {
             return text("\u30bf\u30d6", "Tab");
         }
-        if (tab.overviewTitle != null && !tab.overviewTitle.trim().isEmpty()
-                && tab.readerView == null) {
-            return tab.overviewTitle.trim();
-        }
         if (NATIVE_BOARD.equals(tab.nativeKind) && tab.url != null && !tab.url.trim().isEmpty()) {
             if (isBbsInternalPageUrl(tab.url)) {
                 return internalPageTitle(tab.url);
             }
-            return displayBoardTitle(tab.url);
+            String title = tab.overviewTitle != null && !tab.overviewTitle.trim().isEmpty()
+                    && tab.readerView == null ? tab.overviewTitle.trim() : displayBoardTitle(tab.url);
+            return isBoardUrl(tab.url) && !isBbsDirectoryUrl(tab.url) ? boardTitleWithPrefix(title) : title;
+        }
+        if (tab.overviewTitle != null && !tab.overviewTitle.trim().isEmpty()
+                && tab.readerView == null) {
+            return tab.overviewTitle.trim();
         }
         String title = tab.title;
         return title == null || title.trim().isEmpty() ? text("\u30bf\u30d6", "Tab") : title;
+    }
+
+    private String boardTitleWithPrefix(String title) {
+        String value = title == null ? "" : title.trim();
+        value = stripBoardTitlePrefix(value);
+        if (value.isEmpty()) {
+            value = text("\u677f", "Board");
+        }
+        return text("\u677f: ", "Board: ") + value;
+    }
+
+    private String stripBoardTitlePrefix(String title) {
+        if (title == null) {
+            return "";
+        }
+        String value = title.trim();
+        if (value.startsWith("\u677f: ")) {
+            return value.substring(3).trim();
+        }
+        if (value.startsWith("Board: ")) {
+            return value.substring(7).trim();
+        }
+        return value;
     }
 
     private String pendingNewTabTitle() {
