@@ -3782,8 +3782,8 @@ public class MainActivity extends Activity {
             result.velocity = threadVelocity(key, responses);
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
-            int readNumber = readPosts.optInt(result.url, 0);
             result.hasReadHistory = threadHistoryContains(historyUrls, result.url);
+            int readNumber = result.hasReadHistory ? boardThreadReadNumber(readPosts, result.url) : 0;
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = boardDisplay;
             result.priorityMatch = matchingBoardPriorityWord(title, boardUrl);
@@ -13585,7 +13585,7 @@ public class MainActivity extends Activity {
                 continue;
             }
             String tabUrl = threadUrl(tab);
-            if (sameSavedUrl(tabUrl, url)) {
+            if (sameThreadIdentity(tabUrl, url)) {
                 return tab;
             }
         }
@@ -21816,6 +21816,36 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    private int boardThreadReadNumber(JSONObject readPosts, String url) {
+        int read = readPostNumberFromObject(readPosts, url);
+        CuspTab openTab = matchingThreadTab(url);
+        if (openTab != null) {
+            read = Math.max(read, openTab.readPostNumber);
+        }
+        return read;
+    }
+
+    private int readPostNumberFromObject(JSONObject object, String url) {
+        if (object == null || url == null || url.trim().isEmpty()) {
+            return 0;
+        }
+        int read = 0;
+        for (String key : threadHistoryKeys(url)) {
+            read = Math.max(read, object.optInt(key, 0));
+        }
+        try {
+            Iterator<String> keys = object.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (sameThreadIdentity(key, url)) {
+                    read = Math.max(read, object.optInt(key, 0));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return read;
+    }
+
     private String boardDataUrlFromHtml(String boardUrl, String board) {
         try {
             String html = download(boardUrl, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
@@ -22776,24 +22806,45 @@ public class MainActivity extends Activity {
     }
 
     private boolean threadHistoryContains(Set<String> historyUrls, String url) {
-        String target = normalizeHistoryUrl(url);
-        if (target.isEmpty()) {
+        if (historyUrls == null || historyUrls.isEmpty()) {
             return false;
         }
-        return historyUrls != null && historyUrls.contains(target);
+        for (String key : threadHistoryKeys(url)) {
+            if (!key.isEmpty() && historyUrls.contains(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Set<String> threadHistoryUrlSnapshot() {
         Set<String> urls = new LinkedHashSet<>();
         for (ThreadHistoryItem item : threadHistory()) {
             if (item != null) {
-                String url = normalizeHistoryUrl(item.url);
-                if (!url.isEmpty()) {
-                    urls.add(url);
-                }
+                urls.addAll(threadHistoryKeys(item.url));
             }
         }
         return urls;
+    }
+
+    private Set<String> threadHistoryKeys(String url) {
+        Set<String> keys = new LinkedHashSet<>();
+        String normalized = normalizeHistoryUrl(url);
+        if (!normalized.isEmpty()) {
+            keys.add(normalized);
+        }
+        DatAddress address = datAddress(url);
+        if (address != null && address.board != null && address.key != null) {
+            String board = address.board.toLowerCase(Locale.ROOT);
+            String key = address.key.toLowerCase(Locale.ROOT);
+            if (address.host != null && !address.host.isEmpty()) {
+                keys.add("dat:" + address.host.toLowerCase(Locale.ROOT) + "/" + board + "/" + key);
+            }
+            if (address.server != null && !address.server.isEmpty()) {
+                keys.add("dat-server:" + address.server.toLowerCase(Locale.ROOT) + "/" + board + "/" + key);
+            }
+        }
+        return keys;
     }
 
     private String normalizeHistoryUrl(String url) {
