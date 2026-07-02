@@ -9284,12 +9284,35 @@ public class MainActivity extends Activity {
         final boolean[] draggingTop = new boolean[1];
         final boolean[] refreshingTop = new boolean[1];
         final boolean[] loadMoreArmed = new boolean[1];
+        final boolean[] ignoreUntilUp = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
             int hiddenOffset = -dp(58);
             int maxOffset = dp(86);
             int maxPull = dp(164);
             int triggerPull = maxPull / 2;
             int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                ignoreUntilUp[0] = false;
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                startedAtTop[0] = !scroll.canScrollVertically(-1);
+                draggingTop[0] = false;
+                loadMoreArmed[0] = isScrollAtBottom(scroll);
+                if (refreshingTop[0] && loader.getVisibility() != View.GONE) {
+                    ignoreUntilUp[0] = true;
+                    return false;
+                }
+                if (!refreshingTop[0]) {
+                    resetTopRefreshLoader(loader);
+                }
+            }
+            if (ignoreUntilUp[0]) {
+                if (event.getAction() == MotionEvent.ACTION_UP
+                        || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                    ignoreUntilUp[0] = false;
+                }
+                return false;
+            }
             if (refreshingTop[0]) {
                 if (loader.getVisibility() == View.GONE) {
                     refreshingTop[0] = false;
@@ -9297,16 +9320,7 @@ public class MainActivity extends Activity {
                     return false;
                 }
             }
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                downY[0] = event.getY();
-                pullDistance[0] = 0;
-                startedAtTop[0] = !scroll.canScrollVertically(-1);
-                draggingTop[0] = false;
-                loadMoreArmed[0] = isScrollAtBottom(scroll);
-                if (!refreshingTop[0]) {
-                    resetTopRefreshLoader(loader);
-                }
-            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (!draggingTop[0] && loadMoreArmed[0] && downY[0] - event.getY() > dp(54)) {
                     loadMoreArmed[0] = false;
                     maybeLoadMoreFullTextResults(fullTextLoadMorePage, scroll);
@@ -9332,7 +9346,7 @@ public class MainActivity extends Activity {
                     startedAtTop[0] = false;
                     draggingTop[0] = false;
                     pullDistance[0] = 0;
-                    resetTopRefreshLoader(loader);
+                    animateTopRefreshLoaderClosed(loader);
                     return false;
                 }
                 if (pull > dp(4)) {
@@ -10770,12 +10784,34 @@ public class MainActivity extends Activity {
         final boolean[] startedAtBottom = new boolean[1];
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshing = new boolean[1];
+        final boolean[] ignoreUntilUp = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
             int hiddenOffset = dp(58);
             int maxOffset = -dp(86);
             int maxPull = dp(164);
             int triggerPull = maxPull / 2;
             int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                ignoreUntilUp[0] = false;
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                startedAtBottom[0] = !scroll.canScrollVertically(1);
+                dragging[0] = false;
+                if (refreshing[0] && loader.getVisibility() != View.GONE) {
+                    ignoreUntilUp[0] = true;
+                    return false;
+                }
+                if (!refreshing[0]) {
+                    resetBottomRefreshLoader(loader);
+                }
+            }
+            if (ignoreUntilUp[0]) {
+                if (event.getAction() == MotionEvent.ACTION_UP
+                        || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                    ignoreUntilUp[0] = false;
+                }
+                return false;
+            }
             if (refreshing[0]) {
                 if (loader.getVisibility() == View.GONE) {
                     refreshing[0] = false;
@@ -10783,15 +10819,7 @@ public class MainActivity extends Activity {
                     return false;
                 }
             }
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                downY[0] = event.getY();
-                pullDistance[0] = 0;
-                startedAtBottom[0] = !scroll.canScrollVertically(1);
-                dragging[0] = false;
-                if (!refreshing[0]) {
-                    resetBottomRefreshLoader(loader);
-                }
-            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 CuspTab tab = currentTab();
                 if (isBottomJumpActive(tab) && event.getY() > downY[0] + dp(4)) {
                     cancelBottomJump(tab);
@@ -10858,7 +10886,7 @@ public class MainActivity extends Activity {
                     startedAtBottom[0] = false;
                     dragging[0] = false;
                     pullDistance[0] = 0;
-                    resetBottomRefreshLoader(loader);
+                    animateBottomRefreshLoaderClosed(loader);
                     return false;
                 }
             }
@@ -10875,6 +10903,7 @@ public class MainActivity extends Activity {
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshingTop = new boolean[1];
         final boolean[] refreshingBottom = new boolean[1];
+        final boolean[] ignoreUntilUp = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
             int topHidden = -dp(58);
             int topMax = dp(86);
@@ -10884,6 +10913,29 @@ public class MainActivity extends Activity {
             int triggerPull = maxPull / 2;
             int topTrigger = topHidden + (topMax - topHidden) / 2;
             int bottomTrigger = bottomHidden + (bottomMax - bottomHidden) / 2;
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                ignoreUntilUp[0] = false;
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                activeEdge[0] = 0;
+                dragging[0] = false;
+                startedAtTop[0] = !scroll.canScrollVertically(-1);
+                startedAtBottom[0] = !scroll.canScrollVertically(1);
+                if ((refreshingTop[0] && topLoader.getVisibility() != View.GONE)
+                        || (refreshingBottom[0] && bottomLoader.getVisibility() != View.GONE)) {
+                    ignoreUntilUp[0] = true;
+                    return false;
+                }
+                resetTopRefreshLoader(topLoader);
+                resetBottomRefreshLoader(bottomLoader);
+            }
+            if (ignoreUntilUp[0]) {
+                if (event.getAction() == MotionEvent.ACTION_UP
+                        || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                    ignoreUntilUp[0] = false;
+                }
+                return false;
+            }
             if (refreshingTop[0] && topLoader.getVisibility() == View.GONE) {
                 refreshingTop[0] = false;
             }
@@ -10893,16 +10945,7 @@ public class MainActivity extends Activity {
             if (refreshingTop[0] || refreshingBottom[0]) {
                 return false;
             }
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                downY[0] = event.getY();
-                pullDistance[0] = 0;
-                activeEdge[0] = 0;
-                dragging[0] = false;
-                startedAtTop[0] = !scroll.canScrollVertically(-1);
-                startedAtBottom[0] = !scroll.canScrollVertically(1);
-                resetTopRefreshLoader(topLoader);
-                resetBottomRefreshLoader(bottomLoader);
-            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 float dy = event.getY() - downY[0];
                 if (activeEdge[0] == 0) {
                     if (!startedAtTop[0] && !scroll.canScrollVertically(-1)) {
@@ -11033,10 +11076,10 @@ public class MainActivity extends Activity {
                     startedAtBottom[0] = false;
                     pullDistance[0] = 0;
                     if (edge < 0 || topLoader.getVisibility() == View.VISIBLE) {
-                        resetTopRefreshLoader(topLoader);
+                        animateTopRefreshLoaderClosed(topLoader);
                     }
                     if (edge > 0 || bottomLoader.getVisibility() == View.VISIBLE) {
-                        resetBottomRefreshLoader(bottomLoader);
+                        animateBottomRefreshLoaderClosed(bottomLoader);
                     }
                     return false;
                 }
@@ -11051,12 +11094,34 @@ public class MainActivity extends Activity {
         final boolean[] startedAtTop = new boolean[1];
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshing = new boolean[1];
+        final boolean[] ignoreUntilUp = new boolean[1];
         scroll.setOnTouchListener((v, event) -> {
             int hiddenOffset = -dp(58);
             int maxOffset = dp(86);
             int maxPull = dp(164);
             int triggerPull = maxPull / 2;
             int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                ignoreUntilUp[0] = false;
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                startedAtTop[0] = !scroll.canScrollVertically(-1);
+                dragging[0] = false;
+                if (refreshing[0] && loader.getVisibility() != View.GONE) {
+                    ignoreUntilUp[0] = true;
+                    return false;
+                }
+                if (!refreshing[0]) {
+                    resetTopRefreshLoader(loader);
+                }
+            }
+            if (ignoreUntilUp[0]) {
+                if (event.getAction() == MotionEvent.ACTION_UP
+                        || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                    ignoreUntilUp[0] = false;
+                }
+                return false;
+            }
             if (refreshing[0]) {
                 if (loader.getVisibility() == View.GONE) {
                     refreshing[0] = false;
@@ -11064,15 +11129,7 @@ public class MainActivity extends Activity {
                     return false;
                 }
             }
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                downY[0] = event.getY();
-                pullDistance[0] = 0;
-                startedAtTop[0] = !scroll.canScrollVertically(-1);
-                dragging[0] = false;
-                if (!refreshing[0]) {
-                    resetTopRefreshLoader(loader);
-                }
-            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (!startedAtTop[0] && !dragging[0] && !refreshing[0]
                         && !scroll.canScrollVertically(-1)) {
                     startedAtTop[0] = true;
@@ -11134,7 +11191,7 @@ public class MainActivity extends Activity {
                     startedAtTop[0] = false;
                     dragging[0] = false;
                     pullDistance[0] = 0;
-                    resetTopRefreshLoader(loader);
+                    animateTopRefreshLoaderClosed(loader);
                     return false;
                 }
             }
@@ -11154,9 +11211,12 @@ public class MainActivity extends Activity {
         if (loader == null) {
             return;
         }
+        loader.animate().setListener(null);
+        loader.animate().withEndAction(null);
         loader.animate().cancel();
         loader.clearAnimation();
         setBottomRefreshSpinning(loader, false);
+        loader.setVisibility(View.VISIBLE);
         loader.animate().translationY(hiddenOffset).rotation(0f).setDuration(140)
                 .withEndAction(() -> resetRefreshLoader(loader, hiddenOffset)).start();
     }
