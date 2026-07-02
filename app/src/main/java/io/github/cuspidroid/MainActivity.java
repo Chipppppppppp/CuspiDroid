@@ -3759,7 +3759,8 @@ public class MainActivity extends Activity {
         page.url = boardUrl;
         page.title = boardTitle(boardUrl);
         JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
-        Set<String> historyUrls = threadHistoryUrlSnapshot();
+        List<ThreadHistoryItem> historyItems = threadHistory();
+        Set<String> historyUrls = threadHistoryUrlSnapshot(historyItems);
         String boardDisplay = displayBoardTitle(boardUrl);
         Pattern pattern = Pattern.compile(
                 "<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])thre(?![A-Za-z0-9_-])[^\"']*[\"'][^>]*data-res=[\"']?(\\d+)[\"']?[^>]*>(.*?)(?=<div[^>]+class=[\"'][^\"']*(?<![A-Za-z0-9_-])thre(?![A-Za-z0-9_-])|<table[^>]+align=left|</body>)",
@@ -3782,7 +3783,7 @@ public class MainActivity extends Activity {
             result.velocity = threadVelocity(key, responses);
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
-            result.hasReadHistory = threadHistoryContains(historyUrls, result.url);
+            result.hasReadHistory = threadHistoryContains(historyUrls, historyItems, result.url);
             int readNumber = result.hasReadHistory ? boardThreadReadNumber(readPosts, result.url) : 0;
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = boardDisplay;
@@ -21776,7 +21777,8 @@ public class MainActivity extends Activity {
         page.url = pageUrl;
         page.title = boardTitle(pageUrl);
         JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
-        Set<String> historyUrls = threadHistoryUrlSnapshot();
+        List<ThreadHistoryItem> historyItems = threadHistory();
+        Set<String> historyUrls = threadHistoryUrlSnapshot(historyItems);
         String boardDisplay = displayBoardTitle(pageUrl);
         int order = 1;
         for (String line : body.split("\\r?\\n")) {
@@ -21803,8 +21805,8 @@ public class MainActivity extends Activity {
             result.velocity = threadVelocity(key, responses);
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
-            int readNumber = readPosts.optInt(result.url, 0);
-            result.hasReadHistory = threadHistoryContains(historyUrls, result.url);
+            result.hasReadHistory = threadHistoryContains(historyUrls, historyItems, result.url);
+            int readNumber = result.hasReadHistory ? boardThreadReadNumber(readPosts, result.url) : 0;
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = boardDisplay;
             result.priorityMatch = matchingBoardPriorityWord(title, pageUrl);
@@ -22806,11 +22808,27 @@ public class MainActivity extends Activity {
     }
 
     private boolean threadHistoryContains(Set<String> historyUrls, String url) {
+        return threadHistoryContains(historyUrls, null, url);
+    }
+
+    private boolean threadHistoryContains(Set<String> historyUrls, List<ThreadHistoryItem> historyItems, String url) {
         if (historyUrls == null || historyUrls.isEmpty()) {
-            return false;
+            return threadHistoryContainsByIdentity(historyItems, url);
         }
         for (String key : threadHistoryKeys(url)) {
             if (!key.isEmpty() && historyUrls.contains(key)) {
+                return true;
+            }
+        }
+        return threadHistoryContainsByIdentity(historyItems, url);
+    }
+
+    private boolean threadHistoryContainsByIdentity(List<ThreadHistoryItem> historyItems, String url) {
+        if (historyItems == null || historyItems.isEmpty() || url == null || url.trim().isEmpty()) {
+            return false;
+        }
+        for (ThreadHistoryItem item : historyItems) {
+            if (item != null && sameThreadIdentity(item.url, url)) {
                 return true;
             }
         }
@@ -22818,8 +22836,15 @@ public class MainActivity extends Activity {
     }
 
     private Set<String> threadHistoryUrlSnapshot() {
+        return threadHistoryUrlSnapshot(threadHistory());
+    }
+
+    private Set<String> threadHistoryUrlSnapshot(List<ThreadHistoryItem> historyItems) {
         Set<String> urls = new LinkedHashSet<>();
-        for (ThreadHistoryItem item : threadHistory()) {
+        if (historyItems == null) {
+            return urls;
+        }
+        for (ThreadHistoryItem item : historyItems) {
             if (item != null) {
                 urls.addAll(threadHistoryKeys(item.url));
             }
