@@ -9328,7 +9328,10 @@ public class MainActivity extends Activity {
                 }
                 float pull = Math.max(0, event.getY() - downY[0]);
                 pullDistance[0] = pull;
-                if (pull <= dp(4) && !draggingTop[0] && loader.getVisibility() == View.VISIBLE) {
+                if (pull <= dp(4) && loader.getVisibility() == View.VISIBLE) {
+                    startedAtTop[0] = false;
+                    draggingTop[0] = false;
+                    pullDistance[0] = 0;
                     resetTopRefreshLoader(loader);
                     return false;
                 }
@@ -9368,9 +9371,10 @@ public class MainActivity extends Activity {
                 }
                 if (draggingTop[0] || loader.getVisibility() == View.VISIBLE) {
                     boolean consumed = draggingTop[0] || loader.getVisibility() == View.VISIBLE;
+                    startedAtTop[0] = false;
                     draggingTop[0] = false;
                     pullDistance[0] = 0;
-                    animateTopRefreshLoaderClosed(loader);
+                    resetTopRefreshLoader(loader);
                     return consumed;
                 }
             }
@@ -10810,7 +10814,10 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, downY[0] - event.getY());
                     pullDistance[0] = pull;
-                    if (pull <= dp(4) && !dragging[0] && loader.getVisibility() == View.VISIBLE) {
+                    if (pull <= dp(4) && loader.getVisibility() == View.VISIBLE) {
+                        startedAtBottom[0] = false;
+                        dragging[0] = false;
+                        pullDistance[0] = 0;
                         resetBottomRefreshLoader(loader);
                         return false;
                     }
@@ -10853,7 +10860,7 @@ public class MainActivity extends Activity {
                     startedAtBottom[0] = false;
                     dragging[0] = false;
                     pullDistance[0] = 0;
-                    animateBottomRefreshLoaderClosed(loader);
+                    resetBottomRefreshLoader(loader);
                     return consumed;
                 }
             }
@@ -10936,7 +10943,11 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, event.getY() - downY[0]);
                     pullDistance[0] = pull;
-                    if (pull <= dp(4) && !dragging[0] && topLoader.getVisibility() == View.VISIBLE) {
+                    if (pull <= dp(4) && topLoader.getVisibility() == View.VISIBLE) {
+                        activeEdge[0] = 0;
+                        dragging[0] = false;
+                        startedAtTop[0] = false;
+                        pullDistance[0] = 0;
                         resetTopRefreshLoader(topLoader);
                         return false;
                     }
@@ -10965,7 +10976,11 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, downY[0] - event.getY());
                     pullDistance[0] = pull;
-                    if (pull <= dp(4) && !dragging[0] && bottomLoader.getVisibility() == View.VISIBLE) {
+                    if (pull <= dp(4) && bottomLoader.getVisibility() == View.VISIBLE) {
+                        activeEdge[0] = 0;
+                        dragging[0] = false;
+                        startedAtBottom[0] = false;
+                        pullDistance[0] = 0;
                         resetBottomRefreshLoader(bottomLoader);
                         return false;
                     }
@@ -11019,12 +11034,14 @@ public class MainActivity extends Activity {
                     int edge = activeEdge[0];
                     activeEdge[0] = 0;
                     dragging[0] = false;
+                    startedAtTop[0] = false;
+                    startedAtBottom[0] = false;
                     pullDistance[0] = 0;
                     if (edge < 0 || topLoader.getVisibility() == View.VISIBLE) {
-                        animateTopRefreshLoaderClosed(topLoader);
+                        resetTopRefreshLoader(topLoader);
                     }
                     if (edge > 0 || bottomLoader.getVisibility() == View.VISIBLE) {
-                        animateBottomRefreshLoaderClosed(bottomLoader);
+                        resetBottomRefreshLoader(bottomLoader);
                     }
                     return consumed;
                 }
@@ -11077,7 +11094,10 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, event.getY() - downY[0]);
                     pullDistance[0] = pull;
-                    if (pull <= dp(4) && !dragging[0] && loader.getVisibility() == View.VISIBLE) {
+                    if (pull <= dp(4) && loader.getVisibility() == View.VISIBLE) {
+                        startedAtTop[0] = false;
+                        dragging[0] = false;
+                        pullDistance[0] = 0;
                         resetTopRefreshLoader(loader);
                         return false;
                     }
@@ -11120,7 +11140,7 @@ public class MainActivity extends Activity {
                     startedAtTop[0] = false;
                     dragging[0] = false;
                     pullDistance[0] = 0;
-                    animateTopRefreshLoaderClosed(loader);
+                    resetTopRefreshLoader(loader);
                     return consumed;
                 }
             }
