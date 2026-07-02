@@ -4321,7 +4321,7 @@ public class MainActivity extends Activity {
             if (tab.searchPage != null) {
                 tab.readerMode = true;
                 if (NATIVE_BOARD.equals(tab.nativeKind) && isBbsMenuUrl(tab.searchPage.url)) {
-                    return buildBbsCategoryIndexView(tab.searchPage);
+                    return buildBbsCategoryIndexView(tab.searchPage, tab);
                 }
                 return buildSearchView(tab.searchPage, !NATIVE_BOARD.equals(tab.nativeKind), tab);
             }
@@ -4330,14 +4330,14 @@ public class MainActivity extends Activity {
             SavedPage savedPage = savedPageFromToken(
                     decodeNewTabToken(tab.url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
             tab.readerMode = true;
-            return buildSavedItemsView(savedPage.key, savedPage.folder);
+            return withTopPullRefreshIfPossible(buildSavedItemsView(savedPage.key, savedPage.folder), tab);
         } else if (NATIVE_HISTORY.equals(tab.nativeKind)) {
             tab.readerMode = true;
-            return buildHistoryView();
+            return withTopPullRefreshIfPossible(buildHistoryView(), tab);
         } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind) || tab.url == null || tab.url.isEmpty()) {
             tab.readerMode = true;
             tab.nativeKind = NATIVE_SEARCH_HOME;
-            return buildSearchHomeView(interactiveHome);
+            return withTopPullRefreshIfPossible(buildSearchHomeView(interactiveHome), tab);
         }
         return null;
     }
@@ -5385,13 +5385,13 @@ public class MainActivity extends Activity {
         if (url.startsWith(INTERNAL_URL_PREFIX + "saved/")) {
             tab.nativeKind = NATIVE_SAVED;
             SavedPage savedPage = savedPageFromToken(decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "saved/").length())));
-            tab.readerView = buildSavedItemsView(savedPage.key, savedPage.folder);
+            tab.readerView = withTopPullRefreshIfPossible(buildSavedItemsView(savedPage.key, savedPage.folder), tab);
         } else if (url.equals(historyPageUrl())) {
             tab.nativeKind = NATIVE_HISTORY;
-            tab.readerView = buildHistoryView();
+            tab.readerView = withTopPullRefreshIfPossible(buildHistoryView(), tab);
         } else if (url.equals(fullTextSearchPageUrl())) {
             tab.nativeKind = NATIVE_SEARCH_HOME;
-            tab.readerView = buildFullTextSearchHomeView(true);
+            tab.readerView = withTopPullRefreshIfPossible(buildFullTextSearchHomeView(true), tab);
         } else if (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")) {
             String menuUrl = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs/").length()));
             showBbsDirectoryIndexView(menuUrl, bbsRootPageKey(menuUrl), false);
@@ -5402,7 +5402,7 @@ public class MainActivity extends Activity {
             return;
         } else {
             tab.nativeKind = NATIVE_SEARCH_HOME;
-            tab.readerView = buildSearchHomeView(true);
+            tab.readerView = withTopPullRefreshIfPossible(buildSearchHomeView(true), tab);
         }
         if (tab == currentTab() && !tabOverviewVisible) {
             contentFrame.removeAllViews();
@@ -5477,7 +5477,9 @@ public class MainActivity extends Activity {
         if (showFullLoading) {
             prepareChromeForLoading();
         }
-        clearBoardTopRefreshState(tab);
+        if (showFullLoading) {
+            clearBoardTopRefreshState(tab);
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_THREAD;
         tab.url = loadUrl;
@@ -5533,6 +5535,7 @@ public class MainActivity extends Activity {
             }
                 ThreadPage result = page;
             runOnUiThread(() -> {
+                resetTopRefreshLoader(tab.boardTopLoader);
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
                     if (tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
@@ -5664,6 +5667,7 @@ public class MainActivity extends Activity {
             }
             ThreadPage result = page;
             runOnUiThread(() -> {
+                resetTopRefreshLoader(tab.boardTopLoader);
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url) || !NATIVE_HISSI.equals(tab.nativeKind)) {
                     if (tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
@@ -6100,7 +6104,9 @@ public class MainActivity extends Activity {
         if (foreground) {
             prepareChromeForLoading();
         }
-        clearBoardTopRefreshState(tab);
+        if (foreground) {
+            clearBoardTopRefreshState(tab);
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH;
         tab.url = loadUrl;
@@ -6128,15 +6134,17 @@ public class MainActivity extends Activity {
             SearchPage result = page;
             runOnUiThread(() -> {
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
-                    if (foreground && tab == currentTab()) {
+                    resetTopRefreshLoader(tab.boardTopLoader);
+                    if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
                         progressBar.setVisibility(View.GONE);
                     }
                     return;
                 }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = buildSearchView(result);
-                if (foreground) {
+                resetTopRefreshLoader(tab.boardTopLoader);
+                tab.readerView = buildSearchView(result, true, tab);
+                if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
                     progressBar.setVisibility(View.GONE);
                 }
                 if (tab == currentTab() && !tabOverviewVisible) {
@@ -6767,7 +6775,8 @@ public class MainActivity extends Activity {
             renderTabs();
             return;
         }
-        tab.readerView = buildSearchView(page);
+        resetTopRefreshLoader(tab.boardTopLoader);
+        tab.readerView = buildSearchView(page, true, tab);
         progressBar.setVisibility(View.GONE);
         if (tab == currentTab() && !tabOverviewVisible) {
             switchToTab(currentIndex);
@@ -6913,7 +6922,9 @@ public class MainActivity extends Activity {
     }
 
     private void loadSearchHome(CuspTab tab, String url, boolean foreground) {
-        clearBoardTopRefreshState(tab);
+        if (foreground) {
+            clearBoardTopRefreshState(tab);
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_SEARCH_HOME;
         tab.url = url;
@@ -6922,7 +6933,7 @@ public class MainActivity extends Activity {
         tab.searchPage = null;
         tab.threadScroll = null;
         tab.postViews = null;
-        tab.readerView = buildSearchHomeView(true);
+        tab.readerView = withTopPullRefreshIfPossible(buildSearchHomeView(true), tab);
         if (foreground) {
             switchToTab(tabs.indexOf(tab));
             hideCenterSpinner();
@@ -6939,7 +6950,9 @@ public class MainActivity extends Activity {
         if (foreground) {
             prepareChromeForLoading();
         }
-        clearBoardTopRefreshState(tab);
+        if (foreground) {
+            clearBoardTopRefreshState(tab);
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = loadUrl;
@@ -6966,7 +6979,8 @@ public class MainActivity extends Activity {
             SearchPage result = page;
             runOnUiThread(() -> {
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
-                    if (foreground && tab == currentTab()) {
+                    resetTopRefreshLoader(tab.boardTopLoader);
+                    if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
                         progressBar.setVisibility(View.GONE);
                     }
                     return;
@@ -6979,7 +6993,7 @@ public class MainActivity extends Activity {
                 tab.searchPage = result;
                 tab.readerView = buildSearchView(result, false, tab);
                 cacheBoardHistoryPage(tab, result, tab.readerView);
-                if (foreground) {
+                if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
                     progressBar.setVisibility(View.GONE);
                 }
                 if (tab == currentTab() && !tabOverviewVisible) {
@@ -7060,6 +7074,150 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void refreshTabFromTop(CuspTab tab) {
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
+            resetTopRefreshLoader(tab == null ? null : tab.boardTopLoader);
+            return;
+        }
+        clearAddressFocus();
+        if (NATIVE_BOARD.equals(tab.nativeKind) && isBoardUrl(tab.url) && !isBbsDirectoryUrl(tab.url)
+                && !isBbsInternalPageUrl(tab.url)) {
+            refreshBoardFromTop(tab);
+            return;
+        }
+        progressBar.setVisibility(View.VISIBLE);
+        if (NATIVE_THREAD.equals(tab.nativeKind)) {
+            loadThread(tab, tab.url, false);
+        } else if (NATIVE_HISSI.equals(tab.nativeKind)) {
+            refreshHissiFromTop(tab);
+        } else if (NATIVE_SEARCH.equals(tab.nativeKind)) {
+            if (isFullTextSearchUrl(tab.url)) {
+                loadFullTextSearchResultsPage(tab, tab.url, 1, false);
+            } else {
+                loadSearchResults(tab, tab.url, false);
+            }
+        } else if (NATIVE_BOARD.equals(tab.nativeKind)) {
+            if (isBbsInternalPageUrl(tab.url)) {
+                refreshBbsInternalPageFromTop(tab);
+            } else {
+                loadBbsDirectory(tab, tab.url, false);
+            }
+        } else if (NATIVE_SEARCH_HOME.equals(tab.nativeKind)) {
+            View oldLoader = tab.boardTopLoader;
+            loadSearchHome(tab, tab.url, false);
+            resetTopRefreshLoader(oldLoader);
+            resetTopRefreshLoader(tab.boardTopLoader);
+            if (tab == currentTab() && !tabOverviewVisible) {
+                contentFrame.removeAllViews();
+                contentFrame.addView(tab.readerView);
+                hideCenterSpinner();
+            }
+            progressBar.setVisibility(View.GONE);
+        } else if (isInternalPageUrl(tab.url)) {
+            loadInternalPage(tab, tab.url);
+            resetTopRefreshLoader(tab.boardTopLoader);
+            progressBar.setVisibility(View.GONE);
+            hideCenterSpinner();
+        } else {
+            resetTopRefreshLoader(tab.boardTopLoader);
+            progressBar.setVisibility(View.GONE);
+        }
+    }
+
+    private void refreshBbsInternalPageFromTop(CuspTab tab) {
+        if (tab == null || tab.url == null) {
+            resetTopRefreshLoader(tab == null ? null : tab.boardTopLoader);
+            progressBar.setVisibility(View.GONE);
+            return;
+        }
+        String url = tab.url;
+        final boolean categoryPage = url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/");
+        final String pageKey;
+        final String menuUrl;
+        final String category;
+        if (categoryPage) {
+            BbsCategoryRequest request = decodeBbsCategoryToken(
+                    decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs-category/").length())));
+            menuUrl = request.menuUrl == null || request.menuUrl.isEmpty() ? FIVE_CH_BBSMENU_URL : request.menuUrl;
+            category = request.category;
+            pageKey = "bbs-category:" + bbsCategoryToken(menuUrl, category);
+        } else if (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")) {
+            menuUrl = decodeNewTabToken(url.substring((INTERNAL_URL_PREFIX + "bbs/").length()));
+            category = "";
+            pageKey = bbsRootPageKey(menuUrl);
+        } else {
+            resetTopRefreshLoader(tab.boardTopLoader);
+            progressBar.setVisibility(View.GONE);
+            return;
+        }
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                SearchPage all = downloadBbsDirectoryWithCache(menuUrl);
+                bbsCategoryCounts(all);
+                if (categoryPage) {
+                    page = filterBbsCategory(all, category);
+                    page.title = category == null || category.isEmpty() ? all.title : category;
+                } else {
+                    page = all;
+                    page.title = bbsMenuTitle(menuUrl, page.title);
+                }
+            } catch (Exception error) {
+                page = SearchPage.error(menuUrl, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                resetTopRefreshLoader(tab.boardTopLoader);
+                if (!tabs.contains(tab) || !url.equals(tab.url) || !NATIVE_BOARD.equals(tab.nativeKind)) {
+                    if (tab == currentTab() && !tabOverviewVisible) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
+                applyBbsDirectoryResult(pageKey, false, tab, result, !categoryPage);
+            });
+        });
+    }
+
+    private void refreshHissiFromTop(CuspTab tab) {
+        if (tab == null || tab.url == null || tab.url.trim().isEmpty()) {
+            resetTopRefreshLoader(tab == null ? null : tab.boardTopLoader);
+            progressBar.setVisibility(View.GONE);
+            return;
+        }
+        final String loadUrl = tab.url;
+        ioExecutor.execute(() -> {
+            ThreadPage page;
+            try {
+                page = parseHissiCheckerPage(loadUrl, download(loadUrl));
+            } catch (Exception error) {
+                page = ThreadPage.error(loadUrl, error.getMessage());
+            }
+            ThreadPage result = page;
+            runOnUiThread(() -> {
+                resetTopRefreshLoader(tab.boardTopLoader);
+                if (!tabs.contains(tab) || !loadUrl.equals(tab.url) || !NATIVE_HISSI.equals(tab.nativeKind)) {
+                    if (tab == currentTab() && !tabOverviewVisible) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    return;
+                }
+                tab.title = result.title;
+                tab.threadPage = result;
+                tab.readPostNumber = 0;
+                tab.postViews = new LinkedHashMap<>();
+                tab.readerView = buildThreadView(result, tab);
+                if (tab == currentTab() && !tabOverviewVisible) {
+                    switchToTab(currentIndex);
+                    restoreThreadScroll(tab);
+                    runPendingPostJump(tab);
+                    progressBar.setVisibility(View.GONE);
+                }
+                renderTabs();
+            });
+        });
+    }
+
     private void clearBoardTopRefreshState(CuspTab tab) {
         if (tab == null) {
             return;
@@ -7078,7 +7236,9 @@ public class MainActivity extends Activity {
         if (foreground) {
             prepareChromeForLoading();
         }
-        clearBoardTopRefreshState(tab);
+        if (foreground) {
+            clearBoardTopRefreshState(tab);
+        }
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = loadUrl;
@@ -7114,7 +7274,8 @@ public class MainActivity extends Activity {
             boolean refresh = usedCached;
             runOnUiThread(() -> {
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
-                    if (foreground && tab == currentTab()) {
+                    resetTopRefreshLoader(tab.boardTopLoader);
+                    if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
                         progressBar.setVisibility(View.GONE);
                     }
                     return;
@@ -7125,9 +7286,10 @@ public class MainActivity extends Activity {
                 }
                 tab.title = result.title;
                 tab.searchPage = result;
-                tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result) : buildSearchView(result, false, tab);
+                resetTopRefreshLoader(tab.boardTopLoader);
+                tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result, tab) : buildSearchView(result, false, tab);
                 cacheBoardHistoryPage(tab, result, tab.readerView);
-                if (foreground) {
+                if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
                     progressBar.setVisibility(View.GONE);
                 }
                 if (tab == currentTab() && !tabOverviewVisible) {
@@ -7212,21 +7374,36 @@ public class MainActivity extends Activity {
             list.addView(postText(text("\u66f8\u304d\u8fbc\u307f\u3092\u89e3\u6790\u3067\u304d\u307e\u305b\u3093", "No posts were parsed. Use reload or open another URL."), page));
         }
         FrameLayout bottomLoader = null;
+        FrameLayout topLoader = null;
         if (tab != null && NATIVE_THREAD.equals(tab.nativeKind)) {
             bottomLoader = bottomRefreshLoader();
             bottomLoader.setVisibility(View.GONE);
             bottomLoader.setTranslationY(dp(58));
             tab.threadBottomLoader = bottomLoader;
-
-            enableBottomPullRefresh(scroll, bottomLoader, () -> {
-                refreshThreadFromBottom(tab);
-            });
         } else if (tab != null) {
             tab.threadBottomLoader = null;
         }
+        if (tab != null && (NATIVE_THREAD.equals(tab.nativeKind) || NATIVE_HISSI.equals(tab.nativeKind))) {
+            topLoader = bottomRefreshLoader();
+            topLoader.setVisibility(View.GONE);
+            topLoader.setTranslationY(-dp(58));
+            tab.boardTopLoader = topLoader;
+            if (bottomLoader != null) {
+                enableThreadPullRefresh(scroll, topLoader, bottomLoader, tab);
+            } else {
+                enableTopPullRefresh(scroll, topLoader, () -> refreshTabFromTop(tab));
+            }
+        }
         FrameLayout frame = new FrameLayout(this);
+        frame.setTag(R.id.tag_top_pull_refresh, true);
         frame.addView(withScrollScrubber(scroll, tab), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (topLoader != null) {
+            FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(dp(66), dp(66),
+                    Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            topParams.setMargins(0, dp(2), 0, 0);
+            frame.addView(topLoader, topParams);
+        }
         if (bottomLoader != null) {
             FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(66), dp(66),
                     Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
@@ -7521,10 +7698,15 @@ public class MainActivity extends Activity {
                                      String label, View readAction, View replyAction) {
         TextView view = new TextView(this);
         String number = post == null ? "" : String.valueOf(post.number);
-        view.setText((number.isEmpty() ? "" : number + "  ") + (label == null ? "" : label));
-        view.setTextColor(TEAL);
-        view.setTextSize(15);
-        view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        String value = (number.isEmpty() ? "" : number + "  ") + (label == null ? "" : label);
+        SpannableString text = new SpannableString(value);
+        if (!number.isEmpty()) {
+            text.setSpan(new StyleSpan(Typeface.BOLD), 0, number.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        view.setText(text);
+        view.setTextColor(mutedColor());
+        view.setTextSize(14);
+        view.setTypeface(Typeface.DEFAULT);
         view.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         view.setIncludeFontPadding(false);
         view.setPadding(0, 0, 0, 0);
@@ -8974,7 +9156,8 @@ public class MainActivity extends Activity {
             TextView error = postText(page.error, null);
             error.setTextColor(Color.rgb(185, 28, 28));
             list.addView(error);
-            return scroll;
+            View wrapped = withScrollScrubber(scroll);
+            return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
         }
 
         renderSearchSlots(scroll, list, page);
@@ -8982,16 +9165,20 @@ public class MainActivity extends Activity {
         if (page.results.isEmpty()) {
             list.addView(postText(text("\u691c\u7d22\u7d50\u679c\u306a\u3057", "No search results."), null));
         }
-        if (isFullTextSearchUrl(page.url)) {
-            attachFullTextLoadMoreSwipe(scroll, page);
+        boolean fullTextSearch = isFullTextSearchUrl(page.url);
+        if (fullTextSearch) {
             if (!page.results.isEmpty() && (page.fullTextHasMore || !page.fullTextReachedEnd)) {
                 list.addView(fullTextLoadMoreFooter(page, scroll), new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             }
         }
         View wrapped = withScrollScrubber(scroll);
-        if (shouldEnableBoardTopRefresh(page, showSearchControls, tab)) {
-            return withBoardTopPullRefresh(wrapped, scroll, tab);
+        if (tab != null) {
+            return withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab),
+                    fullTextSearch ? page : null);
+        }
+        if (fullTextSearch) {
+            attachFullTextLoadMoreSwipe(scroll, page);
         }
         return wrapped;
     }
@@ -9006,8 +9193,17 @@ public class MainActivity extends Activity {
                 && isBoardUrl(page.url);
     }
 
-    private View withBoardTopPullRefresh(View content, ScrollView scroll, CuspTab tab) {
+    private View withTopPullRefresh(View content, ScrollView scroll, CuspTab tab, Runnable refresh) {
+        return withTopPullRefresh(content, scroll, tab, refresh, null);
+    }
+
+    private View withTopPullRefresh(View content, ScrollView scroll, CuspTab tab, Runnable refresh,
+                                    SearchPage fullTextLoadMorePage) {
+        if (content == null || scroll == null || Boolean.TRUE.equals(content.getTag(R.id.tag_top_pull_refresh))) {
+            return content;
+        }
         FrameLayout frame = new FrameLayout(this);
+        frame.setTag(R.id.tag_top_pull_refresh, true);
         frame.setBackgroundColor(bgColor());
         frame.addView(content, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -9021,8 +9217,24 @@ public class MainActivity extends Activity {
                 Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         loaderParams.setMargins(0, dp(2), 0, 0);
         frame.addView(loader, loaderParams);
-        enableTopPullRefresh(scroll, loader, () -> refreshBoardFromTop(tab));
+        Runnable refreshAction = refresh == null ? () -> resetTopRefreshLoader(loader) : refresh;
+        if (fullTextLoadMorePage != null && isFullTextSearchUrl(fullTextLoadMorePage.url)) {
+            enableSearchPullRefresh(scroll, loader, refreshAction, fullTextLoadMorePage);
+        } else {
+            enableTopPullRefresh(scroll, loader, refreshAction);
+        }
         return frame;
+    }
+
+    private View withTopPullRefreshIfPossible(View content, CuspTab tab) {
+        if (tab == null || content == null || Boolean.TRUE.equals(content.getTag(R.id.tag_top_pull_refresh))) {
+            return content;
+        }
+        ScrollView scroll = findScrollView(content);
+        if (scroll == null) {
+            return content;
+        }
+        return withTopPullRefresh(content, scroll, tab, () -> refreshTabFromTop(tab));
     }
 
     private void maybeLoadMoreFullTextResults(SearchPage page, ScrollView scroll) {
@@ -9054,6 +9266,104 @@ public class MainActivity extends Activity {
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
                 armed[0] = false;
+            }
+            return false;
+        });
+    }
+
+    private void enableSearchPullRefresh(ScrollView scroll, View loader, Runnable refresh,
+                                         SearchPage fullTextLoadMorePage) {
+        final float[] downY = new float[1];
+        final float[] pullDistance = new float[1];
+        final boolean[] startedAtTop = new boolean[1];
+        final boolean[] draggingTop = new boolean[1];
+        final boolean[] refreshingTop = new boolean[1];
+        final boolean[] loadMoreArmed = new boolean[1];
+        scroll.setOnTouchListener((v, event) -> {
+            int hiddenOffset = -dp(58);
+            int maxOffset = dp(86);
+            int maxPull = dp(164);
+            int triggerPull = maxPull / 2;
+            int triggerOffset = hiddenOffset + (maxOffset - hiddenOffset) / 2;
+            if (refreshingTop[0]) {
+                if (loader.getVisibility() == View.GONE) {
+                    refreshingTop[0] = false;
+                } else {
+                    return false;
+                }
+            }
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                startedAtTop[0] = !scroll.canScrollVertically(-1);
+                draggingTop[0] = false;
+                loadMoreArmed[0] = isScrollAtBottom(scroll);
+                if (!refreshingTop[0]) {
+                    resetTopRefreshLoader(loader);
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                if (!draggingTop[0] && loadMoreArmed[0] && downY[0] - event.getY() > dp(54)) {
+                    loadMoreArmed[0] = false;
+                    maybeLoadMoreFullTextResults(fullTextLoadMorePage, scroll);
+                }
+                if (!startedAtTop[0] && !draggingTop[0] && !refreshingTop[0]
+                        && !scroll.canScrollVertically(-1)) {
+                    startedAtTop[0] = true;
+                    downY[0] = event.getY();
+                    pullDistance[0] = 0;
+                }
+                if (!startedAtTop[0] || refreshingTop[0]) {
+                    return false;
+                }
+                if (scroll.canScrollVertically(-1)) {
+                    draggingTop[0] = false;
+                    pullDistance[0] = 0;
+                    resetTopRefreshLoader(loader);
+                    return false;
+                }
+                float pull = Math.max(0, event.getY() - downY[0]);
+                pullDistance[0] = pull;
+                if (pull > dp(4)) {
+                    draggingTop[0] = true;
+                    loadMoreArmed[0] = false;
+                    loader.animate().cancel();
+                    loader.clearAnimation();
+                    loader.setVisibility(View.VISIBLE);
+                    float progress = Math.min(pull, maxPull) / maxPull;
+                    setBottomRefreshSpinning(loader, false);
+                    loader.setTranslationY(hiddenOffset + (maxOffset - hiddenOffset) * progress);
+                    loader.setRotation(progress * 270f);
+                    return true;
+                }
+                if (draggingTop[0]) {
+                    loader.setTranslationY(hiddenOffset);
+                    loader.setRotation(0f);
+                    return true;
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_UP
+                    || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                loadMoreArmed[0] = false;
+                if (draggingTop[0] && event.getAction() == MotionEvent.ACTION_UP
+                        && pullDistance[0] >= triggerPull) {
+                    refreshingTop[0] = true;
+                    draggingTop[0] = false;
+                    pullDistance[0] = 0;
+                    loader.setVisibility(View.VISIBLE);
+                    loader.setRotation(0f);
+                    setBottomRefreshSpinning(loader, true);
+                    loader.animate().cancel();
+                    loader.clearAnimation();
+                    loader.animate().translationY(triggerOffset).setDuration(110)
+                            .withEndAction(refresh).start();
+                    return true;
+                }
+                if (draggingTop[0] || loader.getVisibility() == View.VISIBLE) {
+                    boolean consumed = draggingTop[0] || loader.getVisibility() == View.VISIBLE;
+                    draggingTop[0] = false;
+                    pullDistance[0] = 0;
+                    animateTopRefreshLoaderClosed(loader);
+                    return consumed;
+                }
             }
             return false;
         });
@@ -9623,6 +9933,10 @@ public class MainActivity extends Activity {
     }
 
     private View buildBbsCategoryIndexView(SearchPage page) {
+        return buildBbsCategoryIndexView(page, null);
+    }
+
+    private View buildBbsCategoryIndexView(SearchPage page, CuspTab tab) {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
@@ -9642,7 +9956,8 @@ public class MainActivity extends Activity {
             TextView error = postText(page.error, null);
             error.setTextColor(Color.rgb(185, 28, 28));
             list.addView(error);
-            return scroll;
+            View wrapped = withScrollScrubber(scroll);
+            return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
         }
 
         Map<String, Integer> counts = bbsCategoryCounts(page);
@@ -9653,7 +9968,8 @@ public class MainActivity extends Activity {
             slots.add(new VirtualSearchSlot(new BbsCategoryRow(page.url, category, label, entry.getValue())));
         }
         renderVirtualSearchSlots(scroll, list, slots, true);
-        return scroll;
+        View wrapped = withScrollScrubber(scroll);
+        return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
     }
 
     private Map<String, Integer> bbsCategoryCounts(SearchPage page) {
@@ -10532,6 +10848,162 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void enableThreadPullRefresh(ScrollView scroll, View topLoader, View bottomLoader, CuspTab tab) {
+        final float[] downY = new float[1];
+        final float[] pullDistance = new float[1];
+        final boolean[] startedAtTop = new boolean[1];
+        final boolean[] startedAtBottom = new boolean[1];
+        final int[] activeEdge = new int[1];
+        final boolean[] dragging = new boolean[1];
+        final boolean[] refreshingTop = new boolean[1];
+        final boolean[] refreshingBottom = new boolean[1];
+        scroll.setOnTouchListener((v, event) -> {
+            int topHidden = -dp(58);
+            int topMax = dp(86);
+            int bottomHidden = dp(58);
+            int bottomMax = -dp(86);
+            int maxPull = dp(164);
+            int triggerPull = maxPull / 2;
+            int topTrigger = topHidden + (topMax - topHidden) / 2;
+            int bottomTrigger = bottomHidden + (bottomMax - bottomHidden) / 2;
+            if (refreshingTop[0] && topLoader.getVisibility() == View.GONE) {
+                refreshingTop[0] = false;
+            }
+            if (refreshingBottom[0] && bottomLoader.getVisibility() == View.GONE) {
+                refreshingBottom[0] = false;
+            }
+            if (refreshingTop[0] || refreshingBottom[0]) {
+                return false;
+            }
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                downY[0] = event.getY();
+                pullDistance[0] = 0;
+                activeEdge[0] = 0;
+                dragging[0] = false;
+                startedAtTop[0] = !scroll.canScrollVertically(-1);
+                startedAtBottom[0] = !scroll.canScrollVertically(1);
+                resetTopRefreshLoader(topLoader);
+                resetBottomRefreshLoader(bottomLoader);
+            } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                float dy = event.getY() - downY[0];
+                if (activeEdge[0] == 0) {
+                    if (!startedAtTop[0] && !scroll.canScrollVertically(-1)) {
+                        startedAtTop[0] = true;
+                        downY[0] = event.getY();
+                        dy = 0;
+                    }
+                    if (!startedAtBottom[0] && !scroll.canScrollVertically(1)) {
+                        startedAtBottom[0] = true;
+                        downY[0] = event.getY();
+                        dy = 0;
+                    }
+                    if (startedAtTop[0] && dy > dp(4) && !scroll.canScrollVertically(-1)) {
+                        activeEdge[0] = -1;
+                    } else if (startedAtBottom[0] && dy < -dp(4) && !scroll.canScrollVertically(1)) {
+                        activeEdge[0] = 1;
+                    } else {
+                        return false;
+                    }
+                }
+                if (activeEdge[0] < 0) {
+                    if (scroll.canScrollVertically(-1)) {
+                        activeEdge[0] = 0;
+                        dragging[0] = false;
+                        pullDistance[0] = 0;
+                        resetTopRefreshLoader(topLoader);
+                        return false;
+                    }
+                    float pull = Math.max(0, event.getY() - downY[0]);
+                    pullDistance[0] = pull;
+                    if (pull > dp(4)) {
+                        dragging[0] = true;
+                        topLoader.animate().cancel();
+                        topLoader.clearAnimation();
+                        topLoader.setVisibility(View.VISIBLE);
+                        float progress = Math.min(pull, maxPull) / maxPull;
+                        setBottomRefreshSpinning(topLoader, false);
+                        topLoader.setTranslationY(topHidden + (topMax - topHidden) * progress);
+                        topLoader.setRotation(progress * 270f);
+                        return true;
+                    }
+                } else if (activeEdge[0] > 0) {
+                    if (isBottomJumpActive(tab) && event.getY() > downY[0] + dp(4)) {
+                        cancelBottomJump(tab);
+                        return false;
+                    }
+                    if (scroll.canScrollVertically(1)) {
+                        activeEdge[0] = 0;
+                        dragging[0] = false;
+                        pullDistance[0] = 0;
+                        resetBottomRefreshLoader(bottomLoader);
+                        return false;
+                    }
+                    float pull = Math.max(0, downY[0] - event.getY());
+                    pullDistance[0] = pull;
+                    if (pull > dp(4)) {
+                        dragging[0] = true;
+                        bottomLoader.animate().cancel();
+                        bottomLoader.clearAnimation();
+                        bottomLoader.setVisibility(View.VISIBLE);
+                        float progress = Math.min(pull, maxPull) / maxPull;
+                        setBottomRefreshSpinning(bottomLoader, false);
+                        bottomLoader.setTranslationY(bottomHidden + (bottomMax - bottomHidden) * progress);
+                        bottomLoader.setRotation(progress * 270f);
+                        return true;
+                    }
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (dragging[0] && event.getAction() == MotionEvent.ACTION_UP && pullDistance[0] >= triggerPull) {
+                    int edge = activeEdge[0];
+                    activeEdge[0] = 0;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
+                    if (edge < 0) {
+                        refreshingTop[0] = true;
+                        topLoader.setVisibility(View.VISIBLE);
+                        topLoader.setRotation(0f);
+                        setBottomRefreshSpinning(topLoader, true);
+                        topLoader.animate().cancel();
+                        topLoader.clearAnimation();
+                        topLoader.animate().translationY(topTrigger).setDuration(110)
+                                .withEndAction(() -> refreshTabFromTop(tab)).start();
+                        return true;
+                    }
+                    if (edge > 0) {
+                        refreshingBottom[0] = true;
+                        bottomLoader.setVisibility(View.VISIBLE);
+                        bottomLoader.setRotation(0f);
+                        setBottomRefreshSpinning(bottomLoader, true);
+                        bottomLoader.animate().cancel();
+                        bottomLoader.clearAnimation();
+                        bottomLoader.animate().translationY(bottomTrigger).setDuration(110)
+                                .withEndAction(() -> refreshThreadFromBottom(tab)).start();
+                        return true;
+                    }
+                }
+                if (dragging[0] || activeEdge[0] != 0
+                        || topLoader.getVisibility() == View.VISIBLE
+                        || bottomLoader.getVisibility() == View.VISIBLE) {
+                    boolean consumed = dragging[0] || activeEdge[0] != 0
+                            || topLoader.getVisibility() == View.VISIBLE
+                            || bottomLoader.getVisibility() == View.VISIBLE;
+                    int edge = activeEdge[0];
+                    activeEdge[0] = 0;
+                    dragging[0] = false;
+                    pullDistance[0] = 0;
+                    if (edge < 0 || topLoader.getVisibility() == View.VISIBLE) {
+                        animateTopRefreshLoaderClosed(topLoader);
+                    }
+                    if (edge > 0 || bottomLoader.getVisibility() == View.VISIBLE) {
+                        animateBottomRefreshLoaderClosed(bottomLoader);
+                    }
+                    return consumed;
+                }
+            }
+            return false;
+        });
+    }
+
     private void enableTopPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
         final float[] downY = new float[1];
         final float[] pullDistance = new float[1];
@@ -11089,7 +11561,7 @@ public class MainActivity extends Activity {
             return;
         }
         result.title = bbsPageTitleFromPageKey(pageKey, result.title);
-        View resultView = categoryIndex ? buildBbsCategoryIndexView(result) : buildSearchView(result, false, targetTab);
+        View resultView = categoryIndex ? buildBbsCategoryIndexView(result, targetTab) : buildSearchView(result, false, targetTab);
         if (forNewTab && result.error == null) {
             cacheNewTabHistoryPage(pageKey, resultView);
         }
@@ -11486,6 +11958,15 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         populateTabOverviewList(scroll, list, false, false);
         scheduleDeferredTabOverviewSort(list, tabOverviewPrivateMode);
+
+        FrameLayout loader = bottomRefreshLoader();
+        loader.setVisibility(View.GONE);
+        loader.setTranslationY(-dp(58));
+        FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(dp(66), dp(66),
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        loaderParams.setMargins(0, dp(2), 0, 0);
+        root.addView(loader, loaderParams);
+        enableTopPullRefresh(scroll, loader, () -> refreshTabOverviewFromTop(loader));
 
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
@@ -14280,6 +14761,31 @@ public class MainActivity extends Activity {
             }
             renderTabs();
         }
+    }
+
+    private void refreshTabOverviewFromTop(View loader) {
+        if (!tabOverviewVisible || contentFrame == null) {
+            resetTopRefreshLoader(loader);
+            return;
+        }
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
+            resetTopRefreshLoader(loader);
+            return;
+        }
+        tabOverviewResultCache.clear();
+        tabOverviewBoardTitleCache.clear();
+        tabOverviewHistoryUrlCache = null;
+        tabOverviewValueDirtyTabs.clear();
+        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        populateTabOverviewList(scroll, list, true, true);
+        scheduleDeferredTabOverviewSort(list, tabOverviewPrivateMode);
+        syncClosedTabUndoBar();
+        renderTabs();
+        scroll.post(() -> {
+            scroll.scrollTo(0, 0);
+            resetTopRefreshLoader(loader);
+        });
     }
 
     private boolean refreshTabOverviewBookmarkSectionOnly() {
@@ -17206,25 +17712,7 @@ public class MainActivity extends Activity {
     }
 
     private String postActionName(String name) {
-        String value = name == null ? "" : name.trim();
-        while (!value.isEmpty()) {
-            int close = value.length() - 1;
-            char closeChar = value.charAt(close);
-            char openChar;
-            if (closeChar == ')') {
-                openChar = '(';
-            } else if (closeChar == '\uff09') {
-                openChar = '\uff08';
-            } else {
-                break;
-            }
-            int open = value.lastIndexOf(openChar);
-            if (open <= 0) {
-                break;
-            }
-            value = value.substring(0, open).trim();
-        }
-        return value;
+        return name == null ? "" : name.trim();
     }
 
     private void showPostsPopup(View anchor, ThreadPage page, List<Post> targets, boolean jumpEachPost) {
