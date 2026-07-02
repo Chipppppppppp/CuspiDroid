@@ -127,6 +127,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
 
 public class MainActivity extends Activity {
     static final String HOME_URL = "https://find.5ch.io/";
@@ -353,6 +354,9 @@ public class MainActivity extends Activity {
     private static final long HOME_BBS_PRELOAD_DELAY_MS = 700L;
     private static final long BACKGROUND_TRIM_DELAY_MS = 220L;
     private static final int MAX_BBSMENU_CACHE_ENTRIES = 16;
+    private static final int THREAD_INITIAL_SLOT_BATCH = 80;
+    private static final int THREAD_DEFERRED_SLOT_BATCH = 160;
+    private static final long THREAD_DEFERRED_SLOT_DELAY_MS = 4L;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
     private static final int THREAD_IDLE_RENDER_BUDGET = 10;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
@@ -5463,7 +5467,16 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             ThreadPage page;
             try {
-                page = downloadThreadPage(loadUrl);
+                page = null;
+                if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
+                    try {
+                        page = downloadNewDatPosts(loadUrl, cached);
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (page == null) {
+                    page = downloadThreadPage(loadUrl);
+                }
             } catch (Exception error) {
                 page = ThreadPage.error(loadUrl, error.getMessage());
             }
@@ -5499,6 +5512,30 @@ public class MainActivity extends Activity {
                         runPendingPostJump(tab);
                     }
                     renderTabs();
+                    return;
+                }
+                if (cached != null && cached.error == null && result.error == null
+                        && result.newPostCount > 0
+                        && tab.readerView != null && tab.threadPage == cached
+                        && tab.threadList != null && tab.postViews != null && tab.postSlots != null
+                        && !tab.threadRendering) {
+                    int oldCount = Math.max(0, result.posts.size() - result.newPostCount);
+                    tab.title = result.title;
+                    tab.threadPage = result;
+                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
+                    updateThreadTitleHeader(tab, result);
+                    updateTabThreadStats(tab, result);
+                    refreshTabOverviewValuesForTab(tab);
+                    cacheThreadPage(result);
+                    addThreadHistory(tab, result.url, result.title);
+                    renderAdditionalPostCardsIncrementally(tab.threadList, result, tab, oldCount, () -> {
+                        if (tab == currentTab()) {
+                            progressBar.setVisibility(View.GONE);
+                            restoreThreadScroll(tab);
+                            runPendingPostJump(tab);
+                        }
+                        renderTabs();
+                    });
                     return;
                 }
                 if (result.error != null) {
@@ -5919,7 +5956,8 @@ public class MainActivity extends Activity {
                 int oldCount = wasPartialUpdate
                         ? Math.max(0, result.posts.size() - result.newPostCount)
                         : (tab.threadPage == null ? 0 : tab.threadPage.posts.size());
-                if (oldCount <= 0 || tab.threadList == null || tab.postViews == null) {
+                if (oldCount <= 0 || tab.threadList == null || tab.postViews == null
+                        || tab.postSlots == null || tab.threadRendering) {
                     tab.title = result.title;
                     tab.threadPage = result;
                     updateThreadTitleHeader(tab, result);
@@ -6788,13 +6826,19 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage downloadThreadPage(String url) throws Exception {
-        String redirectedUrl = resolveRedirectedUrl(
-                url,
-                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
-        ThreadPage datPage = downloadDatThread(redirectedUrl);
+        ThreadPage datPage = downloadDatThread(url);
         if (datPage != null && !datPage.posts.isEmpty()) {
-            datPage.url = redirectedUrl;
             return datPage;
+        }
+        String redirectedUrl = url;
+        if (datAddress(url) == null) {
+            redirectedUrl = resolveRedirectedUrl(
+                    url,
+                    "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
+            datPage = downloadDatThread(redirectedUrl);
+            if (datPage != null && !datPage.posts.isEmpty()) {
+                return datPage;
+            }
         }
         ThreadPage htmlPage = null;
         Exception htmlError = null;
@@ -7468,18 +7512,50 @@ public class MainActivity extends Activity {
         if (copyPasteOmitEnabled()) {
             ensureCopyPasteIndex(page);
         }
-        for (PostRenderItem item : items) {
+        int end = Math.min(items.size(), THREAD_INITIAL_SLOT_BATCH);
+        appendPostSlotHolders(list, page, tab, items, 0, end, insertIndex);
+        scheduleThreadPostVisibilityRefresh(tab);
+        if (end < items.size()) {
+            mainHandler.postDelayed(() -> appendDeferredPostSlotHolders(
+                    list, page, tab, items, end, insertIndex, generation, onComplete),
+                    THREAD_DEFERRED_SLOT_DELAY_MS);
+        } else {
+            completeThreadRender(tab, onComplete);
+        }
+    }
+
+    private void appendDeferredPostSlotHolders(LinearLayout list, ThreadPage page, CuspTab tab,
+                                               List<PostRenderItem> items, int start, int insertIndex,
+                                               int generation, Runnable onComplete) {
+        if (tab.threadRenderGeneration != generation || tab.threadList != list) {
+            return;
+        }
+        int end = Math.min(items.size(), start + THREAD_DEFERRED_SLOT_BATCH);
+        appendPostSlotHolders(list, page, tab, items, start, end, insertIndex);
+        scheduleThreadPostVisibilityRefresh(tab);
+        if (end < items.size()) {
+            mainHandler.postDelayed(() -> appendDeferredPostSlotHolders(
+                    list, page, tab, items, end, insertIndex, generation, onComplete),
+                    THREAD_DEFERRED_SLOT_DELAY_MS);
+        } else {
+            completeThreadRender(tab, onComplete);
+        }
+    }
+
+    private void appendPostSlotHolders(LinearLayout list, ThreadPage page, CuspTab tab,
+                                       List<PostRenderItem> items, int start, int end, int insertIndex) {
+        for (int i = start; i < end; i++) {
+            PostRenderItem item = items.get(i);
             VirtualPostSlot slot = new VirtualPostSlot(page, tab, item, estimatePostSlotHeight(item));
             FrameLayout holder = new FrameLayout(this);
             holder.setTag(slot);
             holder.addView(postSlotSpacer(slot.height), new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
-            int index = Math.max(0, Math.min(insertIndex++, list.getChildCount()));
+            int index = Math.max(0, Math.min(insertIndex + i, list.getChildCount()));
             list.addView(holder, index, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             tab.postSlots.put(item.post.number, holder);
         }
-        completeThreadRender(tab, onComplete);
     }
 
     private void completeThreadRender(CuspTab tab, Runnable onComplete) {
@@ -21280,9 +21356,11 @@ public class MainActivity extends Activity {
     }
 
     private String download(String urlText, String userAgent) throws Exception {
-        HttpURLConnection connection = openConnectionFollowingRedirects(urlText, userAgent);
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Accept-Encoding", "gzip");
+        HttpURLConnection connection = openConnectionFollowingRedirects(urlText, userAgent, headers);
         int code = connection.getResponseCode();
-        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        InputStream stream = responseInputStream(connection, code);
         if (stream == null) {
             throw new IllegalStateException("HTTP " + code);
         }
@@ -21297,6 +21375,18 @@ public class MainActivity extends Activity {
             throw new IllegalStateException("HTTP " + code + "\n" + stripTags(body));
         }
         return body;
+    }
+
+    private InputStream responseInputStream(HttpURLConnection connection, int code) throws Exception {
+        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        if (stream == null) {
+            return null;
+        }
+        String encoding = connection.getContentEncoding();
+        if (encoding != null && encoding.toLowerCase(Locale.ROOT).contains("gzip")) {
+            return new GZIPInputStream(stream);
+        }
+        return stream;
     }
 
     private String resolveRedirectedUrl(String urlText, String userAgent) throws Exception {
@@ -21401,6 +21491,7 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage downloadDatThread(String threadUrl) throws Exception {
+        String pageUrl = threadUrl;
         DatAddress address = datAddress(threadUrl);
         if (address == null) {
             HttpURLConnection canonical = openConnectionFollowingRedirects(
@@ -21409,6 +21500,9 @@ public class MainActivity extends Activity {
             String canonicalUrl = canonical.getURL().toString();
             canonical.disconnect();
             address = datAddress(canonicalUrl);
+            if (address != null) {
+                pageUrl = canonicalUrl;
+            }
         }
         if (address == null) {
             return null;
@@ -21417,7 +21511,7 @@ public class MainActivity extends Activity {
         for (String candidate : candidates) {
             try {
                 DatDownload download = downloadDatBytes(candidate, 0);
-                ThreadPage page = parseDatThread(threadUrl, download.body);
+                ThreadPage page = parseDatThread(pageUrl, download.body);
                 page.datUrl = download.url;
                 page.datByteLength = download.totalByteLength;
                 page.archived = isArchiveDatUrl(download.url);
@@ -21444,8 +21538,22 @@ public class MainActivity extends Activity {
             return null;
         }
         DatDownload download = downloadDatBytes(existing.datUrl, existing.datByteLength);
-        if (!download.partial || download.body.trim().isEmpty()) {
-            return null;
+        if (download.unchanged || (download.partial && download.body.trim().isEmpty())) {
+            ThreadPage unchanged = cloneThreadPage(existing);
+            unchanged.url = threadUrl;
+            unchanged.datUrl = download.url;
+            unchanged.datByteLength = Math.max(existing.datByteLength, download.totalByteLength);
+            unchanged.archived = existing.archived || isArchiveDatUrl(download.url);
+            unchanged.newPostCount = 0;
+            return unchanged;
+        }
+        if (!download.partial) {
+            ThreadPage full = parseDatThread(threadUrl, download.body);
+            full.datUrl = download.url;
+            full.datByteLength = download.totalByteLength;
+            full.archived = existing.archived || isArchiveDatUrl(download.url);
+            full.newPostCount = Math.max(0, full.posts.size() - existing.posts.size());
+            return full;
         }
         ThreadPage additional = parseDatThread(threadUrl, download.body,
                 existing.posts.get(existing.posts.size() - 1).number + 1);
@@ -21474,6 +21582,13 @@ public class MainActivity extends Activity {
                 "Monazilla/1.00 CuspiDroid/0.1",
                 headers);
         int code = connection.getResponseCode();
+        if (rangeStart > 0 && code == 416) {
+            long totalLength = totalLengthFromContentRange(connection.getHeaderField("Content-Range"));
+            if (totalLength <= 0) {
+                totalLength = rangeStart;
+            }
+            return new DatDownload(connection.getURL().toString(), "", totalLength, true, true);
+        }
         InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
         if (stream == null) {
             throw new IllegalStateException("HTTP " + code);
@@ -21490,7 +21605,7 @@ public class MainActivity extends Activity {
         if (totalLength <= 0) {
             totalLength = rangeStart + bytes.length;
         }
-        return new DatDownload(connection.getURL().toString(), body, totalLength, partial);
+        return new DatDownload(connection.getURL().toString(), body, totalLength, partial, false);
     }
 
     private long totalLengthFromContentRange(String value) {
@@ -21669,13 +21784,23 @@ public class MainActivity extends Activity {
         ThreadPage page = new ThreadPage();
         page.url = threadUrl;
         page.title = hostTitle(threadUrl);
-        String[] lines = dat.split("\\r?\\n");
         int number = Math.max(1, firstNumber);
-        for (String line : lines) {
+        int start = 0;
+        int length = dat == null ? 0 : dat.length();
+        while (start < length) {
+            int end = start;
+            while (end < length && dat.charAt(end) != '\n' && dat.charAt(end) != '\r') {
+                end++;
+            }
+            String line = dat.substring(start, end);
+            if (end < length && dat.charAt(end) == '\r' && end + 1 < length && dat.charAt(end + 1) == '\n') {
+                end++;
+            }
+            start = end + 1;
             if (line.trim().isEmpty()) {
                 continue;
             }
-            String[] fields = line.split("<>", -1);
+            String[] fields = splitDatFields(line);
             if (fields.length < 4) {
                 continue;
             }
@@ -21706,6 +21831,21 @@ public class MainActivity extends Activity {
             number = Math.max(number + 1, post.number + 1);
         }
         return page;
+    }
+
+    private String[] splitDatFields(String line) {
+        List<String> fields = new ArrayList<>(6);
+        int start = 0;
+        while (true) {
+            int sep = line.indexOf("<>", start);
+            if (sep < 0) {
+                fields.add(line.substring(start));
+                break;
+            }
+            fields.add(line.substring(start, sep));
+            start = sep + 2;
+        }
+        return fields.toArray(new String[0]);
     }
 
     private boolean isMachiDatFields(String threadUrl, String[] fields) {
@@ -26089,12 +26229,14 @@ public class MainActivity extends Activity {
         final String body;
         final long totalByteLength;
         final boolean partial;
+        final boolean unchanged;
 
-        DatDownload(String url, String body, long totalByteLength, boolean partial) {
+        DatDownload(String url, String body, long totalByteLength, boolean partial, boolean unchanged) {
             this.url = url;
             this.body = body;
             this.totalByteLength = totalByteLength;
             this.partial = partial;
+            this.unchanged = unchanged;
         }
     }
 
