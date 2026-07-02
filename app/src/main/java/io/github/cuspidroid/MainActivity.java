@@ -3650,6 +3650,14 @@ public class MainActivity extends Activity {
         page.fullTextPage = Math.max(1, object.optInt("fullTextPage", 1));
         page.fullTextHasMore = object.optBoolean("fullTextHasMore", false);
         page.fullTextReachedEnd = object.optBoolean("fullTextReachedEnd", false);
+        JSONObject readPosts = null;
+        List<ThreadHistoryItem> historyItems = null;
+        Set<String> historyUrls = null;
+        if (refreshReadState) {
+            readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
+            historyItems = threadHistory();
+            historyUrls = threadHistoryUrlSnapshot(historyItems);
+        }
         JSONArray results = object.optJSONArray("results");
         if (results != null) {
             for (int i = 0; i < results.length(); i++) {
@@ -3667,11 +3675,12 @@ public class MainActivity extends Activity {
                 result.boardOrder = item.optInt("boardOrder", i);
                 result.createdAt = item.optLong("createdAt", 0L);
                 result.unread = item.optInt("unread", 0);
-                result.hasReadHistory = item.optBoolean("hasReadHistory", result.unread > 0)
-                        || (refreshReadState && threadHistoryContains(result.url));
+                result.hasReadHistory = item.optBoolean("hasReadHistory", result.unread > 0);
                 result.boardName = item.optString("boardName", "");
-                if (refreshReadState && result.hasReadHistory && !result.boardName.isEmpty() && result.responses > 0) {
-                    result.unread = Math.max(0, result.responses - visibleReadPostNumber(result.url));
+                if (refreshReadState && result.responses > 0 && datAddress(result.url) != null) {
+                    result.hasReadHistory = threadHistoryContains(historyUrls, historyItems, result.url);
+                    int readNumber = result.hasReadHistory ? boardThreadReadNumber(readPosts, result.url) : 0;
+                    result.unread = result.hasReadHistory ? Math.max(0, result.responses - readNumber) : 0;
                 }
                 Object priority = item.opt("priorityMatch");
                 if (priority instanceof JSONObject) {
@@ -6881,6 +6890,7 @@ public class MainActivity extends Activity {
                 if (tab == currentTab() && !tabOverviewVisible) {
                     switchToTab(currentIndex);
                 }
+                requestSaveTabsSoon();
                 renderTabs();
             });
         });
@@ -6949,6 +6959,7 @@ public class MainActivity extends Activity {
                     progressBar.setVisibility(View.GONE);
                 }
                 refreshTabOverviewValuesForTab(tab);
+                requestSaveTabsSoon();
                 renderTabs();
             });
         });
@@ -7027,6 +7038,7 @@ public class MainActivity extends Activity {
                 if (tab == currentTab() && !tabOverviewVisible) {
                     switchToTab(currentIndex);
                 }
+                requestSaveTabsSoon();
                 renderTabs();
                 if (refresh) {
                     refreshBbsMenuCacheIfStale(loadUrl);
