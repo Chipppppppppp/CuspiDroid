@@ -365,16 +365,19 @@ public class MainActivity extends Activity {
     private static final int POPUP_INITIAL_RENDER_COUNT = 1;
     private static final int POPUP_RENDER_CHUNK_SIZE = 1;
     private static final int DEFERRED_TEXT_DECORATION_BUDGET = 4;
-    private static final int SEARCH_INITIAL_SLOT_BATCH = 40;
-    private static final int SEARCH_DEFERRED_SLOT_BATCH = 80;
+    private static final int SEARCH_INITIAL_SLOT_BATCH = 20;
+    private static final int SEARCH_DEFERRED_SLOT_BATCH = 120;
+    private static final long SEARCH_DEFERRED_SLOT_DELAY_MS = 4L;
     private static final int SEARCH_VISIBLE_RENDER_BUDGET = 24;
     private static final int SEARCH_SCROLL_RENDER_BUDGET = 48;
     private static final int SEARCH_IDLE_RENDER_BUDGET = 96;
     private static final int EXTRACT_VISIBLE_RENDER_BUDGET = 8;
     private static final int EXTRACT_SCROLL_RENDER_BUDGET = 12;
     private static final int EXTRACT_IDLE_RENDER_BUDGET = 24;
-    private static final int TAB_OVERVIEW_INITIAL_SLOT_BATCH = 16;
-    private static final int TAB_OVERVIEW_DEFERRED_SLOT_BATCH = 32;
+    private static final int TAB_OVERVIEW_INITIAL_SLOT_BATCH = 8;
+    private static final int TAB_OVERVIEW_DEFERRED_SLOT_BATCH = 24;
+    private static final long TAB_OVERVIEW_DEFERRED_SLOT_DELAY_MS = 4L;
+    private static final long TAB_OVERVIEW_DEFERRED_SORT_DELAY_MS = 96L;
     private static final int TAB_OVERVIEW_VISIBLE_RENDER_BUDGET = 10;
     private static final int TAB_OVERVIEW_SCROLL_RENDER_BUDGET = 16;
     private static final int TAB_OVERVIEW_IDLE_RENDER_BUDGET = 32;
@@ -8897,7 +8900,7 @@ public class MainActivity extends Activity {
             count++;
         }
         if (count > 0) {
-            renderVirtualSearchSlots(scroll, list, slots, !isFullTextSearchUrl(page.url));
+            renderVirtualSearchSlots(scroll, list, slots, true);
         }
     }
 
@@ -8929,7 +8932,8 @@ public class MainActivity extends Activity {
         appendVirtualSearchSlots(list, slots, start, end);
         scheduleSearchSlotRefresh(list);
         if (end < slots.size()) {
-            list.postDelayed(() -> appendDeferredVirtualSearchSlots(scroll, list, slots, state, end), 8L);
+            list.postDelayed(() -> appendDeferredVirtualSearchSlots(scroll, list, slots, state, end),
+                    SEARCH_DEFERRED_SLOT_DELAY_MS);
         }
     }
 
@@ -8986,7 +8990,24 @@ public class MainActivity extends Activity {
         } else {
             params.setMargins(0, 0, 0, dp(8));
         }
-        list.addView(holder, params);
+        int footerIndex = fullTextLoadMoreFooterIndex(list);
+        if (footerIndex >= 0) {
+            list.addView(holder, footerIndex, params);
+        } else {
+            list.addView(holder, params);
+        }
+    }
+
+    private int fullTextLoadMoreFooterIndex(LinearLayout list) {
+        if (list == null) {
+            return -1;
+        }
+        int last = list.getChildCount() - 1;
+        if (last < 0) {
+            return -1;
+        }
+        View child = list.getChildAt(last);
+        return child instanceof LinearLayout && FULL_TEXT_LOAD_MORE_FOOTER_TAG.equals(child.getTag()) ? last : -1;
     }
 
     private void refreshSearchSlots(ScrollView scroll, LinearLayout list) {
@@ -11219,7 +11240,8 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        populateTabOverviewList(scroll, list, false);
+        populateTabOverviewList(scroll, list, false, false);
+        scheduleDeferredTabOverviewSort(list, tabOverviewPrivateMode);
 
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
@@ -11245,6 +11267,11 @@ public class MainActivity extends Activity {
     }
 
     private void populateTabOverviewList(ScrollView scroll, LinearLayout list, boolean includeBookmarks) {
+        populateTabOverviewList(scroll, list, includeBookmarks, true);
+    }
+
+    private void populateTabOverviewList(ScrollView scroll, LinearLayout list,
+                                         boolean includeBookmarks, boolean allowSort) {
         list.removeAllViews();
         setTabOverviewListPadding(list);
         LinearLayout header = new LinearLayout(this);
@@ -11259,7 +11286,7 @@ public class MainActivity extends Activity {
         if (includeBookmarks && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
             addBookmarkOverviewSection(list);
         }
-        addTabOverviewSection(scroll, list, tabOverviewPrivateMode);
+        addTabOverviewSection(scroll, list, tabOverviewPrivateMode, allowSort);
     }
 
     private void setTabOverviewListPadding(LinearLayout list) {
@@ -11313,7 +11340,12 @@ public class MainActivity extends Activity {
     }
 
     private void addTabOverviewSection(ScrollView scroll, LinearLayout list, boolean privateSection) {
-        List<Integer> indices = tabOverviewIndices(privateSection);
+        addTabOverviewSection(scroll, list, privateSection, true);
+    }
+
+    private void addTabOverviewSection(ScrollView scroll, LinearLayout list,
+                                       boolean privateSection, boolean allowSort) {
+        List<Integer> indices = tabOverviewIndices(privateSection, allowSort);
         if (indices.isEmpty()) {
             TextView empty = helperLine(privateSection
                     ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
@@ -11335,11 +11367,35 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void scheduleDeferredTabOverviewSort(LinearLayout list, boolean privateMode) {
+        if (list == null || !preferences.getBoolean(PREF_TAB_SORT_ENABLED, false)) {
+            return;
+        }
+        scheduleDeferredTabOverviewSort(list, privateMode, 0);
+    }
+
+    private void scheduleDeferredTabOverviewSort(LinearLayout list, boolean privateMode, int attempt) {
+        list.postDelayed(() -> {
+            if (!tabOverviewVisible || tabOverviewPrivateMode != privateMode
+                    || contentFrame == null || list.getParent() == null) {
+                return;
+            }
+            VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
+                    ? (VirtualTabOverviewState) list.getTag() : null;
+            if (state != null && state.appendingSlots && attempt < 20) {
+                scheduleDeferredTabOverviewSort(list, privateMode, attempt + 1);
+                return;
+            }
+            refreshTabOverviewTabSlotsOnly();
+        }, TAB_OVERVIEW_DEFERRED_SORT_DELAY_MS);
+    }
+
     private void renderVirtualTabOverviewSlots(ScrollView scroll, LinearLayout list, List<Integer> indices) {
         int initialCount = Math.min(indices.size(), TAB_OVERVIEW_INITIAL_SLOT_BATCH);
         appendVirtualTabOverviewSlots(list, indices, 0, initialCount);
         VirtualTabOverviewState state = setupVirtualTabOverviewRefresh(scroll, list);
         if (initialCount < indices.size()) {
+            state.appendingSlots = true;
             list.post(() -> appendDeferredVirtualTabOverviewSlots(scroll, list, indices, state, initialCount));
         }
     }
@@ -11354,7 +11410,10 @@ public class MainActivity extends Activity {
         appendVirtualTabOverviewSlots(list, indices, start, end);
         scheduleTabOverviewSlotRefresh(list);
         if (end < indices.size()) {
-            list.postDelayed(() -> appendDeferredVirtualTabOverviewSlots(scroll, list, indices, state, end), 8L);
+            list.postDelayed(() -> appendDeferredVirtualTabOverviewSlots(scroll, list, indices, state, end),
+                    TAB_OVERVIEW_DEFERRED_SLOT_DELAY_MS);
+        } else {
+            state.appendingSlots = false;
         }
     }
 
@@ -11656,6 +11715,10 @@ public class MainActivity extends Activity {
     }
 
     private List<Integer> tabOverviewIndices(boolean privateSection) {
+        return tabOverviewIndices(privateSection, true);
+    }
+
+    private List<Integer> tabOverviewIndices(boolean privateSection, boolean allowSort) {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
@@ -11667,6 +11730,9 @@ public class MainActivity extends Activity {
         if (restored != null) {
             rememberTabOverviewOrderSnapshot(privateSection, restored);
             return restored;
+        }
+        if (!allowSort) {
+            return indices;
         }
         if (!preferences.getBoolean(PREF_TAB_SORT_ENABLED, false)) {
             rememberTabOverviewOrderSnapshot(privateSection, indices);
@@ -26047,6 +26113,7 @@ public class MainActivity extends Activity {
         final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
         Runnable refreshTask;
         boolean refreshPending;
+        boolean appendingSlots;
         long lastScrollAt;
     }
 
