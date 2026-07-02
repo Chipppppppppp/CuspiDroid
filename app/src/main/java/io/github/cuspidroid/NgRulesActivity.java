@@ -38,6 +38,7 @@ public class NgRulesActivity extends Activity {
     private String targetUrl = "";
     private String targetTitle = "";
     private String currentCategory = CATEGORIES[0];
+    private String presetValue = "";
     private boolean targetSelected;
 
     @Override
@@ -50,11 +51,16 @@ public class NgRulesActivity extends Activity {
         if (targetSelected) {
             targetUrl = MainActivity.normalizeNgTargetUrl(intent.getStringExtra(MainActivity.EXTRA_NG_TARGET_URL));
             targetTitle = value(intent.getStringExtra(MainActivity.EXTRA_NG_TARGET_TITLE));
+            currentCategory = validCategory(value(intent.getStringExtra(MainActivity.EXTRA_NG_PRESET_CATEGORY)));
+            presetValue = value(intent.getStringExtra(MainActivity.EXTRA_NG_PRESET_VALUE)).trim();
             loadPageRules();
         }
         buildLayout();
         if (targetSelected) {
             renderRules();
+            if (!presetValue.isEmpty()) {
+                list.post(() -> showRuleDialog(null, -1, presetValue));
+            }
         }
     }
 
@@ -87,7 +93,7 @@ public class NgRulesActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout targets = new LinearLayout(this);
         targets.setOrientation(LinearLayout.VERTICAL);
-        addTargetRow(targets, "", MainActivity.text("\u5168\u30b9\u30ec\u5171\u901a", "All threads"));
+        addTargetRow(targets, "", MainActivity.text("\u5168\u677f\u5171\u901a", "All boards"));
         List<String> seen = new ArrayList<>();
         for (MainActivity.ScopedNgRule rule : allRules) {
             if (rule.targetUrl.isEmpty() || seen.contains(rule.targetUrl)) {
@@ -114,15 +120,15 @@ public class NgRulesActivity extends Activity {
     }
 
     private void addNewTargetRow(LinearLayout parent) {
-        TextView add = actionRow(MainActivity.text("\u30b9\u30ecURL\u3092\u8ffd\u52a0", "Add thread URL"));
+        TextView add = actionRow(MainActivity.text("\u677fURL\u3092\u8ffd\u52a0", "Add board URL"));
         add.setOnClickListener(v -> showAddTargetDialog());
         parent.addView(add, targetRowParams());
     }
 
     private void showAddTargetDialog() {
-        EditText input = field(MainActivity.text("\u30b9\u30ecURL", "Thread URL"));
+        EditText input = field(MainActivity.text("\u677fURL", "Board URL"));
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("\u5bfe\u8c61\u30b9\u30ec\u3092\u8ffd\u52a0", "Add target thread"))
+                .setTitle(MainActivity.text("\u5bfe\u8c61\u677f\u3092\u8ffd\u52a0", "Add target board"))
                 .setView(input)
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(MainActivity.text("\u8ffd\u52a0", "Add"), null)
@@ -132,7 +138,7 @@ public class NgRulesActivity extends Activity {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String url = MainActivity.normalizeNgTargetUrl(input.getText().toString());
                 if (url.isEmpty()) {
-                    Toast.makeText(this, MainActivity.text("\u30b9\u30ecURL\u3092\u5165\u529b", "Enter a thread URL."), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, MainActivity.text("\u677fURL\u3092\u5165\u529b", "Enter a board URL."), Toast.LENGTH_SHORT).show();
                     return;
                 }
                 Intent intent = new Intent(this, NgRulesActivity.class);
@@ -149,17 +155,17 @@ public class NgRulesActivity extends Activity {
         root.addView(textView(MainActivity.text("NG\u8a2d\u5b9a", "NG settings"), 24, Theme.text(this)));
         if (!targetUrl.isEmpty()) {
             TextView name = textView(targetTitle.isEmpty()
-                    ? MainActivity.text("\u30b9\u30ec", "Thread") : targetTitle, 16, Theme.text(this));
+                    ? MainActivity.text("\u677f", "Board") : targetTitle, 16, Theme.text(this));
             name.setMaxLines(2);
             name.setPadding(dp(4), dp(10), dp(4), dp(4));
             root.addView(name);
-            targetInput = field(MainActivity.text("\u30b9\u30ecURL", "Thread URL"));
+            targetInput = field(MainActivity.text("\u677fURL", "Board URL"));
             targetInput.setText(targetUrl);
             root.addView(targetInput, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
         } else {
             TextView description = textView(
-                    MainActivity.text("\u5168\u30b9\u30ec\u306b\u9069\u7528\u3059\u308bNG\u8a2d\u5b9a", "NG settings applied to all threads"),
+                    MainActivity.text("\u5168\u677f\u306b\u9069\u7528\u3059\u308bNG\u8a2d\u5b9a", "NG settings applied to all boards"),
                     13, Theme.muted(this));
             description.setPadding(dp(4), dp(8), dp(4), dp(8));
             root.addView(description);
@@ -202,7 +208,7 @@ public class NgRulesActivity extends Activity {
     private void loadPageRules() {
         pageRules.clear();
         for (MainActivity.ScopedNgRule rule : allRules) {
-            if (rule.targetUrl.equals(targetUrl)) {
+            if (MainActivity.normalizeNgTargetUrl(rule.targetUrl).equals(targetUrl)) {
                 pageRules.add(rule);
             }
         }
@@ -250,6 +256,10 @@ public class NgRulesActivity extends Activity {
     }
 
     private void showRuleDialog(MainActivity.ScopedNgRule existing, int pageIndex) {
+        showRuleDialog(existing, pageIndex, null);
+    }
+
+    private void showRuleDialog(MainActivity.ScopedNgRule existing, int pageIndex, String preset) {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(12), dp(4), dp(12), 0);
@@ -267,6 +277,9 @@ public class NgRulesActivity extends Activity {
         (existing != null && existing.regex ? regexType : textType).setChecked(true);
         if (existing != null) {
             input.setText(existing.value);
+            input.setSelection(input.length());
+        } else if (preset != null && !preset.trim().isEmpty()) {
+            input.setText(preset.trim());
             input.setSelection(input.length());
         }
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -317,7 +330,7 @@ public class NgRulesActivity extends Activity {
     private void saveRules() {
         List<MainActivity.ScopedNgRule> saved = new ArrayList<>();
         for (MainActivity.ScopedNgRule rule : allRules) {
-            if (!rule.targetUrl.equals(targetUrl)) {
+            if (!MainActivity.normalizeNgTargetUrl(rule.targetUrl).equals(targetUrl)) {
                 saved.add(rule);
             }
         }
@@ -339,6 +352,15 @@ public class NgRulesActivity extends Activity {
         }
         String label = value(url).replaceFirst("https?://", "");
         return label.length() > 60 ? label.substring(0, 59) + "..." : label;
+    }
+
+    private String validCategory(String value) {
+        for (String category : CATEGORIES) {
+            if (category.equals(value)) {
+                return category;
+            }
+        }
+        return CATEGORIES[0];
     }
 
     private LinearLayout ruleRow(String label) {

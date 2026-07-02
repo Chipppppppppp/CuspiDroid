@@ -48,6 +48,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.text.TextPaint;
 import android.text.style.BackgroundColorSpan;
+import android.text.style.CharacterStyle;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.text.method.LinkMovementMethod;
@@ -237,6 +238,8 @@ public class MainActivity extends Activity {
     static final String EXTRA_PRIORITY_TARGET_TITLE = "priority_target_title";
     static final String EXTRA_NG_TARGET_URL = "ng_target_url";
     static final String EXTRA_NG_TARGET_TITLE = "ng_target_title";
+    static final String EXTRA_NG_PRESET_CATEGORY = "ng_preset_category";
+    static final String EXTRA_NG_PRESET_VALUE = "ng_preset_value";
     static final String PREF_BOARD_DISPLAY_NAMES = "board_display_names";
     static final String PREF_TAB_SHOW_BOARD_NAME = "tab_show_board_name";
     static final String PREF_TAB_SHOW_RESPONSES = "tab_show_responses";
@@ -2505,9 +2508,52 @@ public class MainActivity extends Activity {
 
     private void openThreadNgRules(String targetUrl, String targetTitle) {
         Intent intent = new Intent(this, NgRulesActivity.class);
-        intent.putExtra(EXTRA_NG_TARGET_URL, normalizeNgTargetUrl(targetUrl));
-        intent.putExtra(EXTRA_NG_TARGET_TITLE, targetTitle == null ? "" : targetTitle);
+        String scopeUrl = ngTargetUrlForPage(targetUrl);
+        intent.putExtra(EXTRA_NG_TARGET_URL, scopeUrl);
+        intent.putExtra(EXTRA_NG_TARGET_TITLE, ngTargetTitleForPage(scopeUrl, targetTitle));
         startActivity(intent);
+    }
+
+    private void openNgRuleAdd(ThreadPage page, String category, String value) {
+        String normalizedValue = value == null ? "" : value.trim();
+        if (normalizedValue.isEmpty()) {
+            Toast.makeText(this, text("NG\u306b\u8ffd\u52a0\u3067\u304d\u308b\u5024\u304c\u3042\u308a\u307e\u305b\u3093", "No value to add to NG rules."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String pageUrl = page == null ? "" : page.url;
+        String scopeUrl = ngTargetUrlForPage(pageUrl);
+        Intent intent = new Intent(this, NgRulesActivity.class);
+        intent.putExtra(EXTRA_NG_TARGET_URL, scopeUrl);
+        intent.putExtra(EXTRA_NG_TARGET_TITLE, ngTargetTitleForPage(scopeUrl, page == null ? "" : page.title));
+        intent.putExtra(EXTRA_NG_PRESET_CATEGORY, category == null ? "" : category);
+        intent.putExtra(EXTRA_NG_PRESET_VALUE, normalizedValue);
+        startActivity(intent);
+    }
+
+    private String ngTargetUrlForPage(String url) {
+        String value = url == null ? "" : url;
+        DatAddress address = value.trim().isEmpty() ? null : datAddress(value);
+        if (address != null && address.host != null && address.board != null
+                && !address.host.trim().isEmpty() && !address.board.trim().isEmpty()) {
+            String host = "itest.5ch.io".equalsIgnoreCase(address.host) && address.server != null
+                    && !address.server.trim().isEmpty()
+                    ? address.server + ".5ch.io"
+                    : address.host;
+            String scheme = address.scheme == null || address.scheme.isEmpty() ? "https" : address.scheme;
+            return normalizeNgTargetUrl(scheme + "://" + host + "/" + address.board + "/");
+        }
+        String boardUrl = boardUrlForDisplayName(value);
+        return normalizeNgTargetUrl(boardUrl == null || boardUrl.trim().isEmpty() ? value : boardUrl);
+    }
+
+    private String ngTargetTitleForPage(String scopeUrl, String fallbackTitle) {
+        if (scopeUrl != null && !scopeUrl.trim().isEmpty()) {
+            String title = displayBoardTitle(scopeUrl);
+            if (title != null && !title.trim().isEmpty()) {
+                return title.trim();
+            }
+        }
+        return fallbackTitle == null ? "" : fallbackTitle;
     }
 
     private CharSequence menuCountLabel(String label, int count) {
@@ -7798,6 +7844,7 @@ public class MainActivity extends Activity {
                 String url = touchedUrl(textView, event);
                 v.setTag(url == null ? null : new TouchedLink(url, (int) event.getRawX(), (int) event.getRawY()));
                 textView.setTag(R.id.tag_touched_post_id, touchedPostId(textView, event));
+                textView.setTag(R.id.tag_touched_post_name, touchedPostName(textView, event));
             }
             if (gesturesEnabled()) {
                 return false;
@@ -7831,6 +7878,7 @@ public class MainActivity extends Activity {
                     if (v instanceof TextView) {
                         v.setTag(null);
                         v.setTag(R.id.tag_touched_post_id, null);
+                        v.setTag(R.id.tag_touched_post_name, null);
                     }
                 }
                 if (!dragging[0] && horizontalIntent[0] && Math.abs(dx) > dp(6)) {
@@ -7851,6 +7899,7 @@ public class MainActivity extends Activity {
                 if (event.getAction() == MotionEvent.ACTION_CANCEL && v instanceof TextView) {
                     v.setTag(null);
                     v.setTag(R.id.tag_touched_post_id, null);
+                    v.setTag(R.id.tag_touched_post_name, null);
                 }
                 if (dragging[0]) {
                     float tx = card.getTranslationX();
@@ -7982,10 +8031,17 @@ public class MainActivity extends Activity {
     private TextView postMetaText(Post post, ThreadPage page, Runnable longClickAction) {
         TextView meta = new TextView(this);
         int displayNumber = post.sourcePostNumber > 0 ? post.sourcePostNumber : post.number;
-        String value = displayNumber + "  " + post.name + "  " + post.date;
+        String name = post.name == null ? "" : post.name;
+        String date = post.date == null ? "" : post.date;
+        String value = displayNumber + "  " + name + "  " + date;
         SpannableString text = new SpannableString(value);
         int numberEnd = String.valueOf(displayNumber).length();
         text.setSpan(new StyleSpan(Typeface.BOLD), 0, numberEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int nameStart = numberEnd + 2;
+        int nameEnd = Math.min(value.length(), nameStart + name.length());
+        if (nameEnd > nameStart) {
+            text.setSpan(new PostNameSpan(), nameStart, nameEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         Matcher matcher = POST_ID_PATTERN.matcher(value);
         while (matcher.find()) {
             String id = matcher.group(1);
@@ -8012,14 +8068,18 @@ public class MainActivity extends Activity {
         meta.setText(text);
         meta.setTextColor(mutedColor());
         meta.setLinkTextColor(TEAL);
-        meta.setTextSize(12);
-        meta.setPadding(0, 0, 0, dp(5));
+        meta.setTextSize(14);
+        meta.setPadding(0, dp(2), 0, dp(8));
+        meta.setMinHeight(dp(32));
         meta.setMovementMethod(LinkMovementMethod.getInstance());
         installPostIdTouchTracking(meta);
         meta.setOnLongClickListener(v -> {
             suppressNextLinkClick.add(v);
             mainHandler.postDelayed(() -> suppressNextLinkClick.remove(v), 1200);
             if (showPostIdMenuIfAny(meta, page, post)) {
+                return true;
+            }
+            if (showPostNameMenuIfAny(meta, page, post)) {
                 return true;
             }
             if (longClickAction != null) {
@@ -8097,9 +8157,11 @@ public class MainActivity extends Activity {
         text.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 text.setTag(R.id.tag_touched_post_id, touchedPostId(text, event));
+                text.setTag(R.id.tag_touched_post_name, touchedPostName(text, event));
             } else if (event.getAction() == MotionEvent.ACTION_UP
                     || event.getAction() == MotionEvent.ACTION_CANCEL) {
                 text.setTag(R.id.tag_touched_post_id, null);
+                text.setTag(R.id.tag_touched_post_name, null);
             }
             return false;
         });
@@ -8143,6 +8205,45 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private TouchedPostName touchedPostName(TextView text, MotionEvent event) {
+        CharSequence value = text.getText();
+        if (!(value instanceof Spanned)) {
+            return null;
+        }
+        Layout layout = text.getLayout();
+        if (layout == null) {
+            return null;
+        }
+        int x = (int) event.getX() - text.getTotalPaddingLeft() + text.getScrollX();
+        int y = (int) event.getY() - text.getTotalPaddingTop() + text.getScrollY();
+        if (y < 0 || y > layout.getHeight()) {
+            return null;
+        }
+        int line = layout.getLineForVertical(y);
+        int offset = layout.getOffsetForHorizontal(line, x);
+        Spanned spanned = (Spanned) value;
+        PostNameSpan[] spans = spanned.getSpans(offset, offset, PostNameSpan.class);
+        for (PostNameSpan span : spans) {
+            int start = spanned.getSpanStart(span);
+            int end = spanned.getSpanEnd(span);
+            if (start <= offset && end > offset) {
+                String name = spanned.subSequence(start, end).toString().trim();
+                if (name.isEmpty()) {
+                    continue;
+                }
+                int[] location = new int[2];
+                int spanLine = layout.getLineForOffset(start);
+                text.getLocationOnScreen(location);
+                int rawX = location[0] + text.getTotalPaddingLeft() - text.getScrollX()
+                        + (int) layout.getPrimaryHorizontal(start);
+                int rawY = location[1] + text.getTotalPaddingTop() - text.getScrollY()
+                        + layout.getLineBottom(spanLine);
+                return new TouchedPostName(name, rawX, rawY);
+            }
+        }
+        return null;
+    }
+
     private boolean showPostIdMenuIfAny(TextView anchor, ThreadPage page, Post post) {
         Object tag = anchor.getTag(R.id.tag_touched_post_id);
         if (!(tag instanceof TouchedPostId) || ((TouchedPostId) tag).id.isEmpty()) {
@@ -8151,6 +8252,17 @@ public class MainActivity extends Activity {
         suppressNextLinkClick.add(anchor);
         mainHandler.postDelayed(() -> suppressNextLinkClick.remove(anchor), 1400);
         showPostIdActionMenu(anchor, page, post, (TouchedPostId) tag);
+        return true;
+    }
+
+    private boolean showPostNameMenuIfAny(TextView anchor, ThreadPage page, Post post) {
+        Object tag = anchor.getTag(R.id.tag_touched_post_name);
+        if (!(tag instanceof TouchedPostName) || ((TouchedPostName) tag).name.isEmpty()) {
+            return false;
+        }
+        suppressNextLinkClick.add(anchor);
+        mainHandler.postDelayed(() -> suppressNextLinkClick.remove(anchor), 1400);
+        showPostNameActionMenu(anchor, page, (TouchedPostName) tag);
         return true;
     }
 
@@ -8176,6 +8288,14 @@ public class MainActivity extends Activity {
         menu.addView(hissi, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        TextView ng = menuItem(text("NGID\u306b\u8ffd\u52a0", "Add to NGID"), v -> {
+        });
+        ng.setGravity(Gravity.CENTER_VERTICAL);
+        ng.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_close, 0, 0, 0);
+        ng.setCompoundDrawablePadding(dp(6));
+        menu.addView(ng, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, false);
         popup.setOutsideTouchable(true);
@@ -8189,6 +8309,54 @@ public class MainActivity extends Activity {
             openHissiChecker(page, post, touched.id);
             dismissPopupAnimated(popup);
         });
+        ng.setOnClickListener(v -> {
+            openNgRuleAdd(page, "NGID", touched.id);
+            dismissPopupAnimated(popup);
+        });
+        menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int x = Math.max(0, Math.min(touched.rawX,
+                getResources().getDisplayMetrics().widthPixels - menu.getMeasuredWidth()));
+        int y = touched.rawY + dp(2);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x, y);
+        animatePopupIn(popup, false);
+    }
+
+    private void showPostNameActionMenu(View anchor, ThreadPage page, TouchedPostName touched) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+
+        TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
+        });
+        copy.setGravity(Gravity.CENTER_VERTICAL);
+        copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
+        copy.setCompoundDrawablePadding(dp(6));
+        menu.addView(copy, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView ng = menuItem(text("NGName\u306b\u8ffd\u52a0", "Add to NGName"), v -> {
+        });
+        ng.setGravity(Gravity.CENTER_VERTICAL);
+        ng.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_close, 0, 0, 0);
+        ng.setCompoundDrawablePadding(dp(6));
+        menu.addView(ng, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        PopupWindow popup = new PopupWindow(menu, ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+        copy.setOnClickListener(v -> {
+            copyPostName(touched.name);
+            dismissPopupAnimated(popup);
+        });
+        ng.setOnClickListener(v -> {
+            openNgRuleAdd(page, "NGName", touched.name);
+            dismissPopupAnimated(popup);
+        });
         menu.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels, View.MeasureSpec.AT_MOST),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int x = Math.max(0, Math.min(touched.rawX,
@@ -8200,6 +8368,10 @@ public class MainActivity extends Activity {
 
     private void copyPostId(String id) {
         copyTextToClipboard("CuspiDroid ID", id, text("ID\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "ID copied."));
+    }
+
+    private void copyPostName(String name) {
+        copyTextToClipboard("CuspiDroid name", name, text("\u540d\u524d\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Name copied."));
     }
 
     private void openHissiChecker(ThreadPage page, Post post, String id) {
@@ -8593,8 +8765,17 @@ public class MainActivity extends Activity {
 
     private String currentNgThreadUrl() {
         CuspTab tab = currentTab();
-        return tab != null && NATIVE_THREAD.equals(tab.nativeKind)
-                ? normalizeNgTargetUrl(tab.url) : "";
+        if (tab == null) {
+            return "";
+        }
+        if (NATIVE_THREAD.equals(tab.nativeKind)) {
+            String boardUrl = currentThreadBoardUrl(tab);
+            return normalizeNgTargetUrl(boardUrl == null ? tab.url : boardUrl);
+        }
+        if (NATIVE_BOARD.equals(tab.nativeKind)) {
+            return normalizeNgTargetUrl(tab.url);
+        }
+        return "";
     }
 
     private NgRules ngRules() {
@@ -24694,11 +24875,77 @@ public class MainActivity extends Activity {
         if (value.isEmpty()) {
             return "";
         }
-        value = normalizeUrlStatic(value);
+        try {
+            value = normalizeUrlStatic(value);
+            Uri uri = Uri.parse(value);
+            String host = uri.getHost();
+            String scheme = uri.getScheme() == null ? "https" : uri.getScheme();
+            List<String> parts = uri.getPathSegments();
+            if (host != null && isShitarabaHostStatic(host)) {
+                String board = null;
+                if (parts.size() >= 5 && "bbs".equalsIgnoreCase(parts.get(0))
+                        && "read.cgi".equalsIgnoreCase(parts.get(1))) {
+                    board = parts.get(2) + "/" + parts.get(3);
+                } else if (parts.size() >= 4 && "bbs".equalsIgnoreCase(parts.get(0))
+                        && "subject.cgi".equalsIgnoreCase(parts.get(1))) {
+                    board = parts.get(2) + "/" + parts.get(3);
+                } else if (parts.size() >= 2 && !"bbs".equalsIgnoreCase(parts.get(0))) {
+                    board = parts.get(0) + "/" + parts.get(1);
+                }
+                if (board != null && !board.trim().isEmpty()) {
+                    value = scheme + "://" + host + "/" + board;
+                }
+            } else if (host != null && isFutabaHostStatic(host)
+                    && parts.size() >= 3
+                    && "res".equalsIgnoreCase(parts.get(1))
+                    && parts.get(2).toLowerCase(Locale.ROOT).matches("\\d+\\.htm")) {
+                value = scheme + "://" + host + "/" + parts.get(0) + "/futaba.htm";
+            } else if (host != null) {
+                int readIndex = -1;
+                for (int i = 0; i + 1 < parts.size(); i++) {
+                    if (("test".equals(parts.get(i)) || "bbs".equals(parts.get(i)))
+                            && "read.cgi".equals(parts.get(i + 1))) {
+                        readIndex = i;
+                        break;
+                    }
+                }
+                if (readIndex >= 0 && readIndex + 2 < parts.size()) {
+                    String board = parts.get(readIndex + 2);
+                    String lowerHost = host.toLowerCase(Locale.ROOT);
+                    if ("itest.5ch.io".equals(lowerHost) && readIndex > 0) {
+                        String server = parts.get(readIndex - 1).toLowerCase(Locale.ROOT);
+                        value = "https://" + server + ".5ch.io/" + board;
+                    } else {
+                        value = scheme + "://" + host + "/" + board;
+                    }
+                } else if (parts.size() >= 2 && parts.get(1).matches("\\d{9,13}")) {
+                    String board = parts.get(0);
+                    String lowerBoard = board.toLowerCase(Locale.ROOT);
+                    if (!board.trim().isEmpty()
+                            && !"test".equals(lowerBoard)
+                            && !"bbs".equals(lowerBoard)
+                            && !"dat".equals(lowerBoard)) {
+                        value = scheme + "://" + host + "/" + board;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
         while (value.endsWith("/") && value.length() > "https://x".length()) {
             value = value.substring(0, value.length() - 1);
         }
         return value;
+    }
+
+    private static boolean isFutabaHostStatic(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        return lower.equals("2chan.net") || lower.endsWith(".2chan.net");
+    }
+
+    private static boolean isShitarabaHostStatic(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        return lower.equals("shitaraba.net") || lower.endsWith(".shitaraba.net")
+                || lower.equals("jbbs.livedoor.jp") || lower.endsWith(".jbbs.livedoor.jp");
     }
 
     static List<BoardPriorityRule> readBoardPriorityRules(SharedPreferences preferences) {
@@ -26631,6 +26878,24 @@ public class MainActivity extends Activity {
             this.id = id;
             this.rawX = rawX;
             this.rawY = rawY;
+        }
+    }
+
+    private static class TouchedPostName {
+        final String name;
+        final int rawX;
+        final int rawY;
+
+        TouchedPostName(String name, int rawX, int rawY) {
+            this.name = name;
+            this.rawX = rawX;
+            this.rawY = rawY;
+        }
+    }
+
+    private static class PostNameSpan extends CharacterStyle {
+        @Override
+        public void updateDrawState(TextPaint tp) {
         }
     }
 
