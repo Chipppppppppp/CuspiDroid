@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -223,9 +224,9 @@ public class BoardPriorityRulesActivity extends Activity {
         group.addView(textType);
         group.addView(regexType);
         content.addView(group);
-        EditText input = field(MainActivity.text("\u30ef\u30fc\u30c9", "Word"));
+        EditText input = multilineField(MainActivity.text("\u30ef\u30fc\u30c9", "Word"));
         content.addView(input, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         (existing != null && existing.regex ? regexType : textType).setChecked(true);
         if (existing != null) {
             input.setText(existing.value);
@@ -330,6 +331,21 @@ public class BoardPriorityRulesActivity extends Activity {
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setPadding(dp(12), 0, dp(12), 0);
         input.setBackground(boxBackground());
+        return input;
+    }
+
+    private EditText multilineField(String hint) {
+        EditText input = field(hint);
+        input.setSingleLine(false);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setHorizontallyScrolling(false);
+        input.setMinLines(3);
+        input.setMaxLines(6);
+        input.setImeOptions(EditorInfo.IME_ACTION_NONE);
+        input.setPadding(dp(12), dp(8), dp(12), dp(8));
         return input;
     }
 
