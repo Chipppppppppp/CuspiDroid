@@ -7703,6 +7703,11 @@ public class MainActivity extends Activity {
         if (!number.isEmpty()) {
             text.setSpan(new StyleSpan(Typeface.BOLD), 0, number.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        int labelStart = number.isEmpty() ? 0 : Math.min(value.length(), number.length() + 2);
+        if (labelStart < value.length()) {
+            text.setSpan(new ForegroundColorSpan(TEAL), labelStart, value.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         view.setText(text);
         view.setTextColor(mutedColor());
         view.setTextSize(14);
@@ -9323,6 +9328,10 @@ public class MainActivity extends Activity {
                 }
                 float pull = Math.max(0, event.getY() - downY[0]);
                 pullDistance[0] = pull;
+                if (pull <= dp(4) && !draggingTop[0] && loader.getVisibility() == View.VISIBLE) {
+                    resetTopRefreshLoader(loader);
+                    return false;
+                }
                 if (pull > dp(4)) {
                     draggingTop[0] = true;
                     loadMoreArmed[0] = false;
@@ -10801,6 +10810,10 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, downY[0] - event.getY());
                     pullDistance[0] = pull;
+                    if (pull <= dp(4) && !dragging[0] && loader.getVisibility() == View.VISIBLE) {
+                        resetBottomRefreshLoader(loader);
+                        return false;
+                    }
                     if (pull > dp(4)) {
                         dragging[0] = true;
                         loader.animate().cancel();
@@ -10902,6 +10915,14 @@ public class MainActivity extends Activity {
                     } else if (startedAtBottom[0] && dy < -dp(4) && !scroll.canScrollVertically(1)) {
                         activeEdge[0] = 1;
                     } else {
+                        if (!dragging[0]) {
+                            if (topLoader.getVisibility() == View.VISIBLE) {
+                                resetTopRefreshLoader(topLoader);
+                            }
+                            if (bottomLoader.getVisibility() == View.VISIBLE) {
+                                resetBottomRefreshLoader(bottomLoader);
+                            }
+                        }
                         return false;
                     }
                 }
@@ -10915,6 +10936,10 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, event.getY() - downY[0]);
                     pullDistance[0] = pull;
+                    if (pull <= dp(4) && !dragging[0] && topLoader.getVisibility() == View.VISIBLE) {
+                        resetTopRefreshLoader(topLoader);
+                        return false;
+                    }
                     if (pull > dp(4)) {
                         dragging[0] = true;
                         topLoader.animate().cancel();
@@ -10940,6 +10965,10 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, downY[0] - event.getY());
                     pullDistance[0] = pull;
+                    if (pull <= dp(4) && !dragging[0] && bottomLoader.getVisibility() == View.VISIBLE) {
+                        resetBottomRefreshLoader(bottomLoader);
+                        return false;
+                    }
                     if (pull > dp(4)) {
                         dragging[0] = true;
                         bottomLoader.animate().cancel();
@@ -11048,6 +11077,10 @@ public class MainActivity extends Activity {
                     }
                     float pull = Math.max(0, event.getY() - downY[0]);
                     pullDistance[0] = pull;
+                    if (pull <= dp(4) && !dragging[0] && loader.getVisibility() == View.VISIBLE) {
+                        resetTopRefreshLoader(loader);
+                        return false;
+                    }
                     if (pull > dp(4)) {
                         dragging[0] = true;
                         loader.animate().cancel();
@@ -17751,10 +17784,10 @@ public class MainActivity extends Activity {
             return;
         }
         FrameLayout popupRoot = new FrameLayout(this);
-        int popupRootGap = jumpEachPost ? 0 : dp(POST_OUTER_GAP_DP);
+        boolean framePopupViewport = jumpEachPost || (!jumpEachPost && targets != null && targets.size() == 1);
+        int popupRootGap = framePopupViewport ? 0 : dp(POST_OUTER_GAP_DP);
         int popupFrameInset = jumpEachPost ? dp(POST_OUTER_GAP_DP) : 0;
         int popupCardInset = 0;
-        boolean framePopupViewport = jumpEachPost || (!jumpEachPost && targets != null && targets.size() == 1);
         popupRoot.setPadding(popupRootGap, popupRootGap, popupRootGap, popupRootGap);
         popupRoot.setBackgroundColor(Color.TRANSPARENT);
         popupRoot.setFocusable(true);
