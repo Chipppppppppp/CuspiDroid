@@ -15412,7 +15412,15 @@ public class MainActivity extends Activity {
             tabOverviewBoardTitleCache.clear();
             tabOverviewHistoryUrlCache = null;
             tabOverviewValueDirtyTabs.clear();
-            populateTabOverviewList(scroll, list, true, true);
+            tabOverviewValueDirtyTabs.addAll(tabs);
+            if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
+                markBookmarkOverviewDirty();
+            }
+            boolean updatedBookmarks = refreshTabOverviewBookmarkSectionOnly(contentFrame);
+            boolean updatedTabs = refreshTabOverviewTabSlotsOnly();
+            if (!updatedBookmarks && !updatedTabs) {
+                populateTabOverviewList(scroll, list, true, true);
+            }
             scheduleDeferredTabOverviewSort(list, privateMode);
             syncClosedTabUndoBar();
             renderTabs();
@@ -15499,24 +15507,127 @@ public class MainActivity extends Activity {
         VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
                 ? (VirtualTabOverviewState) list.getTag() : null;
         setTabOverviewListPadding(list);
-        for (int i = tabSectionStart - 1; i >= sectionStart; i--) {
-            unregisterRenderedOverviewSlots(list.getChildAt(i), state);
-            list.removeViewAt(i);
-        }
+        LinearLayout temp = new LinearLayout(this);
+        temp.setOrientation(LinearLayout.VERTICAL);
         if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
-            LinearLayout temp = new LinearLayout(this);
-            temp.setOrientation(LinearLayout.VERTICAL);
             addBookmarkOverviewSection(temp);
-            int insert = sectionStart;
-            while (temp.getChildCount() > 0) {
-                View child = temp.getChildAt(0);
-                temp.removeViewAt(0);
-                list.addView(child, insert++);
-            }
         }
+        syncBookmarkOverviewSectionChildren(list, temp, sectionStart, state);
         scheduleTabOverviewSlotRefresh(list);
         syncClosedTabUndoBar();
         return true;
+    }
+
+    private void syncBookmarkOverviewSectionChildren(LinearLayout list, LinearLayout desired,
+                                                     int sectionStart, VirtualTabOverviewState state) {
+        if (list == null || desired == null) {
+            return;
+        }
+        int insert = sectionStart;
+        while (desired.getChildCount() > 0) {
+            View child = desired.getChildAt(0);
+            desired.removeViewAt(0);
+            String key = bookmarkOverviewChildKey(child);
+            int sectionEnd = tabOverviewTabSectionStart(list);
+            if (sectionEnd < sectionStart) {
+                sectionEnd = list.getChildCount();
+            }
+            View existing = insert < sectionEnd ? list.getChildAt(insert) : null;
+            if (!key.isEmpty() && existing != null && key.equals(bookmarkOverviewChildKey(existing))) {
+                updateBookmarkOverviewChildAt(list, insert, child, state);
+                insert++;
+                continue;
+            }
+            int reusableIndex = key.isEmpty() ? -1
+                    : bookmarkOverviewChildIndex(list, key, insert + 1, sectionEnd);
+            if (reusableIndex >= 0) {
+                View reusable = list.getChildAt(reusableIndex);
+                list.removeViewAt(reusableIndex);
+                View synced = syncBookmarkOverviewChild(reusable, child, state);
+                if (synced != reusable) {
+                    unregisterRenderedOverviewSlots(reusable, state);
+                }
+                list.addView(synced, insert);
+            } else {
+                list.addView(child, insert);
+            }
+            insert++;
+        }
+        int sectionEnd = tabOverviewTabSectionStart(list);
+        if (sectionEnd < sectionStart) {
+            sectionEnd = list.getChildCount();
+        }
+        while (insert < sectionEnd && insert < list.getChildCount()) {
+            unregisterRenderedOverviewSlots(list.getChildAt(insert), state);
+            list.removeViewAt(insert);
+            sectionEnd--;
+        }
+    }
+
+    private void updateBookmarkOverviewChildAt(LinearLayout list, int index, View desired,
+                                               VirtualTabOverviewState state) {
+        View existing = list.getChildAt(index);
+        View synced = syncBookmarkOverviewChild(existing, desired, state);
+        if (synced == existing) {
+            return;
+        }
+        unregisterRenderedOverviewSlots(existing, state);
+        list.removeViewAt(index);
+        list.addView(synced, index);
+    }
+
+    private View syncBookmarkOverviewChild(View existing, View desired, VirtualTabOverviewState state) {
+        if (existing instanceof FrameLayout && desired instanceof FrameLayout
+                && existing.getTag() instanceof VirtualBookmarkOverviewSlot
+                && desired.getTag() instanceof VirtualBookmarkOverviewSlot) {
+            VirtualBookmarkOverviewSlot current = (VirtualBookmarkOverviewSlot) existing.getTag();
+            VirtualBookmarkOverviewSlot next = (VirtualBookmarkOverviewSlot) desired.getTag();
+            current.item = next.item;
+            current.snapshot = next.snapshot;
+            current.indentLevel = next.indentLevel;
+            current.itemIndex = next.itemIndex;
+            existing.setLayoutParams(desired.getLayoutParams());
+            bindBookmarkOverviewSlot((FrameLayout) existing, current);
+            if (current.rendered) {
+                if (state != null) {
+                    state.renderedSlots.remove((FrameLayout) existing);
+                }
+                current.rendered = false;
+                renderBookmarkOverviewSlot((FrameLayout) existing, current);
+            }
+            return existing;
+        }
+        return desired;
+    }
+
+    private int bookmarkOverviewChildIndex(LinearLayout list, String key, int start, int end) {
+        if (list == null || key == null || key.isEmpty()) {
+            return -1;
+        }
+        int childCount = list.getChildCount();
+        for (int i = Math.max(0, start); i < end && i < childCount; i++) {
+            if (key.equals(bookmarkOverviewChildKey(list.getChildAt(i)))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String bookmarkOverviewChildKey(View child) {
+        if (child == null) {
+            return "";
+        }
+        Object tag = child.getTag();
+        if (tag instanceof BookmarkOverviewFolderSlot) {
+            BookmarkOverviewFolderSlot slot = (BookmarkOverviewFolderSlot) tag;
+            return "F:" + slot.key;
+        }
+        if (tag instanceof VirtualBookmarkOverviewSlot) {
+            VirtualBookmarkOverviewSlot slot = (VirtualBookmarkOverviewSlot) tag;
+            SavedItem item = slot.item;
+            return item == null ? "" : "I:" + savedItemIdentity(item.url, item.folder);
+        }
+        return "";
     }
 
     private void unregisterRenderedOverviewSlots(View view, VirtualTabOverviewState state) {
@@ -27973,9 +28084,9 @@ public class MainActivity extends Activity {
     }
 
     private class VirtualBookmarkOverviewSlot {
-        final SavedItem item;
-        final BookmarkOverviewSnapshot snapshot;
-        final int indentLevel;
+        SavedItem item;
+        BookmarkOverviewSnapshot snapshot;
+        int indentLevel;
         final int height = dp(86);
         int itemIndex;
         boolean rendered;
