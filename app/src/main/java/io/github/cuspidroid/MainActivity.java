@@ -21841,7 +21841,19 @@ public class MainActivity extends Activity {
         if (tab == null || !NATIVE_BOARD.equals(tab.nativeKind) || tab.searchPage == null || tab.readerView == null) {
             return;
         }
-        cacheBoardHistoryPage(tab, tab.searchPage, tab.readerView);
+        rememberContentScroll(tab);
+        boolean updated = false;
+        for (String key : boardHistoryKeys(tab, tab.searchPage.url)) {
+            BoardHistoryPage cached = tab.boardHistoryPages.get(key);
+            if (cached != null) {
+                cached.rememberScroll(tab.contentScrollRatio, tab.contentScrollY,
+                        tab.contentScrollUrl, tab.hasSavedContentScroll);
+                updated = true;
+            }
+        }
+        if (!updated) {
+            cacheBoardHistoryPage(tab, tab.searchPage, tab.readerView);
+        }
     }
 
     private void cacheBoardHistoryPage(CuspTab tab, SearchPage page, View view) {
@@ -21882,7 +21894,7 @@ public class MainActivity extends Activity {
         tab.boardHistoryPages.put(restoredKey == null ? boardHistoryKey(url) : restoredKey, cached);
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
-        tab.url = cached.page.url;
+        tab.url = isBbsInternalPageUrl(url) ? url : cached.page.url;
         tab.title = cached.title;
         tab.searchPage = cached.page;
         tab.threadPage = null;
@@ -27156,16 +27168,23 @@ public class MainActivity extends Activity {
         final SearchPage page;
         final View view;
         final String title;
-        final float scrollRatio;
-        final int scrollY;
-        final String scrollUrl;
-        final boolean hasSavedScroll;
+        float scrollRatio;
+        int scrollY;
+        String scrollUrl;
+        boolean hasSavedScroll;
 
         BoardHistoryPage(SearchPage page, View view, String title,
                          float scrollRatio, int scrollY, String scrollUrl, boolean hasSavedScroll) {
             this.page = page;
             this.view = view;
             this.title = title;
+            this.scrollRatio = scrollRatio;
+            this.scrollY = scrollY;
+            this.scrollUrl = scrollUrl == null ? "" : scrollUrl;
+            this.hasSavedScroll = hasSavedScroll;
+        }
+
+        void rememberScroll(float scrollRatio, int scrollY, String scrollUrl, boolean hasSavedScroll) {
             this.scrollRatio = scrollRatio;
             this.scrollY = scrollY;
             this.scrollUrl = scrollUrl == null ? "" : scrollUrl;
