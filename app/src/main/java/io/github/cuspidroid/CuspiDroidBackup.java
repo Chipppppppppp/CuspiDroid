@@ -52,6 +52,7 @@ final class CuspiDroidBackup {
             writeRawPreferenceJson(zip, "files/writeIdentityHistory.json", preferences, MainActivity.PREF_WRITE_IDENTITY_HISTORY, "[]");
             writeRawPreferenceJson(zip, "files/myPosts.json", preferences, MainActivity.PREF_MY_POSTS, "{}");
             writePostDataList(zip, preferences);
+            writeNgFiles(zip, preferences);
         }
     }
 
@@ -209,6 +210,49 @@ final class CuspiDroidBackup {
         zip.putNextEntry(entry);
         zip.write(array.toString(2).getBytes(StandardCharsets.UTF_8));
         zip.closeEntry();
+    }
+
+    private static void writeNgFiles(ZipOutputStream zip, SharedPreferences preferences) throws Exception {
+        Map<String, JSONArray> files = new TreeMap<>();
+        for (MainActivity.ScopedNgRule rule : MainActivity.readNgRules(preferences)) {
+            if (rule == null || rule.value == null || rule.value.trim().isEmpty() || rule.regex) {
+                continue;
+            }
+            String name = chMateNgFileName(rule.category);
+            if (name.isEmpty()) {
+                continue;
+            }
+            JSONArray array = files.get(name);
+            if (array == null) {
+                array = new JSONArray();
+                files.put(name, array);
+            }
+            JSONObject item = new JSONObject();
+            item.put("w", rule.value.trim());
+            item.put("f", MainActivity.chMateNgFlag(rule.mode));
+            item.put("ct", rule.createdAt > 0 ? rule.createdAt : System.currentTimeMillis());
+            String board = rule.boardName == null || rule.boardName.trim().isEmpty()
+                    ? MainActivity.chMateBoardNameFromNgTarget(rule.targetUrl) : rule.boardName.trim();
+            if (!board.isEmpty()) {
+                item.put("b", board);
+            }
+            array.put(item);
+        }
+        for (Map.Entry<String, JSONArray> entry : files.entrySet()) {
+            ZipEntry zipEntry = new ZipEntry("ng/" + entry.getKey());
+            zip.putNextEntry(zipEntry);
+            zip.write(entry.getValue().toString(2).getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+    }
+
+    private static String chMateNgFileName(String category) {
+        if ("NGID".equals(category)) return "_id.json";
+        if ("NGName".equals(category)) return "_name.json";
+        if ("NGWord".equals(category)) return "_word.json";
+        if ("NGBe".equals(category)) return "_be.json";
+        if ("NGThread".equals(category)) return "_thread.json";
+        return "";
     }
 
     private static String myPostHash(Object value) {

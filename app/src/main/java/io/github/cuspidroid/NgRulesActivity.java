@@ -245,7 +245,11 @@ public class NgRulesActivity extends Activity {
             MainActivity.ScopedNgRule rule = pageRules.get(pageIndex);
             LinearLayout row = ruleRow((rule.regex
                     ? MainActivity.text("\u6b63\u898f\u8868\u73fe", "Regex")
-                    : MainActivity.text("\u6587\u5b57\u5217", "Text")) + "\n" + rule.value);
+                    : MainActivity.text("\u6587\u5b57\u5217", "Text"))
+                    + " / " + (MainActivity.NG_DISPLAY_HIDE.equals(rule.mode)
+                    ? MainActivity.text("\u975e\u8868\u793a", "Hide")
+                    : MainActivity.text("\u7701\u7565", "Omit"))
+                    + "\n" + rule.value);
             ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
             edit.setOnClickListener(v -> showRuleDialog(rule, pageIndex));
             row.addView(edit, iconParams());
@@ -286,10 +290,18 @@ public class NgRulesActivity extends Activity {
         group.addView(textType);
         group.addView(regexType);
         content.addView(group);
+        RadioGroup modeGroup = new RadioGroup(this);
+        modeGroup.setOrientation(RadioGroup.HORIZONTAL);
+        RadioButton omitMode = radio(MainActivity.text("\u7701\u7565", "Omit"));
+        RadioButton hideMode = radio(MainActivity.text("\u975e\u8868\u793a", "Hide"));
+        modeGroup.addView(omitMode);
+        modeGroup.addView(hideMode);
+        content.addView(modeGroup);
         EditText input = multilineField(MainActivity.text("NG\u30eb\u30fc\u30eb", "NG rule"));
         content.addView(input, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         (existing != null && existing.regex ? regexType : textType).setChecked(true);
+        (existing != null && MainActivity.NG_DISPLAY_HIDE.equals(existing.mode) ? hideMode : omitMode).setChecked(true);
         if (existing != null) {
             input.setText(existing.value);
             input.setSelection(input.length());
@@ -324,7 +336,10 @@ public class NgRulesActivity extends Activity {
                     }
                 }
                 MainActivity.ScopedNgRule rule = new MainActivity.ScopedNgRule(
-                        currentCategory, word, regexType.isChecked(), currentTargetUrl(), targetTitle);
+                        currentCategory, word, regexType.isChecked(), currentTargetUrl(), targetTitle,
+                        hideMode.isChecked() ? MainActivity.NG_DISPLAY_HIDE : MainActivity.NG_DISPLAY_OMIT,
+                        existing == null ? System.currentTimeMillis() : existing.createdAt,
+                        existing == null ? "" : existing.boardName);
                 if (pageIndex >= 0 && pageIndex < pageRules.size()) {
                     pageRules.set(pageIndex, rule);
                 } else {
@@ -355,7 +370,8 @@ public class NgRulesActivity extends Activity {
                 continue;
             }
             saved.add(new MainActivity.ScopedNgRule(
-                    rule.category, rule.value, rule.regex, nextTarget, targetTitle));
+                    rule.category, rule.value, rule.regex, nextTarget, targetTitle,
+                    rule.mode, rule.createdAt, rule.boardName));
         }
         targetUrl = nextTarget;
         allRules.clear();

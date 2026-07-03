@@ -56,9 +56,6 @@ public class SettingsActivity extends Activity {
     private CheckBox markExistingReadOnThreadUpdate;
     private CheckBox colorUnreadPosts;
     private CheckBox omitCopyPaste;
-    private RadioGroup ngDisplayGroup;
-    private RadioButton ngDisplayOmit;
-    private RadioButton ngDisplayHide;
     private CheckBox autoAa;
     private CheckBox cacheEnabled;
     private CheckBox saveBrowsingHistory;
@@ -370,17 +367,6 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoplayGifs);
         root.addView(autoplayGifs);
 
-        root.addView(helperText(MainActivity.text("NG\u306e\u8868\u793a", "NG display")));
-        ngDisplayGroup = new RadioGroup(this);
-        ngDisplayGroup.setOrientation(RadioGroup.HORIZONTAL);
-        ngDisplayOmit = radio(MainActivity.text("\u7701\u7565", "Omit"));
-        ngDisplayHide = radio(MainActivity.text("\u975e\u8868\u793a", "Hide"));
-        ngDisplayOmit.setId(View.generateViewId());
-        ngDisplayHide.setId(View.generateViewId());
-        ngDisplayGroup.addView(ngDisplayOmit, new RadioGroup.LayoutParams(0, dp(44), 1));
-        ngDisplayGroup.addView(ngDisplayHide, new RadioGroup.LayoutParams(0, dp(44), 1));
-        root.addView(ngDisplayGroup);
-
         root.addView(managementRow(R.drawable.ic_close,
                 MainActivity.text("NG\u7ba1\u7406", "NG management"),
                 MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u7ba1\u7406", "Manage NGWord, NGName, NGID, and related rules"),
@@ -625,12 +611,6 @@ public class SettingsActivity extends Activity {
         markExistingReadOnThreadUpdate.setChecked(preferences.getBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true));
         colorUnreadPosts.setChecked(preferences.getBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true));
         omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
-        if (MainActivity.NG_DISPLAY_HIDE.equals(preferences.getString(
-                MainActivity.PREF_NG_DISPLAY_MODE, MainActivity.NG_DISPLAY_OMIT))) {
-            ngDisplayHide.setChecked(true);
-        } else {
-            ngDisplayOmit.setChecked(true);
-        }
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
         updateTreeDependentSettings();
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
@@ -725,7 +705,6 @@ public class SettingsActivity extends Activity {
         markExistingReadOnThreadUpdate.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         colorUnreadPosts.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
-        ngDisplayGroup.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -823,8 +802,6 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, markExistingReadOnThreadUpdate.isChecked())
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, colorUnreadPosts.isChecked())
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
-                .putString(MainActivity.PREF_NG_DISPLAY_MODE,
-                        ngDisplayHide.isChecked() ? MainActivity.NG_DISPLAY_HIDE : MainActivity.NG_DISPLAY_OMIT)
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
@@ -1004,10 +981,10 @@ public class SettingsActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("ChMate\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u304b\u3089\u5fa9\u5143", "Restore from ChMate backup"))
                 .setMessage(MainActivity.text(
-                        "ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u30d5\u30a1\u30a4\u30eb\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002zip\u5185\u306e databases/roidon.sqlite \u3068 dat \u30d5\u30a1\u30a4\u30eb\u3092\u8aad\u307f\u53d6\u308a\u307e\u3059\u3002\n\n"
-                                + "\u8a2d\u5b9a\u306f\u5fa9\u5143\u305b\u305a\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001files/postDataList.json \u306e\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u73fe\u5728\u306e\u30c7\u30fc\u30bf\u306b\u8ffd\u52a0\u30fb\u30de\u30fc\u30b8\u3057\u307e\u3059\u3002",
-                        "Select the ChMate backup zip file. databases/roidon.sqlite and dat files inside the zip are read.\n\n"
-                                + "Settings are not restored. Bookmarks, history, read positions, and post history from files/postDataList.json are added and merged into the current data."))
+                        "ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u30d5\u30a1\u30a4\u30eb\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002zip\u5185\u306e databases/roidon.sqlite\u3001dat\u30d5\u30a1\u30a4\u30eb\u3001ng/*.json \u3092\u8aad\u307f\u53d6\u308a\u307e\u3059\u3002\n\n"
+                                + "\u8a2d\u5b9a\u306f\u5fa9\u5143\u305b\u305a\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001NG\u3001files/postDataList.json \u306e\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u73fe\u5728\u306e\u30c7\u30fc\u30bf\u306b\u8ffd\u52a0\u30fb\u30de\u30fc\u30b8\u3057\u307e\u3059\u3002",
+                        "Select the ChMate backup zip file. databases/roidon.sqlite, dat files, and ng/*.json inside the zip are read.\n\n"
+                                + "Settings are not restored. Bookmarks, history, read positions, NG rules, and post history from files/postDataList.json are added and merged into the current data."))
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(MainActivity.text("\u9078\u629e", "Choose"), (d, which) -> openChMateDatabasePicker())
                 .create();
@@ -1034,6 +1011,7 @@ public class SettingsActivity extends Activity {
                                 + "\n" + MainActivity.text("\u65e2\u8aad\u66f4\u65b0: ", "Read positions: ") + result.updatedReadPositions
                                 + "  " + MainActivity.text("\u30bf\u30d6: ", "Tabs: ") + result.addedTabs
                                 + "\n" + MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74: ", "Post history: ") + result.addedPostHistory
+                                + "  " + MainActivity.text("NG: ", "NG: ") + result.addedNgRules
                                 + "\n" + MainActivity.text("\u5fa9\u5143\u3067\u304d\u306a\u304b\u3063\u305f\u30b9\u30ec: ", "Skipped threads: ") + result.skippedThreads,
                         Toast.LENGTH_LONG).show());
             } catch (Exception error) {
@@ -1068,7 +1046,6 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true)
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true)
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, false)
-                .putString(MainActivity.PREF_NG_DISPLAY_MODE, MainActivity.NG_DISPLAY_OMIT)
                 .putBoolean(MainActivity.PREF_AUTO_AA, true)
                 .putBoolean(MainActivity.PREF_AA_DEBUG, false)
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)

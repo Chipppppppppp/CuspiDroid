@@ -207,7 +207,6 @@ public class MainActivity extends Activity {
     static final String FUTABA_BBSMENU_URL = "https://www.2chan.net/bbsmenu.html";
     static final String PREF_NG_WORDS = "ng_words";
     static final String PREF_NG_RULES = "ng_rules";
-    static final String PREF_NG_DISPLAY_MODE = "ng_display_mode";
     static final String NG_DISPLAY_OMIT = "omit";
     static final String NG_DISPLAY_HIDE = "hide";
     static final String PREF_READ_POSTS = "read_posts";
@@ -6891,7 +6890,7 @@ public class MainActivity extends Activity {
         int end = Math.max(previousResultCount, page.results.size());
         for (int i = previousResultCount; i < end; i++) {
             SearchResult result = page.results.get(i);
-            if (!matchesNgThread(result.title)) {
+            if (!shouldHideNgThreadTitle(result.title)) {
                 addVirtualSearchSlot(list, new VirtualSearchSlot(null, result, false));
             }
         }
@@ -7494,8 +7493,9 @@ public class MainActivity extends Activity {
     private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item) {
         Post post = item.post;
         int depth = item.depth;
-        String ngCategory = ngMatchCategory(post);
-        if (ngCategory != null && ngDisplayHide()) {
+        NgMatch ngMatch = ngMatch(post);
+        String ngCategory = ngMatch == null ? null : ngMatch.category;
+        if (ngMatch != null && ngMatch.hide) {
             return null;
         }
         post.aaMode = aaModeForPost(page, post);
@@ -9071,10 +9071,16 @@ public class MainActivity extends Activity {
     }
 
     private boolean shouldRenderPost(Post post) {
-        return ngMatchCategory(post) == null || !ngDisplayHide();
+        NgMatch match = ngMatch(post);
+        return match == null || !match.hide;
     }
 
     private String ngMatchCategory(Post post) {
+        NgMatch match = ngMatch(post);
+        return match == null ? null : match.category;
+    }
+
+    private NgMatch ngMatch(Post post) {
         if (post == null) {
             return null;
         }
@@ -9082,30 +9088,36 @@ public class MainActivity extends Activity {
         String targetUrl = currentNgThreadUrl();
         String cacheKey = cachedNgRulesKey + "\n" + targetUrl;
         if (post.cachedNgRulesKey != null && post.cachedNgRulesKey.equals(cacheKey)) {
-            return post.cachedNgMatch ? post.cachedNgCategory : null;
+            return post.cachedNgMatch ? new NgMatch(post.cachedNgCategory, post.cachedNgHide) : null;
         }
-        String match = null;
-        if (rules.matches("NGWord", post.body, targetUrl)) {
-            match = "NGWord";
-        } else if (rules.matches("NGName", post.name, targetUrl)) {
-            match = "NGName";
-        } else if (rules.matches("NGID", post.id(), targetUrl)) {
-            match = "NGID";
-        } else if (rules.matches("NGBe", post.be(), targetUrl)) {
-            match = "NGBe";
+        NgMatch match = rules.match("NGWord", post.body, targetUrl);
+        if (match == null) {
+            match = rules.match("NGName", post.name, targetUrl);
+        }
+        if (match == null) {
+            match = rules.match("NGID", post.id(), targetUrl);
+        }
+        if (match == null) {
+            match = rules.match("NGBe", post.be(), targetUrl);
         }
         post.cachedNgRulesKey = cacheKey;
-        post.cachedNgCategory = match == null ? "" : match;
+        post.cachedNgCategory = match == null ? "" : match.category;
+        post.cachedNgHide = match != null && match.hide;
         post.cachedNgMatch = match != null;
         return match;
     }
 
     private boolean matchesNgThread(String title) {
-        return ngRules().matches("NGThread", title, currentNgThreadUrl());
+        return ngThreadMatch(title) != null;
     }
 
-    private boolean ngDisplayHide() {
-        return NG_DISPLAY_HIDE.equals(preferences.getString(PREF_NG_DISPLAY_MODE, NG_DISPLAY_OMIT));
+    private boolean shouldHideNgThreadTitle(String title) {
+        NgMatch match = ngThreadMatch(title);
+        return match != null && match.hide;
+    }
+
+    private NgMatch ngThreadMatch(String title) {
+        return ngRules().match("NGThread", title, currentNgThreadUrl());
     }
 
     private String currentNgThreadUrl() {
@@ -9151,9 +9163,9 @@ public class MainActivity extends Activity {
             }
         }
 
-        boolean matches(String category, String value, String targetUrl) {
+        NgMatch match(String category, String value, String targetUrl) {
             if (value == null || value.isEmpty()) {
-                return false;
+                return null;
             }
             String lower = value.toLowerCase(Locale.ROOT);
             String target = normalizeNgTargetUrl(targetUrl);
@@ -9165,10 +9177,20 @@ public class MainActivity extends Activity {
                 }
                 if (compiled.pattern != null ? compiled.pattern.matcher(value).find()
                         : lower.contains(rule.value.toLowerCase(Locale.ROOT))) {
-                    return true;
+                    return new NgMatch(rule.category, NG_DISPLAY_HIDE.equals(rule.mode));
                 }
             }
-            return false;
+            return null;
+        }
+    }
+
+    private static class NgMatch {
+        final String category;
+        final boolean hide;
+
+        NgMatch(String category, boolean hide) {
+            this.category = category == null ? "NGWord" : category;
+            this.hide = hide;
         }
     }
 
@@ -9566,7 +9588,7 @@ public class MainActivity extends Activity {
         String renderedCategory = null;
         int count = 0;
         for (SearchResult result : page.results) {
-            if (matchesNgThread(result.title)) {
+            if (shouldHideNgThreadTitle(result.title)) {
                 continue;
             }
             if (result.category != null && !result.category.trim().isEmpty()
@@ -10703,7 +10725,8 @@ public class MainActivity extends Activity {
 
     private int estimatePostSlotHeight(PostRenderItem item) {
         Post post = item == null ? null : item.post;
-        if (post != null && ngMatchCategory(post) != null && !ngDisplayHide()) {
+        NgMatch ngMatch = post == null ? null : ngMatch(post);
+        if (ngMatch != null && !ngMatch.hide) {
             int depth = item == null ? 0 : item.depth;
             return dp(52 + Math.min(depth, 8) * 2);
         }
@@ -25700,9 +25723,17 @@ public class MainActivity extends Activity {
                     }
                     String category = item.optString("category", "");
                     String value = item.optString("value", "").trim();
+                    if (value.isEmpty()) {
+                        value = item.optString("w", "").trim();
+                    }
                     if (!value.isEmpty()) {
+                        String mode = item.optString("mode", "");
+                        if (mode.isEmpty() && item.has("f")) {
+                            mode = ngModeFromChMateFlag(item.optInt("f", chMateNgFlag(NG_DISPLAY_OMIT)));
+                        }
                         rules.add(new ScopedNgRule(category, value, item.optBoolean("regex", false),
-                                item.optString("targetUrl", ""), item.optString("targetTitle", "")));
+                                item.optString("targetUrl", ""), item.optString("targetTitle", ""),
+                                mode, item.optLong("ct", 0L), item.optString("b", "")));
                     }
                 }
             }
@@ -25727,7 +25758,7 @@ public class MainActivity extends Activity {
         for (String line : saved.split("\\r?\\n")) {
             String value = line.trim();
             if (!value.isEmpty()) {
-                rules.add(new ScopedNgRule(category, value, regex, ""));
+                rules.add(new ScopedNgRule(category, value, regex, "", "", NG_DISPLAY_OMIT));
             }
         }
     }
@@ -25744,7 +25775,16 @@ public class MainActivity extends Activity {
                     JSONObject item = new JSONObject();
                     item.put("category", rule.category);
                     item.put("value", rule.value.trim());
+                    item.put("w", rule.value.trim());
                     item.put("regex", rule.regex);
+                    item.put("mode", normalizeNgMode(rule.mode));
+                    item.put("f", chMateNgFlag(rule.mode));
+                    item.put("ct", rule.createdAt > 0 ? rule.createdAt : System.currentTimeMillis());
+                    String board = rule.boardName == null || rule.boardName.trim().isEmpty()
+                            ? chMateBoardNameFromNgTarget(rule.targetUrl) : rule.boardName.trim();
+                    if (!board.isEmpty()) {
+                        item.put("b", board);
+                    }
                     if (!rule.targetUrl.isEmpty()) {
                         item.put("targetUrl", normalizeNgTargetUrl(rule.targetUrl));
                     }
@@ -25761,6 +25801,33 @@ public class MainActivity extends Activity {
                 .putString(PREF_NG_RULES, root.toString())
                 .putString(PREF_NG_WORDS, "")
                 .apply();
+    }
+
+    static int chMateNgFlag(String mode) {
+        return 8 | (NG_DISPLAY_HIDE.equals(normalizeNgMode(mode)) ? 32 : 16);
+    }
+
+    static String ngModeFromChMateFlag(int flag) {
+        return (flag & 32) != 0 ? NG_DISPLAY_HIDE : NG_DISPLAY_OMIT;
+    }
+
+    static String normalizeNgMode(String mode) {
+        return NG_DISPLAY_HIDE.equals(mode) ? NG_DISPLAY_HIDE : NG_DISPLAY_OMIT;
+    }
+
+    static String chMateBoardNameFromNgTarget(String targetUrl) {
+        String value = normalizeNgTargetUrl(targetUrl);
+        if (value.isEmpty()) {
+            return "";
+        }
+        try {
+            List<String> parts = Uri.parse(value).getPathSegments();
+            if (!parts.isEmpty()) {
+                return parts.get(parts.size() - 1);
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     static String normalizeNgTargetUrl(String url) {
@@ -27525,17 +27592,32 @@ public class MainActivity extends Activity {
         final boolean regex;
         final String targetUrl;
         final String targetTitle;
+        final String mode;
+        final long createdAt;
+        final String boardName;
 
         ScopedNgRule(String category, String value, boolean regex, String targetUrl) {
             this(category, value, regex, targetUrl, "");
         }
 
         ScopedNgRule(String category, String value, boolean regex, String targetUrl, String targetTitle) {
+            this(category, value, regex, targetUrl, targetTitle, NG_DISPLAY_OMIT);
+        }
+
+        ScopedNgRule(String category, String value, boolean regex, String targetUrl, String targetTitle, String mode) {
+            this(category, value, regex, targetUrl, targetTitle, mode, 0L, "");
+        }
+
+        ScopedNgRule(String category, String value, boolean regex, String targetUrl, String targetTitle,
+                     String mode, long createdAt, String boardName) {
             this.category = category == null ? "NGWord" : category;
             this.value = value == null ? "" : value;
             this.regex = regex;
             this.targetUrl = normalizeNgTargetUrl(targetUrl);
             this.targetTitle = targetTitle == null ? "" : targetTitle;
+            this.mode = normalizeNgMode(mode);
+            this.createdAt = createdAt;
+            this.boardName = boardName == null ? "" : boardName;
         }
     }
 
@@ -27844,6 +27926,7 @@ public class MainActivity extends Activity {
         String cachedNgRulesKey;
         String cachedNgCategory;
         boolean cachedNgMatch;
+        boolean cachedNgHide;
         Boolean cachedLikelyAa;
         String cachedAaBody;
         int cachedBodyLineCount;

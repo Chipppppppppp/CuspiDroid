@@ -19,7 +19,9 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -45,6 +47,7 @@ final class ChMateBackupImporter {
             database = SQLiteDatabase.openDatabase(backupFiles.database.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
             Result result = new Result();
             importThreads(database, preferences, backupFiles.datHosts, result);
+            importNgRules(database, preferences, backupFiles.ngFiles, result);
             importPostDataList(preferences, backupFiles.postDataList, result);
             return result;
         } finally {
@@ -94,6 +97,8 @@ final class ChMateBackupImporter {
                     backupFiles.database = copyToTempDatabase(context, childUri);
                 } else if ("postDataList.json".equalsIgnoreCase(name)) {
                     backupFiles.postDataList = readPostDataList(readBytes(context, childUri, 8 * 1024 * 1024));
+                } else if (isChMateNgJsonName(name)) {
+                    backupFiles.ngFiles.put(name, readJsonArray(readBytes(context, childUri, 1024 * 1024)));
                 } else if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".dat")) {
                     readDatHost(context, childUri, name, backupFiles);
                 }
@@ -142,6 +147,8 @@ final class ChMateBackupImporter {
                 } else if (lower.endsWith("/files/postdatalist.json") || lower.equals("files/postdatalist.json")
                         || lower.endsWith("postdatalist.json")) {
                     backupFiles.postDataList = readPostDataList(readZipEntryBytes(zip, 8 * 1024 * 1024));
+                } else if ((lower.contains("/ng/") || lower.startsWith("ng/")) && isChMateNgJsonName(displayName)) {
+                    backupFiles.ngFiles.put(displayName, readJsonArray(readZipEntryBytes(zip, 1024 * 1024)));
                 } else if (lower.contains("/dat/") && lower.endsWith(".dat") || lower.startsWith("dat/") && lower.endsWith(".dat")) {
                     readDatHost(readZipEntryBytes(zip, 512 * 1024), displayName, backupFiles);
                 }
@@ -149,6 +156,93 @@ final class ChMateBackupImporter {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private static void importNgRules(SQLiteDatabase database, SharedPreferences preferences,
+                                      Map<String, JSONArray> ngFiles, Result result) {
+        if (ngFiles == null || ngFiles.isEmpty()) {
+            return;
+        }
+        BoardLookup boards = readBoards(database);
+        java.util.List<MainActivity.ScopedNgRule> rules = MainActivity.readNgRules(preferences);
+        Set<String> identities = new LinkedHashSet<>();
+        for (MainActivity.ScopedNgRule rule : rules) {
+            identities.add(ngRuleIdentity(rule.category, rule.value, rule.regex, rule.targetUrl));
+        }
+        for (Map.Entry<String, JSONArray> entry : ngFiles.entrySet()) {
+            String category = ngCategoryFromChMateFile(entry.getKey());
+            JSONArray array = entry.getValue();
+            if (category.isEmpty() || array == null) {
+                continue;
+            }
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String value = item.optString("w", item.optString("value", "")).trim();
+                if (isBlank(value)) {
+                    continue;
+                }
+                String board = boardName(item.optString("b", item.optString("board", "")));
+                String targetUrl = "";
+                if (!isBlank(board)) {
+                    String server = boards.serverFor(board);
+                    targetUrl = boardUrl(board, server);
+                }
+                boolean regex = item.optBoolean("regex", false);
+                String identity = ngRuleIdentity(category, value, regex, targetUrl);
+                if (identities.contains(identity)) {
+                    continue;
+                }
+                rules.add(new MainActivity.ScopedNgRule(
+                        category, value, regex, targetUrl, board,
+                        MainActivity.ngModeFromChMateFlag(item.optInt("f", MainActivity.chMateNgFlag(MainActivity.NG_DISPLAY_OMIT))),
+                        item.optLong("ct", 0L), board));
+                identities.add(identity);
+                result.addedNgRules++;
+            }
+        }
+        if (result.addedNgRules > 0) {
+            MainActivity.saveNgRules(preferences, rules);
+        }
+    }
+
+    private static String ngRuleIdentity(String category, String value, boolean regex, String targetUrl) {
+        return (category == null ? "" : category) + "\n"
+                + (regex ? "1" : "0") + "\n"
+                + (value == null ? "" : value.trim()) + "\n"
+                + MainActivity.normalizeNgTargetUrl(targetUrl);
+    }
+
+    private static boolean isChMateNgJsonName(String name) {
+        String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        return lower.startsWith("_") && lower.endsWith(".json") && !ngCategoryFromChMateFile(lower).isEmpty();
+    }
+
+    private static String ngCategoryFromChMateFile(String name) {
+        String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (lower.endsWith("_id.json") || lower.equals("_id.json")) return "NGID";
+        if (lower.endsWith("_name.json") || lower.equals("_name.json")) return "NGName";
+        if (lower.endsWith("_word.json") || lower.endsWith("_body.json")
+                || lower.equals("_word.json") || lower.equals("_body.json")) return "NGWord";
+        if (lower.endsWith("_be.json") || lower.equals("_be.json")) return "NGBe";
+        if (lower.endsWith("_thread.json") || lower.endsWith("_title.json")
+                || lower.equals("_thread.json") || lower.equals("_title.json")) return "NGThread";
+        return "";
+    }
+
+    private static String boardUrl(String board, String server) {
+        board = boardName(board);
+        if (isBlank(board) || isBlank(server)) {
+            return "";
+        }
+        String value = server.trim();
+        value = value.replaceFirst("(?i)^https?://", "");
+        while (value.endsWith("/")) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return "https://" + value + "/" + board + "/";
     }
 
     private static File copyZipEntryToTempDatabase(Context context, InputStream input) throws Exception {
@@ -564,6 +658,10 @@ final class ChMateBackupImporter {
     }
 
     private static JSONArray readPostDataList(byte[] bytes) {
+        return readJsonArray(bytes);
+    }
+
+    private static JSONArray readJsonArray(byte[] bytes) {
         try {
             return new JSONArray(new String(bytes == null ? new byte[0] : bytes, StandardCharsets.UTF_8));
         } catch (Exception ignored) {
@@ -636,12 +734,14 @@ final class ChMateBackupImporter {
         int updatedReadPositions;
         int skippedThreads;
         int addedPostHistory;
+        int addedNgRules;
     }
 
     private static final class BackupFiles {
         File database;
         final JSONObject datHosts = new JSONObject();
         JSONArray postDataList = new JSONArray();
+        final Map<String, JSONArray> ngFiles = new LinkedHashMap<>();
 
         void delete() {
             if (database != null) {
