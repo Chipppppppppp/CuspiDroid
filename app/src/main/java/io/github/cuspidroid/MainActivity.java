@@ -12356,6 +12356,9 @@ public class MainActivity extends Activity {
                 return true;
             });
             list.addView(empty);
+            if (!(list.getTag() instanceof VirtualTabOverviewState)) {
+                setupVirtualTabOverviewRefresh(scroll, list);
+            }
         } else {
             renderVirtualTabOverviewSlots(scroll, list, indices);
         }
@@ -12541,6 +12544,8 @@ public class MainActivity extends Activity {
                 Object tag = holder.getTag();
                 if (tag instanceof VirtualTabOverviewSlot) {
                     recycleTabOverviewSlot(holder, (VirtualTabOverviewSlot) tag);
+                } else if (tag instanceof VirtualBookmarkOverviewSlot) {
+                    recycleBookmarkOverviewSlot(holder, (VirtualBookmarkOverviewSlot) tag);
                 }
             }
         }
@@ -12553,7 +12558,7 @@ public class MainActivity extends Activity {
         int childCount = list.getChildCount();
         for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
             View child = list.getChildAt(i);
-            if (child instanceof FrameLayout && child.getTag() instanceof VirtualTabOverviewSlot) {
+            if (child instanceof FrameLayout && isVirtualTabOverviewChild(child.getTag())) {
                 keep.add((FrameLayout) child);
             }
         }
@@ -12569,23 +12574,44 @@ public class MainActivity extends Activity {
         for (int i = Math.max(0, start); i <= end && i < childCount; i++) {
             View child = list.getChildAt(i);
             Object tag = child.getTag();
-            if (!(child instanceof FrameLayout) || !(tag instanceof VirtualTabOverviewSlot)) {
+            if (!(child instanceof FrameLayout) || !isVirtualTabOverviewChild(tag)) {
                 continue;
             }
             FrameLayout holder = (FrameLayout) child;
-            VirtualTabOverviewSlot slot = (VirtualTabOverviewSlot) tag;
             if (keep != null) {
                 keep.add(holder);
             }
-            if (slot.rendered) {
+            if (virtualTabOverviewChildRendered(tag)) {
                 continue;
             }
             if (rendered[0] >= budget) {
                 budgetReached[0] = true;
                 return;
             }
-            renderTabOverviewSlot(holder, slot);
+            renderVirtualTabOverviewChild(holder, tag);
             rendered[0]++;
+        }
+    }
+
+    private boolean isVirtualTabOverviewChild(Object tag) {
+        return tag instanceof VirtualTabOverviewSlot || tag instanceof VirtualBookmarkOverviewSlot;
+    }
+
+    private boolean virtualTabOverviewChildRendered(Object tag) {
+        if (tag instanceof VirtualTabOverviewSlot) {
+            return ((VirtualTabOverviewSlot) tag).rendered;
+        }
+        if (tag instanceof VirtualBookmarkOverviewSlot) {
+            return ((VirtualBookmarkOverviewSlot) tag).rendered;
+        }
+        return false;
+    }
+
+    private void renderVirtualTabOverviewChild(FrameLayout holder, Object tag) {
+        if (tag instanceof VirtualTabOverviewSlot) {
+            renderTabOverviewSlot(holder, (VirtualTabOverviewSlot) tag);
+        } else if (tag instanceof VirtualBookmarkOverviewSlot) {
+            renderBookmarkOverviewSlot(holder, (VirtualBookmarkOverviewSlot) tag);
         }
     }
 
@@ -14387,10 +14413,7 @@ public class MainActivity extends Activity {
         if (nodes == null || nodes.isEmpty()) {
             return;
         }
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        list.addView(container);
-        appendBookmarkOverviewNodes(container, snapshot, nodes, selectedFolder, indentLevel, 0, nodes.size());
+        appendBookmarkOverviewNodes(list, snapshot, nodes, selectedFolder, indentLevel, 0, nodes.size());
     }
 
     private void appendBookmarkOverviewNodes(LinearLayout list, BookmarkOverviewSnapshot snapshot,
@@ -14401,7 +14424,7 @@ public class MainActivity extends Activity {
             if (node.folderNode) {
                 addBookmarkOverviewFolderWithItems(list, snapshot, node.folder, selectedFolder, indentLevel);
             } else {
-                list.addView(bookmarkOverviewItemRow(node.item, indentLevel, snapshot));
+                list.addView(bookmarkOverviewItemSlot(node.item, indentLevel, snapshot));
             }
         }
     }
@@ -14580,6 +14603,19 @@ public class MainActivity extends Activity {
                 dp(86));
     }
 
+    private View bookmarkOverviewItemSlot(SavedItem item, int indentLevel, BookmarkOverviewSnapshot snapshot) {
+        int itemIndex = snapshot == null
+                ? savedItemIndex(PREF_THREAD_BOOKMARKS, item)
+                : snapshot.itemIndices.getOrDefault(savedItemIdentity(item.url, item.folder), -1);
+        VirtualBookmarkOverviewSlot slot = new VirtualBookmarkOverviewSlot(item, itemIndex, indentLevel, snapshot);
+        FrameLayout holder = new FrameLayout(this);
+        holder.setLayoutParams(bookmarkOverviewShellLayoutParams(indentLevel, slot.height));
+        bindBookmarkOverviewSlot(holder, slot);
+        holder.addView(bookmarkOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        return holder;
+    }
+
     private View bookmarkOverviewItemContent(SavedItem item, int itemIndex, BookmarkOverviewSnapshot snapshot) {
         CuspTab overviewTab = bookmarkOverviewTab(item, snapshot);
         FrameLayout shell = new FrameLayout(this);
@@ -14749,14 +14785,62 @@ public class MainActivity extends Activity {
 
     private View bookmarkOverviewShell(View row, int indentLevel, int height) {
         FrameLayout shell = new FrameLayout(this);
+        shell.setLayoutParams(bookmarkOverviewShellLayoutParams(indentLevel, height));
+        shell.addView(row, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, height));
+        return shell;
+    }
+
+    private LinearLayout.LayoutParams bookmarkOverviewShellLayoutParams(int indentLevel, int height) {
         int indent = dp(18 * Math.max(0, indentLevel));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, height);
         params.setMargins(indent, 0, 0, dp(8));
-        shell.setLayoutParams(params);
-        shell.addView(row, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, height));
-        return shell;
+        return params;
+    }
+
+    private void bindBookmarkOverviewSlot(FrameLayout holder, VirtualBookmarkOverviewSlot slot) {
+        if (holder == null || slot == null) {
+            return;
+        }
+        holder.setTag(slot);
+        holder.setOnDragListener(bookmarkOverviewItemDropListener(slot.item, slot.itemIndex));
+    }
+
+    private void renderBookmarkOverviewSlot(FrameLayout holder, VirtualBookmarkOverviewSlot slot) {
+        if (holder == null || slot == null || slot.rendered) {
+            return;
+        }
+        bindBookmarkOverviewSlot(holder, slot);
+        holder.removeAllViews();
+        holder.addView(bookmarkOverviewItemContent(slot.item, slot.itemIndex, slot.snapshot),
+                new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        slot.rendered = true;
+        if (holder.getParent() instanceof LinearLayout
+                && ((LinearLayout) holder.getParent()).getTag() instanceof VirtualTabOverviewState) {
+            ((VirtualTabOverviewState) ((LinearLayout) holder.getParent()).getTag()).renderedSlots.add(holder);
+        }
+    }
+
+    private void recycleBookmarkOverviewSlot(FrameLayout holder, VirtualBookmarkOverviewSlot slot) {
+        if (holder == null || slot == null || !slot.rendered) {
+            return;
+        }
+        holder.removeAllViews();
+        bindBookmarkOverviewSlot(holder, slot);
+        holder.addView(bookmarkOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
+        slot.rendered = false;
+        if (holder.getParent() instanceof LinearLayout
+                && ((LinearLayout) holder.getParent()).getTag() instanceof VirtualTabOverviewState) {
+            ((VirtualTabOverviewState) ((LinearLayout) holder.getParent()).getTag()).renderedSlots.remove(holder);
+        }
+    }
+
+    private View bookmarkOverviewSlotSpacer(int height) {
+        View spacer = new View(this);
+        spacer.setMinimumHeight(Math.max(dp(86), height));
+        return spacer;
     }
 
     private String selectedBookmarkOverviewFolder(List<SavedItem> bookmarks) {
@@ -15188,8 +15272,11 @@ public class MainActivity extends Activity {
         if (tabSectionStart < sectionStart) {
             return false;
         }
+        VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
+                ? (VirtualTabOverviewState) list.getTag() : null;
         setTabOverviewListPadding(list);
         for (int i = tabSectionStart - 1; i >= sectionStart; i--) {
+            unregisterRenderedOverviewSlots(list.getChildAt(i), state);
             list.removeViewAt(i);
         }
         if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
@@ -15206,6 +15293,21 @@ public class MainActivity extends Activity {
         scheduleTabOverviewSlotRefresh(list);
         syncClosedTabUndoBar();
         return true;
+    }
+
+    private void unregisterRenderedOverviewSlots(View view, VirtualTabOverviewState state) {
+        if (view == null || state == null) {
+            return;
+        }
+        if (view instanceof FrameLayout && isVirtualTabOverviewChild(view.getTag())) {
+            state.renderedSlots.remove((FrameLayout) view);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                unregisterRenderedOverviewSlots(group.getChildAt(i), state);
+            }
+        }
     }
 
     private int tabOverviewTabSectionStart(LinearLayout list) {
@@ -27541,6 +27643,23 @@ public class MainActivity extends Activity {
         VirtualTabOverviewSlot(int index, CuspTab tab) {
             this.index = index;
             this.tab = tab;
+        }
+    }
+
+    private class VirtualBookmarkOverviewSlot {
+        final SavedItem item;
+        final BookmarkOverviewSnapshot snapshot;
+        final int indentLevel;
+        final int height = dp(86);
+        int itemIndex;
+        boolean rendered;
+
+        VirtualBookmarkOverviewSlot(SavedItem item, int itemIndex, int indentLevel,
+                                    BookmarkOverviewSnapshot snapshot) {
+            this.item = item;
+            this.itemIndex = itemIndex;
+            this.indentLevel = indentLevel;
+            this.snapshot = snapshot;
         }
     }
 
