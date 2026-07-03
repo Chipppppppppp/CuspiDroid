@@ -5477,6 +5477,9 @@ public class MainActivity extends Activity {
         if (url == null || url.isEmpty()) {
             return;
         }
+        if (tab != null && tab.url != null && !sameSavedUrl(tab.url, url)) {
+            rememberBoardHistoryScroll(tab);
+        }
         ensureCurrentPageNavigationBase(tab, url);
         if (tab.navigationIndex >= 0
                 && tab.navigationIndex < tab.navigationHistory.size()
@@ -21860,7 +21863,8 @@ public class MainActivity extends Activity {
     }
 
     private boolean restoreBoardHistoryPage(CuspTab tab, String url) {
-        if (tab == null || url == null || (!isBoardUrl(url) && !isBbsDirectoryUrl(url))) {
+        if (tab == null || url == null
+                || (!isBoardUrl(url) && !isBbsDirectoryUrl(url) && !isBbsInternalPageUrl(url))) {
             return false;
         }
         BoardHistoryPage cached = null;
