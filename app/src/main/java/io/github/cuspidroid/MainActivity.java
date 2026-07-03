@@ -4359,6 +4359,11 @@ public class MainActivity extends Activity {
             }
             if (tab.searchPage != null) {
                 tab.readerMode = true;
+                if (NATIVE_BOARD.equals(tab.nativeKind) && isBbsCategoryInternalUrl(tab.url)
+                        && isBbsMenuUrl(tab.searchPage.url)) {
+                    tab.searchPage.url = tab.url;
+                    requestSaveTabsSoon();
+                }
                 if (NATIVE_BOARD.equals(tab.nativeKind) && isBbsMenuUrl(tab.searchPage.url)) {
                     return buildBbsCategoryIndexView(tab.searchPage, tab);
                 }
@@ -5314,6 +5319,10 @@ public class MainActivity extends Activity {
     private boolean isBbsInternalPageUrl(String url) {
         return url != null && (url.startsWith(INTERNAL_URL_PREFIX + "bbs/")
                 || url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/"));
+    }
+
+    private boolean isBbsCategoryInternalUrl(String url) {
+        return url != null && url.startsWith(INTERNAL_URL_PREFIX + "bbs-category/");
     }
 
     private String externalUrlFromBbsInternalPage(String url) {
@@ -11818,6 +11827,9 @@ public class MainActivity extends Activity {
             return;
         }
         result.title = bbsPageTitleFromPageKey(pageKey, result.title);
+        if (!categoryIndex) {
+            result.url = bbsInternalUrlFromPageKey(pageKey);
+        }
         View resultView = categoryIndex ? buildBbsCategoryIndexView(result, targetTab) : buildSearchView(result, false, targetTab);
         if (forNewTab && result.error == null) {
             cacheNewTabHistoryPage(pageKey, resultView);
@@ -14378,26 +14390,7 @@ public class MainActivity extends Activity {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         list.addView(container);
-        int firstEnd = Math.min(nodes.size(), BOOKMARK_OVERVIEW_SYNC_CHILDREN);
-        appendBookmarkOverviewNodes(container, snapshot, nodes, selectedFolder, indentLevel, 0, firstEnd);
-        if (firstEnd < nodes.size()) {
-            container.post(() -> appendBookmarkOverviewNodesDeferred(container, snapshot, nodes,
-                    selectedFolder, indentLevel, firstEnd));
-        }
-    }
-
-    private void appendBookmarkOverviewNodesDeferred(LinearLayout container, BookmarkOverviewSnapshot snapshot,
-                                                     List<BookmarkNode> nodes, String selectedFolder,
-                                                     int indentLevel, int start) {
-        if (container.getParent() == null || nodes == null || start >= nodes.size()) {
-            return;
-        }
-        int end = Math.min(nodes.size(), start + BOOKMARK_OVERVIEW_DEFERRED_CHILDREN);
-        appendBookmarkOverviewNodes(container, snapshot, nodes, selectedFolder, indentLevel, start, end);
-        if (end < nodes.size()) {
-            container.postDelayed(() -> appendBookmarkOverviewNodesDeferred(container, snapshot, nodes,
-                    selectedFolder, indentLevel, end), 16);
-        }
+        appendBookmarkOverviewNodes(container, snapshot, nodes, selectedFolder, indentLevel, 0, nodes.size());
     }
 
     private void appendBookmarkOverviewNodes(LinearLayout list, BookmarkOverviewSnapshot snapshot,
