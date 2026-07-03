@@ -294,6 +294,7 @@ public class MainActivity extends Activity {
     static final String PREF_LOCAL_BACKUP_RESTORED_AT = "local_backup_restored_at";
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
     private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
+    private static final String PREF_BOOKMARK_OVERVIEW_RENDER_CACHE = "bookmark_overview_render_cache";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
     private static final String PREF_FIVE_CH_BBSMENU_CACHE = "five_ch_bbsmenu_cache";
     private static final String PREF_BBSMENU_CACHE = "bbsmenu_cache";
@@ -13996,18 +13997,9 @@ public class MainActivity extends Activity {
         BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
         List<SavedItem> bookmarks = snapshot.bookmarks;
         String selectedFolder = selectedBookmarkOverviewFolder(bookmarks);
-        boolean hasSelectedBookmark = selectedFolder != null;
         String rootKey = bookmarkOverviewExpandedKey("");
         boolean rootExpanded = bookmarkOverviewExpanded(rootKey, true);
-        list.addView(bookmarkOverviewFolderRow(
-                text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks"),
-                "",
-                rootExpanded ? 0 : snapshot.unreadByFolder.getOrDefault("", 0),
-                rootExpanded,
-                0,
-                hasSelectedBookmark && !rootExpanded,
-                -1,
-                v -> toggleBookmarkOverviewExpanded(rootKey, true)));
+        list.addView(bookmarkOverviewFolderRow(snapshot, "", selectedFolder, 0));
         if (!rootExpanded) {
             bookmarkOverviewDirty = false;
             return;
@@ -14017,6 +14009,10 @@ public class MainActivity extends Activity {
     }
 
     private BookmarkOverviewSnapshot bookmarkOverviewSnapshot() {
+        BookmarkOverviewSnapshot cached = readBookmarkOverviewRenderCache();
+        if (cached != null) {
+            return cached;
+        }
         List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
         List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS, bookmarks);
         JSONObject orderRoot = preferenceJsonObject(PREF_BOOKMARK_ORDER);
@@ -14052,8 +14048,10 @@ public class MainActivity extends Activity {
                 folder = parentSavedFolder(folder);
             }
         }
-        return new BookmarkOverviewSnapshot(
+        BookmarkOverviewSnapshot snapshot = new BookmarkOverviewSnapshot(
                 bookmarks, folders, orderRoot, statusRoot, readPosts, itemIndices, unreadByFolder, openThreadTabs);
+        writeBookmarkOverviewRenderCache(snapshot);
+        return snapshot;
     }
 
     private Map<String, CuspTab> bookmarkOverviewOpenThreadTabs() {
@@ -14103,6 +14101,110 @@ public class MainActivity extends Activity {
 
     private void markBookmarkOverviewDirty() {
         bookmarkOverviewDirty = true;
+        if (preferences != null) {
+            preferences.edit().remove(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE).apply();
+        }
+    }
+
+    private BookmarkOverviewSnapshot readBookmarkOverviewRenderCache() {
+        if (preferences == null) {
+            return null;
+        }
+        try {
+            String raw = preferences.getString(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE, "");
+            if (raw == null || raw.isEmpty()) {
+                return null;
+            }
+            JSONObject root = new JSONObject(raw);
+            JSONArray bookmarkArray = root.optJSONArray("bookmarks");
+            JSONArray folderArray = root.optJSONArray("folders");
+            JSONObject unreadObject = root.optJSONObject("unreadByFolder");
+            if (bookmarkArray == null || folderArray == null || unreadObject == null) {
+                return null;
+            }
+            List<SavedItem> bookmarks = new ArrayList<>();
+            Map<String, Integer> itemIndices = new LinkedHashMap<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (int i = 0; i < bookmarkArray.length(); i++) {
+                JSONObject item = bookmarkArray.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String title = item.optString("title", "").trim();
+                String url = item.optString("url", "").trim();
+                String folder = normalizeSavedFolder(item.optString("folder", ""));
+                String identity = savedItemIdentity(url, folder);
+                if (title.isEmpty() || url.isEmpty() || seen.contains(identity)) {
+                    continue;
+                }
+                itemIndices.put(identity, bookmarks.size());
+                bookmarks.add(new SavedItem(title, url, folder));
+                seen.add(identity);
+            }
+            List<String> folders = new ArrayList<>();
+            for (int i = 0; i < folderArray.length(); i++) {
+                String folder = normalizeSavedFolder(folderArray.optString(i, ""));
+                if (!folder.isEmpty() && !folders.contains(folder)) {
+                    folders.add(folder);
+                }
+            }
+            Map<String, Integer> unreadByFolder = new LinkedHashMap<>();
+            Iterator<String> unreadKeys = unreadObject.keys();
+            while (unreadKeys.hasNext()) {
+                String folder = normalizeSavedFolder(unreadKeys.next());
+                int unread = unreadObject.optInt(folder, 0);
+                if (unread > 0) {
+                    unreadByFolder.put(folder, unread);
+                }
+            }
+            return new BookmarkOverviewSnapshot(
+                    bookmarks,
+                    folders,
+                    preferenceJsonObject(PREF_BOOKMARK_ORDER),
+                    preferenceJsonObject(PREF_BOOKMARK_OVERVIEW_STATUS),
+                    readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject(),
+                    itemIndices,
+                    unreadByFolder,
+                    bookmarkOverviewOpenThreadTabs());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void writeBookmarkOverviewRenderCache(BookmarkOverviewSnapshot snapshot) {
+        if (preferences == null || snapshot == null) {
+            return;
+        }
+        try {
+            JSONArray bookmarks = new JSONArray();
+            for (SavedItem item : snapshot.bookmarks) {
+                JSONObject object = new JSONObject();
+                object.put("title", item.title == null ? "" : item.title);
+                object.put("url", item.url == null ? "" : item.url);
+                object.put("folder", normalizeSavedFolder(item.folder));
+                bookmarks.put(object);
+            }
+            JSONArray folders = new JSONArray();
+            for (String folder : snapshot.folders) {
+                String value = normalizeSavedFolder(folder);
+                if (!value.isEmpty()) {
+                    folders.put(value);
+                }
+            }
+            JSONObject unreadByFolder = new JSONObject();
+            for (Map.Entry<String, Integer> entry : snapshot.unreadByFolder.entrySet()) {
+                if (entry.getValue() != null && entry.getValue() > 0) {
+                    unreadByFolder.put(normalizeSavedFolder(entry.getKey()), entry.getValue());
+                }
+            }
+            JSONObject root = new JSONObject();
+            root.put("bookmarks", bookmarks);
+            root.put("folders", folders);
+            root.put("unreadByFolder", unreadByFolder);
+            root.put("updatedAt", System.currentTimeMillis());
+            preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
     }
 
     private void populateHomeBookmarkSection(LinearLayout section) {
@@ -14422,14 +14524,7 @@ public class MainActivity extends Activity {
                                                     int indentLevel) {
         String key = bookmarkOverviewExpandedKey(folder);
         boolean expanded = bookmarkOverviewExpanded(key, false);
-        list.addView(bookmarkOverviewFolderRow(savedFolderDisplayName(folder),
-                folder,
-                expanded ? 0 : snapshot.unreadByFolder.getOrDefault(folder, 0),
-                expanded,
-                indentLevel,
-                savedFolderDescendantOrSelf(folder, selectedFolder) && !expanded,
-                snapshot.folders.indexOf(folder),
-                v -> toggleBookmarkOverviewExpanded(key)));
+        list.addView(bookmarkOverviewFolderRow(snapshot, folder, selectedFolder, indentLevel));
         if (expanded) {
             addBookmarkOverviewNodesContainer(list, snapshot, bookmarkChildren(folder, snapshot),
                     selectedFolder, indentLevel + 1);
@@ -14580,7 +14675,25 @@ public class MainActivity extends Activity {
             delete.setBackgroundColor(Color.TRANSPARENT);
             row.addView(delete, new LinearLayout.LayoutParams(dp(38), dp(38)));
         }
-        return bookmarkOverviewShell(row, indentLevel, dp(56));
+        FrameLayout shell = bookmarkOverviewShell(row, indentLevel, dp(56));
+        shell.setTag(new BookmarkOverviewFolderSlot(bookmarkOverviewExpandedKey(folder), folder, indentLevel));
+        return shell;
+    }
+
+    private View bookmarkOverviewFolderRow(BookmarkOverviewSnapshot snapshot, String folder,
+                                           String selectedFolder, int indentLevel) {
+        folder = normalizeSavedFolder(folder);
+        boolean root = folder.isEmpty();
+        String key = bookmarkOverviewExpandedKey(folder);
+        boolean expanded = bookmarkOverviewExpanded(key, root);
+        String label = root ? text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks") : savedFolderDisplayName(folder);
+        int unread = expanded ? 0 : snapshot.unreadByFolder.getOrDefault(folder, 0);
+        boolean selected = root
+                ? selectedFolder != null && !expanded
+                : savedFolderDescendantOrSelf(folder, selectedFolder) && !expanded;
+        int folderIndex = root ? -1 : snapshot.folders.indexOf(folder);
+        return bookmarkOverviewFolderRow(label, folder, unread, expanded, indentLevel, selected,
+                folderIndex, v -> toggleBookmarkOverviewExpanded(key));
     }
 
     private void showCreateBookmarkOverviewFolderDialog(String parent) {
@@ -14812,7 +14925,7 @@ public class MainActivity extends Activity {
         createBookmarkOverviewTab(item);
     }
 
-    private View bookmarkOverviewShell(View row, int indentLevel, int height) {
+    private FrameLayout bookmarkOverviewShell(View row, int indentLevel, int height) {
         FrameLayout shell = new FrameLayout(this);
         shell.setLayoutParams(bookmarkOverviewShellLayoutParams(indentLevel, height));
         shell.addView(row, new FrameLayout.LayoutParams(
@@ -15409,15 +15522,109 @@ public class MainActivity extends Activity {
             preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_EXPANDED, object.toString()).apply();
         } catch (Exception ignored) {
         }
-        markBookmarkOverviewDirty();
         if (refreshTabOverviewAfterToggle && tabOverviewVisible && contentFrame != null) {
+            if (refreshBookmarkOverviewFolderExpansionInPlace(key)) {
+                bookmarkOverviewDirty = false;
+                renderTabs();
+                return;
+            }
+            markBookmarkOverviewDirty();
             if (!refreshTabOverviewBookmarkSectionOnly()) {
                 refreshTabOverviewListOnly();
             }
             renderTabs();
         } else if (!refreshTabOverviewAfterToggle) {
+            markBookmarkOverviewDirty();
             refreshHomeBookmarksOrCurrentView();
+        } else {
+            markBookmarkOverviewDirty();
         }
+    }
+
+    private boolean refreshBookmarkOverviewFolderExpansionInPlace(String key) {
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
+            return false;
+        }
+        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        int folderIndex = bookmarkOverviewFolderRowIndex(list, key);
+        if (folderIndex < 0) {
+            return false;
+        }
+        Object tag = list.getChildAt(folderIndex).getTag();
+        if (!(tag instanceof BookmarkOverviewFolderSlot)) {
+            return false;
+        }
+        BookmarkOverviewFolderSlot slot = (BookmarkOverviewFolderSlot) tag;
+        VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
+                ? (VirtualTabOverviewState) list.getTag() : null;
+        removeBookmarkOverviewDescendants(list, folderIndex, slot.indentLevel, state);
+        BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
+        String selectedFolder = selectedBookmarkOverviewFolder(snapshot.bookmarks);
+        View replacement = bookmarkOverviewFolderRow(snapshot, slot.folder, selectedFolder, slot.indentLevel);
+        list.removeViewAt(folderIndex);
+        list.addView(replacement, folderIndex);
+        if (bookmarkOverviewExpanded(key, slot.folder.isEmpty())) {
+            LinearLayout temp = new LinearLayout(this);
+            temp.setOrientation(LinearLayout.VERTICAL);
+            addBookmarkOverviewNodesContainer(temp, snapshot, bookmarkChildren(slot.folder, snapshot),
+                    selectedFolder, slot.indentLevel + 1);
+            int insert = folderIndex + 1;
+            while (temp.getChildCount() > 0) {
+                View child = temp.getChildAt(0);
+                temp.removeViewAt(0);
+                list.addView(child, insert++);
+            }
+        }
+        scheduleTabOverviewSlotRefresh(list);
+        syncClosedTabUndoBar();
+        return true;
+    }
+
+    private int bookmarkOverviewFolderRowIndex(LinearLayout list, String key) {
+        if (list == null || key == null) {
+            return -1;
+        }
+        for (int i = 1; i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (tag instanceof BookmarkOverviewFolderSlot) {
+                if (key.equals(((BookmarkOverviewFolderSlot) tag).key)) {
+                    return i;
+                }
+            } else if (tag instanceof VirtualTabOverviewSlot || TAB_OVERVIEW_EMPTY_TAG.equals(tag)) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private void removeBookmarkOverviewDescendants(LinearLayout list, int folderIndex, int indentLevel,
+                                                   VirtualTabOverviewState state) {
+        int index = folderIndex + 1;
+        while (index < list.getChildCount()) {
+            View child = list.getChildAt(index);
+            int childIndent = bookmarkOverviewChildIndent(child);
+            if (childIndent < 0 || childIndent <= indentLevel) {
+                break;
+            }
+            unregisterRenderedOverviewSlots(child, state);
+            list.removeViewAt(index);
+        }
+    }
+
+    private int bookmarkOverviewChildIndent(View child) {
+        if (child == null) {
+            return -1;
+        }
+        Object tag = child.getTag();
+        if (tag instanceof BookmarkOverviewFolderSlot) {
+            return ((BookmarkOverviewFolderSlot) tag).indentLevel;
+        }
+        if (tag instanceof VirtualBookmarkOverviewSlot) {
+            return ((VirtualBookmarkOverviewSlot) tag).indentLevel;
+        }
+        return -1;
     }
 
     private void refreshTabOverviewListOnly() {
@@ -27709,6 +27916,18 @@ public class MainActivity extends Activity {
             this.itemIndex = itemIndex;
             this.indentLevel = indentLevel;
             this.snapshot = snapshot;
+        }
+    }
+
+    private static class BookmarkOverviewFolderSlot {
+        final String key;
+        final String folder;
+        final int indentLevel;
+
+        BookmarkOverviewFolderSlot(String key, String folder, int indentLevel) {
+            this.key = key == null ? "" : key;
+            this.folder = folder == null ? "" : folder;
+            this.indentLevel = indentLevel;
         }
     }
 
