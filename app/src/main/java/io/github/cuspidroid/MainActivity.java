@@ -2,7 +2,6 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.animation.LayoutTransition;
 import android.animation.ValueAnimator;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -312,6 +311,10 @@ public class MainActivity extends Activity {
     private static final String TAB_OVERVIEW_PRIVATE_SCROLL_KEY = "tabOverviewPrivateScrollY";
     private static final String TAB_OVERVIEW_NORMAL_ORDER_KEY = "tabOverviewNormalOrder";
     private static final String TAB_OVERVIEW_ORDER_SIGNATURE_KEY = "tabOverviewOrderSignature";
+    private static final int BOOKMARK_OVERVIEW_SYNC_CHILDREN = 5;
+    private static final int BOOKMARK_OVERVIEW_DEFERRED_CHILDREN = 8;
+    private static final int SAVED_ITEMS_SYNC_ROWS = 8;
+    private static final int SAVED_ITEMS_DEFERRED_ROWS = 12;
     static final String PREF_HISTORY = "thread_history";
     static final String DEFAULT_SEARCH_TEMPLATE = "https://find.5ch.io/search?q=%s";
     static final String LEGACY_FIND_IO_TEMPLATE = "https://find.5ch.io/search?STR=%s&TYPE=TITLE&BBS=ALL";
@@ -13883,27 +13886,59 @@ public class MainActivity extends Activity {
 
     private void showSavedItemsView(String key, String folder, boolean recordHistory) {
         folder = normalizeSavedFolder(folder);
-        View view = buildSavedItemsView(key, folder);
+        final String targetKey = key == null ? "" : key;
+        final String targetFolder = folder;
         if (pendingNewTab) {
+            String page = "saved:" + savedPageToken(targetKey, targetFolder);
+            if (recordHistory) {
+                recordNewTabPage(page);
+            }
             contentFrame.removeAllViews();
-            contentFrame.addView(view);
+            contentFrame.addView(loadingView(""));
             renderTabs();
+            mainHandler.post(() -> {
+                String currentPage = newTabNavigationIndex >= 0
+                        && newTabNavigationIndex < newTabNavigationHistory.size()
+                        ? newTabNavigationHistory.get(newTabNavigationIndex) : "";
+                if (!pendingNewTab || !page.equals(currentPage)) {
+                    return;
+                }
+                View view = buildSavedItemsView(targetKey, targetFolder);
+                contentFrame.removeAllViews();
+                contentFrame.addView(view);
+                renderTabs();
+            });
         } else {
             CuspTab tab = currentTab();
             if (tab != null) {
-                String url = savedPageUrl(key, folder);
+                String url = savedPageUrl(targetKey, targetFolder);
                 tab.readerMode = true;
                 tab.nativeKind = NATIVE_SAVED;
                 tab.url = url;
-                tab.title = savedListTitle(key, folder);
+                tab.title = savedListTitle(targetKey, targetFolder);
                 tab.threadPage = null;
                 tab.searchPage = null;
                 tab.threadScroll = null;
                 tab.postViews = null;
-                tab.readerView = view;
+                tab.readerView = loadingView("");
                 contentFrame.removeAllViews();
-                contentFrame.addView(view);
+                contentFrame.addView(tab.readerView);
                 renderTabs();
+                CuspTab targetTab = tab;
+                mainHandler.post(() -> {
+                    if (!tabs.contains(targetTab) || !NATIVE_SAVED.equals(targetTab.nativeKind)
+                            || !url.equals(targetTab.url)) {
+                        return;
+                    }
+                    View view = buildSavedItemsView(targetKey, targetFolder);
+                    targetTab.readerView = view;
+                    if (targetTab == currentTab() && !tabOverviewVisible && !pendingNewTab) {
+                        contentFrame.removeAllViews();
+                        contentFrame.addView(view);
+                        renderTabs();
+                    }
+                    requestSaveTabsSoon();
+                });
             }
         }
     }
@@ -13949,13 +13984,7 @@ public class MainActivity extends Activity {
         if (!rootExpanded) {
             return;
         }
-        for (BookmarkNode node : bookmarkChildren("", snapshot)) {
-            if (node.folderNode) {
-                addBookmarkOverviewFolderWithItems(list, snapshot, node.folder, selectedFolder, 1);
-            } else {
-                list.addView(bookmarkOverviewItemRow(node.item, 1, snapshot));
-            }
-        }
+        addBookmarkOverviewNodesContainer(list, snapshot, bookmarkChildren("", snapshot), selectedFolder, 1);
     }
 
     private BookmarkOverviewSnapshot bookmarkOverviewSnapshot() {
@@ -14059,13 +14088,7 @@ public class MainActivity extends Activity {
             toggleBookmarkOverviewExpanded(rootKey, false);
         }));
         if (rootExpanded) {
-            for (BookmarkNode node : bookmarkChildren("", snapshot)) {
-                if (node.folderNode) {
-                    addHomeBookmarkFolder(list, bookmarks, folders, snapshot, node.folder, 1);
-                } else {
-                    list.addView(homeBookmarkItemRow(node.item, 1, snapshot));
-                }
-            }
+            addHomeBookmarkNodesContainer(list, snapshot, bookmarkChildren("", snapshot), 1);
         }
         if (bookmarks.isEmpty() && folders.isEmpty()) {
             list.addView(helperLine(text("\u307e\u3060\u3042\u308a\u307e\u305b\u3093", "Nothing saved yet.")));
@@ -14083,11 +14106,47 @@ public class MainActivity extends Activity {
         if (!expanded) {
             return;
         }
-        for (BookmarkNode node : bookmarkChildren(folder, snapshot)) {
+        addHomeBookmarkNodesContainer(list, snapshot, bookmarkChildren(folder, snapshot), indentLevel + 1);
+    }
+
+    private void addHomeBookmarkNodesContainer(LinearLayout list, BookmarkOverviewSnapshot snapshot,
+                                               List<BookmarkNode> nodes, int indentLevel) {
+        if (nodes == null || nodes.isEmpty()) {
+            return;
+        }
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        list.addView(container);
+        int firstEnd = Math.min(nodes.size(), BOOKMARK_OVERVIEW_SYNC_CHILDREN);
+        appendHomeBookmarkNodes(container, snapshot, nodes, indentLevel, 0, firstEnd);
+        if (firstEnd < nodes.size()) {
+            container.post(() -> appendHomeBookmarkNodesDeferred(container, snapshot, nodes,
+                    indentLevel, firstEnd));
+        }
+    }
+
+    private void appendHomeBookmarkNodesDeferred(LinearLayout container, BookmarkOverviewSnapshot snapshot,
+                                                 List<BookmarkNode> nodes, int indentLevel, int start) {
+        if (container.getParent() == null || nodes == null || start >= nodes.size()) {
+            return;
+        }
+        int end = Math.min(nodes.size(), start + BOOKMARK_OVERVIEW_DEFERRED_CHILDREN);
+        appendHomeBookmarkNodes(container, snapshot, nodes, indentLevel, start, end);
+        if (end < nodes.size()) {
+            container.postDelayed(() -> appendHomeBookmarkNodesDeferred(container, snapshot, nodes,
+                    indentLevel, end), 16);
+        }
+    }
+
+    private void appendHomeBookmarkNodes(LinearLayout list, BookmarkOverviewSnapshot snapshot,
+                                         List<BookmarkNode> nodes, int indentLevel, int start, int end) {
+        for (int i = start; i < end && i < nodes.size(); i++) {
+            BookmarkNode node = nodes.get(i);
             if (node.folderNode) {
-                addHomeBookmarkFolder(list, bookmarks, folders, snapshot, node.folder, indentLevel + 1);
+                addHomeBookmarkFolder(list, snapshot.bookmarks, snapshot.folders, snapshot,
+                        node.folder, indentLevel);
             } else {
-                list.addView(homeBookmarkItemRow(node.item, indentLevel + 1, snapshot));
+                list.addView(homeBookmarkItemRow(node.item, indentLevel, snapshot));
             }
         }
     }
@@ -14305,13 +14364,51 @@ public class MainActivity extends Activity {
                 snapshot.folders.indexOf(folder),
                 v -> toggleBookmarkOverviewExpanded(key)));
         if (expanded) {
-            for (BookmarkNode node : bookmarkChildren(folder, snapshot)) {
-                if (node.folderNode) {
-                    addBookmarkOverviewFolderWithItems(
-                            list, snapshot, node.folder, selectedFolder, indentLevel + 1);
-                } else {
-                    list.addView(bookmarkOverviewItemRow(node.item, indentLevel + 1, snapshot));
-                }
+            addBookmarkOverviewNodesContainer(list, snapshot, bookmarkChildren(folder, snapshot),
+                    selectedFolder, indentLevel + 1);
+        }
+    }
+
+    private void addBookmarkOverviewNodesContainer(LinearLayout list, BookmarkOverviewSnapshot snapshot,
+                                                   List<BookmarkNode> nodes, String selectedFolder,
+                                                   int indentLevel) {
+        if (nodes == null || nodes.isEmpty()) {
+            return;
+        }
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        list.addView(container);
+        int firstEnd = Math.min(nodes.size(), BOOKMARK_OVERVIEW_SYNC_CHILDREN);
+        appendBookmarkOverviewNodes(container, snapshot, nodes, selectedFolder, indentLevel, 0, firstEnd);
+        if (firstEnd < nodes.size()) {
+            container.post(() -> appendBookmarkOverviewNodesDeferred(container, snapshot, nodes,
+                    selectedFolder, indentLevel, firstEnd));
+        }
+    }
+
+    private void appendBookmarkOverviewNodesDeferred(LinearLayout container, BookmarkOverviewSnapshot snapshot,
+                                                     List<BookmarkNode> nodes, String selectedFolder,
+                                                     int indentLevel, int start) {
+        if (container.getParent() == null || nodes == null || start >= nodes.size()) {
+            return;
+        }
+        int end = Math.min(nodes.size(), start + BOOKMARK_OVERVIEW_DEFERRED_CHILDREN);
+        appendBookmarkOverviewNodes(container, snapshot, nodes, selectedFolder, indentLevel, start, end);
+        if (end < nodes.size()) {
+            container.postDelayed(() -> appendBookmarkOverviewNodesDeferred(container, snapshot, nodes,
+                    selectedFolder, indentLevel, end), 16);
+        }
+    }
+
+    private void appendBookmarkOverviewNodes(LinearLayout list, BookmarkOverviewSnapshot snapshot,
+                                             List<BookmarkNode> nodes, String selectedFolder,
+                                             int indentLevel, int start, int end) {
+        for (int i = start; i < end && i < nodes.size(); i++) {
+            BookmarkNode node = nodes.get(i);
+            if (node.folderNode) {
+                addBookmarkOverviewFolderWithItems(list, snapshot, node.folder, selectedFolder, indentLevel);
+            } else {
+                list.addView(bookmarkOverviewItemRow(node.item, indentLevel, snapshot));
             }
         }
     }
@@ -14545,7 +14642,7 @@ public class MainActivity extends Activity {
         }
         textBox.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
-        View meta = tabOverviewMetaView(overviewTab);
+        View meta = bookmarkOverviewMetaView(item, overviewTab, snapshot);
         meta.setOnDragListener(dragListener);
         textBox.addView(meta, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
@@ -14578,6 +14675,31 @@ public class MainActivity extends Activity {
                     + (unread > 0 ? "  " + text("\u672a\u8aad: ", "Unread: ") + unread : "");
         }
         return url.replaceFirst("https?://", "");
+    }
+
+    private View bookmarkOverviewMetaView(SavedItem item, CuspTab tab, BookmarkOverviewSnapshot snapshot) {
+        SearchResult result = bookmarkOverviewSearchResult(item, tab, snapshot);
+        if (result == null) {
+            TextView empty = new TextView(this);
+            empty.setText("");
+            empty.setIncludeFontPadding(false);
+            return empty;
+        }
+        return boardThreadMetaView(result, true);
+    }
+
+    private SearchResult bookmarkOverviewSearchResult(SavedItem item, CuspTab tab,
+                                                      BookmarkOverviewSnapshot snapshot) {
+        if (snapshot == null || item == null) {
+            return searchResultForTabOverview(tab);
+        }
+        String identity = savedItemIdentity(item.url, item.folder);
+        if (snapshot.itemResults.containsKey(identity)) {
+            return snapshot.itemResults.get(identity);
+        }
+        SearchResult result = searchResultForTabOverview(tab);
+        snapshot.itemResults.put(identity, result);
+        return result;
     }
 
     private View.OnDragListener bookmarkOverviewItemDropListener(SavedItem item, int itemIndex) {
@@ -14666,6 +14788,20 @@ public class MainActivity extends Activity {
     }
 
     private CuspTab bookmarkOverviewTab(SavedItem item, BookmarkOverviewSnapshot snapshot) {
+        if (snapshot != null && item != null) {
+            String identity = savedItemIdentity(item.url, item.folder);
+            CuspTab cached = snapshot.itemTabs.get(identity);
+            if (cached != null) {
+                return cached;
+            }
+            CuspTab tab = buildBookmarkOverviewTab(item, snapshot);
+            snapshot.itemTabs.put(identity, tab);
+            return tab;
+        }
+        return buildBookmarkOverviewTab(item, snapshot);
+    }
+
+    private CuspTab buildBookmarkOverviewTab(SavedItem item, BookmarkOverviewSnapshot snapshot) {
         CuspTab tab = new CuspTab();
         tab.url = item == null ? "" : item.url;
         tab.title = item == null ? "" : item.title;
@@ -15224,41 +15360,68 @@ public class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setLayoutTransition(new LayoutTransition());
         list.setPadding(dp(12), dp(12), dp(12), dp(24));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         list.addView(sectionTitleView(savedListTitle(key, folder)));
+        List<SavedItem> items = readSavedItems(key);
+        List<String> folders = readSavedFolders(key, items);
         boolean hasFolders = false;
         if (folder.isEmpty()) {
             list.addView(rootSavedFolderRow(key));
-            for (String childFolder : childSavedFolders(key, folder)) {
-                list.addView(savedFolderRow(key, childFolder));
+            for (String childFolder : childSavedFolders(folder, folders)) {
+                list.addView(savedFolderRow(key, childFolder, items));
                 hasFolders = true;
             }
         } else {
             list.addView(actionButtonRow(R.drawable.ic_arrow_back,
                     text("\u4e00\u89a7\u306b\u623b\u308b", "Back to list"),
                     v -> showSavedItemsView(key, parentSavedFolder(currentFolder))));
-            for (String childFolder : childSavedFolders(key, folder)) {
-                list.addView(savedFolderRow(key, childFolder));
+            for (String childFolder : childSavedFolders(folder, folders)) {
+                list.addView(savedFolderRow(key, childFolder, items));
                 hasFolders = true;
             }
         }
-        List<SavedItem> items = readSavedItems(key);
-        boolean added = false;
+        List<SavedItem> visibleItems = new ArrayList<>();
+        List<Integer> visibleIndices = new ArrayList<>();
         for (int i = 0; i < items.size(); i++) {
             SavedItem item = items.get(i);
             if (!folder.equals(normalizeSavedFolder(item.folder))) {
                 continue;
             }
-            list.addView(savedItemRow(key, item, i, folder));
-            added = true;
+            visibleItems.add(item);
+            visibleIndices.add(i);
         }
-        if (!added && !hasFolders) {
+        int firstEnd = Math.min(visibleItems.size(), SAVED_ITEMS_SYNC_ROWS);
+        appendSavedItemRows(list, key, visibleItems, visibleIndices, folder, 0, firstEnd);
+        if (firstEnd < visibleItems.size()) {
+            list.post(() -> appendSavedItemRowsDeferred(list, key, visibleItems, visibleIndices,
+                    currentFolder, firstEnd));
+        }
+        if (visibleItems.isEmpty() && !hasFolders) {
             list.addView(helperLine(text("\u307e\u3060\u3042\u308a\u307e\u305b\u3093", "Nothing saved yet.")));
         }
         return scroll;
+    }
+
+    private void appendSavedItemRowsDeferred(LinearLayout list, String key, List<SavedItem> items,
+                                             List<Integer> indices, String folder, int start) {
+        if (list.getParent() == null || items == null || start >= items.size()) {
+            return;
+        }
+        int end = Math.min(items.size(), start + SAVED_ITEMS_DEFERRED_ROWS);
+        appendSavedItemRows(list, key, items, indices, folder, start, end);
+        if (end < items.size()) {
+            list.postDelayed(() -> appendSavedItemRowsDeferred(list, key, items, indices, folder, end), 16);
+        }
+    }
+
+    private void appendSavedItemRows(LinearLayout list, String key, List<SavedItem> items,
+                                     List<Integer> indices, String folder, int start, int end) {
+        for (int i = start; i < end && i < items.size(); i++) {
+            int originalIndex = i < indices.size() ? indices.get(i) : i;
+            list.addView(savedItemRow(key, items.get(i), originalIndex, folder));
+        }
     }
 
     private String savedListTitle(String key) {
@@ -15339,6 +15502,10 @@ public class MainActivity extends Activity {
     }
 
     private View savedFolderRow(String key, String folder) {
+        return savedFolderRow(key, folder, null);
+    }
+
+    private View savedFolderRow(String key, String folder, List<SavedItem> savedItems) {
         LinearLayout shell = new LinearLayout(this);
         shell.setOrientation(LinearLayout.HORIZONTAL);
         shell.setGravity(Gravity.CENTER_VERTICAL);
@@ -15384,7 +15551,7 @@ public class MainActivity extends Activity {
         shell.addView(icon, iconParams);
 
         TextView label = new TextView(this);
-        label.setText(savedFolderDisplayName(folder) + "  " + savedFolderItemCount(key, folder));
+        label.setText(savedFolderDisplayName(folder) + "  " + savedFolderItemCount(key, folder, savedItems));
         label.setTextColor(textColor());
         label.setTextSize(16);
         label.setPadding(dp(10), dp(12), dp(10), dp(12));
@@ -24427,9 +24594,16 @@ public class MainActivity extends Activity {
     }
 
     private List<String> childSavedFolders(String key, String parent) {
+        return childSavedFolders(parent, readSavedFolders(key));
+    }
+
+    private List<String> childSavedFolders(String parent, List<String> folders) {
         parent = normalizeSavedFolder(parent);
         List<String> children = new ArrayList<>();
-        for (String folder : readSavedFolders(key)) {
+        if (folders == null) {
+            return children;
+        }
+        for (String folder : folders) {
             if (parent.equals(parentSavedFolder(folder)) && !children.contains(folder)) {
                 children.add(folder);
             }
@@ -24866,9 +25040,14 @@ public class MainActivity extends Activity {
     }
 
     private int savedFolderItemCount(String key, String folder) {
+        return savedFolderItemCount(key, folder, null);
+    }
+
+    private int savedFolderItemCount(String key, String folder, List<SavedItem> savedItems) {
         int count = 0;
         folder = normalizeSavedFolder(folder);
-        for (SavedItem item : readSavedItems(key)) {
+        List<SavedItem> items = savedItems == null ? readSavedItems(key) : savedItems;
+        for (SavedItem item : items) {
             if (savedFolderDescendantOrSelf(folder, normalizeSavedFolder(item.folder))) {
                 count++;
             }
@@ -27483,6 +27662,8 @@ public class MainActivity extends Activity {
         final JSONObject readPosts;
         final Map<String, Integer> itemIndices;
         final Map<String, Integer> unreadByFolder;
+        final Map<String, CuspTab> itemTabs = new LinkedHashMap<>();
+        final Map<String, SearchResult> itemResults = new LinkedHashMap<>();
 
         BookmarkOverviewSnapshot(List<SavedItem> bookmarks, List<String> folders,
                                  JSONObject orderRoot, JSONObject statusRoot, JSONObject readPosts,
