@@ -495,6 +495,7 @@ public class MainActivity extends Activity {
     private final Map<String, String> tabOverviewBoardTitleCache = new LinkedHashMap<>();
     private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
     private Set<String> tabOverviewHistoryUrlCache;
+    private boolean bookmarkOverviewDirty = true;
     private final List<String> restoredTabOverviewNormalOrder = new ArrayList<>();
     private String restoredTabOverviewOrderSignature = "";
     private final List<String> lastTabOverviewNormalOrder = new ArrayList<>();
@@ -12106,26 +12107,14 @@ public class MainActivity extends Activity {
         if (!newlyBuilt) {
             boolean updatedTabs = refreshTabOverviewTabSlotsOnly();
             boolean updatedBookmarks = !tabOverviewPrivateMode && showBookmarksInTabOverview()
+                    && bookmarkOverviewDirty
                     && refreshTabOverviewBookmarkSectionOnly(attachedView);
             if (!updatedTabs && !updatedBookmarks) {
                 refreshTabOverviewListOnly();
             }
         }
-        if (newlyBuilt && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
-            mainHandler.postDelayed(() -> {
-                if (tabOverviewNormalView != attachedView) {
-                    return;
-                }
-                refreshTabOverviewBookmarkSectionOnly(attachedView);
-                if (tabOverviewVisible && cachedTabOverviewView() == attachedView) {
-                    restoreCachedTabOverviewScroll(attachedView);
-                    syncClosedTabUndoBar();
-                }
-            }, 32);
-        } else {
-            restoreCachedTabOverviewScroll(view);
-            syncClosedTabUndoBar();
-        }
+        restoreCachedTabOverviewScroll(view);
+        syncClosedTabUndoBar();
     }
 
     private View cachedTabOverviewView() {
@@ -12225,7 +12214,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        populateTabOverviewList(scroll, list, false, false);
+        populateTabOverviewList(scroll, list, true, false);
         scheduleDeferredTabOverviewSort(list, tabOverviewPrivateMode);
 
         FrameLayout loader = bottomRefreshLoader();
@@ -14020,9 +14009,11 @@ public class MainActivity extends Activity {
                 -1,
                 v -> toggleBookmarkOverviewExpanded(rootKey, true)));
         if (!rootExpanded) {
+            bookmarkOverviewDirty = false;
             return;
         }
         addBookmarkOverviewNodesContainer(list, snapshot, bookmarkChildren("", snapshot), selectedFolder, 1);
+        bookmarkOverviewDirty = false;
     }
 
     private BookmarkOverviewSnapshot bookmarkOverviewSnapshot() {
@@ -14033,12 +14024,13 @@ public class MainActivity extends Activity {
         JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
         Map<String, Integer> itemIndices = new LinkedHashMap<>();
         Map<String, Integer> unreadByFolder = new LinkedHashMap<>();
+        Map<String, CuspTab> openThreadTabs = bookmarkOverviewOpenThreadTabs();
         for (int i = 0; i < bookmarks.size(); i++) {
             SavedItem bookmark = bookmarks.get(i);
             itemIndices.put(savedItemIdentity(bookmark.url, bookmark.folder), i);
             BookmarkOverviewStatus status = bookmarkOverviewStatus(bookmark.url, statusRoot);
             int responseCount = status == null ? 0 : status.responseCount;
-            CuspTab openTab = matchingThreadTab(bookmark.url);
+            CuspTab openTab = matchingBookmarkOverviewOpenTab(bookmark.url, openThreadTabs);
             if (openTab != null && openTab.hasThreadStats) {
                 responseCount = Math.max(responseCount, Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount));
             }
@@ -14061,7 +14053,40 @@ public class MainActivity extends Activity {
             }
         }
         return new BookmarkOverviewSnapshot(
-                bookmarks, folders, orderRoot, statusRoot, readPosts, itemIndices, unreadByFolder);
+                bookmarks, folders, orderRoot, statusRoot, readPosts, itemIndices, unreadByFolder, openThreadTabs);
+    }
+
+    private Map<String, CuspTab> bookmarkOverviewOpenThreadTabs() {
+        Map<String, CuspTab> openTabs = new LinkedHashMap<>();
+        for (CuspTab tab : tabs) {
+            if (tab == null || isBookmarkTabScope(tab) || !NATIVE_THREAD.equals(tab.nativeKind)) {
+                continue;
+            }
+            for (String key : threadHistoryKeys(threadUrl(tab))) {
+                if (!key.isEmpty() && !openTabs.containsKey(key)) {
+                    openTabs.put(key, tab);
+                }
+            }
+        }
+        return openTabs;
+    }
+
+    private CuspTab matchingBookmarkOverviewOpenTab(String url, BookmarkOverviewSnapshot snapshot) {
+        return snapshot == null ? matchingThreadTab(url)
+                : matchingBookmarkOverviewOpenTab(url, snapshot.openThreadTabs);
+    }
+
+    private CuspTab matchingBookmarkOverviewOpenTab(String url, Map<String, CuspTab> openTabs) {
+        if (url == null || url.trim().isEmpty() || openTabs == null || openTabs.isEmpty()) {
+            return null;
+        }
+        for (String key : threadHistoryKeys(url)) {
+            CuspTab tab = openTabs.get(key);
+            if (tab != null) {
+                return tab;
+            }
+        }
+        return null;
     }
 
     private JSONObject preferenceJsonObject(String key) {
@@ -14074,6 +14099,10 @@ public class MainActivity extends Activity {
 
     private void addBookmarkOverviewUnread(Map<String, Integer> unreadByFolder, String folder, int unread) {
         unreadByFolder.put(folder, unreadByFolder.getOrDefault(folder, 0) + unread);
+    }
+
+    private void markBookmarkOverviewDirty() {
+        bookmarkOverviewDirty = true;
     }
 
     private void populateHomeBookmarkSection(LinearLayout section) {
@@ -14906,7 +14935,7 @@ public class MainActivity extends Activity {
                 tab.hasThreadStats = true;
             }
         }
-        CuspTab openTab = matchingThreadTab(item == null ? "" : item.url);
+        CuspTab openTab = matchingBookmarkOverviewOpenTab(item == null ? "" : item.url, snapshot);
         if (openTab != null) {
             if ((tab.title == null || tab.title.trim().isEmpty()) && openTab.title != null) {
                 tab.title = openTab.title;
@@ -15242,19 +15271,31 @@ public class MainActivity extends Activity {
             resetTopRefreshLoader(loader);
             return;
         }
-        tabOverviewResultCache.clear();
-        tabOverviewBoardTitleCache.clear();
-        tabOverviewHistoryUrlCache = null;
-        tabOverviewValueDirtyTabs.clear();
         LinearLayout list = (LinearLayout) scroll.getChildAt(0);
-        populateTabOverviewList(scroll, list, true, true);
-        scheduleDeferredTabOverviewSort(list, tabOverviewPrivateMode);
-        syncClosedTabUndoBar();
-        renderTabs();
-        scroll.post(() -> {
-            scroll.scrollTo(0, 0);
-            resetTopRefreshLoader(loader);
-        });
+        int restoreY = scroll.getScrollY();
+        boolean privateMode = tabOverviewPrivateMode;
+        mainHandler.postDelayed(() -> {
+            if (!tabOverviewVisible || contentFrame == null || tabOverviewPrivateMode != privateMode
+                    || scroll.getParent() == null || list.getParent() != scroll) {
+                resetTopRefreshLoader(loader);
+                return;
+            }
+            tabOverviewResultCache.clear();
+            tabOverviewBoardTitleCache.clear();
+            tabOverviewHistoryUrlCache = null;
+            tabOverviewValueDirtyTabs.clear();
+            populateTabOverviewList(scroll, list, true, true);
+            scheduleDeferredTabOverviewSort(list, privateMode);
+            syncClosedTabUndoBar();
+            renderTabs();
+            scroll.post(() -> {
+                if (scroll.getChildCount() > 0) {
+                    int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+                    scroll.scrollTo(0, Math.min(restoreY, range));
+                }
+                resetTopRefreshLoader(loader);
+            });
+        }, 180);
     }
 
     private boolean refreshTabOverviewBookmarkSectionOnly() {
@@ -15368,6 +15409,7 @@ public class MainActivity extends Activity {
             preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_EXPANDED, object.toString()).apply();
         } catch (Exception ignored) {
         }
+        markBookmarkOverviewDirty();
         if (refreshTabOverviewAfterToggle && tabOverviewVisible && contentFrame != null) {
             if (!refreshTabOverviewBookmarkSectionOnly()) {
                 refreshTabOverviewListOnly();
@@ -22582,6 +22624,7 @@ public class MainActivity extends Activity {
             item.put("updatedAt", System.currentTimeMillis());
             root.put(bookmarkOverviewStatusKey(url), item);
             preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_STATUS, root.toString()).apply();
+            markBookmarkOverviewDirty();
         } catch (Exception ignored) {
         }
     }
@@ -22645,7 +22688,7 @@ public class MainActivity extends Activity {
                 ? bookmarkOverviewStatus(item.url)
                 : bookmarkOverviewStatus(item.url, snapshot.statusRoot);
         if (status == null || status.responseCount <= 0) {
-            CuspTab openTab = matchingThreadTab(item.url);
+            CuspTab openTab = matchingBookmarkOverviewOpenTab(item.url, snapshot);
             int responseCount = openTab != null && openTab.hasThreadStats
                     ? Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount) : 0;
             int read = snapshot == null ? visibleReadPostNumber(item.url) : snapshot.readPosts.optInt(item.url, 0);
@@ -22655,7 +22698,7 @@ public class MainActivity extends Activity {
             return Math.max(0, responseCount - read);
         }
         int responseCount = status.responseCount;
-        CuspTab openTab = matchingThreadTab(item.url);
+        CuspTab openTab = matchingBookmarkOverviewOpenTab(item.url, snapshot);
         if (openTab != null && openTab.hasThreadStats) {
             responseCount = Math.max(responseCount, Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount));
         }
@@ -24580,6 +24623,9 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         preferences.edit().putString(key, array.toString()).apply();
+        if (PREF_THREAD_BOOKMARKS.equals(key)) {
+            markBookmarkOverviewDirty();
+        }
     }
 
     private String savedItemIdentity(String url, String folder) {
@@ -24623,6 +24669,9 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         preferences.edit().putString(savedFoldersKey(key), array.toString()).apply();
+        if (PREF_THREAD_BOOKMARKS.equals(key)) {
+            markBookmarkOverviewDirty();
+        }
     }
 
     private boolean containsString(JSONArray array, String value) {
@@ -27774,12 +27823,14 @@ public class MainActivity extends Activity {
         final JSONObject readPosts;
         final Map<String, Integer> itemIndices;
         final Map<String, Integer> unreadByFolder;
+        final Map<String, CuspTab> openThreadTabs;
         final Map<String, CuspTab> itemTabs = new LinkedHashMap<>();
         final Map<String, SearchResult> itemResults = new LinkedHashMap<>();
 
         BookmarkOverviewSnapshot(List<SavedItem> bookmarks, List<String> folders,
                                  JSONObject orderRoot, JSONObject statusRoot, JSONObject readPosts,
-                                 Map<String, Integer> itemIndices, Map<String, Integer> unreadByFolder) {
+                                 Map<String, Integer> itemIndices, Map<String, Integer> unreadByFolder,
+                                 Map<String, CuspTab> openThreadTabs) {
             this.bookmarks = bookmarks;
             this.folders = folders;
             this.orderRoot = orderRoot;
@@ -27787,6 +27838,7 @@ public class MainActivity extends Activity {
             this.readPosts = readPosts;
             this.itemIndices = itemIndices;
             this.unreadByFolder = unreadByFolder;
+            this.openThreadTabs = openThreadTabs == null ? new LinkedHashMap<>() : openThreadTabs;
         }
     }
 
