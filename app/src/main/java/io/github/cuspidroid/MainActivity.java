@@ -1007,7 +1007,7 @@ public class MainActivity extends Activity {
         if (bottomToolbar != null && (addressBarTop != addressBarOnTop() || themeChanged || buttonLayoutChanged)) {
             CuspTab tab = currentTab();
             if (tab != null) {
-                rememberThreadScroll(tab);
+                rememberTabScroll(tab);
             }
             appliedThemeMode = currentThemeMode;
             appliedButtonLayoutSignature = currentButtonLayoutSignature;
@@ -3112,7 +3112,7 @@ public class MainActivity extends Activity {
         rememberTabOverviewScroll();
         CuspTab previous = rememberCurrentTab ? currentTab() : null;
         if (previous != null) {
-            rememberThreadScroll(previous);
+            rememberTabScroll(previous);
             requestSaveTabsSoon();
         }
         if (!replyPopups.isEmpty()) {
@@ -3204,6 +3204,10 @@ public class MainActivity extends Activity {
                 tab.threadBottomOffset = item.optInt("threadBottomOffset", 0);
                 tab.threadScrollUrl = item.optString("threadScrollUrl", url);
                 tab.hasSavedThreadScroll = item.optBoolean("hasSavedThreadScroll", false);
+                tab.contentScrollRatio = (float) item.optDouble("contentScrollRatio", 0);
+                tab.contentScrollY = item.optInt("contentScrollY", 0);
+                tab.contentScrollUrl = item.optString("contentScrollUrl", url);
+                tab.hasSavedContentScroll = item.optBoolean("hasSavedContentScroll", false);
                 tab.knownMaxPostNumber = item.optInt("knownMaxPostNumber", 0);
                 tab.knownPostCount = item.optInt("knownPostCount", 0);
                 tab.knownBoardOrder = item.optInt("knownBoardOrder", 0);
@@ -3261,7 +3265,7 @@ public class MainActivity extends Activity {
         try {
             CuspTab current = currentTab();
             if (current != null) {
-                rememberThreadScroll(current);
+                rememberTabScroll(current);
             }
             rememberTabOverviewScroll();
             JSONArray array = new JSONArray();
@@ -3283,6 +3287,10 @@ public class MainActivity extends Activity {
                 item.put("threadBottomOffset", tab.threadBottomOffset);
                 item.put("threadScrollUrl", tab.threadScrollUrl == null ? threadUrl(tab) : tab.threadScrollUrl);
                 item.put("hasSavedThreadScroll", tab.hasSavedThreadScroll);
+                item.put("contentScrollRatio", tab.contentScrollRatio);
+                item.put("contentScrollY", tab.contentScrollY);
+                item.put("contentScrollUrl", tab.contentScrollUrl == null ? tabUrlForScroll(tab) : tab.contentScrollUrl);
+                item.put("hasSavedContentScroll", tab.hasSavedContentScroll);
                 item.put("knownMaxPostNumber", tab.knownMaxPostNumber);
                 item.put("knownPostCount", tab.knownPostCount);
                 item.put("knownBoardOrder", tab.knownBoardOrder);
@@ -3517,7 +3525,7 @@ public class MainActivity extends Activity {
         if (tab == null || tab.readerView == null) {
             return;
         }
-        rememberThreadScroll(tab);
+        rememberTabScroll(tab);
         clearTabViewState(tab);
     }
 
@@ -4127,7 +4135,7 @@ public class MainActivity extends Activity {
         CuspTab previous = currentTab();
         CuspTab target = tabs.get(index);
         if (previous != null && previous != target) {
-            rememberThreadScroll(previous);
+            rememberTabScroll(previous);
         }
         if (highlightedPostView != null) {
             clearJumpHighlight();
@@ -4182,6 +4190,8 @@ public class MainActivity extends Activity {
                     }
                     restoreThreadScroll(tab);
                 }
+            } else if (shouldRestoreContentScroll(tab)) {
+                restoreContentScroll(tab);
             }
         }
         syncLoadingUiWithCurrentSurface();
@@ -9250,7 +9260,7 @@ public class MainActivity extends Activity {
             TextView error = postText(page.error, null);
             error.setTextColor(Color.rgb(185, 28, 28));
             list.addView(error);
-            View wrapped = withScrollScrubber(scroll);
+            View wrapped = withScrollScrubber(scroll, tab);
             return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
         }
 
@@ -9266,7 +9276,7 @@ public class MainActivity extends Activity {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             }
         }
-        View wrapped = withScrollScrubber(scroll);
+        View wrapped = withScrollScrubber(scroll, tab);
         if (tab != null) {
             return withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab),
                     fullTextSearch ? page : null);
@@ -9295,6 +9305,9 @@ public class MainActivity extends Activity {
                                     SearchPage fullTextLoadMorePage) {
         if (content == null || scroll == null || Boolean.TRUE.equals(content.getTag(R.id.tag_top_pull_refresh))) {
             return content;
+        }
+        if (tab != null) {
+            scroll.setTag(R.id.tag_scroll_tab, tab);
         }
         FrameLayout frame = new FrameLayout(this);
         frame.setTag(R.id.tag_top_pull_refresh, true);
@@ -10071,7 +10084,7 @@ public class MainActivity extends Activity {
             TextView error = postText(page.error, null);
             error.setTextColor(Color.rgb(185, 28, 28));
             list.addView(error);
-            View wrapped = withScrollScrubber(scroll);
+            View wrapped = withScrollScrubber(scroll, tab);
             return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
         }
 
@@ -10083,7 +10096,7 @@ public class MainActivity extends Activity {
             slots.add(new VirtualSearchSlot(new BbsCategoryRow(page.url, category, label, entry.getValue())));
         }
         renderVirtualSearchSlots(scroll, list, slots, true);
-        View wrapped = withScrollScrubber(scroll);
+        View wrapped = withScrollScrubber(scroll, tab);
         return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
     }
 
@@ -10358,6 +10371,9 @@ public class MainActivity extends Activity {
         scroll.setBackgroundColor(bgColor());
         root.addView(scroll, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        if (tab != null) {
+            scroll.setTag(R.id.tag_scroll_tab, tab);
+        }
 
         FrameLayout scrubber = new FrameLayout(this);
         if (tab != null) {
@@ -10390,27 +10406,28 @@ public class MainActivity extends Activity {
 
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
             handleContentScrollForChrome(scrollY, oldScrollY);
-            if (tab != null && tab.threadRendering) {
+            CuspTab scrollTab = scrollTab(scroll, tab);
+            if (scrollTab != null && scrollTab.threadRendering) {
                 updateScrollThumb(scroll, scrubber, thumb);
                 if (scrollY != oldScrollY) {
-                    tab.lastScrollAt = android.os.SystemClock.uptimeMillis();
+                    scrollTab.lastScrollAt = android.os.SystemClock.uptimeMillis();
                 }
                 scheduleLazyImgurLoads();
-                scheduleThreadPostVisibilityRefresh(tab);
+                scheduleThreadPostVisibilityRefresh(scrollTab);
                 return;
             }
             updateScrollThumb(scroll, scrubber, thumb);
-            if (tab != null && scrollY != oldScrollY) {
+            if (scrollTab != null && scrollY != oldScrollY) {
                 long now = android.os.SystemClock.uptimeMillis();
-                tab.lastScrollAt = now;
-                if (isBottomJumpActive(tab)) {
-                    pinThreadScrollToBottom(tab);
-                } else if (now - tab.lastThreadScrollSaveAt >= THREAD_SCROLL_SAVE_INTERVAL_MS) {
-                    tab.lastThreadScrollSaveAt = now;
-                    rememberThreadScroll(tab);
+                scrollTab.lastScrollAt = now;
+                if (isBottomJumpActive(scrollTab)) {
+                    pinThreadScrollToBottom(scrollTab);
+                } else if (now - scrollTab.lastThreadScrollSaveAt >= THREAD_SCROLL_SAVE_INTERVAL_MS) {
+                    scrollTab.lastThreadScrollSaveAt = now;
+                    rememberTabScroll(scrollTab);
                     requestSaveTabsSoon(SAVE_TABS_SCROLL_IDLE_DELAY_MS);
                 }
-                scheduleThreadPostVisibilityRefresh(tab);
+                scheduleThreadPostVisibilityRefresh(scrollTab);
             }
             scheduleLazyImgurLoads();
         });
@@ -12011,7 +12028,7 @@ public class MainActivity extends Activity {
                 return;
             }
             if (current != null) {
-                rememberThreadScroll(current);
+                rememberTabScroll(current);
             }
             clearAddressFocus();
             closeThreadSearch();
@@ -20602,6 +20619,84 @@ public class MainActivity extends Activity {
                 + URLEncoder.encode(value == null ? "" : value, encoding);
     }
 
+    private void rememberTabScroll(CuspTab tab) {
+        if (tab == null) {
+            return;
+        }
+        if (isThreadPageNativeKind(tab.nativeKind)) {
+            rememberThreadScroll(tab);
+        } else {
+            rememberContentScroll(tab);
+        }
+    }
+
+    private void rememberContentScroll(CuspTab tab) {
+        ScrollView scroll = tab == null ? null : findScrollView(tab.readerView);
+        if (tab == null || scroll == null || scroll.getChildCount() == 0) {
+            return;
+        }
+        if (scroll.getHeight() <= 0 || !scroll.isAttachedToWindow()) {
+            return;
+        }
+        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+        tab.contentScrollRatio = range <= 0 ? 0f : Math.max(0f, Math.min(1f, scroll.getScrollY() / (float) range));
+        tab.contentScrollY = Math.max(0, scroll.getScrollY());
+        tab.contentScrollUrl = tabUrlForScroll(tab);
+        tab.hasSavedContentScroll = true;
+    }
+
+    private boolean shouldRestoreContentScroll(CuspTab tab) {
+        return tab != null
+                && !isThreadPageNativeKind(tab.nativeKind)
+                && tab.hasSavedContentScroll
+                && sameSavedUrl(tabUrlForScroll(tab), tab.contentScrollUrl);
+    }
+
+    private void restoreContentScroll(CuspTab tab) {
+        restoreContentScroll(tab, 0);
+    }
+
+    private void restoreContentScroll(CuspTab tab, int attempt) {
+        ScrollView scroll = tab == null ? null : findScrollView(tab.readerView);
+        if (tab == null || scroll == null || scroll.getChildCount() == 0 || !shouldRestoreContentScroll(tab)) {
+            return;
+        }
+        scroll.post(() -> {
+            if (scroll.getChildCount() == 0 || !shouldRestoreContentScroll(tab)) {
+                return;
+            }
+            int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+            if (range <= 0) {
+                if (attempt < 10) {
+                    scroll.postDelayed(() -> restoreContentScroll(tab, attempt + 1), 50);
+                }
+                return;
+            }
+            int target = tab.contentScrollY > 0
+                    ? Math.min(tab.contentScrollY, range)
+                    : (int) (range * Math.max(0f, Math.min(1f, tab.contentScrollRatio)));
+            scroll.scrollTo(0, Math.max(0, Math.min(target, range)));
+        });
+    }
+
+    private String tabUrlForScroll(CuspTab tab) {
+        if (tab == null) {
+            return "";
+        }
+        if (tab.searchPage != null && tab.searchPage.url != null && !tab.searchPage.url.trim().isEmpty()) {
+            return tab.searchPage.url;
+        }
+        return tab.url == null ? "" : tab.url;
+    }
+
+    private CuspTab scrollTab(ScrollView scroll, CuspTab fallback) {
+        if (fallback != null) {
+            return fallback;
+        }
+        Object tag = scroll == null ? null : scroll.getTag(R.id.tag_scroll_tab);
+        return tag instanceof CuspTab ? (CuspTab) tag : null;
+    }
+
     private void rememberThreadScroll(CuspTab tab) {
         if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
             return;
@@ -21653,7 +21748,7 @@ public class MainActivity extends Activity {
             clearAddressFocus();
             if (tab != null && tab.backToNewTab) {
                 boolean privateBrowsing = isPrivateTab(tab);
-                rememberThreadScroll(tab);
+                rememberTabScroll(tab);
                 closeCurrentTabWithoutSwitch();
                 showPendingNewTab(privateBrowsing, false);
             } else if (tab != null && tab.returnToIndex >= 0) {
@@ -26919,6 +27014,9 @@ public class MainActivity extends Activity {
         float threadScrollRatio;
         int threadBottomOffset;
         String threadScrollUrl = "";
+        float contentScrollRatio;
+        int contentScrollY;
+        String contentScrollUrl = "";
         int readPostNumber;
         int knownMaxPostNumber;
         int knownPostCount;
@@ -26934,6 +27032,7 @@ public class MainActivity extends Activity {
         long lastThreadScrollSaveAt;
         int threadScrollChromeFrames;
         boolean hasSavedThreadScroll;
+        boolean hasSavedContentScroll;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
         String threadSearchQuery = "";
