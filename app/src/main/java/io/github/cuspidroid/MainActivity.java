@@ -1224,8 +1224,11 @@ public class MainActivity extends Activity {
                 } else {
                     updatePageSearch(threadSearchInput.getText().toString(), true);
                 }
-                threadSearchInput.requestFocus();
-                threadSearchInput.setSelection(threadSearchInput.getText().length());
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (manager != null) {
+                    manager.hideSoftInputFromWindow(threadSearchInput.getWindowToken(), 0);
+                }
+                threadSearchInput.clearFocus();
                 return true;
             }
             return enterDown;
@@ -13630,26 +13633,28 @@ public class MainActivity extends Activity {
     }
 
     private void animateTabOverviewRowRemoval(View rowView) {
-        int startHeight = rowView.getHeight() > 0 ? rowView.getHeight() : dp(86);
-        rowView.animate()
-                .translationX(rowView.getTranslationX() < 0 ? -rowView.getWidth() : rowView.getWidth())
-                .alpha(0f)
-                .setDuration(120)
-                .start();
+        boolean slotRow = isTabOverviewSlotRow(rowView);
+        View animatedGap = slotRow && rowView.getParent() instanceof View
+                ? (View) rowView.getParent() : rowView;
+        int startHeight = animatedGap.getHeight() > 0 ? animatedGap.getHeight() : dp(86);
+        rowView.animate().cancel();
+        rowView.setAlpha(0f);
+        rowView.setVisibility(View.INVISIBLE);
+        rowView.setTranslationX(0f);
         ValueAnimator heightAnimator = ValueAnimator.ofInt(startHeight, 0);
-        heightAnimator.setDuration(180);
+        heightAnimator.setDuration(130);
         heightAnimator.addUpdateListener(animation -> {
-            ViewGroup.LayoutParams params = rowView.getLayoutParams();
+            ViewGroup.LayoutParams params = animatedGap.getLayoutParams();
             if (params != null) {
                 params.height = (Integer) animation.getAnimatedValue();
-                rowView.setLayoutParams(params);
+                animatedGap.setLayoutParams(params);
             }
         });
         heightAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(android.animation.Animator animation) {
                 if (contentFrame != null && tabOverviewVisible) {
-                    if (isTabOverviewSlotRow(rowView)) {
+                    if (slotRow) {
                         if (!refreshTabOverviewTabSlotsOnly()) {
                             refreshTabOverviewListOnly();
                         }
@@ -21767,6 +21772,7 @@ public class MainActivity extends Activity {
 
     private void goBack() {
         CuspTab tab = currentTab();
+        rememberBoardHistoryScroll(tab);
         if (tab == null || tab.navigationIndex <= 0 || tab.navigationIndex > tab.navigationHistory.size() - 1) {
             clearAddressFocus();
             if (tab != null && tab.backToNewTab) {
@@ -21798,6 +21804,7 @@ public class MainActivity extends Activity {
             return;
         }
         CuspTab tab = currentTab();
+        rememberBoardHistoryScroll(tab);
         if (!canGoForwardInCurrentTab(tab)) {
             clearAddressFocus();
             return;
@@ -21827,12 +21834,21 @@ public class MainActivity extends Activity {
         openInCurrentTab(url, false);
     }
 
+    private void rememberBoardHistoryScroll(CuspTab tab) {
+        if (tab == null || !NATIVE_BOARD.equals(tab.nativeKind) || tab.searchPage == null || tab.readerView == null) {
+            return;
+        }
+        cacheBoardHistoryPage(tab, tab.searchPage, tab.readerView);
+    }
+
     private void cacheBoardHistoryPage(CuspTab tab, SearchPage page, View view) {
         if (tab == null || page == null || view == null || page.error != null
                 || !NATIVE_BOARD.equals(tab.nativeKind) || page.url == null || page.url.trim().isEmpty()) {
             return;
         }
-        BoardHistoryPage cached = new BoardHistoryPage(page, view, tab.title);
+        rememberContentScroll(tab);
+        BoardHistoryPage cached = new BoardHistoryPage(page, view, tab.title,
+                tab.contentScrollRatio, tab.contentScrollY, tab.contentScrollUrl, tab.hasSavedContentScroll);
         for (String key : boardHistoryKeys(tab, page.url)) {
             tab.boardHistoryPages.remove(key);
             tab.boardHistoryPages.put(key, cached);
@@ -21869,6 +21885,10 @@ public class MainActivity extends Activity {
         tab.threadScroll = null;
         tab.postViews = null;
         tab.readerView = cached.view;
+        tab.contentScrollRatio = cached.scrollRatio;
+        tab.contentScrollY = cached.scrollY;
+        tab.contentScrollUrl = cached.scrollUrl;
+        tab.hasSavedContentScroll = cached.hasSavedScroll;
         int index = tabs.indexOf(tab);
         if (index >= 0) {
             switchToTab(index);
@@ -27132,11 +27152,20 @@ public class MainActivity extends Activity {
         final SearchPage page;
         final View view;
         final String title;
+        final float scrollRatio;
+        final int scrollY;
+        final String scrollUrl;
+        final boolean hasSavedScroll;
 
-        BoardHistoryPage(SearchPage page, View view, String title) {
+        BoardHistoryPage(SearchPage page, View view, String title,
+                         float scrollRatio, int scrollY, String scrollUrl, boolean hasSavedScroll) {
             this.page = page;
             this.view = view;
             this.title = title;
+            this.scrollRatio = scrollRatio;
+            this.scrollY = scrollY;
+            this.scrollUrl = scrollUrl == null ? "" : scrollUrl;
+            this.hasSavedScroll = hasSavedScroll;
         }
     }
 
