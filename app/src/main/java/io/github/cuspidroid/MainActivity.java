@@ -12110,7 +12110,11 @@ public class MainActivity extends Activity {
             boolean updatedBookmarks = !tabOverviewPrivateMode && showBookmarksInTabOverview()
                     && bookmarkOverviewDirty
                     && refreshTabOverviewBookmarkSectionOnly(attachedView);
-            if (!updatedTabs && !updatedBookmarks) {
+            boolean updatedBookmarkSelection = !tabOverviewPrivateMode && showBookmarksInTabOverview()
+                    && !updatedBookmarks
+                    && !bookmarkOverviewDirty
+                    && refreshBookmarkOverviewSelectionInPlace(attachedView);
+            if (!updatedTabs && !updatedBookmarks && !updatedBookmarkSelection) {
                 refreshTabOverviewListOnly();
             }
         }
@@ -14676,7 +14680,8 @@ public class MainActivity extends Activity {
             row.addView(delete, new LinearLayout.LayoutParams(dp(38), dp(38)));
         }
         FrameLayout shell = bookmarkOverviewShell(row, indentLevel, dp(56));
-        shell.setTag(new BookmarkOverviewFolderSlot(bookmarkOverviewExpandedKey(folder), folder, indentLevel));
+        shell.setTag(new BookmarkOverviewFolderSlot(
+                bookmarkOverviewExpandedKey(folder), folder, indentLevel, selected));
         return shell;
     }
 
@@ -14688,12 +14693,20 @@ public class MainActivity extends Activity {
         boolean expanded = bookmarkOverviewExpanded(key, root);
         String label = root ? text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmarks") : savedFolderDisplayName(folder);
         int unread = expanded ? 0 : snapshot.unreadByFolder.getOrDefault(folder, 0);
-        boolean selected = root
-                ? selectedFolder != null && !expanded
-                : savedFolderDescendantOrSelf(folder, selectedFolder) && !expanded;
+        boolean selected = bookmarkOverviewFolderSelected(folder, selectedFolder, expanded);
         int folderIndex = root ? -1 : snapshot.folders.indexOf(folder);
         return bookmarkOverviewFolderRow(label, folder, unread, expanded, indentLevel, selected,
                 folderIndex, v -> toggleBookmarkOverviewExpanded(key));
+    }
+
+    private boolean bookmarkOverviewFolderSelected(String folder, String selectedFolder, boolean expanded) {
+        folder = normalizeSavedFolder(folder);
+        if (expanded) {
+            return false;
+        }
+        return folder.isEmpty()
+                ? selectedFolder != null
+                : savedFolderDescendantOrSelf(folder, selectedFolder);
     }
 
     private void showCreateBookmarkOverviewFolderDialog(String parent) {
@@ -14958,6 +14971,7 @@ public class MainActivity extends Activity {
         holder.addView(bookmarkOverviewItemContent(slot.item, slot.itemIndex, slot.snapshot),
                 new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
         slot.rendered = true;
+        slot.selected = bookmarkOverviewItemSelected(slot.item);
         if (holder.getParent() instanceof LinearLayout
                 && ((LinearLayout) holder.getParent()).getTag() instanceof VirtualTabOverviewState) {
             ((VirtualTabOverviewState) ((LinearLayout) holder.getParent()).getTag()).renderedSlots.add(holder);
@@ -14973,6 +14987,7 @@ public class MainActivity extends Activity {
         holder.addView(bookmarkOverviewSlotSpacer(slot.height), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, slot.height));
         slot.rendered = false;
+        slot.selected = false;
         if (holder.getParent() instanceof LinearLayout
                 && ((LinearLayout) holder.getParent()).getTag() instanceof VirtualTabOverviewState) {
             ((VirtualTabOverviewState) ((LinearLayout) holder.getParent()).getTag()).renderedSlots.remove(holder);
@@ -15413,6 +15428,61 @@ public class MainActivity extends Activity {
 
     private boolean refreshTabOverviewBookmarkSectionOnly() {
         return refreshTabOverviewBookmarkSectionOnly(contentFrame);
+    }
+
+    private boolean refreshBookmarkOverviewSelectionInPlace(View root) {
+        ScrollView scroll = findScrollView(root);
+        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
+            return false;
+        }
+        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+        int sectionStart = 1;
+        int tabSectionStart = tabOverviewTabSectionStart(list);
+        if (tabSectionStart < sectionStart) {
+            return false;
+        }
+        VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
+                ? (VirtualTabOverviewState) list.getTag() : null;
+        BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
+        String selectedFolder = selectedBookmarkOverviewFolder(snapshot.bookmarks);
+        boolean changed = false;
+        for (int i = sectionStart; i < tabSectionStart && i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            Object tag = child.getTag();
+            if (tag instanceof BookmarkOverviewFolderSlot) {
+                BookmarkOverviewFolderSlot slot = (BookmarkOverviewFolderSlot) tag;
+                boolean expanded = bookmarkOverviewExpanded(slot.key, slot.folder.isEmpty());
+                boolean selected = bookmarkOverviewFolderSelected(slot.folder, selectedFolder, expanded);
+                if (slot.selected == selected) {
+                    continue;
+                }
+                unregisterRenderedOverviewSlots(child, state);
+                View replacement = bookmarkOverviewFolderRow(
+                        snapshot, slot.folder, selectedFolder, slot.indentLevel);
+                list.removeViewAt(i);
+                list.addView(replacement, i);
+                changed = true;
+            } else if (child instanceof FrameLayout && tag instanceof VirtualBookmarkOverviewSlot) {
+                VirtualBookmarkOverviewSlot slot = (VirtualBookmarkOverviewSlot) tag;
+                boolean selected = bookmarkOverviewItemSelected(slot.item);
+                if (slot.selected == selected) {
+                    continue;
+                }
+                slot.selected = selected;
+                if (slot.rendered) {
+                    if (state != null) {
+                        state.renderedSlots.remove((FrameLayout) child);
+                    }
+                    slot.rendered = false;
+                    renderBookmarkOverviewSlot((FrameLayout) child, slot);
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            scheduleTabOverviewSlotRefresh(list);
+        }
+        return changed;
     }
 
     private boolean refreshTabOverviewBookmarkSectionOnly(View root) {
@@ -27909,6 +27979,7 @@ public class MainActivity extends Activity {
         final int height = dp(86);
         int itemIndex;
         boolean rendered;
+        boolean selected;
 
         VirtualBookmarkOverviewSlot(SavedItem item, int itemIndex, int indentLevel,
                                     BookmarkOverviewSnapshot snapshot) {
@@ -27923,11 +27994,13 @@ public class MainActivity extends Activity {
         final String key;
         final String folder;
         final int indentLevel;
+        final boolean selected;
 
-        BookmarkOverviewFolderSlot(String key, String folder, int indentLevel) {
+        BookmarkOverviewFolderSlot(String key, String folder, int indentLevel, boolean selected) {
             this.key = key == null ? "" : key;
             this.folder = folder == null ? "" : folder;
             this.indentLevel = indentLevel;
+            this.selected = selected;
         }
     }
 
