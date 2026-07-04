@@ -15376,6 +15376,9 @@ public class MainActivity extends Activity {
         if (from < insert) {
             insert--;
         }
+        if (!normalizeSavedFolder(moved.folder).equals(targetFolder)) {
+            persistCurrentSavedFolders(PREF_THREAD_BOOKMARKS);
+        }
         items.add(insert, new SavedItem(moved.title, moved.url, targetFolder));
         writeSavedItems(PREF_THREAD_BOOKMARKS, items);
     }
@@ -25151,6 +25154,40 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void persistCurrentSavedFolders(String key) {
+        writeSavedFolders(key, savedFoldersWithAncestors(readSavedFolders(key)));
+    }
+
+    private List<String> savedFoldersWithAncestors(List<String> folders) {
+        List<String> result = new ArrayList<>();
+        if (folders == null) {
+            return result;
+        }
+        for (String folder : folders) {
+            folder = normalizeSavedFolder(folder);
+            if (folder.isEmpty()) {
+                continue;
+            }
+            String[] parts = folder.split("/");
+            StringBuilder path = new StringBuilder();
+            for (String part : parts) {
+                part = normalizeSavedFolder(part);
+                if (part.isEmpty()) {
+                    continue;
+                }
+                if (path.length() > 0) {
+                    path.append('/');
+                }
+                path.append(part);
+                String value = path.toString();
+                if (!result.contains(value)) {
+                    result.add(value);
+                }
+            }
+        }
+        return result;
+    }
+
     private boolean containsString(JSONArray array, String value) {
         for (int i = 0; i < array.length(); i++) {
             if (value.equals(array.optString(i, ""))) {
@@ -25700,6 +25737,7 @@ public class MainActivity extends Activity {
         List<SavedItem> items = readSavedItems(key);
         for (int i = 0; i < items.size(); i++) {
             if (url.equals(items.get(i).url)) {
+                persistCurrentSavedFolders(key);
                 items.remove(i);
                 writeSavedItems(key, items);
                 return;
@@ -25711,10 +25749,15 @@ public class MainActivity extends Activity {
 
     private void removeSavedItem(String key, String url) {
         List<SavedItem> items = readSavedItems(key);
+        boolean removed = false;
         for (int i = items.size() - 1; i >= 0; i--) {
             if (url.equals(items.get(i).url)) {
                 items.remove(i);
+                removed = true;
             }
+        }
+        if (removed) {
+            persistCurrentSavedFolders(key);
         }
         writeSavedItems(key, items);
     }
@@ -25724,11 +25767,16 @@ public class MainActivity extends Activity {
             return;
         }
         List<SavedItem> items = readSavedItems(key);
+        boolean removed = false;
         for (int i = items.size() - 1; i >= 0; i--) {
             if (sameSavedItem(items.get(i), target)) {
                 items.remove(i);
+                removed = true;
                 break;
             }
+        }
+        if (removed) {
+            persistCurrentSavedFolders(key);
         }
         writeSavedItems(key, items);
     }
@@ -25744,6 +25792,10 @@ public class MainActivity extends Activity {
         for (int i = 0; i < items.size(); i++) {
             SavedItem item = items.get(i);
             if (url.equals(item.url) && (oldFolder == null || oldFolder.equals(normalizeSavedFolder(item.folder)))) {
+                String currentFolder = normalizeSavedFolder(item.folder);
+                if (!currentFolder.equals(folder)) {
+                    persistCurrentSavedFolders(key);
+                }
                 items.set(i, new SavedItem(item.title, item.url, folder));
                 break;
             }
