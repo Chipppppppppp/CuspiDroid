@@ -272,18 +272,6 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoAa);
         root.addView(autoAa);
 
-        popularReplyThreshold = new EditText(this);
-        popularReplyThreshold.setSingleLine(true);
-        popularReplyThreshold.setTextSize(14);
-        popularReplyThreshold.setTextColor(textColor());
-        popularReplyThreshold.setHintTextColor(hintColor());
-        popularReplyThreshold.setHint(MainActivity.text("\u4eba\u6c17\u30ec\u30b9\u306e\u65e2\u5b9a\u8fd4\u4fe1\u6570", "Default replies for popular posts"));
-        popularReplyThreshold.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        popularReplyThreshold.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        popularReplyThreshold.setBackground(roundedField());
-        popularReplyThreshold.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(popularReplyThreshold, fieldParams());
-
         root.addView(sectionTitle(MainActivity.text("\u4e00\u89a7\u8868\u793a", "List Display")));
         root.addView(managementRow(android.R.drawable.ic_menu_sort_by_size,
                 MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u8a2d\u5b9a", "Thread list settings"),
@@ -345,6 +333,22 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, BbsLinksActivity.class))));
 
         root.addView(sectionTitle(MainActivity.text("\u753b\u50cf\u3068\u30d5\u30a3\u30eb\u30bf", "Images & Filters")));
+        root.addView(fieldLabel(MainActivity.text("\u4eba\u6c17\u30ec\u30b9\u306e\u65e2\u5b9a\u95be\u5024", "Default popular post threshold")));
+        root.addView(helperText(MainActivity.text(
+                "\u4eba\u6c17\u30ec\u30b9\u30d5\u30a3\u30eb\u30bf\u3092\u958b\u3044\u305f\u3068\u304d\u306b\u4f7f\u3046\u300cn\u4ef6\u4ee5\u4e0a\u306e\u8fd4\u4fe1\u300d\u306e\u521d\u671f\u5024",
+                "Initial reply-count threshold used when opening the popular posts filter.")));
+        popularReplyThreshold = new EditText(this);
+        popularReplyThreshold.setSingleLine(true);
+        popularReplyThreshold.setTextSize(14);
+        popularReplyThreshold.setTextColor(textColor());
+        popularReplyThreshold.setHintTextColor(hintColor());
+        popularReplyThreshold.setHint("3");
+        popularReplyThreshold.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        popularReplyThreshold.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        popularReplyThreshold.setBackground(roundedField());
+        popularReplyThreshold.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(popularReplyThreshold, fieldParams());
+
         showMediaPreviews = new CheckBox(this);
         showMediaPreviews.setText(MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5185\u306e\u30e1\u30c7\u30a3\u30a2\u3092\u8868\u793a", "Show media in posts"));
         showMediaPreviews.setTextColor(textColor());
@@ -1240,6 +1244,16 @@ public class SettingsActivity extends Activity {
         view.setTextColor(mutedColor());
         view.setTextSize(13);
         view.setPadding(0, dp(4), 0, dp(4));
+        return view;
+    }
+
+    private TextView fieldLabel(String value) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextColor(textColor());
+        view.setTextSize(15);
+        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        view.setPadding(0, dp(8), 0, dp(2));
         return view;
     }
 

@@ -16813,6 +16813,15 @@ public class MainActivity extends Activity {
         if (mode != ThreadExtractMode.POPULAR) {
             return row;
         }
+        TextView thresholdLabel = new TextView(this);
+        thresholdLabel.setText(text("\u95be\u5024", "Threshold"));
+        thresholdLabel.setTextColor(mutedColor());
+        thresholdLabel.setTextSize(13);
+        thresholdLabel.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        thresholdLabel.setSingleLine(true);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(thresholdLabel, labelParams);
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setText(String.valueOf(Math.max(1, threshold)));
@@ -16825,14 +16834,18 @@ public class MainActivity extends Activity {
         input.setBackground(addressBarBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
         LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(dp(54), dp(38));
-        inputParams.setMargins(dp(8), 0, 0, 0);
+        inputParams.setMargins(dp(6), 0, 0, 0);
         row.addView(input, inputParams);
-        ImageButton apply = iconButton(R.drawable.ic_check, text("\u95be\u5024\u3092\u9069\u7528", "Apply threshold"), null);
-        apply.setColorFilter(TEAL);
-        apply.setBackgroundColor(Color.TRANSPARENT);
-        apply.setPadding(dp(8), dp(8), dp(8), dp(8));
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(38), dp(38));
-        applyParams.setMargins(dp(4), 0, 0, 0);
+        TextView apply = new TextView(this);
+        apply.setText(text("\u9069\u7528", "Apply"));
+        apply.setContentDescription(text("\u4eba\u6c17\u30ec\u30b9\u306e\u95be\u5024\u3092\u9069\u7528", "Apply popular post threshold"));
+        apply.setTextColor(Color.WHITE);
+        apply.setTextSize(13);
+        apply.setGravity(Gravity.CENTER);
+        apply.setTypeface(Typeface.DEFAULT_BOLD);
+        apply.setBackground(roundedDrawable(TEAL, TEAL, dp(10)));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(58), dp(38));
+        applyParams.setMargins(dp(6), 0, 0, 0);
         row.addView(apply, applyParams);
 
         Runnable refresh = () -> {
