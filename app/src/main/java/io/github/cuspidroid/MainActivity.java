@@ -497,6 +497,7 @@ public class MainActivity extends Activity {
     private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
     private Set<String> tabOverviewHistoryUrlCache;
     private boolean bookmarkOverviewDirty = true;
+    private int bookmarkOverviewRenderGeneration;
     private final List<String> restoredTabOverviewNormalOrder = new ArrayList<>();
     private String restoredTabOverviewOrderSignature = "";
     private final List<String> lastTabOverviewNormalOrder = new ArrayList<>();
@@ -12272,7 +12273,7 @@ public class MainActivity extends Activity {
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
         if (includeBookmarks && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
-            addBookmarkOverviewSection(list);
+            addBookmarkOverviewSection(list, true);
         }
         addTabOverviewSection(scroll, list, tabOverviewPrivateMode, allowSort);
     }
@@ -13998,7 +13999,12 @@ public class MainActivity extends Activity {
     }
 
     private void addBookmarkOverviewSection(LinearLayout list) {
+        addBookmarkOverviewSection(list, false);
+    }
+
+    private void addBookmarkOverviewSection(LinearLayout list, boolean deferRows) {
         BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
+        int generation = ++bookmarkOverviewRenderGeneration;
         List<SavedItem> bookmarks = snapshot.bookmarks;
         String selectedFolder = selectedBookmarkOverviewFolder(bookmarks);
         String rootKey = bookmarkOverviewExpandedKey("");
@@ -14008,8 +14014,73 @@ public class MainActivity extends Activity {
             bookmarkOverviewDirty = false;
             return;
         }
-        addBookmarkOverviewNodesContainer(list, snapshot, bookmarkChildren("", snapshot), selectedFolder, 1);
+        List<BookmarkOverviewEntry> entries = new ArrayList<>();
+        collectBookmarkOverviewEntries(entries, snapshot, bookmarkChildren("", snapshot), 1);
+        int initialEnd = deferRows ? Math.min(entries.size(), TAB_OVERVIEW_INITIAL_SLOT_BATCH) : entries.size();
+        appendBookmarkOverviewEntries(list, snapshot, selectedFolder, entries, 0, initialEnd);
+        if (deferRows && initialEnd < entries.size()) {
+            list.post(() -> appendDeferredBookmarkOverviewEntries(
+                    list, snapshot, selectedFolder, entries, generation, initialEnd));
+        }
         bookmarkOverviewDirty = false;
+    }
+
+    private void collectBookmarkOverviewEntries(List<BookmarkOverviewEntry> entries,
+                                                BookmarkOverviewSnapshot snapshot,
+                                                List<BookmarkNode> nodes,
+                                                int indentLevel) {
+        if (entries == null || nodes == null) {
+            return;
+        }
+        for (BookmarkNode node : nodes) {
+            if (node.folderNode) {
+                entries.add(BookmarkOverviewEntry.folder(node.folder, indentLevel));
+                if (bookmarkOverviewExpanded(bookmarkOverviewExpandedKey(node.folder), false)) {
+                    collectBookmarkOverviewEntries(entries, snapshot,
+                            bookmarkChildren(node.folder, snapshot), indentLevel + 1);
+                }
+            } else {
+                entries.add(BookmarkOverviewEntry.item(node.item, indentLevel));
+            }
+        }
+    }
+
+    private void appendBookmarkOverviewEntries(LinearLayout list, BookmarkOverviewSnapshot snapshot,
+                                               String selectedFolder,
+                                               List<BookmarkOverviewEntry> entries,
+                                               int start, int end) {
+        if (list == null || entries == null) {
+            return;
+        }
+        int insert = Math.max(0, Math.min(list.getChildCount(), tabOverviewTabSectionStart(list)));
+        if (insert <= 0) {
+            insert = list.getChildCount();
+        }
+        for (int i = Math.max(0, start); i < end && i < entries.size(); i++) {
+            BookmarkOverviewEntry entry = entries.get(i);
+            View child = entry.folderNode
+                    ? bookmarkOverviewFolderRow(snapshot, entry.folder, selectedFolder, entry.indentLevel)
+                    : bookmarkOverviewItemSlot(entry.item, entry.indentLevel, snapshot);
+            list.addView(child, Math.max(0, Math.min(insert++, list.getChildCount())));
+        }
+    }
+
+    private void appendDeferredBookmarkOverviewEntries(LinearLayout list, BookmarkOverviewSnapshot snapshot,
+                                                       String selectedFolder,
+                                                       List<BookmarkOverviewEntry> entries,
+                                                       int generation, int start) {
+        if (!tabOverviewVisible || list == null || list.getParent() == null
+                || generation != bookmarkOverviewRenderGeneration) {
+            return;
+        }
+        int end = Math.min(entries.size(), start + TAB_OVERVIEW_DEFERRED_SLOT_BATCH);
+        appendBookmarkOverviewEntries(list, snapshot, selectedFolder, entries, start, end);
+        scheduleTabOverviewSlotRefresh(list);
+        if (end < entries.size()) {
+            list.postDelayed(() -> appendDeferredBookmarkOverviewEntries(
+                    list, snapshot, selectedFolder, entries, generation, end),
+                    TAB_OVERVIEW_DEFERRED_SLOT_DELAY_MS);
+        }
     }
 
     private BookmarkOverviewSnapshot bookmarkOverviewSnapshot() {
@@ -14105,6 +14176,7 @@ public class MainActivity extends Activity {
 
     private void markBookmarkOverviewDirty() {
         bookmarkOverviewDirty = true;
+        bookmarkOverviewRenderGeneration++;
         if (preferences != null) {
             preferences.edit().remove(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE).apply();
         }
@@ -15001,8 +15073,16 @@ public class MainActivity extends Activity {
     }
 
     private String selectedBookmarkOverviewFolder(List<SavedItem> bookmarks) {
+        CuspTab tab = currentTab();
+        if (!isBookmarkTabScope(tab) || bookmarks == null || bookmarks.isEmpty()) {
+            return null;
+        }
+        String targetUrl = threadUrl(tab);
+        String targetFolder = bookmarkTabFolder(tab);
         for (SavedItem bookmark : bookmarks) {
-            if (bookmarkOverviewItemSelected(bookmark)) {
+            if (bookmark != null
+                    && sameSavedUrl(targetUrl, bookmark.url)
+                    && targetFolder.equals(normalizeSavedFolder(bookmark.folder))) {
                 return normalizeSavedFolder(bookmark.folder);
             }
         }
@@ -25174,6 +25254,9 @@ public class MainActivity extends Activity {
 
     private List<BookmarkNode> bookmarkChildren(String parent, BookmarkOverviewSnapshot snapshot) {
         parent = normalizeSavedFolder(parent);
+        if (snapshot.childrenByParent.containsKey(parent)) {
+            return snapshot.childrenByParent.get(parent);
+        }
         List<BookmarkNode> nodes = new ArrayList<>();
         for (String folder : snapshot.folders) {
             if (parent.equals(parentSavedFolder(folder))) {
@@ -25187,6 +25270,7 @@ public class MainActivity extends Activity {
         }
         if (bookmarkSortEnabled()) {
             sortBookmarkNodesLikeTabs(nodes, snapshot);
+            snapshot.childrenByParent.put(parent, nodes);
             return nodes;
         }
         List<String> order = bookmarkOrder(parent, snapshot.orderRoot);
@@ -25204,6 +25288,7 @@ public class MainActivity extends Activity {
             }
             return left.label().compareToIgnoreCase(right.label());
         });
+        snapshot.childrenByParent.put(parent, nodes);
         return nodes;
     }
 
@@ -28115,6 +28200,28 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static class BookmarkOverviewEntry {
+        final boolean folderNode;
+        final String folder;
+        final SavedItem item;
+        final int indentLevel;
+
+        private BookmarkOverviewEntry(boolean folderNode, String folder, SavedItem item, int indentLevel) {
+            this.folderNode = folderNode;
+            this.folder = folder == null ? "" : folder;
+            this.item = item;
+            this.indentLevel = indentLevel;
+        }
+
+        static BookmarkOverviewEntry folder(String folder, int indentLevel) {
+            return new BookmarkOverviewEntry(true, folder, null, indentLevel);
+        }
+
+        static BookmarkOverviewEntry item(SavedItem item, int indentLevel) {
+            return new BookmarkOverviewEntry(false, item == null ? "" : item.folder, item, indentLevel);
+        }
+    }
+
     private static class VirtualTabOverviewState {
         final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
         Runnable refreshTask;
@@ -28229,6 +28336,7 @@ public class MainActivity extends Activity {
         final Map<String, CuspTab> openThreadTabs;
         final Map<String, CuspTab> itemTabs = new LinkedHashMap<>();
         final Map<String, SearchResult> itemResults = new LinkedHashMap<>();
+        final Map<String, List<BookmarkNode>> childrenByParent = new LinkedHashMap<>();
 
         BookmarkOverviewSnapshot(List<SavedItem> bookmarks, List<String> folders,
                                  JSONObject orderRoot, JSONObject statusRoot, JSONObject readPosts,
