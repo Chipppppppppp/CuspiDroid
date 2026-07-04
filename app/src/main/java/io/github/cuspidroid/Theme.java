@@ -6,7 +6,7 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
@@ -118,7 +118,11 @@ final class Theme {
             return;
         }
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(surface(context)));
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(surface(context));
+            background.setStroke(dp(context, 2), border(context));
+            background.setCornerRadius(dp(context, 10));
+            dialog.getWindow().setBackgroundDrawable(background);
         }
         int accent = accent(context);
         View decor = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
@@ -169,5 +173,9 @@ final class Theme {
             }
             activity.getWindow().getDecorView().setSystemUiVisibility(flags);
         }
+    }
+
+    private static int dp(Context context, int value) {
+        return Math.round(value * context.getResources().getDisplayMetrics().density);
     }
 }

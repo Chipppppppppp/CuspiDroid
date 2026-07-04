@@ -744,6 +744,10 @@ public class MainActivity extends Activity {
         return privateUiActive() ? privateStrokeColor() : borderColor();
     }
 
+    private int popupBorderColor() {
+        return borderColor();
+    }
+
     private int hintTextColor() {
         return Theme.dark(this) ? Color.rgb(168, 176, 186) : Color.rgb(100, 116, 139);
     }
@@ -2876,14 +2880,14 @@ public class MainActivity extends Activity {
 
     private View verticalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(chromeBorderColor());
+        divider.setBackgroundColor(popupBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT));
         return divider;
     }
 
     private View horizontalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(chromeBorderColor());
+        divider.setBackgroundColor(popupBorderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
     }
@@ -2984,7 +2988,7 @@ public class MainActivity extends Activity {
     private GradientDrawable menuBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(menuColor());
-        drawable.setStroke(dp(2), chromeBorderColor());
+        drawable.setStroke(dp(2), popupBorderColor());
         drawable.setCornerRadius(dp(10));
         return drawable;
     }
@@ -7542,6 +7546,11 @@ public class MainActivity extends Activity {
     }
 
     private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item) {
+        return createPostCardShell(page, tab, item, true);
+    }
+
+    private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item,
+                                              boolean allowInteractions) {
         Post post = item.post;
         int depth = item.depth;
         NgMatch ngMatch = ngMatch(post);
@@ -7568,13 +7577,16 @@ public class MainActivity extends Activity {
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(isPostUnread(page, tab, post), isMyPost(page, post)));
         card.setOnLongClickListener(v -> {
+            if (!allowInteractions) {
+                return true;
+            }
             if (isPostSwipeBlocked(post)) {
                 return true;
             }
             showPostActionMenu(card, tab, post);
             return true;
         });
-        if (allowSwipeActions) {
+        if (allowSwipeActions && allowInteractions) {
             attachPostSwipe(card, card, readAction, replyAction, tab, post);
         }
         int indentLeft = dp(Math.min(depth, 8) * 18);
@@ -7624,6 +7636,9 @@ public class MainActivity extends Activity {
         View sourceHeader = null;
         if (hissiSourcePost) {
             sourceHeader = hissiSourceHeaderView(tab, post, () -> {
+                if (!allowInteractions) {
+                    return;
+                }
                 if (!isPostSwipeBlocked(post)) {
                     showPostActionMenu(card, tab, post);
                 }
@@ -7634,6 +7649,9 @@ public class MainActivity extends Activity {
             card.addView(sourceHeader, titleParams);
         }
         View metaView = postMetaText(post, page, () -> {
+            if (!allowInteractions) {
+                return;
+            }
             if (!isPostSwipeBlocked(post)) {
                 showPostActionMenu(card, tab, post);
             }
@@ -7663,7 +7681,7 @@ public class MainActivity extends Activity {
         View bodyView = postBodyView(card, page, tab, post, depth);
         card.addView(bodyView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        if (allowSwipeActions) {
+        if (allowSwipeActions && allowInteractions) {
             if (sourceHeader != null) {
                 attachPostSwipeDeep(sourceHeader, card, readAction, replyAction, tab, post);
             }
@@ -16597,6 +16615,10 @@ public class MainActivity extends Activity {
     }
 
     private List<ThreadExtractItem> threadExtractItems(ThreadExtractMode mode) {
+        return threadExtractItems(mode, popularReplyThreshold());
+    }
+
+    private List<ThreadExtractItem> threadExtractItems(ThreadExtractMode mode, int popularThreshold) {
         List<ThreadExtractItem> items = new ArrayList<>();
         CuspTab tab = currentTab();
         ThreadPage page = tab == null ? null : tab.threadPage;
@@ -16605,14 +16627,14 @@ public class MainActivity extends Activity {
         }
         if (mode == ThreadExtractMode.POPULAR) {
             Map<Integer, Integer> replyCounts = popularReplyCounts(page);
-            int threshold = popularReplyThreshold();
+            int threshold = Math.max(1, popularThreshold);
             for (Post post : page.posts) {
                 if (post == null) {
                     continue;
                 }
                 int replyCount = replyCounts.containsKey(post.number) ? replyCounts.get(post.number) : 0;
                 if (replyCount >= threshold) {
-                    items.add(new ThreadExtractItem(post.number, valueOr(post.body, ""), null, replyCount));
+                    items.add(new ThreadExtractItem(post.number, valueOr(post.body, ""), null, replyCount, post));
                 }
             }
             return items;
@@ -16683,7 +16705,11 @@ public class MainActivity extends Activity {
     }
 
     private void showThreadExtractList(ThreadExtractMode mode) {
-        List<ThreadExtractItem> items = threadExtractItems(mode);
+        showThreadExtractList(mode, popularReplyThreshold());
+    }
+
+    private void showThreadExtractList(ThreadExtractMode mode, int popularThreshold) {
+        List<ThreadExtractItem> items = threadExtractItems(mode, popularThreshold);
         if (items.isEmpty()) {
             Toast.makeText(this, noThreadExtractText(mode), Toast.LENGTH_SHORT).show();
             return;
@@ -16693,11 +16719,16 @@ public class MainActivity extends Activity {
         root.setPadding(dp(8), dp(8), dp(8), dp(8));
         root.setBackground(menuBackground());
 
-        TextView title = helperLine(threadExtractTitle(mode) + "  " + items.size());
+        TextView title = helperLine(threadExtractTitle(mode, popularThreshold) + "  " + items.size());
         title.setTextColor(textColor());
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setPadding(dp(8), dp(6), dp(8), dp(10));
         root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        final PopupWindow[] popupRef = new PopupWindow[1];
+        if (mode == ThreadExtractMode.POPULAR) {
+            root.addView(popularThresholdRow(popularThreshold, popupRef), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        }
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
@@ -16707,6 +16738,7 @@ public class MainActivity extends Activity {
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(24));
         int height = Math.max(dp(240), (int) (getResources().getDisplayMetrics().heightPixels * 0.72f));
         PopupWindow popup = new PopupWindow(root, width, height, false);
+        popupRef[0] = popup;
         popup.setOutsideTouchable(false);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         root.setTag(popup);
@@ -16725,12 +16757,60 @@ public class MainActivity extends Activity {
         return text("\u30ea\u30f3\u30af\u306a\u3057", "No links.");
     }
 
-    private String threadExtractTitle(ThreadExtractMode mode) {
+    private String threadExtractTitle(ThreadExtractMode mode, int popularThreshold) {
         if (mode == ThreadExtractMode.MEDIA) return text("\u30e1\u30c7\u30a3\u30a2", "Media");
         if (mode == ThreadExtractMode.POPULAR) {
-            return text("\u4eba\u6c17\u30ec\u30b9", "Popular posts") + " (" + popularReplyThreshold() + "+)";
+            return text("\u4eba\u6c17\u30ec\u30b9", "Popular posts") + " (" + Math.max(1, popularThreshold) + "+)";
         }
         return text("\u30ea\u30f3\u30af", "Links");
+    }
+
+    private View popularThresholdRow(int threshold, PopupWindow[] popupRef) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(8), 0, dp(8), dp(8));
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(String.valueOf(Math.max(1, threshold)));
+        input.setSelectAllOnFocus(true);
+        input.setTextSize(14);
+        input.setTextColor(textColor());
+        input.setHintTextColor(hintTextColor());
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        input.setBackground(addressBarBackground());
+        input.setPadding(dp(12), 0, dp(12), 0);
+        row.addView(input, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        TextView apply = menuActionButton(text("\u9069\u7528", "Apply"));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(76), ViewGroup.LayoutParams.MATCH_PARENT);
+        applyParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(apply, applyParams);
+        Runnable refresh = () -> {
+            int value = parsePositiveInt(input.getText().toString(), Math.max(1, threshold));
+            PopupWindow popup = popupRef == null ? null : popupRef[0];
+            if (popup != null && popup.isShowing()) {
+                dismissPopupAnimated(popup);
+            }
+            showThreadExtractList(ThreadExtractMode.POPULAR, Math.max(1, value));
+        };
+        apply.setOnClickListener(v -> refresh.run());
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            refresh.run();
+            return true;
+        });
+        return row;
+    }
+
+    private TextView menuActionButton(String label) {
+        TextView view = new TextView(this);
+        view.setText(label);
+        view.setTextColor(Color.WHITE);
+        view.setTextSize(14);
+        view.setGravity(Gravity.CENTER);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
+        view.setBackground(roundedDrawable(TEAL, TEAL, dp(10)));
+        return view;
     }
 
     private List<ThreadExtractGroup> threadExtractGroups(List<ThreadExtractItem> items) {
@@ -16941,6 +17021,9 @@ public class MainActivity extends Activity {
     }
 
     private View threadExtractRow(ThreadExtractGroup group, ThreadExtractMode mode, PopupWindow popup) {
+        if (mode == ThreadExtractMode.POPULAR) {
+            return popularExtractRow(group, popup);
+        }
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setGravity(Gravity.TOP);
@@ -16984,6 +17067,60 @@ public class MainActivity extends Activity {
             line.addView(url, new LinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         }
+        return row;
+    }
+
+    private View popularExtractRow(ThreadExtractGroup group, PopupWindow popup) {
+        CuspTab tab = currentTab();
+        ThreadPage page = tab == null ? null : tab.threadPage;
+        Post post = null;
+        int replyCount = 0;
+        if (group != null && !group.items.isEmpty()) {
+            ThreadExtractItem item = group.items.get(0);
+            post = item.post;
+            replyCount = item.replyCount;
+        }
+        if (post == null || page == null) {
+            return threadExtractFallbackRow(group, popup);
+        }
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, 0, 0, 0);
+        TextView label = helperLine(text("\u8fd4\u4fe1 ", "Replies ") + replyCount);
+        label.setTextColor(TEAL);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setPadding(dp(8), 0, dp(8), dp(4));
+        box.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        PostCardShell card = createPostCardShell(page, tab, new PostRenderItem(post, 0, new LinkedHashSet<>(), false), false);
+        if (card == null) {
+            return threadExtractFallbackRow(group, popup);
+        }
+        int targetPostNumber = post.number;
+        card.shell.setOnClickListener(v -> {
+            dismissPopupAnimated(popup);
+            jumpToPost(targetPostNumber);
+        });
+        box.addView(card.shell, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return box;
+    }
+
+    private View threadExtractFallbackRow(ThreadExtractGroup group, PopupWindow popup) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(8), dp(5), dp(8), dp(6));
+        row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
+        int postNumber = group == null ? 0 : group.postNumber;
+        TextView number = helperLine(">>" + postNumber);
+        number.setTextColor(TEAL);
+        number.setTypeface(Typeface.DEFAULT_BOLD);
+        number.setOnClickListener(v -> {
+            dismissPopupAnimated(popup);
+            jumpToPost(postNumber);
+        });
+        row.addView(number, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return row;
     }
 
@@ -18916,7 +19053,7 @@ public class MainActivity extends Activity {
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
         if (framePopupViewport) {
-            popupRoot.setForeground(roundedDrawable(Color.TRANSPARENT, TEAL, dp(12), dp(2)));
+            popupRoot.setForeground(roundedDrawable(Color.TRANSPARENT, popupBorderColor(), dp(12), dp(2)));
         }
 
         ScrollView popupScroll = new ScrollView(this);
@@ -28874,16 +29011,22 @@ public class MainActivity extends Activity {
         final String url;
         final ImgurLink media;
         final int replyCount;
+        final Post post;
 
         ThreadExtractItem(int postNumber, String url, ImgurLink media) {
             this(postNumber, url, media, 0);
         }
 
         ThreadExtractItem(int postNumber, String url, ImgurLink media, int replyCount) {
+            this(postNumber, url, media, replyCount, null);
+        }
+
+        ThreadExtractItem(int postNumber, String url, ImgurLink media, int replyCount, Post post) {
             this.postNumber = postNumber;
             this.url = url;
             this.media = media;
             this.replyCount = replyCount;
+            this.post = post;
         }
     }
 
