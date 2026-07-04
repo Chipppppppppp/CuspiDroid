@@ -16757,7 +16757,7 @@ public class MainActivity extends Activity {
 
         final PopupWindow[] popupRef = new PopupWindow[1];
         root.addView(threadExtractTitleRow(mode, popularThreshold, items.size(), popupRef),
-                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
@@ -16798,47 +16798,21 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), dp(4), dp(8), dp(10));
-        TextView title = helperLine(threadExtractTitle(mode) + "  " + count);
+        row.setMinimumHeight(dp(54));
+        row.setPadding(dp(10), dp(6), dp(10), dp(8));
+        TextView title = new TextView(this);
+        title.setText(threadExtractTitle(mode) + "  " + count);
         title.setTextColor(textColor());
+        title.setTextSize(16);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setIncludeFontPadding(true);
+        row.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         if (mode != ThreadExtractMode.POPULAR) {
             return row;
         }
-        ImageButton thresholdButton = iconButton(R.drawable.ic_settings,
-                text("\u4eba\u6c17\u30ec\u30b9\u306e\u95be\u5024", "Popular post threshold"),
-                v -> showPopularThresholdPopup(v, threshold, popupRef));
-        thresholdButton.setColorFilter(textColor());
-        thresholdButton.setBackgroundColor(Color.TRANSPARENT);
-        thresholdButton.setPadding(dp(8), dp(8), dp(8), dp(8));
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(dp(38), dp(38));
-        buttonParams.setMargins(dp(8), 0, 0, 0);
-        row.addView(thresholdButton, buttonParams);
-        return row;
-    }
-
-    private void showPopularThresholdPopup(View anchor, int threshold, PopupWindow[] extractPopupRef) {
-        LinearLayout menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setPadding(dp(8), dp(8), dp(8), dp(8));
-        menu.setBackground(menuBackground());
-        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
-        popup.setOutsideTouchable(true);
-        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        prepareAnimatedPopupDismiss(popup, menu);
-
-        TextView label = helperLine(text("\u8fd4\u4fe1\u6570", "Replies"));
-        label.setTextColor(textColor());
-        label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setPadding(dp(4), 0, dp(4), dp(6));
-        menu.addView(label, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setText(String.valueOf(Math.max(1, threshold)));
@@ -16850,18 +16824,20 @@ public class MainActivity extends Activity {
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setBackground(addressBarBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
-        row.addView(input, new LinearLayout.LayoutParams(0, dp(42), 1));
-        TextView apply = menuActionButton(text("\u9069\u7528", "Apply"));
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(72), dp(42));
-        applyParams.setMargins(dp(8), 0, 0, 0);
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(dp(54), dp(38));
+        inputParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(input, inputParams);
+        ImageButton apply = iconButton(R.drawable.ic_check, text("\u95be\u5024\u3092\u9069\u7528", "Apply threshold"), null);
+        apply.setColorFilter(TEAL);
+        apply.setBackgroundColor(Color.TRANSPARENT);
+        apply.setPadding(dp(8), dp(8), dp(8), dp(8));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(38), dp(38));
+        applyParams.setMargins(dp(4), 0, 0, 0);
         row.addView(apply, applyParams);
-        menu.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         Runnable refresh = () -> {
             int value = Math.max(1, parsePositiveInt(input.getText().toString(), Math.max(1, threshold)));
-            dismissPopupAnimated(popup);
-            PopupWindow extractPopup = extractPopupRef == null ? null : extractPopupRef[0];
+            PopupWindow extractPopup = popupRef == null ? null : popupRef[0];
             if (extractPopup != null && extractPopup.isShowing()) {
                 dismissPopupAnimated(extractPopup);
             }
@@ -16872,26 +16848,7 @@ public class MainActivity extends Activity {
             refresh.run();
             return true;
         });
-        showPopupAttachedToAnchor(popup, menu, anchor);
-        input.requestFocus();
-        input.postDelayed(() -> {
-            try {
-                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                manager.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
-            } catch (Exception ignored) {
-            }
-        }, 120);
-    }
-
-    private TextView menuActionButton(String label) {
-        TextView view = new TextView(this);
-        view.setText(label);
-        view.setTextColor(Color.WHITE);
-        view.setTextSize(14);
-        view.setGravity(Gravity.CENTER);
-        view.setTypeface(Typeface.DEFAULT_BOLD);
-        view.setBackground(roundedDrawable(TEAL, TEAL, dp(10)));
-        return view;
+        return row;
     }
 
     private List<ThreadExtractGroup> threadExtractGroups(List<ThreadExtractItem> items) {
