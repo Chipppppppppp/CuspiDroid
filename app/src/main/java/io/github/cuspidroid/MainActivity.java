@@ -13291,15 +13291,21 @@ public class MainActivity extends Activity {
         if (index < 0 || index >= tabs.size()) {
             return;
         }
+        CuspTab target = tabs.get(index);
         rememberTabOverviewScroll();
         tabOverviewVisible = false;
         pendingNewTab = false;
         pendingHistoryAll = false;
         contentFrame.removeAllViews();
         contentFrame.addView(loadingView(""));
-        updateBottomThreadBar(tabs.get(index));
+        updateBottomThreadBar(target);
         renderTabs();
-        mainHandler.post(() -> switchToTab(index, true));
+        mainHandler.post(() -> {
+            int liveIndex = tabs.indexOf(target);
+            if (liveIndex >= 0) {
+                switchToTab(liveIndex, true);
+            }
+        });
     }
 
     private void moveTabInOverview(DragPayload payload, int to) {
@@ -22569,9 +22575,14 @@ public class MainActivity extends Activity {
                 showPendingNewTab(privateBrowsing, false);
             } else if (tab != null && tab.returnToIndex >= 0) {
                 int returnIndex = Math.max(0, Math.min(tab.returnToIndex, tabs.size() - 1));
+                CuspTab returnTab = returnIndex >= 0 && returnIndex < tabs.size()
+                        ? tabs.get(returnIndex) : null;
                 closeCurrentTab();
-                if (!pendingNewTab && !tabs.isEmpty()) {
-                    switchToTab(Math.max(0, Math.min(returnIndex, tabs.size() - 1)));
+                if (!pendingNewTab && returnTab != null) {
+                    int liveReturnIndex = tabs.indexOf(returnTab);
+                    if (liveReturnIndex >= 0 && liveReturnIndex != currentIndex) {
+                        switchToTab(liveReturnIndex);
+                    }
                 }
             }
             return;
@@ -23252,6 +23263,7 @@ public class MainActivity extends Activity {
                 tab.returnToIndex--;
             }
         }
+        requestSaveTabsSoon();
         if (tabs.isEmpty()) {
             createBlankTab();
             return;
