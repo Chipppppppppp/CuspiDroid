@@ -7551,6 +7551,11 @@ public class MainActivity extends Activity {
 
     private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item,
                                               boolean allowInteractions) {
+        return createPostCardShell(page, tab, item, allowInteractions, null);
+    }
+
+    private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item,
+                                              boolean allowInteractions, Runnable jumpAction) {
         Post post = item.post;
         int depth = item.depth;
         NgMatch ngMatch = ngMatch(post);
@@ -7674,8 +7679,20 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             metaTouchTarget = metaRow;
         } else {
-            card.addView(metaView, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (jumpAction != null) {
+                LinearLayout metaRow = new LinearLayout(this);
+                metaRow.setOrientation(LinearLayout.HORIZONTAL);
+                metaRow.setGravity(Gravity.CENTER_VERTICAL);
+                metaRow.addView(metaView, new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+                metaRow.addView(postJumpButton(post.number, jumpAction), new LinearLayout.LayoutParams(dp(34), dp(34)));
+                card.addView(metaRow, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                metaTouchTarget = metaRow;
+            } else {
+                card.addView(metaView, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
         }
 
         View bodyView = postBodyView(card, page, tab, post, depth);
@@ -16719,16 +16736,9 @@ public class MainActivity extends Activity {
         root.setPadding(dp(8), dp(8), dp(8), dp(8));
         root.setBackground(menuBackground());
 
-        TextView title = helperLine(threadExtractTitle(mode, popularThreshold) + "  " + items.size());
-        title.setTextColor(textColor());
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(8), dp(6), dp(8), dp(10));
-        root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         final PopupWindow[] popupRef = new PopupWindow[1];
-        if (mode == ThreadExtractMode.POPULAR) {
-            root.addView(popularThresholdRow(popularThreshold, popupRef), new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-        }
+        root.addView(threadExtractTitleRow(mode, popularThreshold, items.size(), popupRef),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
@@ -16757,19 +16767,27 @@ public class MainActivity extends Activity {
         return text("\u30ea\u30f3\u30af\u306a\u3057", "No links.");
     }
 
-    private String threadExtractTitle(ThreadExtractMode mode, int popularThreshold) {
+    private String threadExtractTitle(ThreadExtractMode mode) {
         if (mode == ThreadExtractMode.MEDIA) return text("\u30e1\u30c7\u30a3\u30a2", "Media");
         if (mode == ThreadExtractMode.POPULAR) {
-            return text("\u4eba\u6c17\u30ec\u30b9", "Popular posts") + " (" + Math.max(1, popularThreshold) + "+)";
+            return text("\u4eba\u6c17\u30ec\u30b9", "Popular posts");
         }
         return text("\u30ea\u30f3\u30af", "Links");
     }
 
-    private View popularThresholdRow(int threshold, PopupWindow[] popupRef) {
+    private View threadExtractTitleRow(ThreadExtractMode mode, int threshold, int count, PopupWindow[] popupRef) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), 0, dp(8), dp(8));
+        row.setPadding(dp(8), dp(4), dp(8), dp(10));
+        TextView title = helperLine(threadExtractTitle(mode) + "  " + count);
+        title.setTextColor(textColor());
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        if (mode != ThreadExtractMode.POPULAR) {
+            return row;
+        }
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setText(String.valueOf(Math.max(1, threshold)));
@@ -16781,9 +16799,11 @@ public class MainActivity extends Activity {
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setBackground(addressBarBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
-        row.addView(input, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.MATCH_PARENT);
+        inputParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(input, inputParams);
         TextView apply = menuActionButton(text("\u9069\u7528", "Apply"));
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(76), ViewGroup.LayoutParams.MATCH_PARENT);
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(66), ViewGroup.LayoutParams.MATCH_PARENT);
         applyParams.setMargins(dp(8), 0, 0, 0);
         row.addView(apply, applyParams);
         Runnable refresh = () -> {
@@ -17030,16 +17050,7 @@ public class MainActivity extends Activity {
         row.setPadding(dp(8), dp(5), dp(8), dp(6));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
 
-        TextView number = helperLine(extractGroupHeader(group, mode));
-        number.setTextColor(TEAL);
-        number.setTypeface(Typeface.DEFAULT_BOLD);
-        number.setIncludeFontPadding(false);
-        number.setPadding(0, 0, 0, 0);
-        number.setOnClickListener(v -> {
-            dismissPopupAnimated(popup);
-            jumpToPost(group.postNumber);
-        });
-        row.addView(number, new LinearLayout.LayoutParams(
+        row.addView(threadExtractHeader(group.postNumber, popup), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         ThreadPage page = currentTab() == null ? null : currentTab().threadPage;
@@ -17070,6 +17081,47 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    private View threadExtractHeader(int postNumber, PopupWindow popup) {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView number = extractPostNumberText(postNumber);
+        header.addView(number, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageButton jump = postJumpButton(postNumber, () -> {
+            dismissPopupAnimated(popup);
+            jumpToPost(postNumber);
+        });
+        header.addView(jump, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        return header;
+    }
+
+    private TextView extractPostNumberText(int postNumber) {
+        TextView view = new TextView(this);
+        String value = String.valueOf(postNumber);
+        SpannableString text = new SpannableString(value);
+        text.setSpan(new StyleSpan(Typeface.BOLD), 0, value.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        view.setText(text);
+        view.setTextColor(mutedColor());
+        view.setTextSize(14);
+        view.setIncludeFontPadding(true);
+        view.setPadding(0, dp(2), 0, dp(8));
+        view.setMinHeight(dp(32));
+        return view;
+    }
+
+    private ImageButton postJumpButton(int postNumber, Runnable action) {
+        ImageButton jump = iconButton(R.drawable.ic_arrow_forward, "Jump to >>" + postNumber, null);
+        jump.setColorFilter(TEAL);
+        jump.setBackgroundColor(Color.TRANSPARENT);
+        jump.setPadding(dp(8), dp(8), dp(8), dp(8));
+        jump.setOnClickListener(v -> {
+            if (action != null) {
+                action.run();
+            }
+        });
+        return jump;
+    }
+
     private View popularExtractRow(ThreadExtractGroup group, PopupWindow popup) {
         CuspTab tab = currentTab();
         ThreadPage page = tab == null ? null : tab.threadPage;
@@ -17092,15 +17144,17 @@ public class MainActivity extends Activity {
         label.setPadding(dp(8), 0, dp(8), dp(4));
         box.addView(label, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        PostCardShell card = createPostCardShell(page, tab, new PostRenderItem(post, 0, new LinkedHashSet<>(), false), false);
+        int targetPostNumber = post.number;
+        PostCardShell card = createPostCardShell(page, tab,
+                new PostRenderItem(post, 0, new LinkedHashSet<>(), false),
+                false,
+                () -> {
+                    dismissPopupAnimated(popup);
+                    jumpToPost(targetPostNumber);
+                });
         if (card == null) {
             return threadExtractFallbackRow(group, popup);
         }
-        int targetPostNumber = post.number;
-        card.shell.setOnClickListener(v -> {
-            dismissPopupAnimated(popup);
-            jumpToPost(targetPostNumber);
-        });
         box.addView(card.shell, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return box;
@@ -17112,24 +17166,9 @@ public class MainActivity extends Activity {
         row.setPadding(dp(8), dp(5), dp(8), dp(6));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
         int postNumber = group == null ? 0 : group.postNumber;
-        TextView number = helperLine(">>" + postNumber);
-        number.setTextColor(TEAL);
-        number.setTypeface(Typeface.DEFAULT_BOLD);
-        number.setOnClickListener(v -> {
-            dismissPopupAnimated(popup);
-            jumpToPost(postNumber);
-        });
-        row.addView(number, new LinearLayout.LayoutParams(
+        row.addView(threadExtractHeader(postNumber, popup), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return row;
-    }
-
-    private String extractGroupHeader(ThreadExtractGroup group, ThreadExtractMode mode) {
-        String header = ">>" + group.postNumber;
-        if (mode == ThreadExtractMode.POPULAR && group != null && !group.items.isEmpty()) {
-            header += "  " + text("\u8fd4\u4fe1 ", "Replies ") + group.items.get(0).replyCount;
-        }
-        return header;
     }
 
     private MediaPreviewHelper.Callback extractMediaPreviewCallbacks(PopupWindow popup) {
