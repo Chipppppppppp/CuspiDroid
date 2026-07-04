@@ -57,6 +57,7 @@ public class SettingsActivity extends Activity {
     private CheckBox colorUnreadPosts;
     private CheckBox omitCopyPaste;
     private CheckBox autoAa;
+    private EditText popularReplyThreshold;
     private CheckBox cacheEnabled;
     private CheckBox saveBrowsingHistory;
     private CheckBox saveReadHistory;
@@ -270,6 +271,18 @@ public class SettingsActivity extends Activity {
         autoAa.setTextSize(16);
         Theme.tintCompoundButton(this, autoAa);
         root.addView(autoAa);
+
+        popularReplyThreshold = new EditText(this);
+        popularReplyThreshold.setSingleLine(true);
+        popularReplyThreshold.setTextSize(14);
+        popularReplyThreshold.setTextColor(textColor());
+        popularReplyThreshold.setHintTextColor(hintColor());
+        popularReplyThreshold.setHint(MainActivity.text("\u4eba\u6c17\u30ec\u30b9\u306e\u65e2\u5b9a\u8fd4\u4fe1\u6570", "Default replies for popular posts"));
+        popularReplyThreshold.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        popularReplyThreshold.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        popularReplyThreshold.setBackground(roundedField());
+        popularReplyThreshold.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(popularReplyThreshold, fieldParams());
 
         root.addView(sectionTitle(MainActivity.text("\u4e00\u89a7\u8868\u793a", "List Display")));
         root.addView(managementRow(android.R.drawable.ic_menu_sort_by_size,
@@ -612,6 +625,7 @@ public class SettingsActivity extends Activity {
         colorUnreadPosts.setChecked(preferences.getBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true));
         omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
         autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
+        popularReplyThreshold.setText(String.valueOf(preferences.getInt(MainActivity.PREF_POPULAR_REPLY_THRESHOLD, 3)));
         updateTreeDependentSettings();
         cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
         showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
@@ -706,6 +720,15 @@ public class SettingsActivity extends Activity {
         colorUnreadPosts.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         omitCopyPaste.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         autoAa.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        popularReplyThreshold.setOnEditorActionListener((v, actionId, event) -> {
+            applyPopularReplyThreshold();
+            return false;
+        });
+        popularReplyThreshold.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                applyPopularReplyThreshold();
+            }
+        });
         showBookmarksInTabOverview.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHistoryOnHome.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         showHomeBookmarkUnreadBadges.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
@@ -760,6 +783,21 @@ public class SettingsActivity extends Activity {
         });
     }
 
+    private int popularReplyThresholdValue() {
+        try {
+            int value = Integer.parseInt(popularReplyThreshold.getText().toString().trim());
+            return Math.max(1, value);
+        } catch (Exception ignored) {
+            return 3;
+        }
+    }
+
+    private void applyPopularReplyThreshold() {
+        int value = popularReplyThresholdValue();
+        preferences.edit().putInt(MainActivity.PREF_POPULAR_REPLY_THRESHOLD, value).apply();
+        popularReplyThreshold.setText(String.valueOf(value));
+    }
+
     private void saveSettings(boolean showError) {
         String template;
         if (searchFind5chIo.isChecked()) {
@@ -803,6 +841,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, colorUnreadPosts.isChecked())
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, omitCopyPaste.isChecked())
                 .putBoolean(MainActivity.PREF_AUTO_AA, autoAa.isChecked())
+                .putInt(MainActivity.PREF_POPULAR_REPLY_THRESHOLD, popularReplyThresholdValue())
                 .putBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, showBookmarksInTabOverview.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, showHistoryOnHome.isChecked())
                 .putBoolean(MainActivity.PREF_HOME_BOOKMARK_UNREAD_BADGES, showHomeBookmarkUnreadBadges.isChecked())
@@ -1040,6 +1079,7 @@ public class SettingsActivity extends Activity {
                 .putString(MainActivity.PREF_ADDRESS_NAV_BUTTONS, MainActivity.DEFAULT_ADDRESS_NAV_BUTTONS)
                 .putString(MainActivity.PREF_THREAD_TITLE_BAR_BUTTONS, MainActivity.DEFAULT_THREAD_TITLE_BAR_BUTTONS)
                 .putString(MainActivity.PREF_THREAD_TITLE_MENU_BUTTONS, MainActivity.DEFAULT_THREAD_TITLE_MENU_BUTTONS)
+                .putBoolean(MainActivity.PREF_POPULAR_BUTTON_MIGRATED, true)
                 .putBoolean(MainActivity.PREF_TREE_VIEW, true)
                 .putBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false)
                 .putBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true)
@@ -1047,6 +1087,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true)
                 .putBoolean(MainActivity.PREF_OMIT_COPYPASTE, false)
                 .putBoolean(MainActivity.PREF_AUTO_AA, true)
+                .putInt(MainActivity.PREF_POPULAR_REPLY_THRESHOLD, 3)
                 .putBoolean(MainActivity.PREF_AA_DEBUG, false)
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
                 .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)

@@ -138,6 +138,8 @@ public class MainActivity extends Activity {
     static final String PREF_ADDRESS_NAV_BUTTONS = "address_nav_buttons";
     static final String PREF_THREAD_TITLE_BAR_BUTTONS = "thread_title_bar_buttons";
     static final String PREF_THREAD_TITLE_MENU_BUTTONS = "thread_title_menu_buttons";
+    static final String PREF_POPULAR_REPLY_THRESHOLD = "popular_reply_threshold";
+    static final String PREF_POPULAR_BUTTON_MIGRATED = "popular_button_migrated";
     static final String ADDRESS_MENU_WEBVIEW = "webview";
     static final String ADDRESS_MENU_BOOKMARK = "bookmark";
     static final String ADDRESS_MENU_FIND = "find";
@@ -159,12 +161,13 @@ public class MainActivity extends Activity {
     static final String THREAD_BUTTON_NG = "ng";
     static final String THREAD_BUTTON_MEDIA = "media";
     static final String THREAD_BUTTON_LINKS = "links";
+    static final String THREAD_BUTTON_POPULAR = "popular";
     static final String THREAD_BUTTON_COPY = "copy";
     static final String DEFAULT_ADDRESS_BAR_BUTTONS = "new_tab,tabs,address_menu";
     static final String DEFAULT_ADDRESS_MENU_BUTTONS = "webview,bookmark,find,sync,settings";
     static final String DEFAULT_ADDRESS_NAV_BUTTONS = "back,forward,share,reload";
     static final String DEFAULT_THREAD_TITLE_BAR_BUTTONS = "write,jump,menu";
-    static final String DEFAULT_THREAD_TITLE_MENU_BUTTONS = "board,next,ng,media,links,copy";
+    static final String DEFAULT_THREAD_TITLE_MENU_BUTTONS = "board,next,ng,media,links,popular,copy";
     static final String[] ADDRESS_MENU_BUTTON_IDS = {
             ADDRESS_MENU_WEBVIEW, ADDRESS_MENU_BOOKMARK, ADDRESS_MENU_FIND,
             ADDRESS_MENU_SYNC, ADDRESS_MENU_SETTINGS, ADDRESS_MENU_NAV
@@ -181,7 +184,7 @@ public class MainActivity extends Activity {
     static final String[] THREAD_TITLE_BUTTON_IDS = {
             THREAD_BUTTON_WRITE, THREAD_BUTTON_JUMP, THREAD_BUTTON_MENU, THREAD_BUTTON_BOARD,
             THREAD_BUTTON_NEXT, THREAD_BUTTON_NG, THREAD_BUTTON_MEDIA, THREAD_BUTTON_LINKS,
-            THREAD_BUTTON_COPY
+            THREAD_BUTTON_POPULAR, THREAD_BUTTON_COPY
     };
     static final String PREF_SHOW_MEDIA = "show_media";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
@@ -823,6 +826,26 @@ public class MainActivity extends Activity {
                 .apply();
     }
 
+    private void migratePopularButtonPreference() {
+        if (preferences.getBoolean(PREF_POPULAR_BUTTON_MIGRATED, false)) {
+            return;
+        }
+        String value = preferences.getString(PREF_THREAD_TITLE_MENU_BUTTONS, DEFAULT_THREAD_TITLE_MENU_BUTTONS);
+        List<String> menu = orderedButtonIds(value, DEFAULT_THREAD_TITLE_MENU_BUTTONS, THREAD_TITLE_BUTTON_IDS);
+        if (!menu.contains(THREAD_BUTTON_POPULAR)) {
+            int linkIndex = menu.indexOf(THREAD_BUTTON_LINKS);
+            if (linkIndex >= 0) {
+                menu.add(linkIndex + 1, THREAD_BUTTON_POPULAR);
+            } else {
+                menu.add(THREAD_BUTTON_POPULAR);
+            }
+        }
+        preferences.edit()
+                .putString(PREF_THREAD_TITLE_MENU_BUTTONS, joinButtonIds(menu))
+                .putBoolean(PREF_POPULAR_BUTTON_MIGRATED, true)
+                .apply();
+    }
+
     private void ensureDefaultCustomBbsLinks() {
         if (!preferences.getBoolean(PREF_DEFAULT_CUSTOM_BBS_ADDED, false)
                 || preferences.getBoolean(PREF_DEFAULT_CUSTOM_BBS_REMOVED, false)) {
@@ -913,6 +936,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         migrateAddressMenuNavigationPreference();
+        migratePopularButtonPreference();
         migrateFavoriteBoardsToBookmarks();
         ensureDefaultCustomBbsLinks();
         appliedThemeMode = themeMode();
@@ -2180,9 +2204,11 @@ public class MainActivity extends Activity {
     private View threadTitleMenuItem(String id, PopupWindow popup, CuspTab tab) {
         CharSequence label = buttonLabel(id);
         if (THREAD_BUTTON_MEDIA.equals(id)) {
-            label = menuCountLabel(buttonLabel(id), threadExtractItems(true).size());
+            label = menuCountLabel(buttonLabel(id), threadExtractItems(ThreadExtractMode.MEDIA).size());
         } else if (THREAD_BUTTON_LINKS.equals(id)) {
-            label = menuCountLabel(buttonLabel(id), threadExtractItems(false).size());
+            label = menuCountLabel(buttonLabel(id), threadExtractItems(ThreadExtractMode.LINKS).size());
+        } else if (THREAD_BUTTON_POPULAR.equals(id)) {
+            label = menuCountLabel(buttonLabel(id), threadExtractItems(ThreadExtractMode.POPULAR).size());
         }
         View item = menuIconItem(threadActionIcon(id), label, v -> performThreadTitleAction(id, popup));
         if (THREAD_BUTTON_BOARD.equals(id) && currentThreadBoardUrl(tab) == null) {
@@ -2213,9 +2239,11 @@ public class MainActivity extends Activity {
         } else if (THREAD_BUTTON_NG.equals(id)) {
             openCurrentThreadNgThreadAdd(tab);
         } else if (THREAD_BUTTON_MEDIA.equals(id)) {
-            showThreadExtractList(true);
+            showThreadExtractList(ThreadExtractMode.MEDIA);
         } else if (THREAD_BUTTON_LINKS.equals(id)) {
-            showThreadExtractList(false);
+            showThreadExtractList(ThreadExtractMode.LINKS);
+        } else if (THREAD_BUTTON_POPULAR.equals(id)) {
+            showThreadExtractList(ThreadExtractMode.POPULAR);
         } else if (THREAD_BUTTON_COPY.equals(id)) {
             copyVisibleTitle();
         }
@@ -2800,6 +2828,7 @@ public class MainActivity extends Activity {
         if (THREAD_BUTTON_NG.equals(id)) return text("NGThread\u306b\u8ffd\u52a0", "Add to NGThread");
         if (THREAD_BUTTON_MEDIA.equals(id)) return text("\u30e1\u30c7\u30a3\u30a2", "Media");
         if (THREAD_BUTTON_LINKS.equals(id)) return text("\u30ea\u30f3\u30af", "Links");
+        if (THREAD_BUTTON_POPULAR.equals(id)) return text("\u4eba\u6c17\u30ec\u30b9", "Popular posts");
         if (THREAD_BUTTON_COPY.equals(id)) return text("\u30b3\u30d4\u30fc", "Copy");
         return id;
     }
@@ -2813,6 +2842,7 @@ public class MainActivity extends Activity {
         if (THREAD_BUTTON_NG.equals(id)) return R.drawable.ic_close;
         if (THREAD_BUTTON_MEDIA.equals(id)) return R.drawable.ic_image;
         if (THREAD_BUTTON_LINKS.equals(id)) return R.drawable.ic_link;
+        if (THREAD_BUTTON_POPULAR.equals(id)) return R.drawable.ic_reply;
         if (THREAD_BUTTON_COPY.equals(id)) return R.drawable.ic_copy;
         return R.drawable.ic_more_vert;
     }
@@ -16566,18 +16596,32 @@ public class MainActivity extends Activity {
         return links;
     }
 
-    private List<ThreadExtractItem> threadExtractItems(boolean mediaOnly) {
+    private List<ThreadExtractItem> threadExtractItems(ThreadExtractMode mode) {
         List<ThreadExtractItem> items = new ArrayList<>();
         CuspTab tab = currentTab();
         ThreadPage page = tab == null ? null : tab.threadPage;
         if (page == null || page.posts == null) {
             return items;
         }
+        if (mode == ThreadExtractMode.POPULAR) {
+            Map<Integer, Integer> replyCounts = popularReplyCounts(page);
+            int threshold = popularReplyThreshold();
+            for (Post post : page.posts) {
+                if (post == null) {
+                    continue;
+                }
+                int replyCount = replyCounts.containsKey(post.number) ? replyCounts.get(post.number) : 0;
+                if (replyCount >= threshold) {
+                    items.add(new ThreadExtractItem(post.number, valueOr(post.body, ""), null, replyCount));
+                }
+            }
+            return items;
+        }
         for (Post post : page.posts) {
             if (post == null || post.body == null) {
                 continue;
             }
-            if (mediaOnly) {
+            if (mode == ThreadExtractMode.MEDIA) {
                 for (ImgurLink link : threadMediaLinks(post)) {
                     items.add(new ThreadExtractItem(post.number, link.originalUrl, link));
                 }
@@ -16594,12 +16638,54 @@ public class MainActivity extends Activity {
         return items;
     }
 
-    private void showThreadExtractList(boolean mediaOnly) {
-        List<ThreadExtractItem> items = threadExtractItems(mediaOnly);
+    private int popularReplyThreshold() {
+        return Math.max(1, preferences.getInt(PREF_POPULAR_REPLY_THRESHOLD, 3));
+    }
+
+    private Map<Integer, Integer> popularReplyCounts(ThreadPage page) {
+        Map<Integer, Integer> counts = new LinkedHashMap<>();
+        if (page == null || page.posts == null || page.posts.isEmpty()) {
+            return counts;
+        }
+        Set<Integer> postNumbers = new LinkedHashSet<>();
+        for (Post post : page.posts) {
+            if (post != null && post.number > 0) {
+                postNumbers.add(post.number);
+            }
+        }
+        for (Post post : page.posts) {
+            if (post == null || post.body == null) {
+                continue;
+            }
+            Set<Integer> targets = replyTargetsForPopular(post.body, post.number, postNumbers);
+            for (Integer target : targets) {
+                counts.put(target, counts.containsKey(target) ? counts.get(target) + 1 : 1);
+            }
+        }
+        return counts;
+    }
+
+    private Set<Integer> replyTargetsForPopular(String body, int sourceNumber, Set<Integer> postNumbers) {
+        Set<Integer> targets = new LinkedHashSet<>();
+        Matcher matcher = REPLY_PATTERN.matcher(valueOr(body, ""));
+        while (matcher.find()) {
+            int from = parsePositiveInt(matcher.group(1), -1);
+            int to = matcher.group(2) == null ? from : parsePositiveInt(matcher.group(2), from);
+            int first = Math.min(from, to);
+            int last = Math.max(from, to);
+            for (int number = first; number <= last; number++) {
+                if (number > 0 && number != sourceNumber && postNumbers.contains(number)) {
+                    targets.add(number);
+                }
+            }
+        }
+        return targets;
+    }
+
+    private void showThreadExtractList(ThreadExtractMode mode) {
+        List<ThreadExtractItem> items = threadExtractItems(mode);
         if (items.isEmpty()) {
-            Toast.makeText(this, mediaOnly
-                    ? text("\u30e1\u30c7\u30a3\u30a2\u306a\u3057", "No media.")
-                    : text("\u30ea\u30f3\u30af\u306a\u3057", "No links."), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, noThreadExtractText(mode), Toast.LENGTH_SHORT).show();
             return;
         }
         LinearLayout root = new LinearLayout(this);
@@ -16607,8 +16693,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(8), dp(8), dp(8), dp(8));
         root.setBackground(menuBackground());
 
-        TextView title = helperLine((mediaOnly ? text("\u30e1\u30c7\u30a3\u30a2", "Media") : text("\u30ea\u30f3\u30af", "Links"))
-                + "  " + items.size());
+        TextView title = helperLine(threadExtractTitle(mode) + "  " + items.size());
         title.setTextColor(textColor());
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setPadding(dp(8), dp(6), dp(8), dp(10));
@@ -16626,12 +16711,26 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         root.setTag(popup);
         prepareAnimatedPopupDismiss(popup, root);
-        renderThreadExtractSlots(scroll, list, threadExtractGroups(items), mediaOnly, popup);
+        renderThreadExtractSlots(scroll, list, threadExtractGroups(items), mode, popup);
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         popup.showAtLocation(getWindow().getDecorView(), Gravity.CENTER, 0, 0);
         animatePopupIn(popup, true);
+    }
+
+    private String noThreadExtractText(ThreadExtractMode mode) {
+        if (mode == ThreadExtractMode.MEDIA) return text("\u30e1\u30c7\u30a3\u30a2\u306a\u3057", "No media.");
+        if (mode == ThreadExtractMode.POPULAR) return text("\u4eba\u6c17\u30ec\u30b9\u306a\u3057", "No popular posts.");
+        return text("\u30ea\u30f3\u30af\u306a\u3057", "No links.");
+    }
+
+    private String threadExtractTitle(ThreadExtractMode mode) {
+        if (mode == ThreadExtractMode.MEDIA) return text("\u30e1\u30c7\u30a3\u30a2", "Media");
+        if (mode == ThreadExtractMode.POPULAR) {
+            return text("\u4eba\u6c17\u30ec\u30b9", "Popular posts") + " (" + popularReplyThreshold() + "+)";
+        }
+        return text("\u30ea\u30f3\u30af", "Links");
     }
 
     private List<ThreadExtractGroup> threadExtractGroups(List<ThreadExtractItem> items) {
@@ -16649,11 +16748,11 @@ public class MainActivity extends Activity {
 
     private void renderThreadExtractSlots(ScrollView scroll, LinearLayout list,
                                           List<ThreadExtractGroup> groups,
-                                          boolean mediaOnly, PopupWindow popup) {
+                                          ThreadExtractMode mode, PopupWindow popup) {
         VirtualExtractState state = new VirtualExtractState();
         list.setTag(state);
         for (ThreadExtractGroup group : groups) {
-            addVirtualExtractSlot(list, new VirtualExtractSlot(group, mediaOnly, estimateExtractGroupHeight(group, mediaOnly)));
+            addVirtualExtractSlot(list, new VirtualExtractSlot(group, mode, estimateExtractGroupHeight(group, mode)));
         }
         state.refreshTask = () -> {
             state.refreshPending = false;
@@ -16786,7 +16885,7 @@ public class MainActivity extends Activity {
             return;
         }
         holder.removeAllViews();
-        View view = threadExtractRow(slot.group, slot.mediaOnly, popup);
+        View view = threadExtractRow(slot.group, slot.mode, popup);
         holder.addView(view, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         slot.rendered = true;
@@ -16830,22 +16929,25 @@ public class MainActivity extends Activity {
         return spacer;
     }
 
-    private int estimateExtractGroupHeight(ThreadExtractGroup group, boolean mediaOnly) {
+    private int estimateExtractGroupHeight(ThreadExtractGroup group, ThreadExtractMode mode) {
         int count = group == null ? 1 : Math.max(1, group.items.size());
-        if (mediaOnly) {
+        if (mode == ThreadExtractMode.MEDIA) {
             return dp(28 + 82 * count);
+        }
+        if (mode == ThreadExtractMode.POPULAR) {
+            return dp(74 + 64 * count);
         }
         return dp(32 + 32 * count);
     }
 
-    private View threadExtractRow(ThreadExtractGroup group, boolean mediaRow, PopupWindow popup) {
+    private View threadExtractRow(ThreadExtractGroup group, ThreadExtractMode mode, PopupWindow popup) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setGravity(Gravity.TOP);
         row.setPadding(dp(8), dp(5), dp(8), dp(6));
         row.setBackground(roundedDrawable(postColor(), borderColor(), dp(8)));
 
-        TextView number = helperLine(">>" + group.postNumber);
+        TextView number = helperLine(extractGroupHeader(group, mode));
         number.setTextColor(TEAL);
         number.setTypeface(Typeface.DEFAULT_BOLD);
         number.setIncludeFontPadding(false);
@@ -16867,7 +16969,7 @@ public class MainActivity extends Activity {
             lineParams.setMargins(0, dp(3), 0, 0);
             row.addView(line, lineParams);
 
-            if (mediaRow && item.media != null) {
+            if (mode == ThreadExtractMode.MEDIA && item.media != null) {
                 View preview = MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
                         item.media.originalUrl, item.media.imageUrl, item.media.video, dp(76), null,
                         extractMediaPreviewCallbacks(popup));
@@ -16877,12 +16979,20 @@ public class MainActivity extends Activity {
             }
 
             TextView url = postText(item.url, page);
-            url.setMaxLines(mediaRow ? 2 : 3);
+            url.setMaxLines(mode == ThreadExtractMode.MEDIA ? 2 : mode == ThreadExtractMode.POPULAR ? 6 : 3);
             url.setEllipsize(TextUtils.TruncateAt.END);
             line.addView(url, new LinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         }
         return row;
+    }
+
+    private String extractGroupHeader(ThreadExtractGroup group, ThreadExtractMode mode) {
+        String header = ">>" + group.postNumber;
+        if (mode == ThreadExtractMode.POPULAR && group != null && !group.items.isEmpty()) {
+            header += "  " + text("\u8fd4\u4fe1 ", "Replies ") + group.items.get(0).replyCount;
+        }
+        return header;
     }
 
     private MediaPreviewHelper.Callback extractMediaPreviewCallbacks(PopupWindow popup) {
@@ -28210,13 +28320,13 @@ public class MainActivity extends Activity {
 
     private static class VirtualExtractSlot {
         final ThreadExtractGroup group;
-        final boolean mediaOnly;
+        final ThreadExtractMode mode;
         int height;
         boolean rendered;
 
-        VirtualExtractSlot(ThreadExtractGroup group, boolean mediaOnly, int height) {
+        VirtualExtractSlot(ThreadExtractGroup group, ThreadExtractMode mode, int height) {
             this.group = group;
-            this.mediaOnly = mediaOnly;
+            this.mode = mode;
             this.height = height;
         }
     }
@@ -28763,11 +28873,17 @@ public class MainActivity extends Activity {
         final int postNumber;
         final String url;
         final ImgurLink media;
+        final int replyCount;
 
         ThreadExtractItem(int postNumber, String url, ImgurLink media) {
+            this(postNumber, url, media, 0);
+        }
+
+        ThreadExtractItem(int postNumber, String url, ImgurLink media, int replyCount) {
             this.postNumber = postNumber;
             this.url = url;
             this.media = media;
+            this.replyCount = replyCount;
         }
     }
 
@@ -28778,6 +28894,12 @@ public class MainActivity extends Activity {
         ThreadExtractGroup(int postNumber) {
             this.postNumber = postNumber;
         }
+    }
+
+    private enum ThreadExtractMode {
+        MEDIA,
+        LINKS,
+        POPULAR
     }
 
     private static class ImgbbUploadResult {
