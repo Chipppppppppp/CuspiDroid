@@ -7556,6 +7556,12 @@ public class MainActivity extends Activity {
 
     private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item,
                                               boolean allowInteractions, Runnable jumpAction) {
+        return createPostCardShell(page, tab, item, allowInteractions, jumpAction, 0);
+    }
+
+    private PostCardShell createPostCardShell(ThreadPage page, CuspTab tab, PostRenderItem item,
+                                              boolean allowInteractions, Runnable jumpAction,
+                                              int popularReplyCount) {
         Post post = item.post;
         int depth = item.depth;
         NgMatch ngMatch = ngMatch(post);
@@ -7698,6 +7704,10 @@ public class MainActivity extends Activity {
         View bodyView = postBodyView(card, page, tab, post, depth);
         card.addView(bodyView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (popularReplyCount > 0) {
+            card.addView(popularReplyCountFooter(popularReplyCount), new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         if (allowSwipeActions && allowInteractions) {
             if (sourceHeader != null) {
                 attachPostSwipeDeep(sourceHeader, card, readAction, replyAction, tab, post);
@@ -7712,6 +7722,15 @@ public class MainActivity extends Activity {
         }
         shell.addView(card, cardFrameParams);
         return new PostCardShell(shell, card);
+    }
+
+    private TextView popularReplyCountFooter(int replyCount) {
+        TextView view = helperLine(text("\u8fd4\u4fe1 ", "Replies ") + replyCount);
+        view.setTextColor(TEAL);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
+        view.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        view.setPadding(0, dp(8), 0, 0);
+        return view;
     }
 
     private View hissiSummaryView(String summary) {
@@ -16788,6 +16807,38 @@ public class MainActivity extends Activity {
         if (mode != ThreadExtractMode.POPULAR) {
             return row;
         }
+        ImageButton thresholdButton = iconButton(R.drawable.ic_settings,
+                text("\u4eba\u6c17\u30ec\u30b9\u306e\u95be\u5024", "Popular post threshold"),
+                v -> showPopularThresholdPopup(v, threshold, popupRef));
+        thresholdButton.setColorFilter(textColor());
+        thresholdButton.setBackgroundColor(Color.TRANSPARENT);
+        thresholdButton.setPadding(dp(8), dp(8), dp(8), dp(8));
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(dp(38), dp(38));
+        buttonParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(thresholdButton, buttonParams);
+        return row;
+    }
+
+    private void showPopularThresholdPopup(View anchor, int threshold, PopupWindow[] extractPopupRef) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setPadding(dp(8), dp(8), dp(8), dp(8));
+        menu.setBackground(menuBackground());
+        PopupWindow popup = new PopupWindow(menu, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+
+        TextView label = helperLine(text("\u8fd4\u4fe1\u6570", "Replies"));
+        label.setTextColor(textColor());
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setPadding(dp(4), 0, dp(4), dp(6));
+        menu.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setText(String.valueOf(Math.max(1, threshold)));
@@ -16799,27 +16850,37 @@ public class MainActivity extends Activity {
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         input.setBackground(addressBarBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
-        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.MATCH_PARENT);
-        inputParams.setMargins(dp(8), 0, 0, 0);
-        row.addView(input, inputParams);
+        row.addView(input, new LinearLayout.LayoutParams(0, dp(42), 1));
         TextView apply = menuActionButton(text("\u9069\u7528", "Apply"));
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(66), ViewGroup.LayoutParams.MATCH_PARENT);
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(72), dp(42));
         applyParams.setMargins(dp(8), 0, 0, 0);
         row.addView(apply, applyParams);
+        menu.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         Runnable refresh = () -> {
-            int value = parsePositiveInt(input.getText().toString(), Math.max(1, threshold));
-            PopupWindow popup = popupRef == null ? null : popupRef[0];
-            if (popup != null && popup.isShowing()) {
-                dismissPopupAnimated(popup);
+            int value = Math.max(1, parsePositiveInt(input.getText().toString(), Math.max(1, threshold)));
+            dismissPopupAnimated(popup);
+            PopupWindow extractPopup = extractPopupRef == null ? null : extractPopupRef[0];
+            if (extractPopup != null && extractPopup.isShowing()) {
+                dismissPopupAnimated(extractPopup);
             }
-            showThreadExtractList(ThreadExtractMode.POPULAR, Math.max(1, value));
+            showThreadExtractList(ThreadExtractMode.POPULAR, value);
         };
         apply.setOnClickListener(v -> refresh.run());
         input.setOnEditorActionListener((v, actionId, event) -> {
             refresh.run();
             return true;
         });
-        return row;
+        showPopupAttachedToAnchor(popup, menu, anchor);
+        input.requestFocus();
+        input.postDelayed(() -> {
+            try {
+                InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                manager.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+            } catch (Exception ignored) {
+            }
+        }, 120);
     }
 
     private TextView menuActionButton(String label) {
@@ -17138,12 +17199,6 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(0, 0, 0, 0);
-        TextView label = helperLine(text("\u8fd4\u4fe1 ", "Replies ") + replyCount);
-        label.setTextColor(TEAL);
-        label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setPadding(dp(8), 0, dp(8), dp(4));
-        box.addView(label, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         int targetPostNumber = post.number;
         PostCardShell card = createPostCardShell(page, tab,
                 new PostRenderItem(post, 0, new LinkedHashSet<>(), false),
@@ -17151,7 +17206,8 @@ public class MainActivity extends Activity {
                 () -> {
                     dismissPopupAnimated(popup);
                     jumpToPost(targetPostNumber);
-                });
+                },
+                replyCount);
         if (card == null) {
             return threadExtractFallbackRow(group, popup);
         }
