@@ -13672,7 +13672,10 @@ public class MainActivity extends Activity {
     }
 
     private void animateTabOverviewRowRemoval(View rowView) {
-        boolean slotRow = isTabOverviewSlotRow(rowView);
+        Object slotTag = tabOverviewSlotTagForRow(rowView);
+        boolean tabSlotRow = slotTag instanceof VirtualTabOverviewSlot;
+        boolean bookmarkSlotRow = slotTag instanceof VirtualBookmarkOverviewSlot;
+        boolean slotRow = tabSlotRow || bookmarkSlotRow;
         View animatedGap = slotRow && rowView.getParent() instanceof View
                 ? (View) rowView.getParent() : rowView;
         int startHeight = animatedGap.getHeight() > 0 ? animatedGap.getHeight() : dp(86);
@@ -13693,8 +13696,12 @@ public class MainActivity extends Activity {
             @Override
             public void onAnimationEnd(android.animation.Animator animation) {
                 if (contentFrame != null && tabOverviewVisible) {
-                    if (slotRow) {
+                    if (tabSlotRow) {
                         if (!refreshTabOverviewTabSlotsOnly()) {
+                            refreshTabOverviewListOnly();
+                        }
+                    } else if (bookmarkSlotRow) {
+                        if (!refreshTabOverviewBookmarkSectionOnly()) {
                             refreshTabOverviewListOnly();
                         }
                     } else {
@@ -13706,11 +13713,13 @@ public class MainActivity extends Activity {
         heightAnimator.start();
     }
 
-    private boolean isTabOverviewSlotRow(View rowView) {
+    private Object tabOverviewSlotTagForRow(View rowView) {
         if (rowView == null || !(rowView.getParent() instanceof FrameLayout)) {
-            return false;
+            return null;
         }
-        return ((FrameLayout) rowView.getParent()).getTag() instanceof VirtualTabOverviewSlot;
+        Object tag = ((FrameLayout) rowView.getParent()).getTag();
+        return tag instanceof VirtualTabOverviewSlot || tag instanceof VirtualBookmarkOverviewSlot
+                ? tag : null;
     }
 
     private void resetNewTabHistory() {
