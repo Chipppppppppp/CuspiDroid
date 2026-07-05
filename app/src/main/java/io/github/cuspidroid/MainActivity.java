@@ -3109,13 +3109,10 @@ public class MainActivity extends Activity {
         String folder = normalizeSavedFolder(item.folder);
         CuspTab tab = tabs.get(index);
         applyThreadTabScope(tab, TabScope.BOOKMARK, folder);
-        clearTabViewState(tab);
-        tab.readerView = loadingView("");
         tabOverviewVisible = false;
         pendingNewTab = false;
         pendingHistoryAll = false;
         switchToTab(index);
-        openInCurrentTab(normalizeUrl(item.url), true, TabScope.BOOKMARK, folder, false);
     }
 
     private int bookmarkOverviewTabIndex(SavedItem item) {
@@ -14198,6 +14195,9 @@ public class MainActivity extends Activity {
         for (int i = 0; i < bookmarks.size(); i++) {
             SavedItem bookmark = bookmarks.get(i);
             itemIndices.put(savedItemIdentity(bookmark.url, bookmark.folder), i);
+            if (!bookmarkSupportsUnread(bookmark)) {
+                continue;
+            }
             BookmarkOverviewStatus status = bookmarkOverviewStatus(bookmark.url, statusRoot);
             int responseCount = status == null ? 0 : status.responseCount;
             CuspTab openTab = matchingBookmarkOverviewOpenTab(bookmark.url, openThreadTabs);
@@ -15023,7 +15023,7 @@ public class MainActivity extends Activity {
         String url = item == null || item.url == null ? "" : item.url;
         BookmarkOverviewStatus status = item == null ? null
                 : snapshot == null ? bookmarkOverviewStatus(url) : bookmarkOverviewStatus(url, snapshot.statusRoot);
-        if (status != null && status.responseCount > 0) {
+        if (isThreadUrl(url) && status != null && status.responseCount > 0) {
             int read = snapshot == null ? visibleReadPostNumber(url) : snapshot.readPosts.optInt(url, 0);
             int unread = Math.max(0, status.responseCount - read);
             return text("\u30ec\u30b9: ", "Posts: ") + status.responseCount
@@ -15232,7 +15232,7 @@ public class MainActivity extends Activity {
             }
             tab.knownThreadArchived = status.archived;
             tab.knownBoardOrder = Math.max(0, status.boardOrder);
-            if (status.responseCount > 0) {
+            if (isThreadUrl(tab.url) && status.responseCount > 0) {
                 tab.knownMaxPostNumber = status.responseCount;
                 tab.knownPostCount = status.responseCount;
                 tab.readPostNumber = snapshot == null
@@ -23461,7 +23461,7 @@ public class MainActivity extends Activity {
     }
 
     private int bookmarkOverviewUnread(SavedItem item) {
-        if (item == null || item.url == null) {
+        if (!bookmarkSupportsUnread(item)) {
             return 0;
         }
         BookmarkOverviewStatus status = bookmarkOverviewStatus(item.url);
@@ -23484,7 +23484,7 @@ public class MainActivity extends Activity {
     }
 
     private int bookmarkOverviewUnread(SavedItem item, BookmarkOverviewSnapshot snapshot) {
-        if (item == null || item.url == null) {
+        if (!bookmarkSupportsUnread(item)) {
             return 0;
         }
         BookmarkOverviewStatus status = snapshot == null
@@ -23510,6 +23510,10 @@ public class MainActivity extends Activity {
             read = Math.max(read, openTab.readPostNumber);
         }
         return Math.max(0, responseCount - read);
+    }
+
+    private boolean bookmarkSupportsUnread(SavedItem item) {
+        return item != null && item.url != null && isThreadUrl(item.url);
     }
 
     private boolean showHomeBookmarkUnreadBadges() {
