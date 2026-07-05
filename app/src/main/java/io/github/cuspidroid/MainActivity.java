@@ -14505,7 +14505,7 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10 + indentLevel * 18), dp(7), dp(8), dp(7));
+        row.setPadding(dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(48));
         row.setBackgroundColor(postColor());
         row.setOnClickListener(listener);
@@ -14561,7 +14561,7 @@ public class MainActivity extends Activity {
         }
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 0, 0, dp(6));
+        params.setMargins(homeBookmarkIndentMargin(indentLevel), 0, 0, dp(6));
         row.setLayoutParams(params);
         return row;
     }
@@ -14570,7 +14570,7 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10 + indentLevel * 18), dp(8), dp(10), dp(8));
+        row.setPadding(dp(10), dp(8), dp(10), dp(8));
         row.setBackgroundColor(postColor());
         row.setOnClickListener(v -> createTab(item.url, true));
         row.setOnLongClickListener(v -> {
@@ -14609,9 +14609,13 @@ public class MainActivity extends Activity {
         row.addView(delete, new LinearLayout.LayoutParams(dp(36), dp(36)));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 0, 0, dp(6));
+        params.setMargins(homeBookmarkIndentMargin(indentLevel), 0, 0, dp(6));
         row.setLayoutParams(params);
         return row;
+    }
+
+    private int homeBookmarkIndentMargin(int indentLevel) {
+        return dp(Math.max(0, indentLevel) * 18);
     }
 
     private boolean handleHomeBookmarkNodeDrop(android.view.DragEvent event, String parent, String targetFolder,
