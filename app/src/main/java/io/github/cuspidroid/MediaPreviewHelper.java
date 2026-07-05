@@ -23,10 +23,13 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class MediaPreviewHelper {
     interface Callback {
@@ -42,6 +45,7 @@ final class MediaPreviewHelper {
                        String originalUrl, String mediaUrl, boolean video, int cellSize,
                        Runnable longClickAction, Callback callback) {
         FrameLayout frame = new FrameLayout(activity);
+        final String[] activeMediaUrl = {mediaUrl};
         frame.setClickable(true);
         frame.setBackgroundColor(video ? Color.BLACK : mediaBackground(activity));
         frame.setMinimumWidth(cellSize);
@@ -57,10 +61,11 @@ final class MediaPreviewHelper {
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setVisibility(View.GONE);
         image.setOnClickListener(v -> {
-            if (video) {
-                callback.openVideo(originalUrl, mediaUrl);
+            String openUrl = activeMediaUrl[0];
+            if (video || isVideoUrl(openUrl)) {
+                callback.openVideo(originalUrl, openUrl);
             } else {
-                callback.openImage(originalUrl, mediaUrl);
+                callback.openImage(originalUrl, openUrl);
             }
         });
         if (longClickAction != null) {
@@ -90,20 +95,22 @@ final class MediaPreviewHelper {
         TextView play = playOverlay(activity);
         play.setVisibility(video ? View.VISIBLE : View.GONE);
         play.setOnClickListener(v -> {
-            if (video) {
-                callback.openVideo(originalUrl, mediaUrl);
+            String openUrl = activeMediaUrl[0];
+            if (video || isVideoUrl(openUrl)) {
+                callback.openVideo(originalUrl, openUrl);
             } else {
-                callback.openImage(originalUrl, mediaUrl);
+                callback.openImage(originalUrl, openUrl);
             }
         });
         frame.addView(play, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         frame.setOnClickListener(v -> {
-            if (video) {
-                callback.openVideo(originalUrl, mediaUrl);
+            String openUrl = activeMediaUrl[0];
+            if (video || isVideoUrl(openUrl)) {
+                callback.openVideo(originalUrl, openUrl);
             } else {
-                callback.openImage(originalUrl, mediaUrl);
+                callback.openImage(originalUrl, openUrl);
             }
         });
 
@@ -137,14 +144,31 @@ final class MediaPreviewHelper {
                         }
                     }
                 } else {
-                    byte[] bytes = AppCache.read(activity, preferences, "media", "image:" + mediaUrl,
-                            gif ? ".gif" : ".img");
-                    if (bytes == null) {
-                        bytes = downloadBytes(mediaUrl, gif ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
-                        AppCache.write(activity, preferences, "media", "image:" + mediaUrl,
-                                gif ? ".gif" : ".img", bytes);
+                    String loadUrl = mediaUrl;
+                    String resolvedCacheKey = "media_resolved:" + mediaUrl;
+                    if (!isDirectMediaUrl(mediaUrl)) {
+                        String cachedResolved = preferences.getString(resolvedCacheKey, null);
+                        if (cachedResolved != null && !cachedResolved.trim().isEmpty()) {
+                            loadUrl = cachedResolved;
+                            activeMediaUrl[0] = cachedResolved;
+                        }
                     }
-                    if (isGifUrl(mediaUrl) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    boolean loadGif = isGifUrl(loadUrl);
+                    byte[] bytes = AppCache.read(activity, preferences, "media", "image:" + loadUrl,
+                            loadGif ? ".gif" : ".img");
+                    if (bytes == null) {
+                        DownloadedMedia downloaded = downloadResolvedBytes(loadUrl,
+                                loadGif ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
+                        bytes = downloaded.bytes;
+                        activeMediaUrl[0] = downloaded.url;
+                        if (!isDirectMediaUrl(mediaUrl)) {
+                            preferences.edit().putString(resolvedCacheKey, downloaded.url).apply();
+                        }
+                        boolean downloadedGif = isGifUrl(downloaded.url);
+                        AppCache.write(activity, preferences, "media", "image:" + downloaded.url,
+                                downloadedGif ? ".gif" : ".img", bytes);
+                    }
+                    if (isGifUrl(activeMediaUrl[0]) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
                         if (drawable instanceof AnimatedImageDrawable) {
                             ((AnimatedImageDrawable) drawable).setRepeatCount(AnimatedImageDrawable.REPEAT_INFINITE);
@@ -158,7 +182,7 @@ final class MediaPreviewHelper {
             }
             Bitmap finalBitmap = bitmap;
             Drawable finalDrawable = drawable;
-            boolean gif = isGifUrl(mediaUrl);
+            boolean gif = isGifUrl(activeMediaUrl[0]);
             mainHandler.post(() -> {
                 if (!frame.isAttachedToWindow()) {
                     return;
@@ -191,6 +215,111 @@ final class MediaPreviewHelper {
             });
         });
         return frame;
+    }
+
+    private static DownloadedMedia downloadResolvedBytes(String url, int limit) throws Exception {
+        return downloadResolvedBytes(url, limit, 0);
+    }
+
+    private static DownloadedMedia downloadResolvedBytes(String url, int limit, int depth) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(15000);
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
+        try {
+            String contentType = valueOr(connection.getContentType(), "").toLowerCase(Locale.ROOT);
+            int readLimit = contentType.contains("text/html") ? 512 * 1024 : limit;
+            byte[] bytes;
+            try (InputStream input = connection.getInputStream()) {
+                bytes = readBytes(input, readLimit);
+            }
+            if (depth < 2 && looksLikeHtml(contentType, bytes)) {
+                String html = new String(bytes, StandardCharsets.UTF_8);
+                String mediaUrl = extractMetaMediaUrl(html, connection.getURL().toString());
+                if (mediaUrl != null && !mediaUrl.equals(url)) {
+                    return downloadResolvedBytes(mediaUrl, limit, depth + 1);
+                }
+            }
+            return new DownloadedMedia(bytes, connection.getURL().toString());
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static boolean looksLikeHtml(String contentType, byte[] bytes) {
+        if (contentType.contains("text/html") || contentType.contains("application/xhtml")) {
+            return true;
+        }
+        if (bytes == null || bytes.length == 0) {
+            return false;
+        }
+        String head = new String(bytes, 0, Math.min(bytes.length, 256), StandardCharsets.UTF_8)
+                .trim().toLowerCase(Locale.ROOT);
+        return head.startsWith("<!doctype html") || head.startsWith("<html") || head.contains("<head");
+    }
+
+    private static String extractMetaMediaUrl(String html, String baseUrl) {
+        if (html == null || html.isEmpty()) {
+            return null;
+        }
+        String[] names = {
+                "og:video:secure_url", "og:video:url", "og:video",
+                "og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"
+        };
+        for (String name : names) {
+            String value = metaContent(html, name);
+            String resolved = resolveUrl(baseUrl, value);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+        Matcher linkMatcher = Pattern.compile(
+                "<link\\b(?=[^>]*\\brel=[\"'][^\"']*image_src[^\"']*[\"'])(?=[^>]*\\bhref=[\"']([^\"']+)[\"'])[^>]*>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
+        if (linkMatcher.find()) {
+            return resolveUrl(baseUrl, htmlDecode(linkMatcher.group(1)));
+        }
+        return null;
+    }
+
+    private static String metaContent(String html, String property) {
+        String quoted = Pattern.quote(property);
+        Pattern attrFirst = Pattern.compile(
+                "<meta\\b(?=[^>]*(?:property|name)=[\"']" + quoted + "[\"'])(?=[^>]*content=[\"']([^\"']+)[\"'])[^>]*>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher matcher = attrFirst.matcher(html);
+        if (matcher.find()) {
+            return htmlDecode(matcher.group(1));
+        }
+        return null;
+    }
+
+    private static String resolveUrl(String baseUrl, String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            String trimmed = value.trim();
+            if (trimmed.startsWith("//")) {
+                URL base = new URL(baseUrl);
+                return base.getProtocol() + ":" + trimmed;
+            }
+            return new URL(new URL(baseUrl), trimmed).toString();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String htmlDecode(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">");
     }
 
     private static TextView playOverlay(Activity activity) {
@@ -232,6 +361,19 @@ final class MediaPreviewHelper {
         return lower.matches(".*\\.(mp4|m4v|webm|mov)(\\?.*)?");
     }
 
+    private static boolean isDirectMediaUrl(String url) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        int query = lower.indexOf('?');
+        if (query >= 0) {
+            lower = lower.substring(0, query);
+        }
+        int fragment = lower.indexOf('#');
+        if (fragment >= 0) {
+            lower = lower.substring(0, fragment);
+        }
+        return lower.matches(".*\\.(jpe?g|png|webp|gif|bmp|avif|mp4|m4v|webm|mov)$");
+    }
+
     private static byte[] downloadBytes(String url, int limit) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(10000);
@@ -239,21 +381,29 @@ final class MediaPreviewHelper {
         connection.setInstanceFollowRedirects(true);
         connection.setRequestProperty("User-Agent", "CuspiDroid/0.1");
         try (InputStream input = connection.getInputStream()) {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int total = 0;
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                total += read;
-                if (total > limit) {
-                    break;
-                }
-                output.write(buffer, 0, read);
-            }
-            return output.toByteArray();
+            return readBytes(input, limit);
         } finally {
             connection.disconnect();
         }
+    }
+
+    private static byte[] readBytes(InputStream input, int limit) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            total += read;
+            if (total > limit) {
+                break;
+            }
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
+    }
+
+    private static String valueOr(String value, String fallback) {
+        return value == null ? fallback : value;
     }
 
     private static Bitmap videoPosterBitmap(String videoUrl) {
@@ -299,5 +449,15 @@ final class MediaPreviewHelper {
 
     private static int dp(Activity activity, int value) {
         return (int) (value * activity.getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static class DownloadedMedia {
+        final byte[] bytes;
+        final String url;
+
+        DownloadedMedia(byte[] bytes, String url) {
+            this.bytes = bytes;
+            this.url = url;
+        }
     }
 }

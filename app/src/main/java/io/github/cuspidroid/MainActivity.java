@@ -18785,12 +18785,49 @@ public class MainActivity extends Activity {
                 return null;
             }
             String lower = path.toLowerCase(Locale.ROOT);
-            return lower.matches(".+\\.(jpe?g|png|webp|gif|bmp|avif|mp4|webm|mov|m4v)$")
-                    ? normalized
-                    : null;
+            if (lower.matches(".+\\.(jpe?g|png|webp|gif|bmp|avif|mp4|webm|mov|m4v)$")) {
+                return normalized;
+            }
+            String host = uri.getHost();
+            if (host == null) {
+                return null;
+            }
+            host = host.toLowerCase(Locale.ROOT);
+            String cleanPath = path.replaceAll("/+$", "");
+            String id = cleanPath.startsWith("/") ? cleanPath.substring(1) : cleanPath;
+            if ((host.equals("i.imgur.com") || host.equals("imgur.com")) && id.matches("[A-Za-z0-9]{5,12}")) {
+                return "https://i.imgur.com/" + id + ".jpg";
+            }
+            if ((host.equals("gyazo.com") || host.equals("i.gyazo.com")) && id.matches("[0-9a-fA-F]{32}")) {
+                return "https://i.gyazo.com/" + id.toLowerCase(Locale.ROOT) + ".png";
+            }
+            return knownUploaderPageUrl(uri, host, cleanPath) ? normalized : null;
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private boolean knownUploaderPageUrl(Uri uri, String host, String cleanPath) {
+        if (cleanPath == null || cleanPath.isEmpty() || cleanPath.equals("/")) {
+            return false;
+        }
+        String path = cleanPath.toLowerCase(Locale.ROOT);
+        List<String> segments = uri.getPathSegments();
+        if (host.equals("imgur.com")) {
+            if (segments.size() == 1 && segments.get(0).matches("[A-Za-z0-9]{5,12}")) {
+                return true;
+            }
+            return segments.size() == 2
+                    && (segments.get(0).equals("a") || segments.get(0).equals("gallery"))
+                    && segments.get(1).matches("[A-Za-z0-9]{5,16}");
+        }
+        if (host.equals("postimg.cc") || host.equals("postimages.org")) {
+            return segments.size() >= 1 && !path.contains("/login") && !path.contains("/signup");
+        }
+        if (host.equals("ibb.co") || host.equals("imgbb.com")) {
+            return segments.size() >= 1 && !path.contains("/upload") && !path.contains("/login");
+        }
+        return false;
     }
 
     private void replaceUrlSpans(SpannableString text) {
