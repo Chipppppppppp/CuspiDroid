@@ -3289,8 +3289,10 @@ public class MainActivity extends Activity {
         if (index < 0) {
             return;
         }
+        TabScope scope = tab.tabScope;
+        String bookmarkFolder = bookmarkTabFolder(tab);
         currentIndex = index;
-        openInCurrentTab(url, addHistory);
+        openInCurrentTab(url, addHistory, scope, bookmarkFolder, false);
         currentIndex = Math.max(0, Math.min(oldIndex, tabs.size() - 1));
         if (currentIndex != index && contentFrame.getChildCount() > 0 && currentTab() != null && currentTab().readerView != null) {
             switchToTab(currentIndex);
