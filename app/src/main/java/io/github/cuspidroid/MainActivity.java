@@ -4214,7 +4214,12 @@ public class MainActivity extends Activity {
             if (oldParent != null) {
                 oldParent.removeView(tab.readerView);
             }
-            boolean restoreContentScroll = shouldRestoreContentScroll(tab);
+            boolean delayThreadReveal = shouldDelayThreadRevealForScroll(tab);
+            boolean restoreContentScroll = !delayThreadReveal && shouldRestoreContentScroll(tab);
+            if (!isLoadingReaderView(tab.readerView)) {
+                tab.readerView.setVisibility(delayThreadReveal || restoreContentScroll
+                        ? View.INVISIBLE : View.VISIBLE);
+            }
             contentFrame.addView(tab.readerView);
             if (isThreadPageNativeKind(tab.nativeKind)) {
                 visibleThreadPage = tab.threadPage;
@@ -4228,13 +4233,9 @@ public class MainActivity extends Activity {
                     scheduleDeferredThreadActivation(tab);
                 } else {
                     refreshUnreadColors(tab);
-                    if (shouldRestoreThreadScroll(tab)) {
-                        tab.readerView.setVisibility(View.INVISIBLE);
-                    }
                     restoreThreadScroll(tab);
                 }
             } else if (restoreContentScroll) {
-                tab.readerView.setVisibility(View.INVISIBLE);
                 restoreContentScroll(tab);
             } else {
                 tab.readerView.setVisibility(View.VISIBLE);
@@ -4303,6 +4304,40 @@ public class MainActivity extends Activity {
 
     private boolean isLoadingReaderView(View view) {
         return view != null && LOADING_VIEW_TAG.equals(view.getTag());
+    }
+
+    private void showCurrentReaderView(CuspTab tab) {
+        if (tab == null || tab.readerView == null || contentFrame == null) {
+            return;
+        }
+        ViewGroup oldParent = (ViewGroup) tab.readerView.getParent();
+        if (oldParent != null) {
+            oldParent.removeView(tab.readerView);
+        }
+        boolean delayThreadReveal = shouldDelayThreadRevealForScroll(tab);
+        boolean restoreContentScroll = !delayThreadReveal && shouldRestoreContentScroll(tab);
+        if (!isLoadingReaderView(tab.readerView)) {
+            tab.readerView.setVisibility(delayThreadReveal || restoreContentScroll
+                    ? View.INVISIBLE : View.VISIBLE);
+        }
+        contentFrame.removeAllViews();
+        contentFrame.addView(tab.readerView);
+        if (delayThreadReveal) {
+            restoreThreadScroll(tab);
+        } else if (restoreContentScroll) {
+            restoreContentScroll(tab);
+        }
+    }
+
+    private boolean shouldDelayThreadRevealForScroll(CuspTab tab) {
+        return tab != null
+                && tab.readerView != null
+                && !isLoadingReaderView(tab.readerView)
+                && isThreadPageNativeKind(tab.nativeKind)
+                && tab.threadPage != null
+                && tab.threadPage.posts != null
+                && !tab.threadPage.posts.isEmpty()
+                && (tab.restoreFromBottom || shouldRestoreThreadScroll(tab));
     }
 
     private void syncLoadingUiWithCurrentSurface() {
@@ -5140,8 +5175,7 @@ public class MainActivity extends Activity {
         tab.postViews = null;
         clearBoardTopRefreshState(tab);
         if (tab == currentTab() && !tabOverviewVisible) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(tab.readerView);
+            showCurrentReaderView(tab);
             visibleThreadPage = null;
             visibleThreadScroll = null;
             visiblePostViews.clear();
@@ -5519,8 +5553,7 @@ public class MainActivity extends Activity {
             tab.readerView = withTopPullRefreshIfPossible(buildSearchHomeView(true), tab);
         }
         if (tab == currentTab() && !tabOverviewVisible) {
-            contentFrame.removeAllViews();
-            contentFrame.addView(tab.readerView);
+            showCurrentReaderView(tab);
             hideCenterSpinner();
         }
         renderTabs();
@@ -7225,8 +7258,7 @@ public class MainActivity extends Activity {
             resetTopRefreshLoader(oldLoader);
             resetTopRefreshLoader(tab.boardTopLoader);
             if (tab == currentTab() && !tabOverviewVisible) {
-                contentFrame.removeAllViews();
-                contentFrame.addView(tab.readerView);
+                showCurrentReaderView(tab);
                 hideCenterSpinner();
             }
             progressBar.setVisibility(View.GONE);
@@ -11893,8 +11925,7 @@ public class MainActivity extends Activity {
         } else if (targetTab != null) {
             targetTab.readerView = view;
             if (targetTab == currentTab()) {
-                contentFrame.removeAllViews();
-                contentFrame.addView(view);
+                showCurrentReaderView(targetTab);
             }
         }
         progressBar.setVisibility(View.VISIBLE);
@@ -11944,8 +11975,7 @@ public class MainActivity extends Activity {
             if (targetTab == currentTab() && !tabOverviewVisible) {
                 progressBar.setVisibility(View.GONE);
                 hideCenterSpinner();
-                contentFrame.removeAllViews();
-                contentFrame.addView(resultView);
+                showCurrentReaderView(targetTab);
             } else {
                 progressBar.setVisibility(View.GONE);
                 hideCenterSpinner();
@@ -12113,8 +12143,7 @@ public class MainActivity extends Activity {
                     CuspTab tab = currentTab();
                     if (tab != null) {
                         tab.readerView = buildHistoryView();
-                        contentFrame.removeAllViews();
-                        contentFrame.addView(tab.readerView);
+                        showCurrentReaderView(tab);
                     }
                 }
             });
@@ -14057,8 +14086,7 @@ public class MainActivity extends Activity {
                 tab.threadScroll = null;
                 tab.postViews = null;
                 tab.readerView = loadingView("");
-                contentFrame.removeAllViews();
-                contentFrame.addView(tab.readerView);
+                showCurrentReaderView(tab);
                 renderTabs();
                 CuspTab targetTab = tab;
                 mainHandler.post(() -> {
@@ -14069,8 +14097,7 @@ public class MainActivity extends Activity {
                     View view = buildSavedItemsView(targetKey, targetFolder);
                     targetTab.readerView = view;
                     if (targetTab == currentTab() && !tabOverviewVisible && !pendingNewTab) {
-                        contentFrame.removeAllViews();
-                        contentFrame.addView(view);
+                        showCurrentReaderView(targetTab);
                         renderTabs();
                     }
                     requestSaveTabsSoon();
