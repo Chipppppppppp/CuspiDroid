@@ -60,6 +60,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.ViewParent;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
@@ -4211,6 +4212,7 @@ public class MainActivity extends Activity {
             if (oldParent != null) {
                 oldParent.removeView(tab.readerView);
             }
+            boolean restoreContentScroll = shouldRestoreContentScroll(tab);
             contentFrame.addView(tab.readerView);
             if (isThreadPageNativeKind(tab.nativeKind)) {
                 visibleThreadPage = tab.threadPage;
@@ -4229,8 +4231,11 @@ public class MainActivity extends Activity {
                     }
                     restoreThreadScroll(tab);
                 }
-            } else if (shouldRestoreContentScroll(tab)) {
+            } else if (restoreContentScroll) {
+                tab.readerView.setVisibility(View.INVISIBLE);
                 restoreContentScroll(tab);
+            } else {
+                tab.readerView.setVisibility(View.VISIBLE);
             }
         }
         syncLoadingUiWithCurrentSurface();
@@ -21833,24 +21838,53 @@ public class MainActivity extends Activity {
     private void restoreContentScroll(CuspTab tab, int attempt) {
         ScrollView scroll = tab == null ? null : findScrollView(tab.readerView);
         if (tab == null || scroll == null || scroll.getChildCount() == 0 || !shouldRestoreContentScroll(tab)) {
+            revealContentAfterScrollRestore(tab);
             return;
         }
-        scroll.post(() -> {
-            if (scroll.getChildCount() == 0 || !shouldRestoreContentScroll(tab)) {
-                return;
-            }
-            int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
-            if (range <= 0) {
-                if (attempt < 10) {
-                    scroll.postDelayed(() -> restoreContentScroll(tab, attempt + 1), 50);
+        scroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                if (scroll.getViewTreeObserver().isAlive()) {
+                    scroll.getViewTreeObserver().removeOnPreDrawListener(this);
                 }
+                applyContentScrollRestore(tab, scroll, attempt);
+                return true;
+            }
+        });
+        scroll.post(() -> {
+            if (!applyContentScrollRestore(tab, scroll, attempt)) {
                 return;
             }
-            int target = tab.contentScrollY > 0
-                    ? Math.min(tab.contentScrollY, range)
-                    : (int) (range * Math.max(0f, Math.min(1f, tab.contentScrollRatio)));
-            scroll.scrollTo(0, Math.max(0, Math.min(target, range)));
         });
+    }
+
+    private boolean applyContentScrollRestore(CuspTab tab, ScrollView scroll, int attempt) {
+        if (tab == null || scroll == null || scroll.getChildCount() == 0 || !shouldRestoreContentScroll(tab)) {
+            revealContentAfterScrollRestore(tab);
+            return true;
+        }
+        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+        if (range <= 0) {
+            if (attempt < 10) {
+                scroll.postDelayed(() -> restoreContentScroll(tab, attempt + 1), 50);
+            } else {
+                revealContentAfterScrollRestore(tab);
+            }
+            return false;
+        }
+        int target = tab.contentScrollY > 0
+                ? Math.min(tab.contentScrollY, range)
+                : (int) (range * Math.max(0f, Math.min(1f, tab.contentScrollRatio)));
+        scroll.scrollTo(0, Math.max(0, Math.min(target, range)));
+        revealContentAfterScrollRestore(tab);
+        return true;
+    }
+
+    private void revealContentAfterScrollRestore(CuspTab tab) {
+        if (tab == null || tab.readerView == null) {
+            return;
+        }
+        tab.readerView.setVisibility(View.VISIBLE);
     }
 
     private String tabUrlForScroll(CuspTab tab) {
