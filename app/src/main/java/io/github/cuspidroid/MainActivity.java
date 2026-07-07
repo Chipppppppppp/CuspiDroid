@@ -496,6 +496,7 @@ public class MainActivity extends Activity {
     private int tabOverviewPrivateScrollY;
     private View tabOverviewNormalView;
     private View tabOverviewPrivateView;
+    private boolean restoringTabOverviewScroll;
     private final Map<CuspTab, SearchResult> tabOverviewResultCache = new LinkedHashMap<>();
     private final Map<String, String> tabOverviewBoardTitleCache = new LinkedHashMap<>();
     private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
@@ -4216,6 +4217,7 @@ public class MainActivity extends Activity {
             }
             boolean delayThreadReveal = shouldDelayThreadRevealForScroll(tab);
             boolean restoreContentScroll = !delayThreadReveal && shouldRestoreContentScroll(tab);
+            tab.restoringScroll = delayThreadReveal || restoreContentScroll;
             if (!isLoadingReaderView(tab.readerView)) {
                 tab.readerView.setVisibility(delayThreadReveal || restoreContentScroll
                         ? View.INVISIBLE : View.VISIBLE);
@@ -4238,6 +4240,7 @@ public class MainActivity extends Activity {
             } else if (restoreContentScroll) {
                 restoreContentScroll(tab);
             } else {
+                tab.restoringScroll = false;
                 tab.readerView.setVisibility(View.VISIBLE);
             }
         }
@@ -4316,6 +4319,7 @@ public class MainActivity extends Activity {
         }
         boolean delayThreadReveal = shouldDelayThreadRevealForScroll(tab);
         boolean restoreContentScroll = !delayThreadReveal && shouldRestoreContentScroll(tab);
+        tab.restoringScroll = delayThreadReveal || restoreContentScroll;
         if (!isLoadingReaderView(tab.readerView)) {
             tab.readerView.setVisibility(delayThreadReveal || restoreContentScroll
                     ? View.INVISIBLE : View.VISIBLE);
@@ -4326,6 +4330,8 @@ public class MainActivity extends Activity {
             restoreThreadScroll(tab);
         } else if (restoreContentScroll) {
             restoreContentScroll(tab);
+        } else {
+            tab.restoringScroll = false;
         }
     }
 
@@ -10583,7 +10589,9 @@ public class MainActivity extends Activity {
             if (scrollTab != null && scrollY != oldScrollY) {
                 long now = android.os.SystemClock.uptimeMillis();
                 scrollTab.lastScrollAt = now;
-                if (isBottomJumpActive(scrollTab)) {
+                if (scrollTab.restoringScroll) {
+                    scheduleThreadPostVisibilityRefresh(scrollTab);
+                } else if (isBottomJumpActive(scrollTab)) {
                     pinThreadScrollToBottom(scrollTab);
                 } else if (now - scrollTab.lastThreadScrollSaveAt >= THREAD_SCROLL_SAVE_INTERVAL_MS) {
                     scrollTab.lastThreadScrollSaveAt = now;
@@ -12221,6 +12229,7 @@ public class MainActivity extends Activity {
         } else if (view.getParent() instanceof ViewGroup) {
             ((ViewGroup) view.getParent()).removeView(view);
         }
+        restoringTabOverviewScroll = currentTabOverviewScrollY() > 0;
         contentFrame.addView(view);
         View attachedView = view;
         if (!newlyBuilt) {
@@ -12300,19 +12309,61 @@ public class MainActivity extends Activity {
     private void restoreCachedTabOverviewScroll(View view) {
         ScrollView scroll = findScrollView(view);
         if (scroll == null) {
+            restoringTabOverviewScroll = false;
             return;
         }
         int restoreY = currentTabOverviewScrollY();
-        scroll.post(() -> {
-            if (restoreY > 0 && scroll.getChildCount() > 0) {
-                int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
-                scroll.scrollTo(0, Math.min(restoreY, range));
-            }
-            View child = scroll.getChildCount() == 0 ? null : scroll.getChildAt(0);
-            if (child instanceof LinearLayout) {
-                scheduleTabOverviewSlotRefresh((LinearLayout) child);
+        if (restoreY <= 0) {
+            finishTabOverviewScrollRestore(scroll);
+            return;
+        }
+        boolean restoredImmediately = applyTabOverviewScrollRestore(scroll, restoreY);
+        if (restoredImmediately) {
+            restoringTabOverviewScroll = true;
+        }
+        scroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                if (scroll.getViewTreeObserver().isAlive()) {
+                    scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                }
+                if (applyTabOverviewScrollRestore(scroll, restoreY)) {
+                    finishTabOverviewScrollRestore(scroll);
+                }
+                return true;
             }
         });
+        if (!restoredImmediately) {
+            scroll.post(() -> {
+                if (applyTabOverviewScrollRestore(scroll, restoreY)) {
+                    finishTabOverviewScrollRestore(scroll);
+                }
+            });
+        }
+    }
+
+    private boolean applyTabOverviewScrollRestore(ScrollView scroll, int restoreY) {
+        if (scroll == null || restoreY <= 0) {
+            return true;
+        }
+        if (scroll.getChildCount() == 0 || scroll.getHeight() <= 0) {
+            return false;
+        }
+        int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+        if (range <= 0) {
+            scroll.scrollTo(0, 0);
+            return true;
+        }
+        scroll.scrollTo(0, Math.min(restoreY, range));
+        return true;
+    }
+
+    private void finishTabOverviewScrollRestore(ScrollView scroll) {
+        restoringTabOverviewScroll = false;
+        View child = scroll == null || scroll.getChildCount() == 0 ? null : scroll.getChildAt(0);
+        if (child instanceof LinearLayout) {
+            scheduleTabOverviewSlotRefresh((LinearLayout) child);
+        }
     }
 
     private View buildTabOverviewView() {
@@ -12324,7 +12375,9 @@ public class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
             handleContentScrollForChrome(scrollY, oldScrollY);
-            setCurrentTabOverviewScrollY(scrollY);
+            if (!restoringTabOverviewScroll) {
+                setCurrentTabOverviewScrollY(scrollY);
+            }
         });
         scroll.setOnDragListener((v, event) -> {
             autoScrollDuringDrag(scroll, event);
@@ -21870,6 +21923,11 @@ public class MainActivity extends Activity {
             revealContentAfterScrollRestore(tab);
             return;
         }
+        tab.restoringScroll = true;
+        boolean restoredImmediately = applyContentScrollRestore(tab, scroll, attempt, false);
+        if (restoredImmediately) {
+            tab.restoringScroll = true;
+        }
         scroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
             @Override
             public boolean onPreDraw() {
@@ -21880,20 +21938,29 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        scroll.post(() -> {
-            if (!applyContentScrollRestore(tab, scroll, attempt)) {
-                return;
-            }
-        });
+        if (!restoredImmediately) {
+            scroll.post(() -> {
+                if (!applyContentScrollRestore(tab, scroll, attempt)) {
+                    return;
+                }
+            });
+        }
     }
 
     private boolean applyContentScrollRestore(CuspTab tab, ScrollView scroll, int attempt) {
+        return applyContentScrollRestore(tab, scroll, attempt, true);
+    }
+
+    private boolean applyContentScrollRestore(CuspTab tab, ScrollView scroll, int attempt, boolean allowRetry) {
         if (tab == null || scroll == null || scroll.getChildCount() == 0 || !shouldRestoreContentScroll(tab)) {
             revealContentAfterScrollRestore(tab);
             return true;
         }
         int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
         if (range <= 0) {
+            if (!allowRetry) {
+                return false;
+            }
             if (attempt < 10) {
                 scroll.postDelayed(() -> restoreContentScroll(tab, attempt + 1), 50);
             } else {
@@ -21913,6 +21980,7 @@ public class MainActivity extends Activity {
         if (tab == null || tab.readerView == null) {
             return;
         }
+        tab.restoringScroll = false;
         tab.readerView.setVisibility(View.VISIBLE);
     }
 
@@ -21960,54 +22028,88 @@ public class MainActivity extends Activity {
         if (tab == null) {
             return;
         }
+        tab.restoringScroll = true;
+        boolean restoredImmediately = applyThreadScrollRestore(tab, attempt);
+        if (restoredImmediately) {
+            if (tab.threadScroll == null) {
+                return;
+            }
+            tab.restoringScroll = true;
+        }
+        if (tab.threadScroll == null) {
+            return;
+        }
+        ScrollView restoreScroll = tab.threadScroll;
+        restoreScroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                if (restoreScroll.getViewTreeObserver().isAlive()) {
+                    restoreScroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                }
+                applyThreadScrollRestore(tab, attempt);
+                return true;
+            }
+        });
+        if (!restoredImmediately) {
+            tab.threadScroll.postDelayed(() -> {
+                if (tab.readerView != null && tab.readerView.getVisibility() != View.VISIBLE) {
+                    revealThreadAfterScrollRestore(tab, attempt);
+                }
+            }, 900);
+            tab.threadScroll.post(() -> {
+                if (applyThreadScrollRestore(tab, attempt)) {
+                    return;
+                }
+                int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
+                if (range <= 0) {
+                    if (attempt < 10) {
+                        tab.threadScroll.postDelayed(() -> restoreThreadScroll(tab, attempt + 1), 50);
+                    } else {
+                        revealThreadAfterScrollRestore(tab, attempt);
+                    }
+                    return;
+                }
+            });
+        }
+    }
+
+    private boolean applyThreadScrollRestore(CuspTab tab, int attempt) {
+        if (tab == null) {
+            return true;
+        }
         if (tab.threadScroll == null) {
             revealThreadAfterScrollRestore(tab, attempt);
-            return;
+            return true;
         }
         if (isBottomJumpActive(tab)) {
             revealThreadAfterScrollRestore(tab, attempt);
-            return;
+            return true;
         }
         adoptSharedThreadScroll(tab);
-        tab.threadScroll.postDelayed(() -> {
-            if (tab.readerView != null && tab.readerView.getVisibility() != View.VISIBLE) {
-                revealThreadAfterScrollRestore(tab, attempt);
-            }
-        }, 900);
-        tab.threadScroll.post(() -> {
-            if (isBottomJumpActive(tab)) {
-                revealThreadAfterScrollRestore(tab, attempt);
-                return;
-            }
-            if (tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
-                revealThreadAfterScrollRestore(tab, attempt);
-                return;
-            }
-            int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
-            if (range <= 0) {
-                if (attempt < 10) {
-                    tab.threadScroll.postDelayed(() -> restoreThreadScroll(tab, attempt + 1), 50);
-                } else {
-                    revealThreadAfterScrollRestore(tab, attempt);
-                }
-                return;
-            }
-            if (tab.restoreFromBottom) {
-                tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
-                tab.restoreFromBottom = false;
-            } else if (tab.hasSavedThreadScroll && sameSavedUrl(threadUrl(tab), tab.threadScrollUrl)) {
-                boolean savedBottom = isSavedThreadScrollAtBottom(tab);
-                int target = savedBottom ? range : (int) (range * tab.threadScrollRatio);
-                tab.threadScroll.scrollTo(0, Math.max(0, Math.min(target, range)));
-                if (savedBottom) {
-                    keepSavedBottomRestored(tab, range, 0);
-                }
-            } else if (shouldAutoScrollUnreadBoundary(tab)) {
-                scrollToUnreadBoundaryWhenReady(tab, 0);
-            }
+        if (tab.threadScroll.getChildCount() == 0) {
             revealThreadAfterScrollRestore(tab, attempt);
-            scheduleThreadScrollChromeRefresh(tab, 6);
-        });
+            return true;
+        }
+        int range = tab.threadScroll.getChildAt(0).getHeight() - tab.threadScroll.getHeight();
+        if (range <= 0) {
+            return false;
+        }
+        if (tab.restoreFromBottom) {
+            tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
+            tab.restoreFromBottom = false;
+        } else if (tab.hasSavedThreadScroll && sameSavedUrl(threadUrl(tab), tab.threadScrollUrl)) {
+            boolean savedBottom = isSavedThreadScrollAtBottom(tab);
+            int target = savedBottom ? range : (int) (range * tab.threadScrollRatio);
+            tab.threadScroll.scrollTo(0, Math.max(0, Math.min(target, range)));
+            if (savedBottom) {
+                keepSavedBottomRestored(tab, range, 0);
+            }
+        } else if (shouldAutoScrollUnreadBoundary(tab)) {
+            scrollToUnreadBoundaryWhenReady(tab, 0);
+        }
+        revealThreadAfterScrollRestore(tab, attempt);
+        scheduleThreadScrollChromeRefresh(tab, 6);
+        return true;
     }
 
     private boolean shouldRestoreThreadScroll(CuspTab tab) {
@@ -22116,6 +22218,7 @@ public class MainActivity extends Activity {
         if (tab == null || tab.readerView == null) {
             return;
         }
+        tab.restoringScroll = false;
         tab.readerView.setVisibility(View.VISIBLE);
     }
 
@@ -28425,6 +28528,7 @@ public class MainActivity extends Activity {
         int threadScrollChromeFrames;
         boolean hasSavedThreadScroll;
         boolean hasSavedContentScroll;
+        boolean restoringScroll;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
         String threadSearchQuery = "";
