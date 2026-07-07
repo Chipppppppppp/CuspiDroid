@@ -10,8 +10,8 @@ android {
         applicationId "io.github.cuspidroid"
         minSdk 23
         targetSdk 34
-        versionCode 38
-        versionName "1.8.8"
+        versionCode 39
+        versionName "1.8.9"
     }
 
     buildTypes {
