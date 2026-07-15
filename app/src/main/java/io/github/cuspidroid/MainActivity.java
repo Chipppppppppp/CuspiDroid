@@ -348,7 +348,7 @@ public class MainActivity extends Activity {
     private static final Charset SHITARABA_POST_CHARSET = Charset.forName("EUC-JP");
     private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int MY_POST_MARKER = Color.rgb(37, 99, 235);
-    private static final int REPLY_TO_MY_POST_MARKER = Color.rgb(100, 116, 139);
+    private static final int REPLY_TO_MY_POST_MARKER = Color.rgb(112, 88, 163);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
     private static final int TEXT = Color.rgb(31, 41, 55);
