@@ -101,6 +101,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.FileOutputStream;
 import java.text.DateFormat;
+import java.text.Normalizer;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -9439,6 +9440,16 @@ public class MainActivity extends Activity {
             list.addView(error);
             View wrapped = withScrollScrubber(scroll, tab);
             return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
+        }
+
+        if (page.notice != null && !page.notice.trim().isEmpty()) {
+            TextView notice = postText(page.notice, null);
+            notice.setTextColor(mutedColor());
+            notice.setTextSize(14);
+            LinearLayout.LayoutParams noticeParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            noticeParams.setMargins(0, 0, 0, dp(10));
+            list.addView(notice, noticeParams);
         }
 
         renderSearchSlots(scroll, list, page);
@@ -23122,11 +23133,143 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u691c\u7d22\u3067\u304d\u308b\u30b9\u30ec\u540d\u304c\u3042\u308a\u307e\u305b\u3093", "No thread title to search."), Toast.LENGTH_SHORT).show();
             return;
         }
-        openInCurrentTab(searchUrl(nextThreadQuery(tab.threadPage.title)));
+        String boardUrl = currentThreadBoardUrl(tab);
+        if (boardUrl == null) {
+            Toast.makeText(this, text("\u677fURL\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board URL found."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        recordNavigation(tab, boardUrl);
+        loadNextThreadCandidates(tab, boardUrl, tab.threadPage.title, tab.url);
     }
 
-    private String nextThreadQuery(String title) {
-        return title.replaceAll("(?i)\\s*(part|vol\\.?|#)?\\s*[0-9\uff10-\uff19]+\\s*$", "").trim();
+    private void loadNextThreadCandidates(CuspTab tab, String boardUrl, String sourceTitle, String sourceUrl) {
+        prepareChromeForLoading();
+        clearBoardTopRefreshState(tab);
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_BOARD;
+        tab.url = boardUrl;
+        tab.title = text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates");
+        tab.readerView = loadingView("");
+        tab.threadPage = null;
+        tab.searchPage = null;
+        tab.threadScroll = null;
+        tab.postViews = null;
+        switchToTab(tabs.indexOf(tab));
+        progressBar.setVisibility(View.VISIBLE);
+        ioExecutor.execute(() -> {
+            SearchPage page;
+            try {
+                page = downloadBoard(boardUrl);
+                page.results = nextThreadCandidates(page.results, sourceTitle, sourceUrl);
+                page.title = text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates");
+                page.notice = page.results.isEmpty()
+                        ? text("\u540c\u3058\u677f\u306b\u3001\u5341\u5206\u306b\u4f3c\u3066\u3044\u308b\u6b21\u30b9\u30ec\u5019\u88dc\u306f\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "No sufficiently similar next-thread candidates were found on this board.")
+                        : text("\u540c\u3058\u677f\u306e\u30b9\u30ec\u4e00\u89a7\u304b\u3089\u3001\u984c\u540d\u306e\u985e\u4f3c\u5ea6\u3068\u9023\u756a\u3092\u4f7f\u3063\u3066\u5019\u88dc\u3092\u7d5e\u308a\u8fbc\u3093\u3067\u3044\u307e\u3059\u3002", "Candidates are narrowed from this board using title similarity and thread-number continuity.");
+            } catch (Exception error) {
+                page = SearchPage.error(boardUrl, error.getMessage());
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> {
+                if (!tabs.contains(tab) || !boardUrl.equals(tab.url)) {
+                    return;
+                }
+                tab.title = result.title;
+                tab.searchPage = result;
+                tab.readerView = buildSearchView(result, false, tab);
+                cacheBoardHistoryPage(tab, result, tab.readerView);
+                progressBar.setVisibility(View.GONE);
+                if (tab == currentTab() && !tabOverviewVisible) {
+                    switchToTab(currentIndex);
+                }
+                requestSaveTabsSoon();
+                renderTabs();
+            });
+        });
+    }
+
+    private List<SearchResult> nextThreadCandidates(List<SearchResult> boardResults, String sourceTitle, String sourceUrl) {
+        List<SearchResult> candidates = new ArrayList<>();
+        String source = nextThreadTitleKey(sourceTitle);
+        if (source.isEmpty() || boardResults == null) {
+            return candidates;
+        }
+        int sourceNumber = nextThreadNumber(sourceTitle);
+        for (SearchResult result : boardResults) {
+            if (result == null || result.title == null || sameSavedUrl(sourceUrl, result.url)) {
+                continue;
+            }
+            String candidate = nextThreadTitleKey(result.title);
+            double similarity = nextThreadSimilarity(source, candidate);
+            if (similarity < 0.48d) {
+                continue;
+            }
+            int candidateNumber = nextThreadNumber(result.title);
+            double score = similarity * 100d;
+            if (sourceNumber > 0 && candidateNumber == sourceNumber + 1) {
+                score += 25d;
+            } else if (sourceNumber > 0 && candidateNumber > sourceNumber) {
+                score += 10d;
+            }
+            result.nextThreadScore = score;
+            result.nextThreadSimilarity = similarity;
+            candidates.add(result);
+        }
+        Collections.sort(candidates, (left, right) -> Double.compare(right.nextThreadScore, left.nextThreadScore));
+        for (int i = 0; i < candidates.size(); i++) {
+            candidates.get(i).boardOrder = i + 1;
+        }
+        if (candidates.size() > 8) {
+            return new ArrayList<>(candidates.subList(0, 8));
+        }
+        return candidates;
+    }
+
+    private String nextThreadTitleKey(String title) {
+        String value = stripThreadResponseCount(title);
+        value = Normalizer.normalize(value == null ? "" : value, Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("(?i)\\s*(?:part|pt|vol(?:ume)?|#|\u7b2c|\u305d\u306e)?\\s*\\d+\\s*(?:\u30b9\u30ec|\u8a71|\u5dfb|\u518a|\u672c|th|st|nd|rd)?\\s*$", "")
+                .replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+        return value.replaceAll("\\s+", " ");
+    }
+
+    private int nextThreadNumber(String title) {
+        String value = Normalizer.normalize(stripThreadResponseCount(title), Normalizer.Form.NFKC);
+        Matcher matcher = Pattern.compile("(?i)(?:part|pt|vol(?:ume)?|#|\u7b2c|\u305d\u306e)?\\s*(\\d+)\\s*(?:\u30b9\u30ec|\u8a71|\u5dfb|\u518a|\u672c|th|st|nd|rd)?\\s*$").matcher(value);
+        return matcher.find() ? parsePositiveInt(matcher.group(1), 0) : 0;
+    }
+
+    private double nextThreadSimilarity(String left, String right) {
+        if (left.isEmpty() || right.isEmpty()) return 0d;
+        if (left.equals(right)) return 1d;
+        Set<String> leftTokens = new HashSet<>();
+        Set<String> rightTokens = new HashSet<>();
+        Collections.addAll(leftTokens, left.split("\\s+"));
+        Collections.addAll(rightTokens, right.split("\\s+"));
+        Set<String> union = new HashSet<>(leftTokens);
+        union.addAll(rightTokens);
+        Set<String> intersection = new HashSet<>(leftTokens);
+        intersection.retainAll(rightTokens);
+        double tokenScore = union.isEmpty() ? 0d : (double) intersection.size() / union.size();
+        int distance = levenshteinDistance(left, right);
+        double textScore = 1d - (double) distance / Math.max(left.length(), right.length());
+        return textScore * 0.65d + tokenScore * 0.35d;
+    }
+
+    private int levenshteinDistance(String left, String right) {
+        int[] row = new int[right.length() + 1];
+        for (int j = 0; j <= right.length(); j++) row[j] = j;
+        for (int i = 1; i <= left.length(); i++) {
+            int previous = row[0];
+            row[0] = i;
+            for (int j = 1; j <= right.length(); j++) {
+                int saved = row[j];
+                row[j] = Math.min(Math.min(row[j] + 1, row[j - 1] + 1),
+                        previous + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1));
+                previous = saved;
+            }
+        }
+        return row[right.length()];
     }
 
     private void shareCurrentThread() {
@@ -29139,6 +29282,7 @@ public class MainActivity extends Activity {
         String url;
         String title;
         String error;
+        String notice;
         List<SearchResult> results = new ArrayList<>();
         Map<String, Integer> categoryCounts;
         int fullTextPage = 1;
@@ -29168,6 +29312,8 @@ public class MainActivity extends Activity {
         boolean hasReadHistory;
         String boardName;
         BoardPriorityMatch priorityMatch;
+        double nextThreadScore;
+        double nextThreadSimilarity;
     }
 
     private static class BbsCategoryRequest {
