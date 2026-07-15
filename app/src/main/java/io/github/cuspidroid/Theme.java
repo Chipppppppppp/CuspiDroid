@@ -117,13 +117,7 @@ final class Theme {
         if (dialog == null) {
             return;
         }
-        if (dialog.getWindow() != null) {
-            GradientDrawable background = new GradientDrawable();
-            background.setColor(surface(context));
-            background.setStroke(dp(context, 2), border(context));
-            background.setCornerRadius(dp(context, 10));
-            dialog.getWindow().setBackgroundDrawable(background);
-        }
+        stylePopupDialog(dialog, context);
         int accent = accent(context);
         View decor = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
         tintDialogText(decor, text(context));
@@ -138,6 +132,19 @@ final class Theme {
             if (alert.getButton(android.app.AlertDialog.BUTTON_NEUTRAL) != null) {
                 alert.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setTextColor(accent);
             }
+        }
+    }
+
+    static void stylePopupDialog(Dialog dialog, Context context) {
+        if (dialog == null) {
+            return;
+        }
+        if (dialog.getWindow() != null) {
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(surface(context));
+            background.setStroke(dp(context, 2), border(context));
+            background.setCornerRadius(dp(context, 10));
+            dialog.getWindow().setBackgroundDrawable(background);
         }
     }
 

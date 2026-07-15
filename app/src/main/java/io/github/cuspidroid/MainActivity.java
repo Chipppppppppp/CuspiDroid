@@ -2,6 +2,7 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.animation.ValueAnimator;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -2999,6 +3000,34 @@ public class MainActivity extends Activity {
         drawable.setStroke(dp(2), popupBorderColor());
         drawable.setCornerRadius(dp(10));
         return drawable;
+    }
+
+    private AlertDialog createUnifiedPopupDialog(View content) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(content)
+                .create();
+        dialog.setCanceledOnTouchOutside(true);
+        return dialog;
+    }
+
+    private void showUnifiedPopupDialog(AlertDialog dialog) {
+        showUnifiedPopupDialog(dialog, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT);
+    }
+
+    private void showUnifiedPopupDialog(AlertDialog dialog, int width, int height) {
+        if (dialog == null) {
+            return;
+        }
+        dialog.show();
+        Theme.stylePopupDialog(dialog, this);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams params = dialog.getWindow().getAttributes();
+            params.dimAmount = 0.32f;
+            dialog.getWindow().setAttributes(params);
+            dialog.getWindow().setLayout(width, height);
+        }
     }
 
     private void configureModalPopup(PopupWindow popup, View content) {
@@ -9029,9 +9058,7 @@ public class MainActivity extends Activity {
         menu.setBackgroundColor(surfaceColor());
         menu.addView(postActionPreview(tab, post));
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(menu)
-                .create();
+        AlertDialog dialog = createUnifiedPopupDialog(menu);
 
         menu.addView(dialogAction(R.drawable.ic_text_fields, post.aaMode ? text("\u901a\u5e38\u8868\u793a", "Normal view") : text("AA\u8868\u793a", "AA view"), () -> {
             dialog.dismiss();
@@ -9051,8 +9078,7 @@ public class MainActivity extends Activity {
                 setReadThroughPost(tab, post);
             }));
         }
-        dialog.show();
-        Theme.styleDialog(dialog, this);
+        showUnifiedPopupDialog(dialog);
     }
 
     private void showPostNgAddMenu(CuspTab tab, Post post) {
@@ -16935,9 +16961,9 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(8), dp(8), dp(8), dp(8));
-        root.setBackground(menuBackground());
+        root.setBackgroundColor(surfaceColor());
 
-        final PopupWindow[] popupRef = new PopupWindow[1];
+        final Dialog[] popupRef = new Dialog[1];
         root.addView(threadExtractTitleRow(mode, popularThreshold, items.size(), popupRef),
                 new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -16948,12 +16974,9 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(24));
         int height = Math.max(dp(240), (int) (getResources().getDisplayMetrics().heightPixels * 0.72f));
-        PopupWindow popup = new PopupWindow(root, width, height, false);
-        popup.setFocusable(mode == ThreadExtractMode.POPULAR);
+        AlertDialog popup = createUnifiedPopupDialog(root);
         popupRef[0] = popup;
         root.setTag(popup);
-        configureModalPopup(popup, root);
-        prepareAnimatedPopupDismiss(popup, root);
         if (items.isEmpty()) {
             TextView empty = postText(noThreadExtractText(mode), null);
             empty.setTextColor(mutedColor());
@@ -16966,7 +16989,7 @@ public class MainActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        showCenteredModalPopup(popup);
+        showUnifiedPopupDialog(popup, width, height);
     }
 
     private String noThreadExtractText(ThreadExtractMode mode) {
@@ -16983,7 +17006,7 @@ public class MainActivity extends Activity {
         return text("\u30ea\u30f3\u30af", "Links");
     }
 
-    private View threadExtractTitleRow(ThreadExtractMode mode, int threshold, int count, PopupWindow[] popupRef) {
+    private View threadExtractTitleRow(ThreadExtractMode mode, int threshold, int count, Dialog[] popupRef) {
         if (mode != ThreadExtractMode.POPULAR) {
             return popupTitleRow(threadExtractTitle(mode), count);
         }
@@ -16994,9 +17017,9 @@ public class MainActivity extends Activity {
         Runnable refresh = () -> {
             int value = Math.max(1, parsePositiveInt(header.input.getText().toString(), Math.max(1, threshold)));
             preferences.edit().putInt(PREF_POPULAR_REPLY_THRESHOLD, value).apply();
-            PopupWindow extractPopup = popupRef == null ? null : popupRef[0];
+            Dialog extractPopup = popupRef == null ? null : popupRef[0];
             if (extractPopup != null && extractPopup.isShowing()) {
-                dismissPopupAnimated(extractPopup);
+                extractPopup.dismiss();
             }
             showThreadExtractList(ThreadExtractMode.POPULAR, value);
         };
@@ -17084,7 +17107,7 @@ public class MainActivity extends Activity {
 
     private void renderThreadExtractSlots(ScrollView scroll, LinearLayout list,
                                           List<ThreadExtractGroup> groups,
-                                          ThreadExtractMode mode, PopupWindow popup) {
+                                          ThreadExtractMode mode, Dialog popup) {
         VirtualExtractState state = new VirtualExtractState();
         list.setTag(state);
         for (ThreadExtractGroup group : groups) {
@@ -17126,7 +17149,7 @@ public class MainActivity extends Activity {
         list.post(state.refreshTask);
     }
 
-    private void refreshExtractSlots(ScrollView scroll, LinearLayout list, PopupWindow popup) {
+    private void refreshExtractSlots(ScrollView scroll, LinearLayout list, Dialog popup) {
         if (scroll == null || list == null) {
             return;
         }
@@ -17188,7 +17211,7 @@ public class MainActivity extends Activity {
 
     private void renderExtractSlotsInRange(ViewGroup list, int start, int end, int budget,
                                            int[] rendered, boolean[] budgetReached,
-                                           Set<FrameLayout> keep, PopupWindow popup) {
+                                           Set<FrameLayout> keep, Dialog popup) {
         if (list == null || start > end || end < 0) {
             return;
         }
@@ -17216,7 +17239,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void renderExtractSlot(FrameLayout holder, VirtualExtractSlot slot, PopupWindow popup) {
+    private void renderExtractSlot(FrameLayout holder, VirtualExtractSlot slot, Dialog popup) {
         if (holder == null || slot == null || slot.rendered) {
             return;
         }
@@ -17276,7 +17299,7 @@ public class MainActivity extends Activity {
         return dp(32 + 32 * count);
     }
 
-    private View threadExtractRow(ThreadExtractGroup group, ThreadExtractMode mode, PopupWindow popup) {
+    private View threadExtractRow(ThreadExtractGroup group, ThreadExtractMode mode, Dialog popup) {
         if (mode == ThreadExtractMode.POPULAR) {
             return popularExtractRow(group, popup);
         }
@@ -17317,14 +17340,14 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private View threadExtractHeader(int postNumber, PopupWindow popup) {
+    private View threadExtractHeader(int postNumber, Dialog popup) {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView number = extractPostNumberText(postNumber);
         header.addView(number, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         ImageButton jump = postJumpButton(postNumber, () -> {
-            dismissPopupAnimated(popup);
+            popup.dismiss();
             jumpToPost(postNumber);
         });
         header.addView(jump, new LinearLayout.LayoutParams(dp(34), dp(34)));
@@ -17358,7 +17381,7 @@ public class MainActivity extends Activity {
         return jump;
     }
 
-    private View popularExtractRow(ThreadExtractGroup group, PopupWindow popup) {
+    private View popularExtractRow(ThreadExtractGroup group, Dialog popup) {
         CuspTab tab = currentTab();
         ThreadPage page = tab == null ? null : tab.threadPage;
         Post post = null;
@@ -17379,7 +17402,7 @@ public class MainActivity extends Activity {
                 new PostRenderItem(post, 0, new LinkedHashSet<>(), false),
                 false,
                 () -> {
-                    dismissPopupAnimated(popup);
+                    popup.dismiss();
                     jumpToPost(targetPostNumber);
                 },
                 replyCount);
@@ -17391,7 +17414,7 @@ public class MainActivity extends Activity {
         return box;
     }
 
-    private View threadExtractFallbackRow(ThreadExtractGroup group, PopupWindow popup) {
+    private View threadExtractFallbackRow(ThreadExtractGroup group, Dialog popup) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(8), dp(5), dp(8), dp(6));
@@ -17402,24 +17425,24 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private MediaPreviewHelper.Callback extractMediaPreviewCallbacks(PopupWindow popup) {
+    private MediaPreviewHelper.Callback extractMediaPreviewCallbacks(Dialog popup) {
         MediaPreviewHelper.Callback base = mediaPreviewCallbacks();
         return new MediaPreviewHelper.Callback() {
             @Override
             public void openImage(String originalUrl, String mediaUrl) {
-                dismissPopupAnimated(popup);
+                popup.dismiss();
                 base.openImage(originalUrl, mediaUrl);
             }
 
             @Override
             public void openVideo(String originalUrl, String mediaUrl) {
-                dismissPopupAnimated(popup);
+                popup.dismiss();
                 base.openVideo(originalUrl, mediaUrl);
             }
 
             @Override
             public void openExternal(String url) {
-                dismissPopupAnimated(popup);
+                popup.dismiss();
                 base.openExternal(url);
             }
         };
@@ -23220,7 +23243,7 @@ public class MainActivity extends Activity {
         String query = nextThreadSearchQuery(tab.threadPage.title);
         int sourceNumber = nextThreadNumber(tab.threadPage.title);
         String sourceUrl = tab.url;
-        PopupWindow loading = showNextThreadLoadingPopup();
+        AlertDialog loading = showNextThreadLoadingPopup();
         ioExecutor.execute(() -> {
             List<SearchResult> boardResults;
             List<SearchResult> candidates;
@@ -23251,11 +23274,11 @@ public class MainActivity extends Activity {
         });
     }
 
-    private PopupWindow showNextThreadLoadingPopup() {
+    private AlertDialog showNextThreadLoadingPopup() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(16), dp(20), dp(16));
-        root.setBackground(menuBackground());
+        root.setBackgroundColor(surfaceColor());
         TextView title = new TextView(this);
         title.setText(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"));
         title.setTextColor(textColor());
@@ -23268,10 +23291,8 @@ public class MainActivity extends Activity {
         message.setTextSize(14);
         message.setPadding(0, dp(10), 0, 0);
         root.addView(message);
-        PopupWindow popup = new PopupWindow(root, dp(260), ViewGroup.LayoutParams.WRAP_CONTENT, false);
-        configureModalPopup(popup, root);
-        prepareAnimatedPopupDismiss(popup, root);
-        showCenteredModalPopup(popup);
+        AlertDialog popup = createUnifiedPopupDialog(root);
+        showUnifiedPopupDialog(popup, dp(260), WindowManager.LayoutParams.WRAP_CONTENT);
         return popup;
     }
 
@@ -23281,7 +23302,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(12), dp(10), dp(12), dp(10));
-        root.setBackground(menuBackground());
+        root.setBackgroundColor(surfaceColor());
 
         PopupEditHeader header = popupEditHeader(
                 text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"),
@@ -23307,11 +23328,11 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             root.addView(scroll, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-            PopupWindow[] popupRef = new PopupWindow[1];
+            Dialog[] popupRef = new Dialog[1];
             for (SearchResult result : candidates) {
                 View row = searchResultRow(result, () -> {
                     if (popupRef[0] != null) {
-                        dismissPopupAnimated(popupRef[0]);
+                        popupRef[0].dismiss();
                     }
                 });
                 list.addView(row, new LinearLayout.LayoutParams(
@@ -23321,19 +23342,16 @@ public class MainActivity extends Activity {
         }
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(40));
         int height = Math.max(dp(180), (int) (getResources().getDisplayMetrics().heightPixels * 0.62f));
-        PopupWindow popup = new PopupWindow(root, width, height, false);
-        popup.setFocusable(true);
-        configureModalPopup(popup, root);
-        prepareAnimatedPopupDismiss(popup, root);
-        if (root.getTag() instanceof PopupWindow[]) {
-            ((PopupWindow[]) root.getTag())[0] = popup;
+        AlertDialog popup = createUnifiedPopupDialog(root);
+        if (root.getTag() instanceof Dialog[]) {
+            ((Dialog[]) root.getTag())[0] = popup;
         }
         Runnable applyQuery = () -> {
             String value = header.input.getText().toString().trim();
             if (value.isEmpty()) {
                 return;
             }
-            dismissPopupAnimated(popup);
+            popup.dismiss();
             showNextThreadCandidatesDialog(value, boardResults, sourceUrl, sourceNumber,
                     nextThreadCandidates(boardResults, value, sourceUrl, sourceNumber));
         };
@@ -23343,7 +23361,7 @@ public class MainActivity extends Activity {
             applyQuery.run();
             return true;
         });
-        showCenteredModalPopup(popup);
+        showUnifiedPopupDialog(popup, width, height);
     }
 
     private List<SearchResult> nextThreadCandidates(List<SearchResult> boardResults, String sourceTitle,
