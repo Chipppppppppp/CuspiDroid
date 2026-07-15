@@ -1152,16 +1152,9 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
-            if (!animatedPopups.isEmpty() && !isTouchInsideAnimatedPopup(event)) {
-                dismissTopAnimatedPopup();
-                return true;
-            }
+            if (dismissPopupOnOutsideTap(event)) return true;
             if (highlightedPostView != null) {
                 clearJumpHighlight();
-            }
-            if (!replyPopups.isEmpty() && !isTouchInsideTopReplyPopup(event)) {
-                dismissTopReplyPopup();
-                return true;
             }
             if (addressBar != null && addressBar.hasFocus()
                     && !isTouchInsideView(event, addressBar)
@@ -1179,6 +1172,18 @@ public class MainActivity extends Activity {
             return true;
         }
         return super.dispatchTouchEvent(event);
+    }
+
+    private boolean dismissPopupOnOutsideTap(MotionEvent event) {
+        if (!animatedPopups.isEmpty() && !isTouchInsideAnimatedPopup(event)) {
+            dismissTopAnimatedPopup();
+            return true;
+        }
+        if (!replyPopups.isEmpty() && !isTouchInsideTopReplyPopup(event)) {
+            dismissTopReplyPopup();
+            return true;
+        }
+        return false;
     }
 
     private void cancelChildTouch(MotionEvent event) {
@@ -3000,8 +3005,15 @@ public class MainActivity extends Activity {
         if (popup == null || content == null) {
             return;
         }
-        popup.setOutsideTouchable(false);
+        popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setTouchInterceptor((view, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                dismissPopupAnimated(popup);
+                return true;
+            }
+            return false;
+        });
     }
 
     private void showCenteredModalPopup(PopupWindow popup) {
@@ -23176,12 +23188,10 @@ public class MainActivity extends Activity {
             String resultError = errorMessage;
             runOnUiThread(() -> {
                 boolean active = tabs.contains(tab) && tab == currentTab();
-                if (loading.isShowing()) {
-                    loading.dismiss();
-                }
-                if (!active) {
+                if (!active || !loading.isShowing()) {
                     return;
                 }
+                loading.dismiss();
                 if (resultError != null) {
                     new AlertDialog.Builder(this)
                             .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
@@ -23266,21 +23276,11 @@ public class MainActivity extends Activity {
                 list.addView(row, rowParams);
             }
         }
-        TextView close = new TextView(this);
-        close.setText(text("\u9589\u3058\u308b", "Close"));
-        close.setTextColor(TEAL);
-        close.setTextSize(14);
-        close.setGravity(Gravity.CENTER);
-        close.setPadding(dp(8), dp(9), dp(8), dp(5));
-        root.addView(close, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(40));
         int height = Math.max(dp(180), (int) (getResources().getDisplayMetrics().heightPixels * 0.62f));
         PopupWindow popup = new PopupWindow(root, width, height, false);
         configureModalPopup(popup, root);
         prepareAnimatedPopupDismiss(popup, root);
-        close.setOnClickListener(v -> dismissPopupAnimated(popup));
         for (int i = 0; i < (candidates == null ? 0 : candidates.size()); i++) {
             View row = ((ViewGroup) ((ScrollView) root.getChildAt(1)).getChildAt(0)).getChildAt(i);
             SearchResult result = candidates.get(i);
