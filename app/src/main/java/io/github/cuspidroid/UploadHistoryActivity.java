@@ -152,13 +152,13 @@ public class UploadHistoryActivity extends Activity {
 
         int mediaSize = dp(108);
         String mediaUrl = item.optString("url", "");
-        String thumbnailUrl = item.optString("thumbnail_url", mediaUrl);
-        if (thumbnailUrl.trim().isEmpty()) {
-            thumbnailUrl = mediaUrl;
+        String previewUrl = mediaUrl;
+        if (previewUrl.trim().isEmpty()) {
+            previewUrl = item.optString("thumbnail_url", "");
         }
         View thumbnail = MediaPreviewHelper.create(this, preferences, executor,
                 new android.os.Handler(android.os.Looper.getMainLooper()),
-                mediaUrl, thumbnailUrl, isVideoUrl(mediaUrl, item.optString("mime", "")),
+                mediaUrl, previewUrl, isVideoUrl(mediaUrl, item.optString("mime", "")),
                 mediaSize, null, mediaPreviewCallbacks());
         LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(mediaSize, mediaSize);
         thumbParams.setMargins(0, 0, dp(10), 0);
