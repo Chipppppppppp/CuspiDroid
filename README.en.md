@@ -34,7 +34,7 @@ Posting preserves the read position and does not resubmit an already successful 
 - Thread/media caching and separate controls for browsing, read, post, identity, and upload histories
 - Sync2ch synchronization for bookmarks, normal tabs, and read positions
 - CuspiDroid backup creation/restoration and ChMate backup import
-- Private browsing with one shared dark-green color for the background and glasses icon, normal browsing's shared gray borders across bars and popups, and private-state preservation in new tabs
+- Private browsing that replaces normal tabs' black-toned screen, post, menu, and input backgrounds with dark green while restoring the brighter dedicated glasses-icon color, sharing normal browsing's gray borders across bars and popups, and preserving private state in new tabs
 
 ## Install
 

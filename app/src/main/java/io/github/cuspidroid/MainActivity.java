@@ -704,16 +704,22 @@ public class MainActivity extends Activity {
 
     private int bgColor() {
         if (privateUiActive()) {
-            return privateChromeColor();
+            return privateBackgroundColor();
         }
         return Theme.background(this);
     }
 
     private int surfaceColor() {
+        if (privateUiActive()) {
+            return privateBackgroundColor();
+        }
         return Theme.surface(this);
     }
 
     private int postColor() {
+        if (privateUiActive()) {
+            return privateBackgroundColor();
+        }
         return Theme.post(this);
     }
 
@@ -730,22 +736,36 @@ public class MainActivity extends Activity {
     }
 
     private int menuColor() {
+        if (privateUiActive()) {
+            return privateBackgroundColor();
+        }
         return Theme.menu(this);
     }
 
     private int barColor() {
         if (privateUiActive()) {
-            return privateChromeColor();
+            return privateBackgroundColor();
         }
         return Theme.topBar(this);
     }
 
-    private int privateChromeColor() {
+    private int fieldColor() {
+        if (privateUiActive()) {
+            return privateBackgroundColor();
+        }
+        return Theme.field(this);
+    }
+
+    private int privateBackgroundColor() {
         return Theme.dark(this) ? Color.rgb(2, 54, 42) : Color.rgb(10, 61, 34);
     }
 
     private int hintTextColor() {
         return Theme.dark(this) ? Color.rgb(168, 176, 186) : Color.rgb(100, 116, 139);
+    }
+
+    private int privateBlue() {
+        return Theme.dark(this) ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
     }
 
     private int privateButtonFill(boolean active) {
@@ -759,11 +779,14 @@ public class MainActivity extends Activity {
         if (!active) {
             return borderColor();
         }
-        return privateChromeColor();
+        return privateBackgroundColor();
     }
 
     private int privateButtonIcon(boolean active) {
-        return privateChromeColor();
+        if (!active && Theme.dark(this)) {
+            return Color.rgb(110, 231, 183);
+        }
+        return privateBlue();
     }
 
     static String text(String ja, String en) {
@@ -2969,7 +2992,7 @@ public class MainActivity extends Activity {
 
     private GradientDrawable addressBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.field(this));
+        drawable.setColor(fieldColor());
         drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(20));
         return drawable;
