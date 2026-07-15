@@ -59,7 +59,7 @@ To build an optimized release APK:
 
 ## Custom BBS List
 
-You can add all BBS links below at once from **Settings → BBS Links → Manage BBS links → Add all BBS links from README**. Existing entries are not overwritten.
+You can add all BBS links below at once from **Settings → BBS Links → Manage BBS links → Add all supported BBS links**. A confirmation dialog is shown first, and existing entries are not overwritten. Long-press and drag BBS links to reorder them.
 
 | Name | URL |
 | --- | --- |

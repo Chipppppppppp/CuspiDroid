@@ -27162,6 +27162,25 @@ public class MainActivity extends Activity {
         return links;
     }
 
+    static void saveBbsLinks(SharedPreferences preferences, List<BbsLink> links) {
+        JSONArray array = new JSONArray();
+        try {
+            for (BbsLink link : links) {
+                if (link == null || link.name == null || link.name.trim().isEmpty()
+                        || link.url == null || link.url.trim().isEmpty()) {
+                    continue;
+                }
+                JSONObject item = new JSONObject();
+                item.put("name", link.name.trim());
+                item.put("url", link.url.trim());
+                item.put("hissiUrl", link.hissiUrl == null ? "" : link.hissiUrl.trim());
+                array.put(item);
+            }
+        } catch (Exception ignored) {
+        }
+        preferences.edit().putString(PREF_BBS_LINKS, array.toString()).apply();
+    }
+
     static void addBbsLink(SharedPreferences preferences, String name, String url) {
         addBbsLink(preferences, name, url, "");
     }

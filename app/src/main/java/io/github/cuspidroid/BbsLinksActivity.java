@@ -2,10 +2,15 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,6 +41,10 @@ public class BbsLinksActivity extends Activity {
 
     private SharedPreferences preferences;
     private LinearLayout list;
+    private ScrollView scrollView;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Runnable dragAutoScrollTask;
+    private int dragAutoScrollDelta;
 
     private int bgColor() {
         return Theme.background(this);
@@ -69,6 +78,12 @@ public class BbsLinksActivity extends Activity {
         renderLinks();
     }
 
+    @Override
+    protected void onDestroy() {
+        stopDragAutoScroll();
+        super.onDestroy();
+    }
+
     private void buildLayout() {
         Theme.applySystemBars(this);
         LinearLayout root = new LinearLayout(this);
@@ -92,22 +107,65 @@ public class BbsLinksActivity extends Activity {
         root.addView(add, addParams);
 
         ViewGroup addRecommended = addRow(
-                MainActivity.text("README掲載BBSを一括追加", "Add all BBS links from README"),
+                MainActivity.text("対応BBSを一括追加", "Add all supported BBS links"),
                 MainActivity.text("未追加のカスタムBBSをまとめて追加", "Add all missing recommended custom BBS links"));
-        addRecommended.setOnClickListener(v -> addRecommendedBbsLinks());
+        addRecommended.setOnClickListener(v -> confirmAddRecommendedBbsLinks());
         LinearLayout.LayoutParams recommendedParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
         recommendedParams.setMargins(dp(18), 0, dp(18), dp(8));
         root.addView(addRecommended, recommendedParams);
 
+        TextView reorderHint = helperText(MainActivity.text(
+                "BBSリンクは長押ししてドラッグすると並べ替えできます",
+                "Long-press and drag BBS links to reorder them"));
+        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hintParams.setMargins(dp(18), 0, dp(18), dp(6));
+        root.addView(reorderHint, hintParams);
+
         ScrollView scroll = new ScrollView(this);
+        scrollView = scroll;
+        scroll.setOnDragListener((v, event) -> handleAutoScrollDrag(v, event));
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(18), 0, dp(18), dp(24));
+        list.setOnDragListener((v, event) -> handleDropOnList(event));
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+    }
+
+    private void confirmAddRecommendedBbsLinks() {
+        int missing = missingRecommendedBbsLinks();
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("対応BBSを一括追加", "Add all supported BBS links"))
+                .setMessage(MainActivity.text(
+                        "READMEに掲載している対応BBSのうち、未追加の" + missing + "件を追加します。既存の項目は変更しません。",
+                        "Add " + missing + " missing supported BBS links listed in the README. Existing entries will not be changed."))
+                .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("追加", "Add"), (d, which) -> addRecommendedBbsLinks())
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
+    }
+
+    private int missingRecommendedBbsLinks() {
+        List<MainActivity.BbsLink> existing = MainActivity.readBbsLinks(preferences);
+        int missing = 0;
+        for (String[] item : RECOMMENDED_CUSTOM_BBS_LINKS) {
+            boolean found = false;
+            for (MainActivity.BbsLink link : existing) {
+                if (item[2].equals(link.url)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                missing++;
+            }
+        }
+        return missing;
     }
 
     private void addRecommendedBbsLinks() {
@@ -149,6 +207,12 @@ public class BbsLinksActivity extends Activity {
             row.setGravity(Gravity.TOP);
             row.setPadding(dp(12), dp(10), dp(8), dp(10));
             row.setBackground(rowBackground());
+            row.setOnLongClickListener(v -> {
+                v.startDragAndDrop(ClipData.newPlainText("bbs-link", link.url),
+                        new View.DragShadowBuilder(v), new DragPayload(link.url), 0);
+                return true;
+            });
+            row.setOnDragListener((v, event) -> handleDropOnRow(row, event));
 
             LinearLayout texts = new LinearLayout(this);
             texts.setOrientation(LinearLayout.VERTICAL);
@@ -183,6 +247,128 @@ public class BbsLinksActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             params.setMargins(0, 0, 0, dp(8));
             list.addView(row, params);
+        }
+    }
+
+    private boolean handleDropOnRow(View row, DragEvent event) {
+        if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+            return event.getLocalState() instanceof DragPayload;
+        }
+        autoScrollDuringDrag(row, event);
+        if (event.getAction() != DragEvent.ACTION_DROP) {
+            return true;
+        }
+        DragPayload payload = (DragPayload) event.getLocalState();
+        int targetIndex = Math.max(0, list.indexOfChild(row));
+        if (event.getY() > row.getHeight() / 2f) {
+            targetIndex++;
+        }
+        moveBbsLink(payload.url, targetIndex);
+        return true;
+    }
+
+    private boolean handleDropOnList(DragEvent event) {
+        if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+            return event.getLocalState() instanceof DragPayload;
+        }
+        autoScrollDuringDrag(list, event);
+        if (event.getAction() != DragEvent.ACTION_DROP) {
+            return true;
+        }
+        DragPayload payload = (DragPayload) event.getLocalState();
+        moveBbsLink(payload.url, list.getChildCount());
+        return true;
+    }
+
+    private boolean handleAutoScrollDrag(View anchor, DragEvent event) {
+        if (!(event.getLocalState() instanceof DragPayload)) {
+            return false;
+        }
+        autoScrollDuringDrag(anchor, event);
+        return true;
+    }
+
+    private void moveBbsLink(String url, int targetIndex) {
+        List<MainActivity.BbsLink> links = MainActivity.readBbsLinks(preferences);
+        int sourceIndex = -1;
+        for (int i = 0; i < links.size(); i++) {
+            if (url.equals(links.get(i).url)) {
+                sourceIndex = i;
+                break;
+            }
+        }
+        if (sourceIndex < 0) {
+            return;
+        }
+        MainActivity.BbsLink link = links.remove(sourceIndex);
+        if (sourceIndex < targetIndex) {
+            targetIndex--;
+        }
+        links.add(Math.max(0, Math.min(targetIndex, links.size())), link);
+        MainActivity.saveBbsLinks(preferences, links);
+        renderLinks();
+    }
+
+    private void autoScrollDuringDrag(View anchor, DragEvent event) {
+        if (event == null || anchor == null || scrollView == null) {
+            return;
+        }
+        int action = event.getAction();
+        if (action == DragEvent.ACTION_DRAG_ENDED || action == DragEvent.ACTION_DROP
+                || action == DragEvent.ACTION_DRAG_EXITED) {
+            stopDragAutoScroll();
+            return;
+        }
+        if (action != DragEvent.ACTION_DRAG_LOCATION) {
+            return;
+        }
+        int[] location = new int[2];
+        anchor.getLocationOnScreen(location);
+        float screenY = location[1] + event.getY();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int edge = dp(48);
+        int maxStep = dp(34);
+        int minStep = dp(5);
+        int delta = 0;
+        if (screenY <= frame.top + edge) {
+            float ratio = Math.min(1f, Math.max(0f, (frame.top + edge - screenY) / Math.max(1f, edge)));
+            delta = -Math.max(minStep, Math.round(maxStep * ratio));
+        } else if (screenY >= frame.bottom - edge) {
+            float ratio = Math.min(1f, Math.max(0f, (screenY - (frame.bottom - edge)) / Math.max(1f, edge)));
+            delta = Math.max(minStep, Math.round(maxStep * ratio));
+        }
+        if (delta == 0) {
+            stopDragAutoScroll();
+            return;
+        }
+        dragAutoScrollDelta = delta;
+        startDragAutoScroll();
+    }
+
+    private void startDragAutoScroll() {
+        if (dragAutoScrollTask != null) {
+            return;
+        }
+        dragAutoScrollTask = new Runnable() {
+            @Override
+            public void run() {
+                if (scrollView == null || dragAutoScrollDelta == 0) {
+                    dragAutoScrollTask = null;
+                    return;
+                }
+                scrollView.scrollBy(0, dragAutoScrollDelta);
+                handler.postDelayed(this, 16);
+            }
+        };
+        handler.post(dragAutoScrollTask);
+    }
+
+    private void stopDragAutoScroll() {
+        dragAutoScrollDelta = 0;
+        if (dragAutoScrollTask != null) {
+            handler.removeCallbacks(dragAutoScrollTask);
+            dragAutoScrollTask = null;
         }
     }
 
@@ -429,5 +615,13 @@ public class BbsLinksActivity extends Activity {
 
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static class DragPayload {
+        final String url;
+
+        DragPayload(String url) {
+            this.url = url;
+        }
     }
 }
