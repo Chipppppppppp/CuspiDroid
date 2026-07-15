@@ -12,6 +12,8 @@
 
 [English README](README.en.md)
 
+タイトルバーからスレッド末尾へ移動した後も、上方向へのスクロール操作をすぐに行えます。
+
 CuspiDroid は、5ch と互換掲示板をブラウザライクな UI で閲覧・投稿する Android アプリです。Android 6.0 以降に対応しています。
 
 ## 機能

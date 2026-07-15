@@ -11333,6 +11333,12 @@ public class MainActivity extends Activity {
             }
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 float dy = event.getY() - downY[0];
+                // A downward finger drag means the user is trying to leave the bottom.
+                // Cancel the layout-stabilization jump before it can pull the view back.
+                if (isBottomJumpActive(tab) && dy > dp(4)) {
+                    cancelBottomJump(tab);
+                    return false;
+                }
                 if (activeEdge[0] == 0) {
                     if (!startedAtTop[0] && !scroll.canScrollVertically(-1)) {
                         startedAtTop[0] = true;
@@ -20323,6 +20329,9 @@ public class MainActivity extends Activity {
     }
 
     private void scrollThreadToBottomWhenReady(CuspTab tab, int attempt) {
+        if (tab == null || !isBottomJumpActive(tab)) {
+            return;
+        }
         ScrollView scroll = tab == null ? visibleThreadScroll : tab.threadScroll;
         if (scroll == null && tab != null) {
             scroll = findScrollView(tab.readerView);
@@ -20342,6 +20351,9 @@ public class MainActivity extends Activity {
             return;
         }
         targetScroll.post(() -> {
+            if (!isBottomJumpActive(tab)) {
+                return;
+            }
             targetScroll.fling(0);
             targetScroll.clearAnimation();
             int range = Math.max(0, targetScroll.getChildAt(0).getHeight() - targetScroll.getHeight());

@@ -14,6 +14,8 @@
 
 CuspiDroid is an Android app for browsing and posting to 5ch and compatible BBS sites with a browser-like interface. It supports Android 6.0 and later.
 
+After jumping to a thread's bottom from the title bar, you can immediately scroll upward.
+
 ## Features
 
 - Browser-like navigation with multiple tabs, search-field autofocus on new tabs, a tab overview, bookmark folders, and history
