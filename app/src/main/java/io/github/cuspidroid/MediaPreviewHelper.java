@@ -47,6 +47,8 @@ final class MediaPreviewHelper {
         FrameLayout frame = new FrameLayout(activity);
         final String[] activeMediaUrl = {mediaUrl};
         frame.setClickable(true);
+        frame.setClipChildren(true);
+        frame.setClipToPadding(true);
         frame.setBackgroundColor(video ? Color.BLACK : mediaBackground(activity));
         frame.setMinimumWidth(cellSize);
         frame.setMinimumHeight(cellSize);
@@ -59,6 +61,10 @@ final class MediaPreviewHelper {
 
         ImageView image = new ImageView(activity);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setAdjustViewBounds(false);
+        image.setCropToPadding(false);
+        image.setMaxWidth(cellSize);
+        image.setMaxHeight(cellSize);
         image.setVisibility(View.GONE);
         image.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
@@ -183,8 +189,8 @@ final class MediaPreviewHelper {
             Bitmap finalBitmap = bitmap;
             Drawable finalDrawable = drawable;
             boolean gif = isGifUrl(activeMediaUrl[0]);
-            mainHandler.post(() -> {
-                if (!frame.isAttachedToWindow()) {
+            mainHandler.post(() -> runWhenAttached(frame, () -> {
+                if (activity.isFinishing() || activity.isDestroyed()) {
                     return;
                 }
                 spinner.setVisibility(View.GONE);
@@ -212,9 +218,27 @@ final class MediaPreviewHelper {
                     error.setVisibility(video || (gif && !autoplayGifs(preferences)) ? View.GONE : View.VISIBLE);
                     play.setVisibility(video || (gif && !autoplayGifs(preferences)) ? View.VISIBLE : View.GONE);
                 }
-            });
+            }));
         });
         return frame;
+    }
+
+    private static void runWhenAttached(View view, Runnable action) {
+        if (view.isAttachedToWindow()) {
+            action.run();
+            return;
+        }
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View attached) {
+                attached.removeOnAttachStateChangeListener(this);
+                action.run();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View detached) {
+            }
+        });
     }
 
     private static DownloadedMedia downloadResolvedBytes(String url, int limit) throws Exception {
