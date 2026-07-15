@@ -236,7 +236,7 @@ public class BbsLinksActivity extends Activity {
             row.addView(delete, iconParams());
 
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(72));
             params.setMargins(0, 0, 0, dp(8));
             list.addView(row, params);
         }
