@@ -6120,6 +6120,9 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        if (!forceScrollToBottom) {
+            rememberThreadRefreshScroll(tab);
+        }
         if (centerSpinner) {
             showCenterSpinner();
         }
@@ -6158,6 +6161,7 @@ public class MainActivity extends Activity {
                     resetBottomRefreshLoader(tab.threadBottomLoader);
                 }
                 if (result.error != null) {
+                    clearThreadRefreshScroll(tab);
                     Toast.makeText(this, friendlyThreadLoadError(result.error), Toast.LENGTH_SHORT).show();
                     if (onComplete != null) {
                         onComplete.run();
@@ -6176,6 +6180,7 @@ public class MainActivity extends Activity {
                     updateTabThreadStats(tab, result);
                     tab.postViews = new LinkedHashMap<>();
                     tab.readerView = buildThreadView(result, tab);
+                    clearThreadRefreshScroll(tab);
                     cacheThreadPage(result);
                     if (tab == currentTab()) {
                         switchToTab(currentIndex);
@@ -6194,6 +6199,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 if (result.posts.size() <= oldCount) {
+                    clearThreadRefreshScroll(tab);
                     tab.title = result.title;
                     tab.threadPage = result;
                     updateThreadTitleHeader(tab, result);
@@ -8041,7 +8047,9 @@ public class MainActivity extends Activity {
                     && !tab.threadSearchQuery.trim().isEmpty()) {
                 updateThreadSearch(tab.threadSearchQuery, false);
             }
-            restoreThreadScroll(tab);
+            if (!restoreThreadRefreshScroll(tab)) {
+                restoreThreadScroll(tab);
+            }
             runPendingScrollToBottom(tab);
             runPendingPostJump(tab);
         }
@@ -11236,7 +11244,12 @@ public class MainActivity extends Activity {
                         downY[0] = event.getY();
                         dy = 0;
                     }
-                    if (startedAtTop[0] && dy > dp(4) && !scroll.canScrollVertically(-1)) {
+                    boolean fitsViewport = startedAtTop[0] && startedAtBottom[0];
+                    if (fitsViewport && dy > dp(4)) {
+                        activeEdge[0] = -1;
+                    } else if (fitsViewport && dy < -dp(4)) {
+                        activeEdge[0] = 1;
+                    } else if (startedAtTop[0] && dy > dp(4) && !scroll.canScrollVertically(-1)) {
                         activeEdge[0] = -1;
                     } else if (startedAtBottom[0] && dy < -dp(4) && !scroll.canScrollVertically(1)) {
                         activeEdge[0] = 1;
@@ -22020,6 +22033,44 @@ public class MainActivity extends Activity {
         syncThreadScrollForMatchingTabs(tab);
     }
 
+    private void rememberThreadRefreshScroll(CuspTab tab) {
+        if (tab == null || tab.threadScroll == null) {
+            return;
+        }
+        tab.hasPendingThreadRefreshScroll = true;
+        tab.pendingThreadRefreshScrollY = tab.threadScroll.getScrollY();
+        if (tab.threadScroll.getChildCount() > 0) {
+            View content = tab.threadScroll.getChildAt(0);
+            int oldBottom = Math.max(0, content.getHeight() - tab.threadScroll.getHeight());
+            if (tab.pendingThreadRefreshScrollY >= oldBottom - dp(4)) {
+                // Keep the former last post in view while exposing the start of new posts.
+                tab.pendingThreadRefreshScrollY = Math.max(0,
+                        oldBottom + dp(32));
+            }
+        }
+    }
+
+    private void clearThreadRefreshScroll(CuspTab tab) {
+        if (tab == null) {
+            return;
+        }
+        tab.hasPendingThreadRefreshScroll = false;
+        tab.pendingThreadRefreshScrollY = 0;
+    }
+
+    private boolean restoreThreadRefreshScroll(CuspTab tab) {
+        if (tab == null || !tab.hasPendingThreadRefreshScroll || tab.threadScroll == null
+                || tab.threadScroll.getChildCount() == 0) {
+            return false;
+        }
+        View content = tab.threadScroll.getChildAt(0);
+        int range = Math.max(0, content.getHeight() - tab.threadScroll.getHeight());
+        tab.threadScroll.scrollTo(0, Math.min(tab.pendingThreadRefreshScrollY, range));
+        clearThreadRefreshScroll(tab);
+        scheduleThreadScrollChromeRefresh(tab, 6);
+        return true;
+    }
+
     private void restoreThreadScroll(CuspTab tab) {
         restoreThreadScroll(tab, 0);
     }
@@ -28533,9 +28584,11 @@ public class MainActivity extends Activity {
         long lastActivatedAt = android.os.SystemClock.uptimeMillis();
         long lastScrollAt;
         long lastThreadScrollSaveAt;
+        int pendingThreadRefreshScrollY;
         int threadScrollChromeFrames;
         boolean hasSavedThreadScroll;
         boolean hasSavedContentScroll;
+        boolean hasPendingThreadRefreshScroll;
         boolean restoringScroll;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
