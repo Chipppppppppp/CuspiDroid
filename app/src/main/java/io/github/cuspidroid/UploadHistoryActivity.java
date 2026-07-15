@@ -131,12 +131,6 @@ public class UploadHistoryActivity extends Activity {
             return;
         }
 
-        TextView note = helperText(MainActivity.text(
-                "「ImgBBから削除」は画像そのものを削除します。「履歴から削除」はアプリ内の記録だけを削除します。",
-                "Delete from ImgBB removes the image. Delete from history only removes the local record."));
-        note.setPadding(0, 0, 0, dp(10));
-        list.addView(note);
-
         for (int i = 0; i < uploads.length(); i++) {
             JSONObject item = uploads.optJSONObject(i);
             if (item == null) {
@@ -158,9 +152,13 @@ public class UploadHistoryActivity extends Activity {
 
         int mediaSize = dp(108);
         String mediaUrl = item.optString("url", "");
+        String thumbnailUrl = item.optString("thumbnail_url", mediaUrl);
+        if (thumbnailUrl.trim().isEmpty()) {
+            thumbnailUrl = mediaUrl;
+        }
         View thumbnail = MediaPreviewHelper.create(this, preferences, executor,
                 new android.os.Handler(android.os.Looper.getMainLooper()),
-                mediaUrl, mediaUrl, isVideoUrl(mediaUrl, item.optString("mime", "")),
+                mediaUrl, thumbnailUrl, isVideoUrl(mediaUrl, item.optString("mime", "")),
                 mediaSize, null, mediaPreviewCallbacks());
         LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(mediaSize, mediaSize);
         thumbParams.setMargins(0, 0, dp(10), 0);
@@ -205,7 +203,7 @@ public class UploadHistoryActivity extends Activity {
         copy.setOnClickListener(v -> copyUrl(item.optString("url", "")));
         actions.addView(copy, buttonParams());
 
-        TextView remoteDelete = actionButton(MainActivity.text("削除", "Delete"), R.drawable.ic_delete, Color.rgb(190, 50, 50));
+        TextView remoteDelete = actionButton(MainActivity.text("削除", "Delete"), R.drawable.ic_delete, mutedColor());
         remoteDelete.setOnClickListener(v -> confirmRemoteDelete(item));
         actions.addView(remoteDelete, buttonParams());
 

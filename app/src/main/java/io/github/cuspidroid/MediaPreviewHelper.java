@@ -158,7 +158,7 @@ final class MediaPreviewHelper {
                             loadGif ? ".gif" : ".img");
                     if (bytes == null) {
                         DownloadedMedia downloaded = downloadResolvedBytes(loadUrl,
-                                loadGif ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
+                                loadGif ? 32 * 1024 * 1024 : 40 * 1024 * 1024);
                         bytes = downloaded.bytes;
                         activeMediaUrl[0] = downloaded.url;
                         if (!isDirectMediaUrl(mediaUrl)) {
@@ -174,7 +174,7 @@ final class MediaPreviewHelper {
                             ((AnimatedImageDrawable) drawable).setRepeatCount(AnimatedImageDrawable.REPEAT_INFINITE);
                         }
                     }
-                    bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    bitmap = decodePreviewBitmap(bytes, cellSize);
                 }
             } catch (Exception ignored) {
                 bitmap = null;
@@ -400,6 +400,27 @@ final class MediaPreviewHelper {
             output.write(buffer, 0, read);
         }
         return output.toByteArray();
+    }
+
+    private static Bitmap decodePreviewBitmap(byte[] bytes, int targetSize) {
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return null;
+        }
+        int sampleSize = 1;
+        int requested = Math.max(targetSize * 2, 1);
+        while (Math.max(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= requested) {
+            sampleSize *= 2;
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sampleSize;
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
     }
 
     private static String valueOr(String value, String fallback) {

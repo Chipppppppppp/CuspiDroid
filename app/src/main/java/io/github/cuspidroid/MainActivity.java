@@ -21170,7 +21170,9 @@ public class MainActivity extends Activity {
         if (link.isEmpty()) {
             throw new IllegalStateException(text("ImgBB URL\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093", "Could not read ImgBB URL."));
         }
-        return new ImgbbUploadResult(uploadName, uploadMime, link, data.optString("delete_url", ""),
+        JSONObject thumb = data.optJSONObject("thumb");
+        String thumbnailUrl = thumb == null ? "" : thumb.optString("url", "");
+        return new ImgbbUploadResult(uploadName, uploadMime, link, thumbnailUrl, data.optString("delete_url", ""),
                 expirationSeconds >= 60 && expirationSeconds <= 15552000 ? expirationSeconds : 0,
                 System.currentTimeMillis());
     }
@@ -21377,6 +21379,7 @@ public class MainActivity extends Activity {
             item.put("name", result.name);
             item.put("mime", result.mime);
             item.put("url", result.link);
+            item.put("thumbnail_url", result.thumbnailUrl);
             item.put("delete_url", result.deleteUrl);
             item.put("expiration", result.expirationSeconds);
             item.put("time", result.time);
@@ -29792,14 +29795,17 @@ public class MainActivity extends Activity {
         final String name;
         final String mime;
         final String link;
+        final String thumbnailUrl;
         final String deleteUrl;
         final int expirationSeconds;
         final long time;
 
-        ImgbbUploadResult(String name, String mime, String link, String deleteUrl, int expirationSeconds, long time) {
+        ImgbbUploadResult(String name, String mime, String link, String thumbnailUrl, String deleteUrl,
+                          int expirationSeconds, long time) {
             this.name = name;
             this.mime = mime;
             this.link = link;
+            this.thumbnailUrl = thumbnailUrl;
             this.deleteUrl = deleteUrl;
             this.expirationSeconds = expirationSeconds;
             this.time = time;
