@@ -704,7 +704,7 @@ public class MainActivity extends Activity {
 
     private int bgColor() {
         if (privateUiActive()) {
-            return privateBackgroundColor();
+            return privateCanvasColor();
         }
         return Theme.background(this);
     }
@@ -744,7 +744,7 @@ public class MainActivity extends Activity {
 
     private int barColor() {
         if (privateUiActive()) {
-            return privateBackgroundColor();
+            return privateCanvasColor();
         }
         return Theme.topBar(this);
     }
@@ -758,6 +758,10 @@ public class MainActivity extends Activity {
 
     private int privateBackgroundColor() {
         return Theme.dark(this) ? Color.rgb(1, 40, 29) : Color.rgb(5, 46, 25);
+    }
+
+    private int privateCanvasColor() {
+        return Theme.dark(this) ? Color.rgb(0, 24, 17) : Color.rgb(2, 30, 16);
     }
 
     private int hintTextColor() {
