@@ -142,9 +142,14 @@ final class Theme {
         if (dialog.getWindow() != null) {
             GradientDrawable background = new GradientDrawable();
             background.setColor(surface(context));
-            background.setStroke(dp(context, 2), border(context));
             background.setCornerRadius(dp(context, 10));
             dialog.getWindow().setBackgroundDrawable(background);
+
+            GradientDrawable frame = new GradientDrawable();
+            frame.setColor(Color.TRANSPARENT);
+            frame.setStroke(dp(context, 2), border(context));
+            frame.setCornerRadius(dp(context, 10));
+            dialog.getWindow().getDecorView().setForeground(frame);
         }
     }
 
