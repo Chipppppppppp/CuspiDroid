@@ -741,15 +741,11 @@ public class MainActivity extends Activity {
     }
 
     private int privateChromeColor() {
-        return Theme.dark(this) ? Color.rgb(4, 83, 63) : Color.rgb(20, 83, 45);
+        return Theme.dark(this) ? Color.rgb(2, 54, 42) : Color.rgb(10, 61, 34);
     }
 
     private int hintTextColor() {
         return Theme.dark(this) ? Color.rgb(168, 176, 186) : Color.rgb(100, 116, 139);
-    }
-
-    private int privateBlue() {
-        return Theme.dark(this) ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
     }
 
     private int privateButtonFill(boolean active) {
@@ -767,10 +763,7 @@ public class MainActivity extends Activity {
     }
 
     private int privateButtonIcon(boolean active) {
-        if (!active && Theme.dark(this)) {
-            return Color.rgb(110, 231, 183);
-        }
-        return privateBlue();
+        return privateChromeColor();
     }
 
     static String text(String ja, String en) {
@@ -3201,7 +3194,7 @@ public class MainActivity extends Activity {
     }
 
     private void createBlankTab() {
-        showPendingNewTab();
+        showPendingNewTab(currentTabIsPrivate());
         focusPendingNewTabSearch();
     }
 
