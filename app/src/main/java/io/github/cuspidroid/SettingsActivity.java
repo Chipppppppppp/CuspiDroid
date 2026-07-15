@@ -33,8 +33,35 @@ public class SettingsActivity extends Activity {
     static final String EXTRA_CATEGORY = "settings_category";
     static final String EXTRA_CATEGORY_TITLE = "settings_category_title";
     static final String EXTRA_CATEGORY_SUBTITLE = "settings_category_subtitle";
+    private static final int CATEGORY_APPEARANCE = 0;
+    private static final int CATEGORY_READING = 1;
+    private static final int CATEGORY_LISTS = 2;
     private static final int CATEGORY_GESTURES = 3;
+    private static final int CATEGORY_LINKS = 4;
     private static final int CATEGORY_BBS_LINKS = 5;
+    private static final int CATEGORY_MEDIA = 6;
+    private static final int CATEGORY_UPLOADS = 7;
+    private static final int CATEGORY_STORAGE = 8;
+    private static final int CATEGORY_HISTORY = 9;
+    private static final int CATEGORY_SYNC = 10;
+    private static final int CATEGORY_BACKUP = 11;
+    private static final int CATEGORY_ADVANCED = 12;
+    private static final int CATEGORY_COUNT = 13;
+    private static final int[] CATEGORY_DISPLAY_ORDER = {
+            CATEGORY_APPEARANCE,
+            CATEGORY_READING,
+            CATEGORY_MEDIA,
+            CATEGORY_LISTS,
+            CATEGORY_GESTURES,
+            CATEGORY_LINKS,
+            CATEGORY_BBS_LINKS,
+            CATEGORY_UPLOADS,
+            CATEGORY_HISTORY,
+            CATEGORY_STORAGE,
+            CATEGORY_SYNC,
+            CATEGORY_BACKUP,
+            CATEGORY_ADVANCED
+    };
     private static final int REQUEST_CHMATE_DATABASE = 4201;
     private static final int REQUEST_CUSPIDROID_BACKUP_CREATE = 4202;
     private static final int REQUEST_CUSPIDROID_BACKUP_RESTORE = 4203;
@@ -368,22 +395,6 @@ public class SettingsActivity extends Activity {
         root.addView(sectionTitle(R.drawable.ic_image,
                 MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u3068\u30d5\u30a3\u30eb\u30bf", "Media & Filters"),
                 MainActivity.text("\u753b\u50cf\u30fb\u52d5\u753b\u306e\u8868\u793a\u3068\u30b3\u30f3\u30c6\u30f3\u30c4\u30d5\u30a3\u30eb\u30bf", "Image and video display, plus content filters")));
-        root.addView(fieldLabel(MainActivity.text("\u4eba\u6c17\u30ec\u30b9\u306e\u65e2\u5b9a\u95be\u5024", "Default popular post threshold")));
-        root.addView(helperText(MainActivity.text(
-                "\u4eba\u6c17\u30ec\u30b9\u30d5\u30a3\u30eb\u30bf\u3092\u958b\u3044\u305f\u3068\u304d\u306b\u4f7f\u3046\u300cn\u4ef6\u4ee5\u4e0a\u306e\u8fd4\u4fe1\u300d\u306e\u521d\u671f\u5024",
-                "Initial reply-count threshold used when opening the popular posts filter.")));
-        popularReplyThreshold = new EditText(this);
-        popularReplyThreshold.setSingleLine(true);
-        popularReplyThreshold.setTextSize(14);
-        popularReplyThreshold.setTextColor(textColor());
-        popularReplyThreshold.setHintTextColor(hintColor());
-        popularReplyThreshold.setHint("3");
-        popularReplyThreshold.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        popularReplyThreshold.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        popularReplyThreshold.setBackground(roundedField());
-        popularReplyThreshold.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(popularReplyThreshold, fieldParams());
-
         showMediaPreviews = new CheckBox(this);
         showMediaPreviews.setText(MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5185\u306e\u30e1\u30c7\u30a3\u30a2\u3092\u8868\u793a", "Show media in posts"));
         showMediaPreviews.setTextColor(textColor());
@@ -418,6 +429,22 @@ public class SettingsActivity extends Activity {
         autoplayGifs.setTextSize(16);
         Theme.tintCompoundButton(this, autoplayGifs);
         root.addView(autoplayGifs);
+
+        root.addView(fieldLabel(MainActivity.text("\u4eba\u6c17\u30ec\u30b9\u306e\u65e2\u5b9a\u95be\u5024", "Default popular post threshold")));
+        root.addView(helperText(MainActivity.text(
+                "\u4eba\u6c17\u30ec\u30b9\u30d5\u30a3\u30eb\u30bf\u3092\u958b\u3044\u305f\u3068\u304d\u306b\u4f7f\u3046\u300cn\u4ef6\u4ee5\u4e0a\u306e\u8fd4\u4fe1\u300d\u306e\u521d\u671f\u5024",
+                "Initial reply-count threshold used when opening the popular posts filter.")));
+        popularReplyThreshold = new EditText(this);
+        popularReplyThreshold.setSingleLine(true);
+        popularReplyThreshold.setTextSize(14);
+        popularReplyThreshold.setTextColor(textColor());
+        popularReplyThreshold.setHintTextColor(hintColor());
+        popularReplyThreshold.setHint("3");
+        popularReplyThreshold.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        popularReplyThreshold.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        popularReplyThreshold.setBackground(roundedField());
+        popularReplyThreshold.setPadding(dp(12), 0, dp(12), 0);
+        root.addView(popularReplyThreshold, fieldParams());
 
         root.addView(managementRow(R.drawable.ic_close,
                 MainActivity.text("NG\u7ba1\u7406", "NG management"),
@@ -642,6 +669,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u8868\u793a\u3001\u691c\u7d22\u3001\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u306a\u3069\u306e\u8a2d\u5b9a\u3092\u521d\u671f\u5024\u306b\u623b\u3059", "Restore display, search, gesture, and related settings"),
                 v -> confirmResetDefaults()));
 
+        root.finishCategoryList();
     }
 
     @Override
@@ -1296,6 +1324,7 @@ public class SettingsActivity extends Activity {
     private final class SectionedSettingsLayout extends LinearLayout {
         private final boolean categoryScreen;
         private final int targetCategory;
+        private final CategoryCard[] categoryCards = new CategoryCard[CATEGORY_COUNT];
         private int categoryIndex = -1;
         private boolean includeCurrentCategory;
 
@@ -1315,13 +1344,37 @@ public class SettingsActivity extends Activity {
                 if (!categoryScreen) {
                     int selectedCategory = categoryIndex;
                     child.setOnClickListener(v -> openCategory(selectedCategory, header));
-                    super.addView(child, index, params);
+                    if (selectedCategory < categoryCards.length) {
+                        categoryCards[selectedCategory] = new CategoryCard(child, params);
+                    }
                 }
                 return;
             }
             if (categoryIndex < 0 || includeCurrentCategory) {
                 super.addView(child, index, params);
             }
+        }
+
+        void finishCategoryList() {
+            if (categoryScreen) {
+                return;
+            }
+            for (int category : CATEGORY_DISPLAY_ORDER) {
+                CategoryCard card = categoryCards[category];
+                if (card != null) {
+                    super.addView(card.view, -1, card.params);
+                }
+            }
+        }
+    }
+
+    private static final class CategoryCard {
+        final View view;
+        final ViewGroup.LayoutParams params;
+
+        CategoryCard(View view, ViewGroup.LayoutParams params) {
+            this.view = view;
+            this.params = params;
         }
     }
 
