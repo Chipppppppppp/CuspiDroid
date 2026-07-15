@@ -30,6 +30,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public class SettingsActivity extends Activity {
+    static final String EXTRA_CATEGORY = "settings_category";
+    static final String EXTRA_CATEGORY_TITLE = "settings_category_title";
+    static final String EXTRA_CATEGORY_SUBTITLE = "settings_category_subtitle";
+    private static final int CATEGORY_GESTURES = 3;
+    private static final int CATEGORY_BBS_LINKS = 5;
     private static final int REQUEST_CHMATE_DATABASE = 4201;
     private static final int REQUEST_CUSPIDROID_BACKUP_CREATE = 4202;
     private static final int REQUEST_CUSPIDROID_BACKUP_RESTORE = 4203;
@@ -131,9 +136,11 @@ public class SettingsActivity extends Activity {
 
     private void buildLayout() {
         Theme.applySystemBars(this);
+        boolean categoryScreen = this instanceof SettingsCategoryActivity;
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(bgColor());
-        SectionedSettingsLayout root = new SectionedSettingsLayout();
+        SectionedSettingsLayout root = new SectionedSettingsLayout(categoryScreen,
+                getIntent().getIntExtra(EXTRA_CATEGORY, -1));
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(28));
         scroll.addView(root, new ScrollView.LayoutParams(
@@ -141,7 +148,9 @@ public class SettingsActivity extends Activity {
         setContentView(scroll);
 
         TextView title = new TextView(this);
-        title.setText(MainActivity.text("\u8a2d\u5b9a", "Settings"));
+        title.setText(categoryScreen
+                ? getIntent().getStringExtra(EXTRA_CATEGORY_TITLE)
+                : MainActivity.text("\u8a2d\u5b9a", "Settings"));
         title.setTextColor(textColor());
         title.setTextSize(28);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -149,7 +158,9 @@ public class SettingsActivity extends Activity {
         title.setPadding(0, 0, 0, dp(2));
         root.addView(title);
 
-        TextView introduction = helperText(MainActivity.text(
+        TextView introduction = helperText(categoryScreen
+                ? getIntent().getStringExtra(EXTRA_CATEGORY_SUBTITLE)
+                : MainActivity.text(
                 "\u4f7f\u3044\u65b9\u306b\u5408\u308f\u305b\u3066\u3001\u8868\u793a\u30fb\u64cd\u4f5c\u30fb\u30c7\u30fc\u30bf\u7ba1\u7406\u3092\u8abf\u6574\u3067\u304d\u307e\u3059\u3002",
                 "Tune appearance, controls, and data management to match how you use the app."));
         introduction.setTextSize(14);
@@ -295,7 +306,7 @@ public class SettingsActivity extends Activity {
                         .putExtra(ListDisplaySettingsActivity.EXTRA_MODE, ListDisplaySettingsActivity.MODE_TAB))));
 
         root.addView(sectionTitle(android.R.drawable.ic_menu_compass,
-                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u64cd\u4f5c", "Gesture Controls"),
+                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
                 MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066", "Swipes and action assignments")));
         root.addView(managementRow(android.R.drawable.ic_menu_compass,
                 MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
@@ -344,7 +355,7 @@ public class SettingsActivity extends Activity {
         root.addView(hint);
 
         root.addView(sectionTitle(R.drawable.ic_link,
-                MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links"),
+                MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u7ba1\u7406", "Manage BBS Links"),
                 MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u3068\u8a8d\u8a3c", "Custom BBS sites and authentication")));
         root.addView(helperText(MainActivity.text(
                 "\u8a8d\u8a3c\u304c\u5fc5\u8981\u306aBBS\u306f\u3001\u30b9\u30ec\u3092WebView\u3067\u958b\u3044\u3066\u8a8d\u8a3c\u3059\u308b\u3068\u3001\u305d\u306e\u30af\u30c3\u30ad\u30fc\u3092\u4f7f\u3063\u3066\u95b2\u89a7\u30fb\u66f8\u304d\u8fbc\u307f\u3067\u304d\u307e\u3059\u3002",
@@ -490,7 +501,7 @@ public class SettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
 
         LinearLayout clearCacheRow = new LinearLayout(this);
-        clearCacheRow.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        clearCacheRow.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         clearCacheButton = cacheActionButton();
         clearCacheButton.setOnClickListener(v -> confirmClearCache());
         clearCacheRow.addView(clearCacheButton, new LinearLayout.LayoutParams(
@@ -1283,12 +1294,15 @@ public class SettingsActivity extends Activity {
     }
 
     private final class SectionedSettingsLayout extends LinearLayout {
-        private LinearLayout currentSection;
-        private LinearLayout expandedSection;
-        private SectionHeaderTag expandedHeader;
+        private final boolean categoryScreen;
+        private final int targetCategory;
+        private int categoryIndex = -1;
+        private boolean includeCurrentCategory;
 
-        SectionedSettingsLayout() {
+        SectionedSettingsLayout(boolean categoryScreen, int targetCategory) {
             super(SettingsActivity.this);
+            this.categoryScreen = categoryScreen;
+            this.targetCategory = targetCategory;
         }
 
         @Override
@@ -1296,101 +1310,50 @@ public class SettingsActivity extends Activity {
             Object tag = child.getTag();
             if (tag instanceof SectionHeaderTag) {
                 SectionHeaderTag header = (SectionHeaderTag) tag;
+                categoryIndex++;
+                includeCurrentCategory = categoryScreen && categoryIndex == targetCategory;
+                if (!categoryScreen) {
+                    int selectedCategory = categoryIndex;
+                    child.setOnClickListener(v -> openCategory(selectedCategory, header));
+                    super.addView(child, index, params);
+                }
+                return;
+            }
+            if (categoryIndex < 0 || includeCurrentCategory) {
                 super.addView(child, index, params);
-                currentSection = new LinearLayout(SettingsActivity.this);
-                currentSection.setOrientation(LinearLayout.VERTICAL);
-                currentSection.setPadding(0, 0, 0, dp(4));
-                currentSection.setVisibility(View.GONE);
-                super.addView(currentSection, -1, new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                LinearLayout section = currentSection;
-                child.setOnClickListener(v -> toggleSection(section, header));
-                return;
             }
-            if (currentSection != null) {
-                currentSection.addView(child, params);
-                return;
-            }
-            super.addView(child, index, params);
-        }
-
-        private void toggleSection(LinearLayout section, SectionHeaderTag header) {
-            if (section.getVisibility() == View.VISIBLE) {
-                section.setVisibility(View.GONE);
-                header.arrow.setImageResource(R.drawable.ic_arrow_down);
-                expandedSection = null;
-                expandedHeader = null;
-                return;
-            }
-            if (expandedSection != null) {
-                expandedSection.setVisibility(View.GONE);
-            }
-            if (expandedHeader != null) {
-                expandedHeader.arrow.setImageResource(R.drawable.ic_arrow_down);
-            }
-            section.setVisibility(View.VISIBLE);
-            header.arrow.setImageResource(R.drawable.ic_arrow_up);
-            expandedSection = section;
-            expandedHeader = header;
         }
     }
 
     private static final class SectionHeaderTag {
-        final ImageView arrow;
+        final String title;
+        final String subtitle;
 
-        SectionHeaderTag(ImageView arrow) {
-            this.arrow = arrow;
+        SectionHeaderTag(String title, String subtitle) {
+            this.title = title;
+            this.subtitle = subtitle;
         }
     }
 
     private View sectionTitle(int iconRes, String title, String subtitle) {
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(12), dp(10), dp(12), dp(10));
-        header.setBackground(roundedSectionHeader());
-        header.setClickable(true);
-        header.setFocusable(true);
+        View row = managementRow(iconRes, title, subtitle, null);
+        row.setTag(new SectionHeaderTag(title, subtitle));
+        return row;
+    }
 
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Theme.accent(this));
-        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
-        icon.setBackground(roundedIconBubble());
-        header.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        TextView titleView = new TextView(this);
-        titleView.setText(title);
-        titleView.setTextColor(textColor());
-        titleView.setTextSize(18);
-        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        labels.addView(titleView);
-        TextView subtitleView = new TextView(this);
-        subtitleView.setText(subtitle);
-        subtitleView.setTextColor(mutedColor());
-        subtitleView.setTextSize(12);
-        subtitleView.setSingleLine(true);
-        subtitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        labels.addView(subtitleView);
-        LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        labelsParams.setMargins(dp(12), 0, 0, 0);
-        header.addView(labels, labelsParams);
-
-        ImageView arrow = new ImageView(this);
-        arrow.setImageResource(R.drawable.ic_arrow_down);
-        arrow.setColorFilter(mutedColor());
-        arrow.setContentDescription(MainActivity.text("\u8a2d\u5b9a\u3092\u958b\u304f", "Open settings"));
-        header.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(24)));
-        header.setTag(new SectionHeaderTag(arrow));
-
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(66));
-        params.setMargins(0, dp(5), 0, dp(5));
-        header.setLayoutParams(params);
-        return header;
+    private void openCategory(int category, SectionHeaderTag header) {
+        if (category == CATEGORY_GESTURES) {
+            startActivity(new Intent(this, GestureSettingsActivity.class));
+            return;
+        }
+        if (category == CATEGORY_BBS_LINKS) {
+            startActivity(new Intent(this, BbsLinksActivity.class));
+            return;
+        }
+        startActivity(new Intent(this, SettingsCategoryActivity.class)
+                .putExtra(EXTRA_CATEGORY, category)
+                .putExtra(EXTRA_CATEGORY_TITLE, header.title)
+                .putExtra(EXTRA_CATEGORY_SUBTITLE, header.subtitle));
     }
 
     private TextView helperText(String value) {
@@ -1516,7 +1479,7 @@ public class SettingsActivity extends Activity {
         button.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null);
         button.setCompoundDrawablePadding(dp(8));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Theme.accent(this));
+        background.setColor(Theme.dark(this) ? Color.rgb(75, 85, 99) : Color.rgb(100, 116, 139));
         background.setCornerRadius(dp(10));
         button.setBackground(background);
         return button;
@@ -1527,14 +1490,6 @@ public class SettingsActivity extends Activity {
         drawable.setColor(surfaceColor());
         drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(14));
-        return drawable;
-    }
-
-    private GradientDrawable roundedSectionHeader() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.dark(this) ? Color.rgb(10, 31, 32) : Color.rgb(240, 253, 250));
-        drawable.setStroke(dp(1), Theme.dark(this) ? Color.rgb(19, 78, 74) : Color.rgb(153, 246, 228));
-        drawable.setCornerRadius(dp(16));
         return drawable;
     }
 
