@@ -2996,6 +2996,40 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
+    private void configureModalPopup(PopupWindow popup, View content) {
+        if (popup == null || content == null) {
+            return;
+        }
+        popup.setOutsideTouchable(false);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+    }
+
+    private void showCenteredModalPopup(PopupWindow popup) {
+        if (popup == null) {
+            return;
+        }
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.CENTER, 0, 0);
+        dimBehindPopup(popup);
+        animatePopupIn(popup, true);
+    }
+
+    private void dimBehindPopup(PopupWindow popup) {
+        try {
+            View root = popup.getContentView() == null ? null : popup.getContentView().getRootView();
+            if (root == null || !(root.getLayoutParams() instanceof WindowManager.LayoutParams)) {
+                return;
+            }
+            WindowManager.LayoutParams params = (WindowManager.LayoutParams) root.getLayoutParams();
+            params.flags |= WindowManager.LayoutParams.FLAG_DIM_BEHIND;
+            params.dimAmount = 0.32f;
+            WindowManager manager = (WindowManager) getSystemService(WINDOW_SERVICE);
+            if (manager != null) {
+                manager.updateViewLayout(root, params);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private GradientDrawable bottomBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(barColor());
@@ -16884,16 +16918,14 @@ public class MainActivity extends Activity {
         int height = Math.max(dp(240), (int) (getResources().getDisplayMetrics().heightPixels * 0.72f));
         PopupWindow popup = new PopupWindow(root, width, height, false);
         popupRef[0] = popup;
-        popup.setOutsideTouchable(false);
-        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         root.setTag(popup);
+        configureModalPopup(popup, root);
         prepareAnimatedPopupDismiss(popup, root);
         renderThreadExtractSlots(scroll, list, threadExtractGroups(items), mode, popup);
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        popup.showAtLocation(getWindow().getDecorView(), Gravity.CENTER, 0, 0);
-        animatePopupIn(popup, true);
+        showCenteredModalPopup(popup);
     }
 
     private String noThreadExtractText(ThreadExtractMode mode) {
@@ -19267,7 +19299,7 @@ public class MainActivity extends Activity {
         int popupFrameInset = jumpEachPost ? dp(POST_OUTER_GAP_DP) : 0;
         int popupCardInset = 0;
         popupRoot.setPadding(popupRootGap, popupRootGap, popupRootGap, popupRootGap);
-        popupRoot.setBackgroundColor(Color.TRANSPARENT);
+        popupRoot.setBackground(menuBackground());
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
         if (framePopupViewport) {
@@ -19348,11 +19380,11 @@ public class MainActivity extends Activity {
                 : anchorLocation[1] - popupHeight + popupOverlap;
         int y = preferredY < minPopupY ? minPopupY : preferredY;
         PopupWindow popup = new PopupWindow(popupRoot, width, popupHeight, false);
-        popup.setOutsideTouchable(false);
-        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        configureModalPopup(popup, popupRoot);
         popup.setOnDismissListener(() -> replyPopups.remove(popup));
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
+        dimBehindPopup(popup);
         animatePopupIn(popup, true);
         if (initialCount < targets.size()) {
             int popupX = x;
@@ -23130,12 +23162,7 @@ public class MainActivity extends Activity {
         }
         String sourceTitle = tab.threadPage.title;
         String sourceUrl = tab.url;
-        AlertDialog loading = new AlertDialog.Builder(this)
-                .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
-                .setMessage(text("\u691c\u7d22\u4e2d...", "Searching..."))
-                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
-                .create();
-        loading.show();
+        PopupWindow loading = showNextThreadLoadingPopup();
         ioExecutor.execute(() -> {
             List<SearchResult> candidates;
             String errorMessage = null;
@@ -23168,26 +23195,101 @@ public class MainActivity extends Activity {
         });
     }
 
+    private PopupWindow showNextThreadLoadingPopup() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        root.setBackground(menuBackground());
+        TextView title = new TextView(this);
+        title.setText(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"));
+        title.setTextColor(textColor());
+        title.setTextSize(17);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(title);
+        TextView message = new TextView(this);
+        message.setText(text("\u691c\u7d22\u4e2d...", "Searching..."));
+        message.setTextColor(mutedColor());
+        message.setTextSize(14);
+        message.setPadding(0, dp(10), 0, 0);
+        root.addView(message);
+        PopupWindow popup = new PopupWindow(root, dp(260), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        configureModalPopup(popup, root);
+        prepareAnimatedPopupDismiss(popup, root);
+        showCenteredModalPopup(popup);
+        return popup;
+    }
+
     private void showNextThreadCandidatesDialog(List<SearchResult> candidates) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(12), dp(10), dp(12), dp(10));
+        root.setBackground(menuBackground());
+
+        TextView title = new TextView(this);
+        title.setText(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"));
+        title.setTextColor(textColor());
+        title.setTextSize(17);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setPadding(dp(4), dp(2), dp(4), dp(8));
+        root.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         if (candidates == null || candidates.isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
-                    .setMessage(text("\u540c\u3058\u677f\u306b\u3001\u5341\u5206\u306b\u4f3c\u3066\u3044\u308b\u6b21\u30b9\u30ec\u5019\u88dc\u306f\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "No sufficiently similar next-thread candidates were found on this board."))
-                    .setPositiveButton("OK", null)
-                    .show();
-            return;
+            TextView empty = new TextView(this);
+            empty.setText(text("\u540c\u3058\u677f\u306b\u3001\u5341\u5206\u306b\u4f3c\u3066\u3044\u308b\u6b21\u30b9\u30ec\u5019\u88dc\u306f\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "No sufficiently similar next-thread candidates were found on this board."));
+            empty.setTextColor(mutedColor());
+            empty.setTextSize(14);
+            empty.setPadding(dp(4), dp(8), dp(4), dp(12));
+            root.addView(empty, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        } else {
+            ScrollView scroll = new ScrollView(this);
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            scroll.addView(list, new ScrollView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            root.addView(scroll, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            for (int i = 0; i < candidates.size(); i++) {
+                SearchResult result = candidates.get(i);
+                TextView row = new TextView(this);
+                row.setText(result.title + "\n" + text("\u5019\u88dc ", "Candidate ") + (i + 1)
+                        + "  " + text("\u30ec\u30b9: ", "Posts: ") + result.responses);
+                row.setTextColor(textColor());
+                row.setTextSize(15);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10), dp(10), dp(10), dp(10));
+                row.setBackground(roundedDrawable(postColor(), popupBorderColor(), dp(8)));
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rowParams.setMargins(0, 0, 0, dp(8));
+                list.addView(row, rowParams);
+            }
         }
-        CharSequence[] labels = new CharSequence[candidates.size()];
-        for (int i = 0; i < candidates.size(); i++) {
+        TextView close = new TextView(this);
+        close.setText(text("\u9589\u3058\u308b", "Close"));
+        close.setTextColor(TEAL);
+        close.setTextSize(14);
+        close.setGravity(Gravity.CENTER);
+        close.setPadding(dp(8), dp(9), dp(8), dp(5));
+        root.addView(close, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(40));
+        int height = Math.max(dp(180), (int) (getResources().getDisplayMetrics().heightPixels * 0.62f));
+        PopupWindow popup = new PopupWindow(root, width, height, false);
+        configureModalPopup(popup, root);
+        prepareAnimatedPopupDismiss(popup, root);
+        close.setOnClickListener(v -> dismissPopupAnimated(popup));
+        for (int i = 0; i < (candidates == null ? 0 : candidates.size()); i++) {
+            View row = ((ViewGroup) ((ScrollView) root.getChildAt(1)).getChildAt(0)).getChildAt(i);
             SearchResult result = candidates.get(i);
-            labels[i] = result.title + "\n" + text("\u5019\u88dc ", "Candidate ") + (i + 1)
-                    + "  " + text("\u30ec\u30b9: ", "Posts: ") + result.responses;
+            row.setOnClickListener(v -> {
+                dismissPopupAnimated(popup);
+                openInCurrentTab(result.url);
+            });
         }
-        new AlertDialog.Builder(this)
-                .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
-                .setItems(labels, (dialog, which) -> openInCurrentTab(candidates.get(which).url))
-                .setNegativeButton(text("\u9589\u3058\u308b", "Close"), null)
-                .show();
+        showCenteredModalPopup(popup);
     }
 
     private List<SearchResult> nextThreadCandidates(List<SearchResult> boardResults, String sourceTitle, String sourceUrl) {
