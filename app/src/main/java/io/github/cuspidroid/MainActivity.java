@@ -9442,16 +9442,6 @@ public class MainActivity extends Activity {
             return tab == null ? wrapped : withTopPullRefresh(wrapped, scroll, tab, () -> refreshTabFromTop(tab));
         }
 
-        if (page.notice != null && !page.notice.trim().isEmpty()) {
-            TextView notice = postText(page.notice, null);
-            notice.setTextColor(mutedColor());
-            notice.setTextSize(14);
-            LinearLayout.LayoutParams noticeParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            noticeParams.setMargins(0, 0, 0, dp(10));
-            list.addView(notice, noticeParams);
-        }
-
         renderSearchSlots(scroll, list, page);
 
         if (page.results.isEmpty()) {
@@ -23138,53 +23128,66 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u677fURL\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board URL found."), Toast.LENGTH_SHORT).show();
             return;
         }
-        recordNavigation(tab, boardUrl);
-        loadNextThreadCandidates(tab, boardUrl, tab.threadPage.title, tab.url);
-    }
-
-    private void loadNextThreadCandidates(CuspTab tab, String boardUrl, String sourceTitle, String sourceUrl) {
-        prepareChromeForLoading();
-        clearBoardTopRefreshState(tab);
-        tab.readerMode = true;
-        tab.nativeKind = NATIVE_BOARD;
-        tab.url = boardUrl;
-        tab.title = text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates");
-        tab.readerView = loadingView("");
-        tab.threadPage = null;
-        tab.searchPage = null;
-        tab.threadScroll = null;
-        tab.postViews = null;
-        switchToTab(tabs.indexOf(tab));
-        progressBar.setVisibility(View.VISIBLE);
+        String sourceTitle = tab.threadPage.title;
+        String sourceUrl = tab.url;
+        AlertDialog loading = new AlertDialog.Builder(this)
+                .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
+                .setMessage(text("\u691c\u7d22\u4e2d...", "Searching..."))
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .create();
+        loading.show();
         ioExecutor.execute(() -> {
-            SearchPage page;
+            List<SearchResult> candidates;
+            String errorMessage = null;
             try {
-                page = downloadBoard(boardUrl);
-                page.results = nextThreadCandidates(page.results, sourceTitle, sourceUrl);
-                page.title = text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates");
-                page.notice = page.results.isEmpty()
-                        ? text("\u540c\u3058\u677f\u306b\u3001\u5341\u5206\u306b\u4f3c\u3066\u3044\u308b\u6b21\u30b9\u30ec\u5019\u88dc\u306f\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "No sufficiently similar next-thread candidates were found on this board.")
-                        : text("\u540c\u3058\u677f\u306e\u30b9\u30ec\u4e00\u89a7\u304b\u3089\u3001\u984c\u540d\u306e\u985e\u4f3c\u5ea6\u3068\u9023\u756a\u3092\u4f7f\u3063\u3066\u5019\u88dc\u3092\u7d5e\u308a\u8fbc\u3093\u3067\u3044\u307e\u3059\u3002", "Candidates are narrowed from this board using title similarity and thread-number continuity.");
+                candidates = nextThreadCandidates(downloadBoard(boardUrl).results, sourceTitle, sourceUrl);
             } catch (Exception error) {
-                page = SearchPage.error(boardUrl, error.getMessage());
+                candidates = new ArrayList<>();
+                errorMessage = error.getMessage();
             }
-            SearchPage result = page;
+            List<SearchResult> result = candidates;
+            String resultError = errorMessage;
             runOnUiThread(() -> {
-                if (!tabs.contains(tab) || !boardUrl.equals(tab.url)) {
+                boolean active = tabs.contains(tab) && tab == currentTab();
+                if (loading.isShowing()) {
+                    loading.dismiss();
+                }
+                if (!active) {
                     return;
                 }
-                tab.title = result.title;
-                tab.searchPage = result;
-                tab.readerView = buildSearchView(result, false, tab);
-                cacheBoardHistoryPage(tab, result, tab.readerView);
-                progressBar.setVisibility(View.GONE);
-                if (tab == currentTab() && !tabOverviewVisible) {
-                    switchToTab(currentIndex);
+                if (resultError != null) {
+                    new AlertDialog.Builder(this)
+                            .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
+                            .setMessage(resultError)
+                            .setPositiveButton("OK", null)
+                            .show();
+                } else {
+                    showNextThreadCandidatesDialog(result);
                 }
-                requestSaveTabsSoon();
-                renderTabs();
             });
         });
+    }
+
+    private void showNextThreadCandidatesDialog(List<SearchResult> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
+                    .setMessage(text("\u540c\u3058\u677f\u306b\u3001\u5341\u5206\u306b\u4f3c\u3066\u3044\u308b\u6b21\u30b9\u30ec\u5019\u88dc\u306f\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "No sufficiently similar next-thread candidates were found on this board."))
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+        CharSequence[] labels = new CharSequence[candidates.size()];
+        for (int i = 0; i < candidates.size(); i++) {
+            SearchResult result = candidates.get(i);
+            labels[i] = result.title + "\n" + text("\u5019\u88dc ", "Candidate ") + (i + 1)
+                    + "  " + text("\u30ec\u30b9: ", "Posts: ") + result.responses;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
+                .setItems(labels, (dialog, which) -> openInCurrentTab(candidates.get(which).url))
+                .setNegativeButton(text("\u9589\u3058\u308b", "Close"), null)
+                .show();
     }
 
     private List<SearchResult> nextThreadCandidates(List<SearchResult> boardResults, String sourceTitle, String sourceUrl) {
@@ -29282,7 +29285,6 @@ public class MainActivity extends Activity {
         String url;
         String title;
         String error;
-        String notice;
         List<SearchResult> results = new ArrayList<>();
         Map<String, Integer> categoryCounts;
         int fullTextPage = 1;
