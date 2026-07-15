@@ -757,7 +757,7 @@ public class MainActivity extends Activity {
     }
 
     private int privateBackgroundColor() {
-        return Theme.dark(this) ? Color.rgb(2, 54, 42) : Color.rgb(10, 61, 34);
+        return Theme.dark(this) ? Color.rgb(1, 40, 29) : Color.rgb(5, 46, 25);
     }
 
     private int hintTextColor() {
