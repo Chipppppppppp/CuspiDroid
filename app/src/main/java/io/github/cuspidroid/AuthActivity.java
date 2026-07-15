@@ -41,7 +41,7 @@ public class AuthActivity extends Activity {
         nativeButton.setOnClickListener(v -> openCurrentUrlNatively());
         ImageButton close = iconButton(R.drawable.ic_close,
                 MainActivity.text("WebView\u3092\u9589\u3058\u308b", "Close WebView"));
-        close.setOnClickListener(v -> finish());
+        close.setOnClickListener(v -> finishWithResult());
         bar.addView(nativeButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
         bar.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
@@ -97,7 +97,13 @@ public class AuthActivity extends Activity {
             webView.goBack();
             return;
         }
-        super.onBackPressed();
+        finishWithResult();
+    }
+
+    private void finishWithResult() {
+        CookieManager.getInstance().flush();
+        setResult(RESULT_OK);
+        finish();
     }
 
     @Override

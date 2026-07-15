@@ -361,8 +361,10 @@ public class MainActivity extends Activity {
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2015\\u2212\\uff0d~\\uff5e]\\s*(\\d{1,5}))?");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern EDGE_AUTH_CODE_PATTERN = Pattern.compile("(?:['\"])?(\\d{6})(?:['\"])?");
     private static final int REQUEST_IMGBB_IMAGE = 42;
     private static final int REQUEST_WRITE_IDENTITY_HISTORY = 43;
+    private static final int REQUEST_EDGE_AUTH = 44;
     private static final int MEDIA_GRID_CELL_DP = 108;
     private static final long THREAD_SCROLL_SAVE_INTERVAL_MS = 350;
     private static final long THREAD_POST_VISIBILITY_INTERVAL_MS = 16;
@@ -465,6 +467,7 @@ public class MainActivity extends Activity {
     private List<Uri> pendingImgbbUploadUris = new ArrayList<>();
     private EditText pendingWriteNameInput;
     private EditText pendingWriteMailInput;
+    private Runnable pendingEdgeAuthRetry;
     private final Map<String, SearchResult> pendingThreadMetadata = new LinkedHashMap<>();
     private final List<View> toolbarButtons = new ArrayList<>();
     private ThreadPage visibleThreadPage;
@@ -21069,6 +21072,12 @@ public class MainActivity extends Activity {
                 pendingWriteMailInput.setText(mail == null ? "" : mail);
                 pendingWriteMailInput.setSelection(pendingWriteMailInput.getText().length());
             }
+        } else if (requestCode == REQUEST_EDGE_AUTH) {
+            Runnable retry = pendingEdgeAuthRetry;
+            pendingEdgeAuthRetry = null;
+            if (resultCode == RESULT_OK && retry != null) {
+                mainHandler.post(retry);
+            }
         }
     }
 
@@ -21742,7 +21751,8 @@ public class MainActivity extends Activity {
                 String plain = cleanText(result);
                 success = postSucceeded(plain, address);
                 if (!success) {
-                    result = shorten(plain.replace('\n', ' '), 220);
+                    result = isEdgeAuthenticationError(address, plain)
+                            ? plain : shorten(plain.replace('\n', ' '), 220);
                 } else {
                     createdThreadUrl = findCreatedThreadUrl(boardUrl, subject, previousThreadUrls);
                 }
@@ -21771,7 +21781,8 @@ public class MainActivity extends Activity {
                         loadBoard(tab, boardUrl, false);
                     }
                 } else {
-                    showCopyablePostFailure(messageText);
+                    showPostFailureOrEdgeAuthentication(address, messageText,
+                            () -> submitNewThread(tab, address, subject, name, mail, message));
                 }
             });
         });
@@ -21848,7 +21859,8 @@ public class MainActivity extends Activity {
                 String plain = cleanText(result);
                 success = postSucceeded(plain, address);
                 if (!success) {
-                    result = shorten(plain.replace('\n', ' '), 220);
+                    result = isEdgeAuthenticationError(address, plain)
+                            ? plain : shorten(plain.replace('\n', ' '), 220);
                 }
             } catch (Exception error) {
                 result = error.getMessage() == null ? text("\u66f8\u304d\u8fbc\u307f\u5931\u6557", "Post failed.") : error.getMessage();
@@ -21866,7 +21878,8 @@ public class MainActivity extends Activity {
                     refreshThreadFromBottom(tab, true, false, true,
                             () -> recordPostedOwnPost(tab, message, lastPostNumberBeforePost, submittedAt));
                 } else {
-                    showCopyablePostFailure(messageText);
+                    showPostFailureOrEdgeAuthentication(address, messageText,
+                            () -> submitPost(tab, name, mail, message));
                 }
             });
         });
@@ -21913,6 +21926,64 @@ public class MainActivity extends Activity {
                 .setPositiveButton("OK", null);
         AlertDialog dialog = builder.show();
         Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
+    }
+
+    private void showPostFailureOrEdgeAuthentication(DatAddress address, String messageText, Runnable retry) {
+        if (!isEdgeAuthenticationError(address, messageText)) {
+            showCopyablePostFailure(messageText);
+            return;
+        }
+        String code = edgeAuthenticationCode(messageText);
+        String detail = code.isEmpty()
+                ? text("WebView\u3067\u30a8\u30c3\u30c2\u306e\u66f8\u304d\u8fbc\u307f\u8a8d\u8a3c\u3092\u5b8c\u4e86\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+                "Complete Edge posting authentication in WebView.")
+                : text("\u8a8d\u8a3c\u30b3\u30fc\u30c9: ", "Authentication code: ") + code + "\n\n"
+                + text("WebView\u3092\u958b\u304f\u3068\u30b3\u30fc\u30c9\u304c\u30b3\u30d4\u30fc\u3055\u308c\u307e\u3059\u3002\u8a8d\u8a3c\u5f8c\u306bWebView\u3092\u9589\u3058\u308b\u3068\u81ea\u52d5\u3067\u518d\u9001\u3057\u307e\u3059\u3002",
+                "Opening WebView copies the code. Close WebView after authentication to retry automatically.");
+        TextView message = new TextView(this);
+        message.setText(detail);
+        message.setTextColor(textColor());
+        message.setTextSize(15);
+        message.setTextIsSelectable(true);
+        message.setPadding(dp(20), dp(12), dp(20), 0);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u30a8\u30c3\u30c2\u306e\u8a8d\u8a3c\u304c\u5fc5\u8981", "Edge authentication required"))
+                .setView(message)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setNeutralButton(text("\u30b3\u30fc\u30c9\u3092\u30b3\u30d4\u30fc", "Copy code"), (d, which) -> copyEdgeAuthenticationCode(code))
+                .setPositiveButton(text("WebView\u3067\u8a8d\u8a3c", "Authenticate in WebView"), (d, which) -> {
+                    copyEdgeAuthenticationCode(code);
+                    pendingEdgeAuthRetry = retry;
+                    Intent intent = new Intent(this, AuthActivity.class);
+                    intent.putExtra(AuthActivity.EXTRA_URL, "https://bbs.eddibb.cc/auth-code");
+                    startActivityForResult(intent, REQUEST_EDGE_AUTH);
+                })
+                .create();
+        dialog.show();
+        Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
+    }
+
+    private boolean isEdgeAuthenticationError(DatAddress address, String messageText) {
+        return isEdgeAddress(address) && messageText != null
+                && messageText.toLowerCase(Locale.ROOT).contains("e-unauthenticated");
+    }
+
+    private String edgeAuthenticationCode(String messageText) {
+        Matcher matcher = EDGE_AUTH_CODE_PATTERN.matcher(messageText == null ? "" : messageText);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private void copyEdgeAuthenticationCode(String code) {
+        if (code == null || code.isEmpty()) {
+            return;
+        }
+        ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (manager != null) {
+            manager.setPrimaryClip(ClipData.newPlainText(
+                    text("\u30a8\u30c3\u30c2\u8a8d\u8a3c\u30b3\u30fc\u30c9", "Edge authentication code"), code));
+            Toast.makeText(this, text("\u8a8d\u8a3c\u30b3\u30fc\u30c9\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "Authentication code copied."),
+                    Toast.LENGTH_SHORT).show();
+        }
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
