@@ -11180,11 +11180,17 @@ public class MainActivity extends Activity {
         });
     }
 
+    private boolean threadFitsViewport(ScrollView scroll) {
+        return scroll != null && scroll.getChildCount() > 0
+                && scroll.getChildAt(0).getHeight() <= scroll.getHeight();
+    }
+
     private void enableThreadPullRefresh(ScrollView scroll, View topLoader, View bottomLoader, CuspTab tab) {
         final float[] downY = new float[1];
         final float[] pullDistance = new float[1];
         final boolean[] startedAtTop = new boolean[1];
         final boolean[] startedAtBottom = new boolean[1];
+        final boolean[] fitsViewport = new boolean[1];
         final int[] activeEdge = new int[1];
         final boolean[] dragging = new boolean[1];
         final boolean[] refreshingTop = new boolean[1];
@@ -11205,8 +11211,9 @@ public class MainActivity extends Activity {
                 pullDistance[0] = 0;
                 activeEdge[0] = 0;
                 dragging[0] = false;
-                startedAtTop[0] = !scroll.canScrollVertically(-1);
-                startedAtBottom[0] = !scroll.canScrollVertically(1);
+                fitsViewport[0] = threadFitsViewport(scroll);
+                startedAtTop[0] = fitsViewport[0] || !scroll.canScrollVertically(-1);
+                startedAtBottom[0] = fitsViewport[0] || !scroll.canScrollVertically(1);
                 if ((refreshingTop[0] && topLoader.getVisibility() != View.GONE)
                         || (refreshingBottom[0] && bottomLoader.getVisibility() != View.GONE)) {
                     ignoreUntilUp[0] = true;
@@ -11244,10 +11251,9 @@ public class MainActivity extends Activity {
                         downY[0] = event.getY();
                         dy = 0;
                     }
-                    boolean fitsViewport = startedAtTop[0] && startedAtBottom[0];
-                    if (fitsViewport && dy > dp(4)) {
+                    if (fitsViewport[0] && dy > dp(4)) {
                         activeEdge[0] = -1;
-                    } else if (fitsViewport && dy < -dp(4)) {
+                    } else if (fitsViewport[0] && dy < -dp(4)) {
                         activeEdge[0] = 1;
                     } else if (startedAtTop[0] && dy > dp(4) && !scroll.canScrollVertically(-1)) {
                         activeEdge[0] = -1;
@@ -11266,7 +11272,7 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (activeEdge[0] < 0) {
-                    if (scroll.canScrollVertically(-1)) {
+                    if (!fitsViewport[0] && scroll.canScrollVertically(-1)) {
                         activeEdge[0] = 0;
                         dragging[0] = false;
                         pullDistance[0] = 0;
@@ -11299,7 +11305,7 @@ public class MainActivity extends Activity {
                         cancelBottomJump(tab);
                         return false;
                     }
-                    if (scroll.canScrollVertically(1)) {
+                    if (!fitsViewport[0] && scroll.canScrollVertically(1)) {
                         activeEdge[0] = 0;
                         dragging[0] = false;
                         pullDistance[0] = 0;
