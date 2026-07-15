@@ -21729,17 +21729,22 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u30b9\u30ec\u4f5c\u6210\u5148\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Cannot find thread creation target."), Toast.LENGTH_SHORT).show();
             return;
         }
+        String boardUrl = tab.url;
+        Set<String> previousThreadUrls = boardThreadUrlSnapshot(tab.searchPage);
         progressBar.setVisibility(View.VISIBLE);
         Toast.makeText(this, text("\u30b9\u30ec\u4f5c\u6210\u4e2d", "Creating thread..."), Toast.LENGTH_SHORT).show();
         ioExecutor.execute(() -> {
             String result;
             boolean success = false;
+            String createdThreadUrl = null;
             try {
-                result = createThreadWithCookieConfirm(tab.url, address, subject, name, mail, message);
+                result = createThreadWithCookieConfirm(boardUrl, address, subject, name, mail, message);
                 String plain = cleanText(result);
                 success = postSucceeded(plain, address);
                 if (!success) {
                     result = shorten(plain.replace('\n', ' '), 220);
+                } else {
+                    createdThreadUrl = findCreatedThreadUrl(boardUrl, subject, previousThreadUrls);
                 }
             } catch (Exception error) {
                 result = error.getMessage() == null
@@ -21748,20 +21753,81 @@ public class MainActivity extends Activity {
             }
             String messageText = result;
             boolean created = success;
+            String threadUrl = createdThreadUrl;
             runOnUiThread(() -> {
                 progressBar.setVisibility(View.GONE);
                 if (created) {
                     Toast.makeText(this, text("\u30b9\u30ec\u3092\u4f5c\u6210\u3057\u307e\u3057\u305f", "Thread created."), Toast.LENGTH_SHORT).show();
-                    if (tab == currentTab() && NATIVE_BOARD.equals(tab.nativeKind)) {
+                    boolean sourceBoardStillOpen = tabs.contains(tab) && NATIVE_BOARD.equals(tab.nativeKind)
+                            && tab.url != null && sameSavedUrl(boardUrl, tab.url);
+                    if (threadUrl != null && !threadUrl.trim().isEmpty()) {
+                        if (sourceBoardStillOpen) {
+                            loadBoard(tab, boardUrl, false);
+                        }
+                        createTab(threadUrl, true, tabs.indexOf(tab), false, isPrivateTab(tab));
+                    } else if (sourceBoardStillOpen && tab == currentTab()) {
                         refreshBoardFromTop(tab);
-                    } else if (tab.url != null) {
-                        loadBoard(tab, tab.url, false);
+                    } else if (sourceBoardStillOpen) {
+                        loadBoard(tab, boardUrl, false);
                     }
                 } else {
                     showCopyablePostFailure(messageText);
                 }
             });
         });
+    }
+
+    private Set<String> boardThreadUrlSnapshot(SearchPage page) {
+        Set<String> urls = new HashSet<>();
+        if (page == null || page.results == null) {
+            return urls;
+        }
+        for (SearchResult result : page.results) {
+            if (result != null && result.url != null && !result.url.trim().isEmpty()) {
+                urls.add(searchResultDedupeKey(result.url));
+            }
+        }
+        return urls;
+    }
+
+    private String findCreatedThreadUrl(String boardUrl, String subject, Set<String> previousThreadUrls) {
+        String expectedTitle = normalizedCreatedThreadTitle(subject);
+        Set<String> newThreadUrls = new LinkedHashSet<>();
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                SearchPage page = downloadBoard(boardUrl);
+                for (SearchResult result : page.results) {
+                    if (result == null || result.url == null || result.url.trim().isEmpty()) {
+                        continue;
+                    }
+                    boolean isNew = previousThreadUrls == null
+                            || !previousThreadUrls.contains(searchResultDedupeKey(result.url));
+                    boolean titleMatches = expectedTitle.equals(normalizedCreatedThreadTitle(result.title));
+                    if (isNew && titleMatches) {
+                        return result.url;
+                    }
+                    if (isNew) {
+                        newThreadUrls.add(result.url);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            if (attempt < 2) {
+                try {
+                    Thread.sleep(350L * (attempt + 1));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        return newThreadUrls.size() == 1 ? newThreadUrls.iterator().next() : null;
+    }
+
+    private String normalizedCreatedThreadTitle(String title) {
+        String value = stripThreadResponseCount(title == null ? "" : title);
+        return Normalizer.normalize(cleanText(value), Normalizer.Form.NFKC)
+                .trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     private void submitPost(CuspTab tab, String name, String mail, String message) {
