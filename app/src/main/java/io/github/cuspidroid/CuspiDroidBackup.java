@@ -108,6 +108,8 @@ final class CuspiDroidBackup {
             }
         }
         editor.apply();
+        // Page payloads are caches and are intentionally not part of a backup.
+        new TabPayloadStore(context).clear();
         return new Result(restored);
     }
 

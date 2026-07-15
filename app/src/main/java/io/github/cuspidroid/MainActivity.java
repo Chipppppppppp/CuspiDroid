@@ -125,6 +125,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.LinkedHashSet;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -292,6 +293,7 @@ public class MainActivity extends Activity {
             GESTURE_FIND, GESTURE_BOARD
     };
     static final String PREF_TABS = "saved_tabs";
+    static final String PREF_TAB_SESSION_STATE = "saved_tab_session_state";
     static final String PREF_SYNC2CH_ID = "sync2ch_id";
     static final String PREF_SYNC2CH_API_PASSWORD = "sync2ch_api_password";
     static final String PREF_SYNC2CH_ENABLED = "sync2ch_enabled";
@@ -446,6 +448,7 @@ public class MainActivity extends Activity {
     private TextView tabCountLabel;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
+    private TabPayloadStore tabPayloadStore;
     private EditText pendingImgbbUploadMessage;
     private int pendingImgbbExpirationSeconds;
     private AlertDialog pendingImgbbUploadDialog;
@@ -989,6 +992,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        tabPayloadStore = new TabPayloadStore(this);
         migrateAddressMenuNavigationPreference();
         migratePopularButtonPreference();
         migrateFavoriteBoardsToBookmarks();
@@ -3380,11 +3384,15 @@ public class MainActivity extends Activity {
             return false;
         }
         try {
-            JSONObject root = new JSONObject(saved);
-            JSONArray array = root.optJSONArray("tabs");
+            boolean legacySession = saved.trim().startsWith("{");
+            JSONObject root = legacySession
+                    ? new JSONObject(saved)
+                    : preferenceJsonObject(PREF_TAB_SESSION_STATE);
+            JSONArray array = legacySession ? root.optJSONArray("tabs") : new JSONArray(saved);
             if (array == null || array.length() == 0) {
                 return false;
             }
+            resetTabsForRestore();
             tabOverviewNormalScrollY = Math.max(0, root.optInt(TAB_OVERVIEW_NORMAL_SCROLL_KEY, 0));
             tabOverviewPrivateScrollY = Math.max(0, root.optInt(TAB_OVERVIEW_PRIVATE_SCROLL_KEY, 0));
             tabOverviewScrollY = currentTabIsPrivate() ? tabOverviewPrivateScrollY : tabOverviewNormalScrollY;
@@ -3399,6 +3407,10 @@ public class MainActivity extends Activity {
                 JSONObject item = array.getJSONObject(i);
                 String url = item.optString("url", "");
                 CuspTab tab = new CuspTab();
+                tab.sessionId = item.optString("sessionId", "");
+                if (tab.sessionId.isEmpty()) {
+                    tab.sessionId = UUID.randomUUID().toString();
+                }
                 tab.title = item.optString("title", text("\u65b0\u898f\u30bf\u30d6", "New tab"));
                 tab.url = url;
                 tab.privateBrowsing = item.optBoolean("privateBrowsing", false);
@@ -3430,6 +3442,10 @@ public class MainActivity extends Activity {
                 } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
                     tab.savedSearchPageJson = item.optJSONObject("searchPage");
                 }
+                boolean hasPayloadKind = isThreadPageNativeKind(tab.nativeKind)
+                        || NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind);
+                tab.payloadLoaded = legacySession || tab.savedThreadPageJson != null
+                        || tab.savedSearchPageJson != null || !hasPayloadKind;
                 if (tab.navigationHistory.isEmpty() && url != null && !url.isEmpty()) {
                     tab.navigationHistory.add(url);
                     tab.navigationIndex = 0;
@@ -3440,6 +3456,10 @@ public class MainActivity extends Activity {
             }
             switchToTab(selected);
             renderTabs();
+            if (legacySession) {
+                // Migrate the old monolithic JSON after the first upgraded launch.
+                saveTabs(false);
+            }
             return true;
         } catch (Exception error) {
             return false;
@@ -3466,6 +3486,18 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void resetTabsForRestore() {
+        for (CuspTab tab : tabs) {
+            unloadTabView(tab);
+        }
+        tabs.clear();
+        currentIndex = -1;
+        clearTabOverviewResultCache();
+        tabOverviewNormalView = null;
+        tabOverviewPrivateView = null;
+        tabOverviewValueDirtyTabs.clear();
+    }
+
     private void saveTabs() {
         saveTabs(false);
     }
@@ -3478,13 +3510,19 @@ public class MainActivity extends Activity {
             }
             rememberTabOverviewScroll();
             JSONArray array = new JSONArray();
+            Set<String> activeSessionIds = new LinkedHashSet<>();
             int savedCurrent = 0;
             int savedIndex = 0;
             for (CuspTab tab : tabs) {
                 if (tab.privateBrowsing) {
                     continue;
                 }
+                if (tab.sessionId == null || tab.sessionId.isEmpty()) {
+                    tab.sessionId = UUID.randomUUID().toString();
+                }
+                activeSessionIds.add(tab.sessionId);
                 JSONObject item = new JSONObject();
+                item.put("sessionId", tab.sessionId);
                 item.put("url", tab.url == null ? "" : tab.url);
                 item.put("title", tab.title == null ? "Tab" : tab.title);
                 item.put("privateBrowsing", false);
@@ -3517,17 +3555,9 @@ public class MainActivity extends Activity {
                 boolean currentTabForSave = tab == current;
                 if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
                     updateTabThreadStats(tab, tab.threadPage);
-                    if (currentTabForSave) {
-                        item.put("threadPage", threadPageToJson(tab.threadPage));
-                    }
-                } else if (currentTabForSave && isThreadPageNativeKind(tab.nativeKind) && tab.savedThreadPageJson != null) {
-                    item.put("threadPage", tab.savedThreadPageJson);
-                } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
-                        && tab.searchPage != null && tab.searchPage.error == null) {
-                    item.put("searchPage", searchPageToJson(tab.searchPage));
-                } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
-                        && tab.savedSearchPageJson != null) {
-                    item.put("searchPage", tab.savedSearchPageJson);
+                }
+                if (currentTabForSave) {
+                    persistCurrentTabPayload(tab);
                 }
                 array.put(item);
                 if (tab == current) {
@@ -3540,12 +3570,42 @@ public class MainActivity extends Activity {
             root.put(TAB_OVERVIEW_NORMAL_SCROLL_KEY, tabOverviewNormalScrollY);
             root.put(TAB_OVERVIEW_PRIVATE_SCROLL_KEY, tabOverviewPrivateScrollY);
             writeTabOverviewOrderSnapshot(root);
-            root.put("tabs", array);
-            SharedPreferences.Editor editor = preferences.edit().putString(PREF_TABS, root.toString());
+            SharedPreferences.Editor editor = preferences.edit()
+                    .putString(PREF_TABS, array.toString())
+                    .putString(PREF_TAB_SESSION_STATE, root.toString());
             if (synchronous) {
                 editor.commit();
             } else {
                 editor.apply();
+            }
+            tabPayloadStore.removeStale(activeSessionIds);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void persistCurrentTabPayload(CuspTab tab) {
+        if (tab == null || tab.sessionId == null || tab.sessionId.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject payload = new JSONObject();
+            if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
+                payload.put("threadPage", threadPageToJson(tab.threadPage));
+            } else if (isThreadPageNativeKind(tab.nativeKind) && tab.savedThreadPageJson != null) {
+                payload.put("threadPage", tab.savedThreadPageJson);
+            } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
+                    && tab.searchPage != null && tab.searchPage.error == null) {
+                payload.put("searchPage", searchPageToJson(tab.searchPage));
+            } else if ((NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind))
+                    && tab.savedSearchPageJson != null) {
+                payload.put("searchPage", tab.savedSearchPageJson);
+            } else {
+                return;
+            }
+            String raw = payload.toString();
+            if (!raw.equals(tab.lastSavedPayloadJson) && tabPayloadStore.write(tab.sessionId, raw)) {
+                tab.lastSavedPayloadJson = raw;
+                tab.payloadLoaded = true;
             }
         } catch (Exception ignored) {
         }
@@ -4460,6 +4520,11 @@ public class MainActivity extends Activity {
         if (tab == null || tab.readerView != null) {
             return;
         }
+        if (!tab.payloadLoaded && tab.sessionId != null && !tab.sessionId.isEmpty()) {
+            tab.readerView = loadingView("");
+            loadTabPayload(tab);
+            return;
+        }
         View view = buildAvailableTabReaderView(tab, true);
         if (view != null) {
             tab.readerView = view;
@@ -4498,6 +4563,52 @@ public class MainActivity extends Activity {
             restoreContentScroll(tab);
         } else {
             tab.restoringScroll = false;
+        }
+    }
+
+    private void loadTabPayload(CuspTab tab) {
+        if (tab == null || tab.payloadLoading || tab.payloadLoaded || tabPayloadStore == null) {
+            return;
+        }
+        tab.payloadLoading = true;
+        String sessionId = tab.sessionId;
+        ioExecutor.execute(() -> {
+            String raw = tabPayloadStore.read(sessionId);
+            JSONObject payload = null;
+            if (!raw.isEmpty()) {
+                try {
+                    payload = new JSONObject(raw);
+                } catch (Exception ignored) {
+                }
+            }
+            JSONObject loadedPayload = payload;
+            mainHandler.post(() -> finishTabPayloadLoad(tab, sessionId, raw, loadedPayload));
+        });
+    }
+
+    private void finishTabPayloadLoad(CuspTab tab, String sessionId, String raw, JSONObject payload) {
+        if (tab == null || !tabs.contains(tab) || !sessionId.equals(tab.sessionId)) {
+            return;
+        }
+        tab.payloadLoading = false;
+        tab.payloadLoaded = true;
+        tab.lastSavedPayloadJson = raw;
+        if (payload != null) {
+            if (isThreadPageNativeKind(tab.nativeKind)) {
+                tab.savedThreadPageJson = payload.optJSONObject("threadPage");
+            } else if (NATIVE_SEARCH.equals(tab.nativeKind) || NATIVE_BOARD.equals(tab.nativeKind)) {
+                tab.savedSearchPageJson = payload.optJSONObject("searchPage");
+            }
+        }
+        if (tab != currentTab() || tabOverviewVisible) {
+            return;
+        }
+        if (isLoadingReaderView(tab.readerView)) {
+            tab.readerView = null;
+        }
+        ensureTabViewLoaded(tab);
+        if (tab.readerView != null && !isLoadingReaderView(tab.readerView)) {
+            switchToTab(tabs.indexOf(tab));
         }
     }
 
@@ -12647,10 +12758,19 @@ public class MainActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
-        if (includeBookmarks && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
-            addBookmarkOverviewSection(list, true);
-        }
         addTabOverviewSection(scroll, list, tabOverviewPrivateMode, allowSort);
+        if (includeBookmarks && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
+            boolean privateMode = tabOverviewPrivateMode;
+            int generation = ++bookmarkOverviewRenderGeneration;
+            list.postDelayed(() -> {
+                if (!tabOverviewVisible || tabOverviewPrivateMode != privateMode
+                        || list.getParent() != scroll || generation != bookmarkOverviewRenderGeneration) {
+                    return;
+                }
+                addBookmarkOverviewSection(list, true);
+                scheduleTabOverviewSlotRefresh(list);
+            }, 16L);
+        }
     }
 
     private void setTabOverviewListPadding(LinearLayout list) {
@@ -14397,7 +14517,13 @@ public class MainActivity extends Activity {
         String selectedFolder = selectedBookmarkOverviewFolder(bookmarks);
         String rootKey = bookmarkOverviewExpandedKey("");
         boolean rootExpanded = bookmarkOverviewExpanded(rootKey, true);
-        list.addView(bookmarkOverviewFolderRow(snapshot, "", selectedFolder, 0));
+        View rootRow = bookmarkOverviewFolderRow(snapshot, "", selectedFolder, 0);
+        int tabStart = tabOverviewTabSectionStart(list);
+        if (tabStart >= 0) {
+            list.addView(rootRow, tabStart);
+        } else {
+            list.addView(rootRow);
+        }
         if (!rootExpanded) {
             bookmarkOverviewDirty = false;
             return;
@@ -29051,6 +29177,7 @@ public class MainActivity extends Activity {
     }
 
     private static class CuspTab {
+        String sessionId = UUID.randomUUID().toString();
         String title;
         String url;
         View readerView;
@@ -29058,6 +29185,9 @@ public class MainActivity extends Activity {
         SearchPage searchPage;
         JSONObject savedThreadPageJson;
         JSONObject savedSearchPageJson;
+        String lastSavedPayloadJson = "";
+        boolean payloadLoaded = true;
+        boolean payloadLoading;
         final LinkedHashMap<String, BoardHistoryPage> boardHistoryPages = new LinkedHashMap<>();
         ScrollView threadScroll;
         LinearLayout threadList;

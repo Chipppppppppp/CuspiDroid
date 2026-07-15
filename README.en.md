@@ -21,6 +21,7 @@ Posting preserves the read position and does not resubmit an already successful 
 ## Features
 
 - Browser-like navigation with multiple tabs, search-field autofocus on new tabs, a tab overview, bookmark folders, and history
+- Lightweight tab metadata is stored separately from page caches so the tab overview appears quickly after a cold start; page caches load lazily for the selected tab
 - Combined URL and search address bar with thread search through `find.5ch.io` or a custom URL
 - Next-thread search with an editable query that narrows candidates from the current board using title similarity and thread-number continuity, displayed like the board list
 - A shared dialog design for long-pressed posts, media/link/popular-post filters, and next-thread candidates, with matching animations, gray borders, background dimming, and tap-outside dismissal
