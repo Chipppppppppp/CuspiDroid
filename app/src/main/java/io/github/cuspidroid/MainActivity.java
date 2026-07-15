@@ -741,15 +741,7 @@ public class MainActivity extends Activity {
     }
 
     private int privateChromeColor() {
-        return Theme.dark(this) ? Color.rgb(0, 14, 10) : Color.rgb(187, 247, 208);
-    }
-
-    private int chromeBorderColor() {
-        return privateUiActive() ? privateStrokeColor() : borderColor();
-    }
-
-    private int popupBorderColor() {
-        return borderColor();
+        return Theme.dark(this) ? Color.rgb(4, 83, 63) : Color.rgb(20, 83, 45);
     }
 
     private int hintTextColor() {
@@ -760,22 +752,18 @@ public class MainActivity extends Activity {
         return Theme.dark(this) ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
     }
 
-    private int privateStrokeColor() {
-        return Theme.dark(this) ? Color.rgb(4, 83, 63) : Color.rgb(20, 83, 45);
-    }
-
     private int privateButtonFill(boolean active) {
         if (!active) {
             return Theme.dark(this) ? Color.rgb(17, 24, 39) : menuColor();
         }
-        return privateChromeColor();
+        return Theme.dark(this) ? Color.rgb(0, 14, 10) : Color.rgb(187, 247, 208);
     }
 
     private int privateButtonStroke(boolean active) {
         if (!active) {
-            return Theme.dark(this) ? Color.rgb(51, 65, 85) : borderColor();
+            return borderColor();
         }
-        return privateStrokeColor();
+        return privateChromeColor();
     }
 
     private int privateButtonIcon(boolean active) {
@@ -1875,7 +1863,7 @@ public class MainActivity extends Activity {
     private GradientDrawable compactSuggestionPanelBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(menuColor());
-        drawable.setStroke(dp(1), chromeBorderColor());
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(0);
         return drawable;
     }
@@ -1901,7 +1889,7 @@ public class MainActivity extends Activity {
 
     private View suggestionDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(chromeBorderColor());
+        divider.setBackgroundColor(borderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
@@ -2889,14 +2877,14 @@ public class MainActivity extends Activity {
 
     private View verticalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(popupBorderColor());
+        divider.setBackgroundColor(borderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT));
         return divider;
     }
 
     private View horizontalDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(popupBorderColor());
+        divider.setBackgroundColor(borderColor());
         divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         return divider;
     }
@@ -2989,7 +2977,7 @@ public class MainActivity extends Activity {
     private GradientDrawable addressBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Theme.field(this));
-        drawable.setStroke(dp(1), chromeBorderColor());
+        drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(20));
         return drawable;
     }
@@ -2997,7 +2985,7 @@ public class MainActivity extends Activity {
     private GradientDrawable menuBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(menuColor());
-        drawable.setStroke(dp(2), popupBorderColor());
+        drawable.setStroke(dp(2), borderColor());
         drawable.setCornerRadius(dp(10));
         return drawable;
     }
@@ -3005,7 +2993,7 @@ public class MainActivity extends Activity {
     private AlertDialog createUnifiedPopupDialog(View content) {
         content.setBackground(menuBackground());
         content.setForeground(roundedDrawable(
-                Color.TRANSPARENT, popupBorderColor(), dp(10), dp(2)));
+                Color.TRANSPARENT, borderColor(), dp(10), dp(2)));
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(content)
                 .create();
@@ -3077,14 +3065,14 @@ public class MainActivity extends Activity {
     private GradientDrawable bottomBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(barColor());
-        drawable.setStroke(dp(1), chromeBorderColor());
+        drawable.setStroke(dp(1), borderColor());
         return drawable;
     }
 
     private void updatePrivateChrome() {
         int bg = bgColor();
         int bar = barColor();
-        int stroke = chromeBorderColor();
+        int stroke = borderColor();
         boolean privateActive = privateUiActive();
         boolean dark = Theme.dark(this);
         if (bg == appliedChromeBgColor
@@ -19400,7 +19388,7 @@ public class MainActivity extends Activity {
         popupRoot.setFocusable(true);
         popupRoot.setClickable(true);
         if (framePopupViewport) {
-            popupRoot.setForeground(roundedDrawable(Color.TRANSPARENT, popupBorderColor(), dp(12), dp(2)));
+            popupRoot.setForeground(roundedDrawable(Color.TRANSPARENT, borderColor(), dp(12), dp(2)));
         }
 
         ScrollView popupScroll = new ScrollView(this);

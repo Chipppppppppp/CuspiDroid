@@ -34,7 +34,7 @@ Posting preserves the read position and does not resubmit an already successful 
 - Thread/media caching and separate controls for browsing, read, post, identity, and upload histories
 - Sync2ch synchronization for bookmarks, normal tabs, and read positions
 - CuspiDroid backup creation/restoration and ChMate backup import
-- Private browsing
+- Private browsing with a dark-green background for easy distinction and the same shared gray borders as normal browsing across bars and popups
 
 ## Install
 
