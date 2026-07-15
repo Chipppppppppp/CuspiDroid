@@ -224,7 +224,8 @@ public class BbsLinksActivity extends Activity {
             url.setEllipsize(TextUtils.TruncateAt.END);
             texts.addView(url);
 
-            row.addView(texts, new LinearLayout.LayoutParams(0, 0, 1));
+            row.addView(texts, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
             edit.setOnClickListener(v -> showLinkDialog(link));
