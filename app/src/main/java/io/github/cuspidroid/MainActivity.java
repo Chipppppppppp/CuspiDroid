@@ -22025,6 +22025,14 @@ public class MainActivity extends Activity {
             fields.put("MESSAGE", message);
             return fields;
         }
+        if (isEdgeAddress(address)) {
+            fields.put("mail", mail);
+            fields.put("FROM", name);
+            fields.put("MESSAGE", message);
+            fields.put("bbs", address.board);
+            fields.put("subject", subject);
+            return fields;
+        }
         if (isMachiAddress(address)) {
             fields.put("NAME", name);
             fields.put("MAIL", mail);
@@ -22140,6 +22148,11 @@ public class MainActivity extends Activity {
         }
         String lower = address.host.toLowerCase(Locale.ROOT);
         return lower.equals("machi.to") || lower.endsWith(".machi.to");
+    }
+
+    private boolean isEdgeAddress(DatAddress address) {
+        return address != null && address.host != null
+                && "bbs.eddibb.cc".equalsIgnoreCase(address.host.trim());
     }
 
     private boolean isBbspinkAddress(DatAddress address) {
