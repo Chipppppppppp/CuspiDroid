@@ -22094,6 +22094,8 @@ public class MainActivity extends Activity {
         if (range <= 0) {
             return false;
         }
+        boolean keepHiddenDuringRender = tab.threadRendering
+                && (tab.restoreFromBottom || shouldRestoreThreadScroll(tab));
         if (tab.restoreFromBottom) {
             tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
             tab.restoreFromBottom = false;
@@ -22106,6 +22108,12 @@ public class MainActivity extends Activity {
             }
         } else if (shouldAutoScrollUnreadBoundary(tab)) {
             scrollToUnreadBoundaryWhenReady(tab, 0);
+        }
+        if (keepHiddenDuringRender) {
+            // Post slots are still being added. Revealing now would expose their initial
+            // top position before completeThreadRender restores the final position.
+            scheduleThreadScrollChromeRefresh(tab, 6);
+            return true;
         }
         revealThreadAfterScrollRestore(tab, attempt);
         scheduleThreadScrollChromeRefresh(tab, 6);
