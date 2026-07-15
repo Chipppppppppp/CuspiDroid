@@ -30,6 +30,7 @@ Posting preserves the read position and does not resubmit an already successful 
 - In-app posting, name/mail history, personal post history, and WebView integration for BBS authentication
 - Shared image, GIF, and video previews scaled by their longest edge to fit fully inside dedicated square cells, with full-screen zoom, graphic-image blur detection, ImgBB uploads, upload-history media scaled with the same aspect-preserving behavior, and delete-confirmation dialogs consistent with the app's other popups
 - Light, dark, and system themes; top or bottom address bar; configurable buttons and swipe gestures
+- Purpose-based settings cards with icons; Storage shows current usage, while cache deletion uses a dedicated red action and a confirmation that states the amount and scope
 - Thread/media caching and separate controls for browsing, read, post, identity, and upload histories
 - Sync2ch synchronization for bookmarks, normal tabs, and read positions
 - CuspiDroid backup creation/restoration and ChMate backup import

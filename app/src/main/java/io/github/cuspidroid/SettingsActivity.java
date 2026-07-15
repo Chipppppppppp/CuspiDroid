@@ -74,6 +74,8 @@ public class SettingsActivity extends Activity {
     private TextView cacheApply;
     private ProgressBar cacheUsage;
     private TextView cacheUsageText;
+    private TextView clearCacheSubtitle;
+    private View clearCacheAction;
     private RadioButton themeSystem;
     private RadioButton themeLight;
     private RadioButton themeDark;
@@ -141,12 +143,22 @@ public class SettingsActivity extends Activity {
         TextView title = new TextView(this);
         title.setText(MainActivity.text("\u8a2d\u5b9a", "Settings"));
         title.setTextColor(textColor());
-        title.setTextSize(24);
+        title.setTextSize(28);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.START);
-        title.setPadding(0, 0, 0, dp(16));
+        title.setPadding(0, 0, 0, dp(2));
         root.addView(title);
 
-        root.addView(sectionTitle(MainActivity.text("\u8868\u793a", "Display")));
+        TextView introduction = helperText(MainActivity.text(
+                "\u4f7f\u3044\u65b9\u306b\u5408\u308f\u305b\u3066\u3001\u8868\u793a\u30fb\u64cd\u4f5c\u30fb\u30c7\u30fc\u30bf\u7ba1\u7406\u3092\u8abf\u6574\u3067\u304d\u307e\u3059\u3002",
+                "Tune appearance, controls, and data management to match how you use the app."));
+        introduction.setTextSize(14);
+        introduction.setPadding(0, 0, 0, dp(10));
+        root.addView(introduction);
+
+        root.addView(sectionTitle(R.drawable.ic_settings,
+                MainActivity.text("\u5916\u89b3\u3068\u30db\u30fc\u30e0", "Appearance & Home"),
+                MainActivity.text("\u30c6\u30fc\u30de\u3001\u30d0\u30fc\u306e\u4f4d\u7f6e\u3001\u30db\u30fc\u30e0\u3068\u30e1\u30cb\u30e5\u30fc", "Theme, bar position, home screen, and menus")));
         themeGroup = new RadioGroup(this);
         themeGroup.setOrientation(RadioGroup.VERTICAL);
         themeSystem = radio(MainActivity.text("\u7aef\u672b\u306e\u30c6\u30fc\u30de\u306b\u5f93\u3046", "Follow device theme"));
@@ -216,13 +228,9 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
                         .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_TITLE))));
 
-        root.addView(sectionTitle(MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u64cd\u4f5c", "Gesture Controls")));
-        root.addView(managementRow(android.R.drawable.ic_menu_compass,
-                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
-                MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
-                v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
-
-        root.addView(sectionTitle(MainActivity.text("\u30b9\u30ec\u8868\u793a", "Thread View")));
+        root.addView(sectionTitle(R.drawable.ic_text_fields,
+                MainActivity.text("\u30b9\u30ec\u306e\u95b2\u89a7", "Reading Threads"),
+                MainActivity.text("\u672a\u8aad\u3001\u30c4\u30ea\u30fc\u8868\u793a\u3001AA\u306e\u8aad\u307f\u65b9", "Unread posts, tree view, and AA rendering")));
         treeView = new CheckBox(this);
         treeView.setText(MainActivity.text("\u30c4\u30ea\u30fc\u8868\u793a", "Tree view"));
         treeView.setTextColor(textColor());
@@ -272,7 +280,9 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoAa);
         root.addView(autoAa);
 
-        root.addView(sectionTitle(MainActivity.text("\u4e00\u89a7\u8868\u793a", "List Display")));
+        root.addView(sectionTitle(android.R.drawable.ic_menu_sort_by_size,
+                MainActivity.text("\u4e00\u89a7\u8868\u793a", "List Display"),
+                MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u3068\u30bf\u30d6\u4e00\u89a7\u306e\u898b\u3048\u65b9", "Thread-list and tab-list presentation")));
         root.addView(managementRow(android.R.drawable.ic_menu_sort_by_size,
                 MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u8a2d\u5b9a", "Thread list settings"),
                 MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u306e\u8868\u793a\u9805\u76ee\u3001\u4e26\u3079\u66ff\u3048\u3001\u512a\u5148\u30ef\u30fc\u30c9", "Displayed fields, sorting, and priority words for thread lists"),
@@ -284,7 +294,17 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, ListDisplaySettingsActivity.class)
                         .putExtra(ListDisplaySettingsActivity.EXTRA_MODE, ListDisplaySettingsActivity.MODE_TAB))));
 
-        root.addView(sectionTitle(MainActivity.text("\u30ea\u30f3\u30af\u3068\u691c\u7d22", "Links & Search")));
+        root.addView(sectionTitle(android.R.drawable.ic_menu_compass,
+                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u64cd\u4f5c", "Gesture Controls"),
+                MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066", "Swipes and action assignments")));
+        root.addView(managementRow(android.R.drawable.ic_menu_compass,
+                MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
+                MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
+                v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
+
+        root.addView(sectionTitle(R.drawable.ic_search,
+                MainActivity.text("\u30ea\u30f3\u30af\u3068\u691c\u7d22", "Links & Search"),
+                MainActivity.text("\u30ea\u30f3\u30af\u306e\u958b\u304d\u65b9\u3068\u30b9\u30ec\u691c\u7d22", "How links open and thread search")));
         open5chInNewTab = new CheckBox(this);
         open5chInNewTab.setText(MainActivity.text("5ch\u30ea\u30f3\u30af\u3092\u65b0\u898f\u30bf\u30d6\u3067\u958b\u304f", "Open 5ch links in a new tab"));
         open5chInNewTab.setTextColor(textColor());
@@ -323,7 +343,9 @@ public class SettingsActivity extends Activity {
         TextView hint = helperText(MainActivity.text("\u691c\u7d22\u8a9e\u3092\u5165\u308c\u308b\u5834\u6240\u306b %s \u3092\u4f7f\u3046", "Use %s where the encoded query should be inserted."));
         root.addView(hint);
 
-        root.addView(sectionTitle(MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links")));
+        root.addView(sectionTitle(R.drawable.ic_link,
+                MainActivity.text("BBS\u30ea\u30f3\u30af", "BBS Links"),
+                MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u3068\u8a8d\u8a3c", "Custom BBS sites and authentication")));
         root.addView(helperText(MainActivity.text(
                 "\u8a8d\u8a3c\u304c\u5fc5\u8981\u306aBBS\u306f\u3001\u30b9\u30ec\u3092WebView\u3067\u958b\u3044\u3066\u8a8d\u8a3c\u3059\u308b\u3068\u3001\u305d\u306e\u30af\u30c3\u30ad\u30fc\u3092\u4f7f\u3063\u3066\u95b2\u89a7\u30fb\u66f8\u304d\u8fbc\u307f\u3067\u304d\u307e\u3059\u3002",
                 "If a BBS requires authentication, open the thread in WebView and authenticate there. CuspiDroid will use those cookies for reading and posting.")));
@@ -332,7 +354,9 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u306e\u540d\u524d\u3068\u677fURL\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit custom BBS names and board URLs"),
                 v -> startActivity(new Intent(this, BbsLinksActivity.class))));
 
-        root.addView(sectionTitle(MainActivity.text("\u753b\u50cf\u3068\u30d5\u30a3\u30eb\u30bf", "Images & Filters")));
+        root.addView(sectionTitle(R.drawable.ic_image,
+                MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u3068\u30d5\u30a3\u30eb\u30bf", "Media & Filters"),
+                MainActivity.text("\u753b\u50cf\u30fb\u52d5\u753b\u306e\u8868\u793a\u3068\u30b3\u30f3\u30c6\u30f3\u30c4\u30d5\u30a3\u30eb\u30bf", "Image and video display, plus content filters")));
         root.addView(fieldLabel(MainActivity.text("\u4eba\u6c17\u30ec\u30b9\u306e\u65e2\u5b9a\u95be\u5024", "Default popular post threshold")));
         root.addView(helperText(MainActivity.text(
                 "\u4eba\u6c17\u30ec\u30b9\u30d5\u30a3\u30eb\u30bf\u3092\u958b\u3044\u305f\u3068\u304d\u306b\u4f7f\u3046\u300cn\u4ef6\u4ee5\u4e0a\u306e\u8fd4\u4fe1\u300d\u306e\u521d\u671f\u5024",
@@ -389,7 +413,9 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u7ba1\u7406", "Manage NGWord, NGName, NGID, and related rules"),
                 v -> startActivity(new Intent(this, NgRulesActivity.class))));
 
-        root.addView(sectionTitle(MainActivity.text("\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Uploads")));
+        root.addView(sectionTitle(R.drawable.ic_image,
+                MainActivity.text("\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Image Uploads"),
+                MainActivity.text("ImgBB\u306e\u63a5\u7d9a\u3068\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74", "ImgBB connection and upload history")));
         imgbbApiKey = new EditText(this);
         imgbbApiKey.setSingleLine(true);
         imgbbApiKey.setTextSize(14);
@@ -419,7 +445,9 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u305f\u753b\u50cf\u3068URL\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete images and URLs uploaded to ImgBB"),
                 v -> startActivity(new Intent(this, UploadHistoryActivity.class))));
 
-        root.addView(sectionTitle(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5", "Cache")));
+        root.addView(sectionTitle(R.drawable.ic_folder,
+                MainActivity.text("\u30b9\u30c8\u30ec\u30fc\u30b8", "Storage"),
+                MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u306e\u4f7f\u7528\u91cf\u3068\u4e0a\u9650", "Cache usage and storage limit")));
         cacheEnabled = new CheckBox(this);
         cacheEnabled.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u4f7f\u7528", "Use cache"));
         cacheEnabled.setTextColor(textColor());
@@ -461,12 +489,15 @@ public class SettingsActivity extends Activity {
         root.addView(cacheUsage, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
 
-        root.addView(managementRow(android.R.drawable.ic_menu_delete,
-                MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Clear cache"),
-                MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664", "Delete cached threads and media"),
-                v -> confirmClearCache()));
+        clearCacheAction = destructiveActionRow(R.drawable.ic_delete,
+                MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Delete cache"),
+                MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u306e\u307f\u3092\u524a\u9664", "Delete only cached threads and media"),
+                v -> confirmClearCache());
+        root.addView(clearCacheAction);
 
-        root.addView(sectionTitle(MainActivity.text("\u5c65\u6b74", "History")));
+        root.addView(sectionTitle(android.R.drawable.ic_menu_recent_history,
+                MainActivity.text("\u30d7\u30e9\u30a4\u30d0\u30b7\u30fc\u3068\u5c65\u6b74", "Privacy & History"),
+                MainActivity.text("\u4fdd\u5b58\u3059\u308b\u884c\u52d5\u5c65\u6b74\u3068\u305d\u306e\u7ba1\u7406", "Choose and manage saved activity")));
 
         saveBrowsingHistory = new CheckBox(this);
         saveBrowsingHistory.setText(MainActivity.text("\u95b2\u89a7\u5c65\u6b74\u3092\u4fdd\u5b58", "Save browsing history"));
@@ -516,7 +547,8 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u66f8\u304d\u8fbc\u307f\u306b\u4f7f\u3063\u305f\u540d\u524d\u3068\u30e1\u30fc\u30eb\u306e\u7d44\u307f\u5408\u308f\u305b\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved name/mail pairs"),
                 v -> startActivity(new Intent(this, WriteIdentityHistoryActivity.class))));
 
-        root.addView(sectionTitle("Sync2ch"));
+        root.addView(sectionTitle(android.R.drawable.ic_popup_sync, "Sync2ch",
+                MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u306e\u540c\u671f", "Sync bookmarks, tabs, and read positions")));
         sync2chEnabled = new CheckBox(this);
         sync2chEnabled.setText(MainActivity.text("Sync2ch\u3092\u4f7f\u7528", "Use Sync2ch"));
         sync2chEnabled.setTextColor(textColor());
@@ -563,7 +595,9 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u901a\u5e38\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092\u30de\u30fc\u30b8", "Merge bookmarks, normal tabs, and read positions"),
                 v -> runSync2chNow()));
 
-        root.addView(sectionTitle(MainActivity.text("\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3068\u5fa9\u5143", "Backup & Restore")));
+        root.addView(sectionTitle(R.drawable.ic_download,
+                MainActivity.text("\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3068\u79fb\u884c", "Backup & Migration"),
+                MainActivity.text("\u30c7\u30fc\u30bf\u306e\u4fdd\u5b58\u3001\u5fa9\u5143\u3001ChMate\u304b\u3089\u306e\u79fb\u884c", "Save, restore, or migrate data from ChMate")));
         root.addView(managementRow(android.R.drawable.ic_menu_save,
                 MainActivity.text("CuspiDroid\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u4f5c\u6210", "Create CuspiDroid backup"),
                 MainActivity.text("\u8a2d\u5b9a\u3001\u30bf\u30d6\u3001\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u65e2\u8aad\u4f4d\u7f6e\u3001\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74\u3092zip\u306b\u4fdd\u5b58", "Save settings, tabs, bookmarks, history, read positions, and upload history to a zip"),
@@ -579,7 +613,9 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("ChMate\u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u304b\u3089\u30b9\u30ec\u60c5\u5831\u3092\u30de\u30fc\u30b8", "Merge thread data from a ChMate backup zip"),
                 v -> showChMateRestoreHelp()));
 
-        root.addView(sectionTitle(MainActivity.text("\u30e1\u30f3\u30c6\u30ca\u30f3\u30b9", "Maintenance")));
+        root.addView(sectionTitle(R.drawable.ic_settings,
+                MainActivity.text("\u8a73\u7d30\u8a2d\u5b9a", "Advanced"),
+                MainActivity.text("\u30c7\u30d0\u30c3\u30b0\u3068\u8a2d\u5b9a\u306e\u521d\u671f\u5316", "Diagnostics and resetting preferences")));
         root.addView(managementRow(android.R.drawable.ic_dialog_info,
                 MainActivity.text("\u30c7\u30d0\u30c3\u30b0\u8a2d\u5b9a", "Debug settings"),
                 MainActivity.text("\u8abf\u67fb\u7528\u306e\u8868\u793a\u3092\u5207\u308a\u66ff\u3048", "Toggle diagnostic displays"),
@@ -1209,33 +1245,86 @@ public class SettingsActivity extends Activity {
         cacheUsage.setProgress(progress);
         cacheUsageText.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u4f7f\u7528\u91cf: ",
                 "Cache used: ") + AppCache.formatBytes(current) + " / " + AppCache.formatBytes(max));
+        if (clearCacheSubtitle != null) {
+            clearCacheSubtitle.setText(current == 0L
+                    ? MainActivity.text("\u524a\u9664\u3067\u304d\u308b\u30ad\u30e3\u30c3\u30b7\u30e5\u306f\u3042\u308a\u307e\u305b\u3093", "There is no cached data to delete")
+                    : MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664: ",
+                    "Delete cached threads and media: ") + AppCache.formatBytes(current));
+        }
+        if (clearCacheAction != null) {
+            clearCacheAction.setEnabled(current > 0L);
+            clearCacheAction.setAlpha(current > 0L ? 1f : 0.5f);
+        }
     }
 
     private void confirmClearCache() {
+        long current = AppCache.size(this);
+        if (current <= 0L) {
+            Toast.makeText(this, MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u306f\u7a7a\u3067\u3059", "The cache is empty."),
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Clear cache"))
                 .setMessage(MainActivity.text(
-                        "\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f",
-                        "Delete cached threads and media?"))
+                        "\u30ad\u30e3\u30c3\u30b7\u30e5 " + AppCache.formatBytes(current)
+                                + " \u3092\u524a\u9664\u3057\u307e\u3059\u3002\n\n\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u5c65\u6b74\u3001\u8a2d\u5b9a\u306f\u524a\u9664\u3055\u308c\u307e\u305b\u3093\u3002",
+                        "Delete " + AppCache.formatBytes(current)
+                                + " of cached data?\n\nBookmarks, history, and settings will not be deleted."))
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
-                .setPositiveButton(MainActivity.text("\u524a\u9664", "Delete"), (d, which) -> {
+                .setPositiveButton(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Delete cache"), (d, which) -> {
                     AppCache.clear(this);
                     updateCacheUsage();
                     Toast.makeText(this, MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664\u3057\u307e\u3057\u305f", "Cache cleared."),
                             Toast.LENGTH_SHORT).show();
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> {
+            Theme.styleDialog(dialog, this);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(dangerColor());
+        });
         dialog.show();
     }
 
-    private TextView sectionTitle(String value) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextColor(textColor());
-        view.setTextSize(18);
-        view.setPadding(0, dp(16), 0, dp(8));
-        return view;
+    private View sectionTitle(int iconRes, String title, String subtitle) {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(12), dp(10), dp(12), dp(10));
+        header.setBackground(roundedSectionHeader());
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(Theme.accent(this));
+        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+        icon.setBackground(roundedIconBubble());
+        header.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextColor(textColor());
+        titleView.setTextSize(18);
+        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        labels.addView(titleView);
+        TextView subtitleView = new TextView(this);
+        subtitleView.setText(subtitle);
+        subtitleView.setTextColor(mutedColor());
+        subtitleView.setTextSize(12);
+        subtitleView.setSingleLine(true);
+        subtitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        labels.addView(subtitleView);
+        LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        labelsParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(labels, labelsParams);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(66));
+        params.setMargins(0, dp(18), 0, dp(8));
+        header.setLayoutParams(params);
+        return header;
     }
 
     private TextView helperText(String value) {
@@ -1348,11 +1437,95 @@ public class SettingsActivity extends Activity {
         return row;
     }
 
+    private View destructiveActionRow(int iconRes, String title, String subtitle,
+                                      View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(10), dp(10));
+        row.setBackground(roundedDangerCard());
+        row.setOnClickListener(listener);
+        row.setClickable(true);
+        row.setFocusable(true);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(dangerColor());
+        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+        icon.setBackground(roundedDangerBubble());
+        row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextColor(dangerColor());
+        titleView.setTextSize(16);
+        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        texts.addView(titleView);
+        clearCacheSubtitle = new TextView(this);
+        clearCacheSubtitle.setText(subtitle);
+        clearCacheSubtitle.setTextColor(mutedColor());
+        clearCacheSubtitle.setTextSize(12);
+        clearCacheSubtitle.setSingleLine(true);
+        clearCacheSubtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(clearCacheSubtitle);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        textParams.setMargins(dp(12), 0, dp(8), 0);
+        row.addView(texts, textParams);
+
+        TextView action = new TextView(this);
+        action.setText(MainActivity.text("\u524a\u9664", "Delete"));
+        action.setTextColor(Color.WHITE);
+        action.setTextSize(13);
+        action.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        action.setGravity(Gravity.CENTER);
+        GradientDrawable actionBackground = new GradientDrawable();
+        actionBackground.setColor(dangerColor());
+        actionBackground.setCornerRadius(dp(9));
+        action.setBackground(actionBackground);
+        row.addView(action, new LinearLayout.LayoutParams(dp(62), dp(38)));
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(72));
+        params.setMargins(0, dp(8), 0, dp(8));
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    private int dangerColor() {
+        return Theme.dark(this) ? Color.rgb(248, 113, 113) : Color.rgb(185, 28, 28);
+    }
+
+    private GradientDrawable roundedDangerCard() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.dark(this) ? Color.rgb(39, 16, 18) : Color.rgb(254, 242, 242));
+        drawable.setStroke(dp(1), Theme.dark(this) ? Color.rgb(127, 29, 29) : Color.rgb(252, 165, 165));
+        drawable.setCornerRadius(dp(14));
+        return drawable;
+    }
+
+    private GradientDrawable roundedDangerBubble() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.dark(this) ? Color.rgb(69, 10, 10) : Color.rgb(254, 226, 226));
+        drawable.setCornerRadius(dp(13));
+        return drawable;
+    }
+
     private GradientDrawable roundedManagementCard() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(surfaceColor());
         drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(14));
+        return drawable;
+    }
+
+    private GradientDrawable roundedSectionHeader() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.dark(this) ? Color.rgb(10, 31, 32) : Color.rgb(240, 253, 250));
+        drawable.setStroke(dp(1), Theme.dark(this) ? Color.rgb(19, 78, 74) : Color.rgb(153, 246, 228));
+        drawable.setCornerRadius(dp(16));
         return drawable;
     }
 
