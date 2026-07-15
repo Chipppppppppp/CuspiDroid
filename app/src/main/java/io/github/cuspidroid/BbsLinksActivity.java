@@ -16,6 +16,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -115,14 +116,6 @@ public class BbsLinksActivity extends Activity {
         recommendedParams.setMargins(dp(18), 0, dp(18), dp(8));
         root.addView(addRecommended, recommendedParams);
 
-        TextView reorderHint = helperText(MainActivity.text(
-                "BBSリンクは長押ししてドラッグすると並べ替えできます",
-                "Long-press and drag BBS links to reorder them"));
-        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hintParams.setMargins(dp(18), 0, dp(18), dp(6));
-        root.addView(reorderHint, hintParams);
-
         ScrollView scroll = new ScrollView(this);
         scrollView = scroll;
         scroll.setOnDragListener((v, event) -> handleAutoScrollDrag(v, event));
@@ -204,7 +197,7 @@ public class BbsLinksActivity extends Activity {
         for (MainActivity.BbsLink link : links) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.TOP);
+            row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(12), dp(10), dp(8), dp(10));
             row.setBackground(rowBackground());
             row.setOnLongClickListener(v -> {
@@ -216,38 +209,51 @@ public class BbsLinksActivity extends Activity {
 
             LinearLayout texts = new LinearLayout(this);
             texts.setOrientation(LinearLayout.VERTICAL);
+            texts.setGravity(Gravity.CENTER_VERTICAL);
             TextView name = new TextView(this);
             name.setText(link.name);
             name.setTextColor(textColor());
             name.setTextSize(16);
+            name.setSingleLine(true);
+            name.setEllipsize(TextUtils.TruncateAt.END);
             texts.addView(name);
 
             TextView url = helperText(link.url);
             url.setTextColor(mutedColor());
-            url.setTextIsSelectable(true);
+            url.setSingleLine(true);
+            url.setEllipsize(TextUtils.TruncateAt.END);
             texts.addView(url);
 
-            if (link.hissiUrl != null && !link.hissiUrl.trim().isEmpty()) {
-                texts.addView(hissiUrlSummary(link.hissiUrl.trim()));
-            }
-            row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            row.addView(texts, new LinearLayout.LayoutParams(0, 0, 1));
 
             ImageButton edit = iconButton(R.drawable.ic_edit, MainActivity.text("\u7de8\u96c6", "Edit"));
             edit.setOnClickListener(v -> showLinkDialog(link));
             row.addView(edit, iconParams());
 
             ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u524a\u9664", "Delete"));
-            delete.setOnClickListener(v -> {
-                MainActivity.removeBbsLink(preferences, link.url);
-                renderLinks();
-            });
+            delete.setOnClickListener(v -> confirmDeleteBbsLink(link));
             row.addView(delete, iconParams());
 
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
             params.setMargins(0, 0, 0, dp(8));
             list.addView(row, params);
         }
+    }
+
+    private void confirmDeleteBbsLink(MainActivity.BbsLink link) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("BBSリンクを削除", "Delete BBS link"))
+                .setMessage(MainActivity.text("「" + link.name + "」を削除しますか？",
+                        "Delete \"" + link.name + "\"?"))
+                .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
+                .setPositiveButton(MainActivity.text("削除", "Delete"), (d, which) -> {
+                    MainActivity.removeBbsLink(preferences, link.url);
+                    renderLinks();
+                })
+                .create();
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
     }
 
     private boolean handleDropOnRow(View row, DragEvent event) {
@@ -514,32 +520,6 @@ public class BbsLinksActivity extends Activity {
         view.setTextSize(14);
         view.setPadding(0, dp(4), 0, dp(4));
         return view;
-    }
-
-    private View hissiUrlSummary(String value) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(10), dp(7), dp(10), dp(8));
-        box.setBackground(subtleBoxBackground());
-        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        boxParams.setMargins(0, dp(6), 0, 0);
-        box.setLayoutParams(boxParams);
-
-        TextView label = new TextView(this);
-        label.setText(MainActivity.text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fcURL", "Hissi Checker URL"));
-        label.setTextColor(mutedColor());
-        label.setTextSize(12);
-        box.addView(label);
-
-        TextView url = new TextView(this);
-        url.setText(value);
-        url.setTextColor(textColor());
-        url.setTextSize(13);
-        url.setTextIsSelectable(true);
-        url.setPadding(0, dp(2), 0, 0);
-        box.addView(url);
-        return box;
     }
 
     private TextView selectableExampleText(String value) {
