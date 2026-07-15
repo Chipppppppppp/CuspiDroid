@@ -28,7 +28,7 @@ Posting preserves the read position and does not resubmit an already successful 
 - Native board and thread views for 5ch and custom BBS sites, with pull-to-refresh
 - Saved scroll/read positions, first-unread jumps, unread coloring, list metadata, and sorting
 - Tree view, reply/link/popular-post filters with an editable popularity threshold, AA rendering, repeated-copy omission, distinct colored left bars for your posts and replies to them, and board-scoped NGWord/NGName/NGID rules
-- In-app posting, name/mail history, personal post history, and WebView integration for BBS authentication
+- In-app posting with thread creation from the board title bar using the regular posting UI for the initial message, name/mail history, personal post history, and WebView integration for BBS authentication
 - Shared image, GIF, and video previews scaled by their longest edge to fit fully inside dedicated square cells, with full-screen zoom, graphic-image blur detection, ImgBB uploads, upload-history media scaled with the same aspect-preserving behavior, and delete-confirmation dialogs consistent with the app's other popups
 - Light, dark, and system themes; top or bottom address bar; configurable buttons and swipe gestures
 - A concise settings overview ordered from everyday appearance, reading, and media options through connectivity, data management, and advanced tools. Unified cards open category screens, Gestures and BBS link management open directly, and Storage provides usage details plus a gray cache-delete button

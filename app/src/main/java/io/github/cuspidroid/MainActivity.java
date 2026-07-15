@@ -2612,6 +2612,11 @@ public class MainActivity extends Activity {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
 
+        menu.addView(menuIconItem(R.drawable.ic_add, text("\u30b9\u30ec\u3092\u4f5c\u6210", "Create thread"), v -> {
+            dismissPopupAnimated(popup);
+            showCreateThreadDialog();
+        }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(horizontalDivider());
         menu.addView(menuIconItem(R.drawable.ic_text_fields, text("\u512a\u5148\u30ef\u30fc\u30c9\u3092\u7ba1\u7406", "Manage priority words"), v -> {
             dismissPopupAnimated(popup);
             openBoardPriorityRules(tab.url, displayTitleForTab(tab));
@@ -20730,6 +20735,10 @@ public class MainActivity extends Activity {
         showWriteDialog("");
     }
 
+    private void showCreateThreadDialog() {
+        showWriteDialog("", true);
+    }
+
     private void addLooseUrlSpans(SpannableString text) {
         Matcher matcher = URL_TEXT_PATTERN.matcher(text);
         while (matcher.find()) {
@@ -20892,9 +20901,19 @@ public class MainActivity extends Activity {
     }
 
     private void showWriteDialog(String initialMessage) {
+        showWriteDialog(initialMessage, false);
+    }
+
+    private void showWriteDialog(String initialMessage, boolean creatingThread) {
         CuspTab tab = currentTab();
-        if (tab == null || !NATIVE_THREAD.equals(tab.nativeKind) || datAddress(tab.url) == null) {
-            Toast.makeText(this, text("\u3053\u3053\u304b\u3089\u306f\u66f8\u304d\u8fbc\u3081\u307e\u305b\u3093", "This thread cannot be written from here."), Toast.LENGTH_SHORT).show();
+        DatAddress writeAddress = creatingThread ? boardWriteAddress(tab) : tab == null ? null : datAddress(tab.url);
+        boolean validTarget = tab != null && writeAddress != null
+                && (creatingThread ? NATIVE_BOARD.equals(tab.nativeKind) : NATIVE_THREAD.equals(tab.nativeKind));
+        if (!validTarget) {
+            Toast.makeText(this, creatingThread
+                    ? text("\u3053\u306e\u677f\u3067\u306f\u30b9\u30ec\u3092\u4f5c\u6210\u3067\u304d\u307e\u305b\u3093", "A thread cannot be created on this board.")
+                    : text("\u3053\u3053\u304b\u3089\u306f\u66f8\u304d\u8fbc\u3081\u307e\u305b\u3093", "This thread cannot be written from here."),
+                    Toast.LENGTH_SHORT).show();
             return;
         }
         clearAddressFocus();
@@ -20903,6 +20922,21 @@ public class MainActivity extends Activity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(18), dp(10), dp(18), dp(6));
         form.setBackgroundColor(surfaceColor());
+
+        EditText subject = null;
+        if (creatingThread) {
+            subject = new EditText(this);
+            subject.setSingleLine(true);
+            subject.setHint(text("\u30b9\u30ec\u30bf\u30a4\u30c8\u30eb", "Thread title"));
+            subject.setTextColor(textColor());
+            subject.setHintTextColor(mutedColor());
+            subject.setBackground(addressBarBackground());
+            subject.setPadding(dp(12), 0, dp(12), 0);
+            LinearLayout.LayoutParams subjectParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+            subjectParams.setMargins(0, 0, 0, dp(8));
+            form.addView(subject, subjectParams);
+        }
 
         EditText name = new EditText(this);
         name.setSingleLine(true);
@@ -20966,17 +21000,24 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(280)));
 
         LinearLayout titleRow = writeDialogTitleRow(
-                tab.threadPage == null ? text("\u66f8\u304d\u8fbc\u307f", "Write") : tab.threadPage.title,
+                creatingThread ? text("\u30b9\u30ec\u3092\u4f5c\u6210", "Create thread")
+                        : tab.threadPage == null ? text("\u66f8\u304d\u8fbc\u307f", "Write") : tab.threadPage.title,
                 writeMenu);
+        EditText subjectInput = subject;
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setCustomTitle(titleRow)
                 .setView(form)
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Post", null)
+                .setPositiveButton(creatingThread ? text("\u4f5c\u6210", "Create") : "Post", null)
                 .create();
         dialog.setOnShowListener(d -> {
             Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String subjectValue = subjectInput == null ? "" : subjectInput.getText().toString();
+            if (creatingThread && subjectValue.trim().isEmpty()) {
+                Toast.makeText(this, text("\u30b9\u30ec\u30bf\u30a4\u30c8\u30eb\u3092\u5165\u529b", "Enter a thread title."), Toast.LENGTH_SHORT).show();
+                return;
+            }
             String body = message.getText().toString();
             if (body.trim().isEmpty()) {
                 Toast.makeText(this, text("\u672c\u6587\u3092\u5165\u529b", "Enter a message."), Toast.LENGTH_SHORT).show();
@@ -20986,16 +21027,21 @@ public class MainActivity extends Activity {
             String nameValue = name.getText().toString();
             String mailValue = mail.getText().toString();
             saveWriteIdentityHistory(nameValue, mailValue);
-            submitPost(tab, nameValue, mailValue, body);
+            if (creatingThread) {
+                submitNewThread(tab, writeAddress, subjectValue, nameValue, mailValue, body);
+            } else {
+                submitPost(tab, nameValue, mailValue, body);
+            }
             });
         });
         dialog.show();
         Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
-        message.requestFocus();
-        message.postDelayed(() -> {
+        EditText initialFocus = creatingThread && subjectInput != null ? subjectInput : message;
+        initialFocus.requestFocus();
+        initialFocus.postDelayed(() -> {
             try {
                 InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                manager.showSoftInput(message, InputMethodManager.SHOW_IMPLICIT);
+                manager.showSoftInput(initialFocus, InputMethodManager.SHOW_IMPLICIT);
             } catch (Exception ignored) {
             }
         }, 120);
@@ -21677,6 +21723,47 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void submitNewThread(CuspTab tab, DatAddress address, String subject,
+                                 String name, String mail, String message) {
+        if (tab == null || address == null) {
+            Toast.makeText(this, text("\u30b9\u30ec\u4f5c\u6210\u5148\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Cannot find thread creation target."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        progressBar.setVisibility(View.VISIBLE);
+        Toast.makeText(this, text("\u30b9\u30ec\u4f5c\u6210\u4e2d", "Creating thread..."), Toast.LENGTH_SHORT).show();
+        ioExecutor.execute(() -> {
+            String result;
+            boolean success = false;
+            try {
+                result = createThreadWithCookieConfirm(tab.url, address, subject, name, mail, message);
+                String plain = cleanText(result);
+                success = postSucceeded(plain, address);
+                if (!success) {
+                    result = shorten(plain.replace('\n', ' '), 220);
+                }
+            } catch (Exception error) {
+                result = error.getMessage() == null
+                        ? text("\u30b9\u30ec\u4f5c\u6210\u5931\u6557", "Thread creation failed.") : error.getMessage();
+                success = isLikelyAcceptedShitarabaPostError(address, result);
+            }
+            String messageText = result;
+            boolean created = success;
+            runOnUiThread(() -> {
+                progressBar.setVisibility(View.GONE);
+                if (created) {
+                    Toast.makeText(this, text("\u30b9\u30ec\u3092\u4f5c\u6210\u3057\u307e\u3057\u305f", "Thread created."), Toast.LENGTH_SHORT).show();
+                    if (tab == currentTab() && NATIVE_BOARD.equals(tab.nativeKind)) {
+                        refreshBoardFromTop(tab);
+                    } else if (tab.url != null) {
+                        loadBoard(tab, tab.url, false);
+                    }
+                } else {
+                    showCopyablePostFailure(messageText);
+                }
+            });
+        });
+    }
+
     private void submitPost(CuspTab tab, String name, String mail, String message) {
         DatAddress address = datAddress(tab.url);
         if (address == null) {
@@ -21826,6 +21913,71 @@ public class MainActivity extends Activity {
         return postSucceeded(secondPlain, address) ? "write done" : second.body;
     }
 
+    private String createThreadWithCookieConfirm(String boardUrl, DatAddress address, String subject,
+                                                  String name, String mail, String message) throws Exception {
+        String endpoint = createThreadEndpoint(address);
+        Charset requestCharset = postRequestCharset(address);
+        boolean submitFirst = postSubmitFirst(address);
+        String contentType = postContentType(address);
+        Map<String, String> fields = createThreadFields(address, subject, name, mail, message);
+        String submit = "\u65b0\u898f\u30b9\u30ec\u30c3\u30c9\u4f5c\u6210";
+        String payload = postPayload(fields, submit, requestCharset, submitFirst);
+        boolean redirectSuccess = isShitarabaAddress(address);
+
+        PostResult first = sendPostWithCookie(endpoint, boardUrl, payload, null,
+                requestCharset, contentType, redirectSuccess);
+        String firstPlain = cleanText(first.body);
+        if (postSucceeded(firstPlain, address)) {
+            return "write done";
+        }
+        if (!requiresCookieConfirm(firstPlain)) {
+            return first.body;
+        }
+
+        String cookie = cookieHeader(first.cookies);
+        if (cookie.isEmpty()) {
+            cookie = "yuki=akari";
+        } else if (!cookie.contains("MonaTicket=") && !cookie.contains("yuki=")) {
+            cookie = cookie + "; yuki=akari";
+        }
+        String confirmPayload = confirmPostPayload(first.body, fields, requestCharset, submitFirst);
+        PostResult second = sendPostWithCookie(endpoint, boardUrl, confirmPayload, cookie,
+                requestCharset, contentType, redirectSuccess);
+        String secondPlain = cleanText(second.body);
+        return postSucceeded(secondPlain, address) ? "write done" : second.body;
+    }
+
+    private Map<String, String> createThreadFields(DatAddress address, String subject,
+                                                    String name, String mail, String message) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        if (isShitarabaAddress(address)) {
+            fields.put("DIR", shitarabaDir(address));
+            fields.put("BBS", shitarabaBbsId(address));
+            fields.put("SUBJECT", subject);
+            fields.put("NAME", name);
+            fields.put("MAIL", mail);
+            fields.put("MESSAGE", message);
+            return fields;
+        }
+        if (isMachiAddress(address)) {
+            fields.put("NAME", name);
+            fields.put("MAIL", mail);
+            fields.put("MESSAGE", message);
+            fields.put("BBS", address.board);
+            fields.put("SUBJECT", subject);
+            fields.put("TIME", String.valueOf(System.currentTimeMillis() / 1000L));
+            fields.put("CC", "\u3042");
+            return fields;
+        }
+        fields.put("bbs", address.board);
+        fields.put("time", String.valueOf(System.currentTimeMillis() / 1000L));
+        fields.put("FROM", name);
+        fields.put("mail", mail);
+        fields.put("MESSAGE", message);
+        fields.put("subject", subject);
+        return fields;
+    }
+
     private Map<String, String> postFields(DatAddress address, String name, String mail, String message) {
         Map<String, String> fields = new LinkedHashMap<>();
         if (isShitarabaAddress(address)) {
@@ -21943,6 +22095,17 @@ public class MainActivity extends Activity {
         if (isShitarabaAddress(address)) {
             return postScheme(address) + "://" + postHost(address) + "/bbs/write.cgi/"
                     + address.board + "/" + address.key + "/";
+        }
+        if (isMachiAddress(address)) {
+            return postScheme(address) + "://" + postHost(address) + "/bbs/write.cgi?guid=ON";
+        }
+        return postScheme(address) + "://" + postHost(address) + "/test/bbs.cgi";
+    }
+
+    private String createThreadEndpoint(DatAddress address) {
+        if (isShitarabaAddress(address)) {
+            return postScheme(address) + "://" + postHost(address) + "/bbs/write.cgi/"
+                    + address.board + "/new/";
         }
         if (isMachiAddress(address)) {
             return postScheme(address) + "://" + postHost(address) + "/bbs/write.cgi?guid=ON";
@@ -24972,6 +25135,30 @@ public class MainActivity extends Activity {
             return datAddress(uri, host, host.split("\\.")[0], parts.get(0), parts.get(1), true);
         }
         return null;
+    }
+
+    private DatAddress boardWriteAddress(CuspTab tab) {
+        if (tab == null || tab.url == null || !NATIVE_BOARD.equals(tab.nativeKind)
+                || !isBoardUrl(tab.url) || isBbsDirectoryUrl(tab.url)) {
+            return null;
+        }
+        Uri uri = Uri.parse(normalizeUrl(tab.url));
+        String host = uri.getHost();
+        String board = boardNameFromUrl(tab.url);
+        if (host == null || host.trim().isEmpty() || board == null || board.trim().isEmpty()
+                || isFutabaHost(host)) {
+            return null;
+        }
+        String server = host.split("\\.")[0];
+        if (("itest".equalsIgnoreCase(server)) && tab.searchPage != null
+                && tab.searchPage.url != null && !tab.searchPage.url.equals(tab.url)) {
+            Uri pageUri = Uri.parse(normalizeUrl(tab.searchPage.url));
+            if (pageUri.getHost() != null && !"itest".equalsIgnoreCase(pageUri.getHost().split("\\.")[0])) {
+                host = pageUri.getHost();
+                server = host.split("\\.")[0];
+            }
+        }
+        return datAddress(uri, host, server, board, "", usesShortThreadUrls(tab.url, host));
     }
 
     private DatAddress datAddress(Uri uri, String host, String server, String board, String key, boolean shortThread) {
