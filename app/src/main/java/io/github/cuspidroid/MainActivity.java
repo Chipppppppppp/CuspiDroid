@@ -10093,6 +10093,10 @@ public class MainActivity extends Activity {
     }
 
     private View searchResultRow(SearchResult result) {
+        return searchResultRow(result, null);
+    }
+
+    private View searchResultRow(SearchResult result, Runnable beforeOpen) {
         LinearLayout shell = new LinearLayout(this);
         shell.setOrientation(LinearLayout.HORIZONTAL);
         shell.setGravity(Gravity.CENTER_VERTICAL);
@@ -10100,7 +10104,12 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(10), dp(9), dp(10), dp(9));
-        row.setOnClickListener(v -> routeSearchResult(result));
+        row.setOnClickListener(v -> {
+            if (beforeOpen != null) {
+                beforeOpen.run();
+            }
+            routeSearchResult(result);
+        });
 
         TextView resultTitle = new TextView(this);
         resultTitle.setText(styledResultTitle(result));
@@ -16908,7 +16917,7 @@ public class MainActivity extends Activity {
 
     private void showThreadExtractList(ThreadExtractMode mode, int popularThreshold) {
         List<ThreadExtractItem> items = threadExtractItems(mode, popularThreshold);
-        if (items.isEmpty()) {
+        if (items.isEmpty() && mode != ThreadExtractMode.POPULAR) {
             Toast.makeText(this, noThreadExtractText(mode), Toast.LENGTH_SHORT).show();
             return;
         }
@@ -16929,11 +16938,20 @@ public class MainActivity extends Activity {
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(24));
         int height = Math.max(dp(240), (int) (getResources().getDisplayMetrics().heightPixels * 0.72f));
         PopupWindow popup = new PopupWindow(root, width, height, false);
+        popup.setFocusable(mode == ThreadExtractMode.POPULAR);
         popupRef[0] = popup;
         root.setTag(popup);
         configureModalPopup(popup, root);
         prepareAnimatedPopupDismiss(popup, root);
-        renderThreadExtractSlots(scroll, list, threadExtractGroups(items), mode, popup);
+        if (items.isEmpty()) {
+            TextView empty = postText(noThreadExtractText(mode), null);
+            empty.setTextColor(mutedColor());
+            empty.setPadding(dp(10), dp(12), dp(10), dp(12));
+            list.addView(empty, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        } else {
+            renderThreadExtractSlots(scroll, list, threadExtractGroups(items), mode, popup);
+        }
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
@@ -16955,13 +16973,39 @@ public class MainActivity extends Activity {
     }
 
     private View threadExtractTitleRow(ThreadExtractMode mode, int threshold, int count, PopupWindow[] popupRef) {
+        if (mode != ThreadExtractMode.POPULAR) {
+            return popupTitleRow(threadExtractTitle(mode), count);
+        }
+        PopupEditHeader header = popupEditHeader(
+                threadExtractTitle(mode), count, String.valueOf(Math.max(1, threshold)),
+                text("\u95be\u5024", "Threshold"), true,
+                text("\u66f4\u65b0", "Update"));
+        Runnable refresh = () -> {
+            int value = Math.max(1, parsePositiveInt(header.input.getText().toString(), Math.max(1, threshold)));
+            preferences.edit().putInt(PREF_POPULAR_REPLY_THRESHOLD, value).apply();
+            PopupWindow extractPopup = popupRef == null ? null : popupRef[0];
+            if (extractPopup != null && extractPopup.isShowing()) {
+                dismissPopupAnimated(extractPopup);
+            }
+            showThreadExtractList(ThreadExtractMode.POPULAR, value);
+        };
+        header.apply.setContentDescription(text("\u4eba\u6c17\u30ec\u30b9\u306e\u95be\u5024\u3092\u66f4\u65b0", "Update popular post threshold"));
+        header.apply.setOnClickListener(v -> refresh.run());
+        header.input.setOnEditorActionListener((v, actionId, event) -> {
+            refresh.run();
+            return true;
+        });
+        return header.root;
+    }
+
+    private View popupTitleRow(String titleText, int count) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(dp(54));
         row.setPadding(dp(10), dp(6), dp(10), dp(8));
         TextView title = new TextView(this);
-        title.setText(threadExtractTitle(mode) + "  " + count);
+        title.setText(titleText + "  " + count);
         title.setTextColor(textColor());
         title.setTextSize(16);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -16970,58 +17014,48 @@ public class MainActivity extends Activity {
         title.setEllipsize(TextUtils.TruncateAt.END);
         title.setIncludeFontPadding(true);
         row.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        if (mode != ThreadExtractMode.POPULAR) {
-            return row;
-        }
-        TextView thresholdLabel = new TextView(this);
-        thresholdLabel.setText(text("\u95be\u5024", "Threshold"));
-        thresholdLabel.setTextColor(mutedColor());
-        thresholdLabel.setTextSize(13);
-        thresholdLabel.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-        thresholdLabel.setSingleLine(true);
-        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), ViewGroup.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(dp(8), 0, 0, 0);
-        row.addView(thresholdLabel, labelParams);
+        return row;
+    }
+
+    private PopupEditHeader popupEditHeader(String titleText, int count, String value,
+                                             String hint, boolean numeric, String actionText) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.addView(popupTitleRow(titleText, count), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        controls.setPadding(dp(10), 0, dp(10), dp(10));
         EditText input = new EditText(this);
         input.setSingleLine(true);
-        input.setText(String.valueOf(Math.max(1, threshold)));
+        input.setText(value == null ? "" : value);
+        input.setHint(hint);
         input.setSelectAllOnFocus(true);
-        input.setTextSize(14);
+        input.setTextSize(15);
         input.setTextColor(textColor());
         input.setHintTextColor(hintTextColor());
-        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        input.setInputType(numeric
+                ? android.text.InputType.TYPE_CLASS_NUMBER
+                : android.text.InputType.TYPE_CLASS_TEXT);
+        input.setImeOptions(numeric ? EditorInfo.IME_ACTION_DONE : EditorInfo.IME_ACTION_SEARCH);
         input.setBackground(addressBarBackground());
         input.setPadding(dp(12), 0, dp(12), 0);
-        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(dp(54), dp(38));
-        inputParams.setMargins(dp(6), 0, 0, 0);
-        row.addView(input, inputParams);
+        controls.addView(input, new LinearLayout.LayoutParams(0, dp(44), 1));
         TextView apply = new TextView(this);
-        apply.setText(text("\u9069\u7528", "Apply"));
-        apply.setContentDescription(text("\u4eba\u6c17\u30ec\u30b9\u306e\u95be\u5024\u3092\u9069\u7528", "Apply popular post threshold"));
+        apply.setText(actionText);
         apply.setTextColor(Color.WHITE);
-        apply.setTextSize(13);
+        apply.setTextSize(14);
         apply.setGravity(Gravity.CENTER);
         apply.setTypeface(Typeface.DEFAULT_BOLD);
         apply.setBackground(roundedDrawable(TEAL, TEAL, dp(10)));
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(58), dp(38));
-        applyParams.setMargins(dp(6), 0, 0, 0);
-        row.addView(apply, applyParams);
-
-        Runnable refresh = () -> {
-            int value = Math.max(1, parsePositiveInt(input.getText().toString(), Math.max(1, threshold)));
-            PopupWindow extractPopup = popupRef == null ? null : popupRef[0];
-            if (extractPopup != null && extractPopup.isShowing()) {
-                dismissPopupAnimated(extractPopup);
-            }
-            showThreadExtractList(ThreadExtractMode.POPULAR, value);
-        };
-        apply.setOnClickListener(v -> refresh.run());
-        input.setOnEditorActionListener((v, actionId, event) -> {
-            refresh.run();
-            return true;
-        });
-        return row;
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(76), dp(44));
+        applyParams.setMargins(dp(8), 0, 0, 0);
+        controls.addView(apply, applyParams);
+        root.addView(controls, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return new PopupEditHeader(root, input, apply);
     }
 
     private List<ThreadExtractGroup> threadExtractGroups(List<ThreadExtractItem> items) {
@@ -23172,18 +23206,23 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u677fURL\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board URL found."), Toast.LENGTH_SHORT).show();
             return;
         }
-        String sourceTitle = tab.threadPage.title;
+        String query = nextThreadSearchQuery(tab.threadPage.title);
+        int sourceNumber = nextThreadNumber(tab.threadPage.title);
         String sourceUrl = tab.url;
         PopupWindow loading = showNextThreadLoadingPopup();
         ioExecutor.execute(() -> {
+            List<SearchResult> boardResults;
             List<SearchResult> candidates;
             String errorMessage = null;
             try {
-                candidates = nextThreadCandidates(downloadBoard(boardUrl).results, sourceTitle, sourceUrl);
+                boardResults = downloadBoard(boardUrl).results;
+                candidates = nextThreadCandidates(boardResults, query, sourceUrl, sourceNumber);
             } catch (Exception error) {
+                boardResults = new ArrayList<>();
                 candidates = new ArrayList<>();
                 errorMessage = error.getMessage();
             }
+            List<SearchResult> allResults = boardResults;
             List<SearchResult> result = candidates;
             String resultError = errorMessage;
             runOnUiThread(() -> {
@@ -23193,13 +23232,9 @@ public class MainActivity extends Activity {
                 }
                 loading.dismiss();
                 if (resultError != null) {
-                    new AlertDialog.Builder(this)
-                            .setTitle(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"))
-                            .setMessage(resultError)
-                            .setPositiveButton("OK", null)
-                            .show();
+                    Toast.makeText(this, resultError, Toast.LENGTH_LONG).show();
                 } else {
-                    showNextThreadCandidatesDialog(result);
+                    showNextThreadCandidatesDialog(query, allResults, sourceUrl, sourceNumber, result);
                 }
             });
         });
@@ -23229,19 +23264,20 @@ public class MainActivity extends Activity {
         return popup;
     }
 
-    private void showNextThreadCandidatesDialog(List<SearchResult> candidates) {
+    private void showNextThreadCandidatesDialog(String query, List<SearchResult> boardResults,
+                                                String sourceUrl, int sourceNumber,
+                                                List<SearchResult> candidates) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(12), dp(10), dp(12), dp(10));
         root.setBackground(menuBackground());
 
-        TextView title = new TextView(this);
-        title.setText(text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"));
-        title.setTextColor(textColor());
-        title.setTextSize(17);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(4), dp(2), dp(4), dp(8));
-        root.addView(title, new LinearLayout.LayoutParams(
+        PopupEditHeader header = popupEditHeader(
+                text("\u6b21\u30b9\u30ec\u5019\u88dc", "Next-thread candidates"),
+                candidates == null ? 0 : candidates.size(), query,
+                text("\u691c\u7d22\u8a9e", "Search query"), false,
+                text("\u691c\u7d22", "Search"));
+        root.addView(header.root, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         if (candidates == null || candidates.isEmpty()) {
@@ -23260,56 +23296,67 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             root.addView(scroll, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-            for (int i = 0; i < candidates.size(); i++) {
-                SearchResult result = candidates.get(i);
-                TextView row = new TextView(this);
-                row.setText(result.title + "\n" + text("\u5019\u88dc ", "Candidate ") + (i + 1)
-                        + "  " + text("\u30ec\u30b9: ", "Posts: ") + result.responses);
-                row.setTextColor(textColor());
-                row.setTextSize(15);
-                row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(10), dp(10), dp(10), dp(10));
-                row.setBackground(roundedDrawable(postColor(), popupBorderColor(), dp(8)));
-                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                rowParams.setMargins(0, 0, 0, dp(8));
-                list.addView(row, rowParams);
+            PopupWindow[] popupRef = new PopupWindow[1];
+            for (SearchResult result : candidates) {
+                View row = searchResultRow(result, () -> {
+                    if (popupRef[0] != null) {
+                        dismissPopupAnimated(popupRef[0]);
+                    }
+                });
+                list.addView(row, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             }
+            root.setTag(popupRef);
         }
         int width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(40));
         int height = Math.max(dp(180), (int) (getResources().getDisplayMetrics().heightPixels * 0.62f));
         PopupWindow popup = new PopupWindow(root, width, height, false);
+        popup.setFocusable(true);
         configureModalPopup(popup, root);
         prepareAnimatedPopupDismiss(popup, root);
-        for (int i = 0; i < (candidates == null ? 0 : candidates.size()); i++) {
-            View row = ((ViewGroup) ((ScrollView) root.getChildAt(1)).getChildAt(0)).getChildAt(i);
-            SearchResult result = candidates.get(i);
-            row.setOnClickListener(v -> {
-                dismissPopupAnimated(popup);
-                openInCurrentTab(result.url);
-            });
+        if (root.getTag() instanceof PopupWindow[]) {
+            ((PopupWindow[]) root.getTag())[0] = popup;
         }
+        Runnable applyQuery = () -> {
+            String value = header.input.getText().toString().trim();
+            if (value.isEmpty()) {
+                return;
+            }
+            dismissPopupAnimated(popup);
+            showNextThreadCandidatesDialog(value, boardResults, sourceUrl, sourceNumber,
+                    nextThreadCandidates(boardResults, value, sourceUrl, sourceNumber));
+        };
+        header.apply.setContentDescription(text("\u6b21\u30b9\u30ec\u306e\u691c\u7d22\u8a9e\u3092\u9069\u7528", "Apply next-thread search query"));
+        header.apply.setOnClickListener(v -> applyQuery.run());
+        header.input.setOnEditorActionListener((v, actionId, event) -> {
+            applyQuery.run();
+            return true;
+        });
         showCenteredModalPopup(popup);
     }
 
-    private List<SearchResult> nextThreadCandidates(List<SearchResult> boardResults, String sourceTitle, String sourceUrl) {
+    private List<SearchResult> nextThreadCandidates(List<SearchResult> boardResults, String sourceTitle,
+                                                    String sourceUrl, int sourceNumber) {
         List<SearchResult> candidates = new ArrayList<>();
         String source = nextThreadTitleKey(sourceTitle);
         if (source.isEmpty() || boardResults == null) {
             return candidates;
         }
-        int sourceNumber = nextThreadNumber(sourceTitle);
         for (SearchResult result : boardResults) {
             if (result == null || result.title == null || sameSavedUrl(sourceUrl, result.url)) {
                 continue;
             }
             String candidate = nextThreadTitleKey(result.title);
             double similarity = nextThreadSimilarity(source, candidate);
-            if (similarity < 0.48d) {
+            boolean containsQuery = nextThreadContainsQuery(candidate, source);
+            if (similarity < 0.48d && !containsQuery) {
                 continue;
             }
             int candidateNumber = nextThreadNumber(result.title);
             double score = similarity * 100d;
+            if (containsQuery) {
+                score += 20d;
+            }
             if (sourceNumber > 0 && candidateNumber == sourceNumber + 1) {
                 score += 25d;
             } else if (sourceNumber > 0 && candidateNumber > sourceNumber) {
@@ -23320,13 +23367,27 @@ public class MainActivity extends Activity {
             candidates.add(result);
         }
         Collections.sort(candidates, (left, right) -> Double.compare(right.nextThreadScore, left.nextThreadScore));
-        for (int i = 0; i < candidates.size(); i++) {
-            candidates.get(i).boardOrder = i + 1;
-        }
         if (candidates.size() > 8) {
             return new ArrayList<>(candidates.subList(0, 8));
         }
         return candidates;
+    }
+
+    private boolean nextThreadContainsQuery(String candidate, String query) {
+        if (candidate == null || query == null || candidate.isEmpty() || query.isEmpty()) {
+            return false;
+        }
+        for (String token : query.split("\\s+")) {
+            if (!token.isEmpty() && !candidate.contains(token)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String nextThreadSearchQuery(String title) {
+        String value = Normalizer.normalize(stripThreadResponseCount(title), Normalizer.Form.NFKC);
+        return value.replaceAll("(?i)\\s*(?:part|pt|vol(?:ume)?|#|\u7b2c|\u305d\u306e)?\\s*\\d+\\s*(?:\u30b9\u30ec|\u8a71|\u5dfb|\u518a|\u672c|th|st|nd|rd)?\\s*$", "").trim();
     }
 
     private String nextThreadTitleKey(String title) {
@@ -29400,6 +29461,18 @@ public class MainActivity extends Activity {
             page.title = text("\u691c\u7d22\u5931\u6557", "Search failed");
             page.error = message == null ? "Unknown error" : message;
             return page;
+        }
+    }
+
+    private static class PopupEditHeader {
+        final LinearLayout root;
+        final EditText input;
+        final TextView apply;
+
+        PopupEditHeader(LinearLayout root, EditText input, TextView apply) {
+            this.root = root;
+            this.input = input;
+            this.apply = apply;
         }
     }
 

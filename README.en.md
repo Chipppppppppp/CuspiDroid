@@ -18,11 +18,11 @@ CuspiDroid is an Android app for browsing and posting to 5ch and compatible BBS 
 
 - Browser-like navigation with multiple tabs, a tab overview, bookmark folders, and history
 - Combined URL and search address bar with thread search through `find.5ch.io` or a custom URL
-- Next-thread search that narrows a few ranked candidates from the current board using title similarity and thread-number continuity
+- Next-thread search with an editable query that narrows candidates from the current board using title similarity and thread-number continuity, displayed like the board list
 - Consistent bordered, dimmed popups for long-pressed posts, media/link/popular-post filters, and next-thread candidates; tap outside to close
 - Native board and thread views for 5ch and custom BBS sites, with pull-to-refresh
 - Saved scroll/read positions, first-unread jumps, unread coloring, list metadata, and sorting
-- Tree view, reply/link/popular-post filters, AA rendering, repeated-copy omission, and board-scoped NGWord/NGName/NGID rules
+- Tree view, reply/link/popular-post filters with an editable popularity threshold, AA rendering, repeated-copy omission, and board-scoped NGWord/NGName/NGID rules
 - In-app posting, name/mail history, personal post history, and WebView integration for BBS authentication
 - Image, GIF, and video previews, full-screen zoom, graphic-image blur detection, and ImgBB uploads
 - Light, dark, and system themes; top or bottom address bar; configurable buttons and swipe gestures
