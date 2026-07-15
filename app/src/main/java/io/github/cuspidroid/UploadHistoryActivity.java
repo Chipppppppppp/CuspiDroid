@@ -216,7 +216,7 @@ public class UploadHistoryActivity extends Activity {
             Toast.makeText(this, MainActivity.text("削除URLが保存されていません。", "No delete URL was saved."), Toast.LENGTH_SHORT).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        AlertDialog confirmationDialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("ImgBBから削除", "Delete from ImgBB"))
                 .setMessage(MainActivity.text(
                         "ImgBB上の画像を削除します。アップロード履歴は残ります。",
@@ -237,11 +237,13 @@ public class UploadHistoryActivity extends Activity {
                         }
                     });
                 })
-                .show();
+                .create();
+        confirmationDialog.show();
+        Theme.styleDialog(confirmationDialog, this);
     }
 
     private void confirmHistoryDelete(int index) {
-        new AlertDialog.Builder(this)
+        AlertDialog confirmationDialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("履歴から削除", "Delete from history"))
                 .setMessage(MainActivity.text(
                         "アプリ内のアップロード履歴からだけ削除します。ImgBB上の画像は削除されません。",
@@ -251,7 +253,9 @@ public class UploadHistoryActivity extends Activity {
                     removeHistoryAt(index);
                     renderUploads();
                 })
-                .show();
+                .create();
+        confirmationDialog.show();
+        Theme.styleDialog(confirmationDialog, this);
     }
 
     private void copyUrl(String value) {
