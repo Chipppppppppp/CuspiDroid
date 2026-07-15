@@ -732,6 +732,9 @@ public class MainActivity extends Activity {
     }
 
     private int borderColor() {
+        if (privateUiActive()) {
+            return privateBorderColor();
+        }
         return Theme.border(this);
     }
 
@@ -762,6 +765,10 @@ public class MainActivity extends Activity {
 
     private int privateCanvasColor() {
         return Theme.dark(this) ? Color.rgb(0, 24, 17) : Color.rgb(2, 30, 16);
+    }
+
+    private int privateBorderColor() {
+        return Theme.dark(this) ? Color.rgb(8, 72, 52) : Color.rgb(14, 78, 43);
     }
 
     private int hintTextColor() {
@@ -2523,7 +2530,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("\u79fb\u52d5", "Go"), null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this);
+            Theme.styleDialog(dialog, this, borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 try {
                     int number = Integer.parseInt(input.getText().toString().trim());
@@ -9119,7 +9126,7 @@ public class MainActivity extends Activity {
             openNgRuleAdd(page, "NGBe", ngBePresetValue(post));
         }));
         dialog.show();
-        Theme.styleDialog(dialog, this);
+        Theme.styleDialog(dialog, this, borderColor());
     }
 
     private String ngBePresetValue(Post post) {
@@ -14900,7 +14907,7 @@ public class MainActivity extends Activity {
                     refreshHomeBookmarksOrCurrentView();
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
         dialog.show();
     }
 
@@ -14915,7 +14922,7 @@ public class MainActivity extends Activity {
                     refreshHomeBookmarksOrCurrentView();
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
         dialog.show();
     }
 
@@ -15136,7 +15143,7 @@ public class MainActivity extends Activity {
                     refreshTabOverview();
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
         dialog.show();
     }
 
@@ -20720,7 +20727,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Post", null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this);
+            Theme.styleDialog(dialog, this, borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String body = message.getText().toString();
             if (body.trim().isEmpty()) {
@@ -20735,7 +20742,7 @@ public class MainActivity extends Activity {
             });
         });
         dialog.show();
-        Theme.styleDialog(dialog, this);
+        Theme.styleDialog(dialog, this, borderColor());
         message.requestFocus();
         message.postDelayed(() -> {
             try {
@@ -20872,7 +20879,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton("OK", null)
                 .create();
         pendingImgbbUploadDialog.setOnShowListener(d -> {
-            Theme.styleDialog(pendingImgbbUploadDialog, this);
+            Theme.styleDialog(pendingImgbbUploadDialog, this, borderColor());
             pendingImgbbUploadDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 if (pendingImgbbUploadUris.isEmpty()) {
                     Toast.makeText(this, text("\u753b\u50cf\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", "Choose images."), Toast.LENGTH_SHORT).show();
@@ -21075,7 +21082,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("\u4fdd\u5b58", "Save"), null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this);
+            Theme.styleDialog(dialog, this, borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String value = input.getText().toString().trim();
                 if (value.isEmpty()) {
@@ -21107,7 +21114,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("ImgBB API\u3092\u958b\u304f", "Open ImgBB API"),
                         (d, which) -> openExternal("https://api.imgbb.com/"))
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
         dialog.show();
     }
 
@@ -21502,7 +21509,7 @@ public class MainActivity extends Activity {
                 })
                 .setPositiveButton("OK", null);
         AlertDialog dialog = builder.show();
-        Theme.styleDialog(dialog, this);
+        Theme.styleDialog(dialog, this, borderColor());
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
@@ -21924,7 +21931,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> deleteCookiesForSite(siteUrl))
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
         dialog.show();
     }
 
@@ -26913,7 +26920,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("OK", "OK"), null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this);
+            Theme.styleDialog(dialog, this, borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String folder = normalizeSavedFolder(input.getText().toString());
                 if (folder.isEmpty()) {
@@ -26948,7 +26955,7 @@ public class MainActivity extends Activity {
                     showSavedItemsView(key, folder);
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
         dialog.show();
     }
 
@@ -26963,7 +26970,7 @@ public class MainActivity extends Activity {
                     showSavedItemsView(key);
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
         dialog.show();
     }
 

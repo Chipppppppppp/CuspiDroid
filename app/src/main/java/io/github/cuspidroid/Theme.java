@@ -114,10 +114,14 @@ final class Theme {
     }
 
     static void styleDialog(Dialog dialog, Context context) {
+        styleDialog(dialog, context, border(context));
+    }
+
+    static void styleDialog(Dialog dialog, Context context, int borderColor) {
         if (dialog == null) {
             return;
         }
-        stylePopupDialog(dialog, context);
+        stylePopupDialog(dialog, context, borderColor);
         int accent = accent(context);
         View decor = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
         tintDialogText(decor, text(context));
@@ -136,6 +140,10 @@ final class Theme {
     }
 
     static void stylePopupDialog(Dialog dialog, Context context) {
+        stylePopupDialog(dialog, context, border(context));
+    }
+
+    static void stylePopupDialog(Dialog dialog, Context context, int borderColor) {
         if (dialog == null) {
             return;
         }
@@ -147,7 +155,7 @@ final class Theme {
 
             GradientDrawable frame = new GradientDrawable();
             frame.setColor(Color.TRANSPARENT);
-            frame.setStroke(dp(context, 2), border(context));
+            frame.setStroke(dp(context, 2), borderColor);
             frame.setCornerRadius(dp(context, 10));
             dialog.getWindow().getDecorView().setForeground(frame);
         }
