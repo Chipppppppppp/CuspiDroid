@@ -17,6 +17,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -74,8 +75,7 @@ public class SettingsActivity extends Activity {
     private TextView cacheApply;
     private ProgressBar cacheUsage;
     private TextView cacheUsageText;
-    private TextView clearCacheSubtitle;
-    private View clearCacheAction;
+    private Button clearCacheButton;
     private RadioButton themeSystem;
     private RadioButton themeLight;
     private RadioButton themeDark;
@@ -133,7 +133,7 @@ public class SettingsActivity extends Activity {
         Theme.applySystemBars(this);
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(bgColor());
-        LinearLayout root = new LinearLayout(this);
+        SectionedSettingsLayout root = new SectionedSettingsLayout();
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(28));
         scroll.addView(root, new ScrollView.LayoutParams(
@@ -489,11 +489,16 @@ public class SettingsActivity extends Activity {
         root.addView(cacheUsage, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
 
-        clearCacheAction = destructiveActionRow(R.drawable.ic_delete,
-                MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Delete cache"),
-                MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u306e\u307f\u3092\u524a\u9664", "Delete only cached threads and media"),
-                v -> confirmClearCache());
-        root.addView(clearCacheAction);
+        LinearLayout clearCacheRow = new LinearLayout(this);
+        clearCacheRow.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        clearCacheButton = cacheActionButton();
+        clearCacheButton.setOnClickListener(v -> confirmClearCache());
+        clearCacheRow.addView(clearCacheButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)));
+        LinearLayout.LayoutParams clearCacheParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+        clearCacheParams.setMargins(0, dp(4), 0, dp(4));
+        root.addView(clearCacheRow, clearCacheParams);
 
         root.addView(sectionTitle(android.R.drawable.ic_menu_recent_history,
                 MainActivity.text("\u30d7\u30e9\u30a4\u30d0\u30b7\u30fc\u3068\u5c65\u6b74", "Privacy & History"),
@@ -1245,15 +1250,9 @@ public class SettingsActivity extends Activity {
         cacheUsage.setProgress(progress);
         cacheUsageText.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u4f7f\u7528\u91cf: ",
                 "Cache used: ") + AppCache.formatBytes(current) + " / " + AppCache.formatBytes(max));
-        if (clearCacheSubtitle != null) {
-            clearCacheSubtitle.setText(current == 0L
-                    ? MainActivity.text("\u524a\u9664\u3067\u304d\u308b\u30ad\u30e3\u30c3\u30b7\u30e5\u306f\u3042\u308a\u307e\u305b\u3093", "There is no cached data to delete")
-                    : MainActivity.text("\u4fdd\u5b58\u6e08\u307f\u306e\u30b9\u30ec\u3068\u30e1\u30c7\u30a3\u30a2\u3092\u524a\u9664: ",
-                    "Delete cached threads and media: ") + AppCache.formatBytes(current));
-        }
-        if (clearCacheAction != null) {
-            clearCacheAction.setEnabled(current > 0L);
-            clearCacheAction.setAlpha(current > 0L ? 1f : 0.5f);
+        if (clearCacheButton != null) {
+            clearCacheButton.setEnabled(current > 0L);
+            clearCacheButton.setAlpha(current > 0L ? 1f : 0.5f);
         }
     }
 
@@ -1279,11 +1278,69 @@ public class SettingsActivity extends Activity {
                             Toast.LENGTH_SHORT).show();
                 })
                 .create();
-        dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(dangerColor());
-        });
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
         dialog.show();
+    }
+
+    private final class SectionedSettingsLayout extends LinearLayout {
+        private LinearLayout currentSection;
+        private LinearLayout expandedSection;
+        private SectionHeaderTag expandedHeader;
+
+        SectionedSettingsLayout() {
+            super(SettingsActivity.this);
+        }
+
+        @Override
+        public void addView(View child, int index, ViewGroup.LayoutParams params) {
+            Object tag = child.getTag();
+            if (tag instanceof SectionHeaderTag) {
+                SectionHeaderTag header = (SectionHeaderTag) tag;
+                super.addView(child, index, params);
+                currentSection = new LinearLayout(SettingsActivity.this);
+                currentSection.setOrientation(LinearLayout.VERTICAL);
+                currentSection.setPadding(0, 0, 0, dp(4));
+                currentSection.setVisibility(View.GONE);
+                super.addView(currentSection, -1, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                LinearLayout section = currentSection;
+                child.setOnClickListener(v -> toggleSection(section, header));
+                return;
+            }
+            if (currentSection != null) {
+                currentSection.addView(child, params);
+                return;
+            }
+            super.addView(child, index, params);
+        }
+
+        private void toggleSection(LinearLayout section, SectionHeaderTag header) {
+            if (section.getVisibility() == View.VISIBLE) {
+                section.setVisibility(View.GONE);
+                header.arrow.setImageResource(R.drawable.ic_arrow_down);
+                expandedSection = null;
+                expandedHeader = null;
+                return;
+            }
+            if (expandedSection != null) {
+                expandedSection.setVisibility(View.GONE);
+            }
+            if (expandedHeader != null) {
+                expandedHeader.arrow.setImageResource(R.drawable.ic_arrow_down);
+            }
+            section.setVisibility(View.VISIBLE);
+            header.arrow.setImageResource(R.drawable.ic_arrow_up);
+            expandedSection = section;
+            expandedHeader = header;
+        }
+    }
+
+    private static final class SectionHeaderTag {
+        final ImageView arrow;
+
+        SectionHeaderTag(ImageView arrow) {
+            this.arrow = arrow;
+        }
     }
 
     private View sectionTitle(int iconRes, String title, String subtitle) {
@@ -1292,6 +1349,8 @@ public class SettingsActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(12), dp(10), dp(12), dp(10));
         header.setBackground(roundedSectionHeader());
+        header.setClickable(true);
+        header.setFocusable(true);
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
@@ -1320,9 +1379,16 @@ public class SettingsActivity extends Activity {
         labelsParams.setMargins(dp(12), 0, 0, 0);
         header.addView(labels, labelsParams);
 
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_arrow_down);
+        arrow.setColorFilter(mutedColor());
+        arrow.setContentDescription(MainActivity.text("\u8a2d\u5b9a\u3092\u958b\u304f", "Open settings"));
+        header.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        header.setTag(new SectionHeaderTag(arrow));
+
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(66));
-        params.setMargins(0, dp(18), 0, dp(8));
+        params.setMargins(0, dp(5), 0, dp(5));
         header.setLayoutParams(params);
         return header;
     }
@@ -1437,80 +1503,23 @@ public class SettingsActivity extends Activity {
         return row;
     }
 
-    private View destructiveActionRow(int iconRes, String title, String subtitle,
-                                      View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(10), dp(10));
-        row.setBackground(roundedDangerCard());
-        row.setOnClickListener(listener);
-        row.setClickable(true);
-        row.setFocusable(true);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(dangerColor());
-        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
-        icon.setBackground(roundedDangerBubble());
-        row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView titleView = new TextView(this);
-        titleView.setText(title);
-        titleView.setTextColor(dangerColor());
-        titleView.setTextSize(16);
-        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        texts.addView(titleView);
-        clearCacheSubtitle = new TextView(this);
-        clearCacheSubtitle.setText(subtitle);
-        clearCacheSubtitle.setTextColor(mutedColor());
-        clearCacheSubtitle.setTextSize(12);
-        clearCacheSubtitle.setSingleLine(true);
-        clearCacheSubtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        texts.addView(clearCacheSubtitle);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        textParams.setMargins(dp(12), 0, dp(8), 0);
-        row.addView(texts, textParams);
-
-        TextView action = new TextView(this);
-        action.setText(MainActivity.text("\u524a\u9664", "Delete"));
-        action.setTextColor(Color.WHITE);
-        action.setTextSize(13);
-        action.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        action.setGravity(Gravity.CENTER);
-        GradientDrawable actionBackground = new GradientDrawable();
-        actionBackground.setColor(dangerColor());
-        actionBackground.setCornerRadius(dp(9));
-        action.setBackground(actionBackground);
-        row.addView(action, new LinearLayout.LayoutParams(dp(62), dp(38)));
-
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(72));
-        params.setMargins(0, dp(8), 0, dp(8));
-        row.setLayoutParams(params);
-        return row;
-    }
-
-    private int dangerColor() {
-        return Theme.dark(this) ? Color.rgb(248, 113, 113) : Color.rgb(185, 28, 28);
-    }
-
-    private GradientDrawable roundedDangerCard() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.dark(this) ? Color.rgb(39, 16, 18) : Color.rgb(254, 242, 242));
-        drawable.setStroke(dp(1), Theme.dark(this) ? Color.rgb(127, 29, 29) : Color.rgb(252, 165, 165));
-        drawable.setCornerRadius(dp(14));
-        return drawable;
-    }
-
-    private GradientDrawable roundedDangerBubble() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.dark(this) ? Color.rgb(69, 10, 10) : Color.rgb(254, 226, 226));
-        drawable.setCornerRadius(dp(13));
-        return drawable;
+    private Button cacheActionButton() {
+        Button button = new Button(this);
+        button.setText(MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u524a\u9664", "Delete cache"));
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(14);
+        button.setAllCaps(false);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(14), 0, dp(14), 0);
+        Drawable icon = getDrawable(R.drawable.ic_delete).mutate();
+        icon.setColorFilter(Color.WHITE, android.graphics.PorterDuff.Mode.SRC_IN);
+        button.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null);
+        button.setCompoundDrawablePadding(dp(8));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Theme.accent(this));
+        background.setCornerRadius(dp(10));
+        button.setBackground(background);
+        return button;
     }
 
     private GradientDrawable roundedManagementCard() {
