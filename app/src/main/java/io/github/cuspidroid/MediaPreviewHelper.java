@@ -4,8 +4,10 @@ import android.app.Activity;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ImageDecoder;
+import android.graphics.Matrix;
 import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
@@ -44,7 +46,7 @@ final class MediaPreviewHelper {
     static View create(Activity activity, SharedPreferences preferences, Executor executor, Handler mainHandler,
                        String originalUrl, String mediaUrl, boolean video, int cellSize,
                        Runnable longClickAction, Callback callback) {
-        FrameLayout frame = new FrameLayout(activity);
+        FrameLayout frame = new SquareMediaFrame(activity, cellSize);
         final String[] activeMediaUrl = {mediaUrl};
         frame.setClickable(true);
         frame.setClipChildren(true);
@@ -59,12 +61,7 @@ final class MediaPreviewHelper {
             });
         }
 
-        ImageView image = new ImageView(activity);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        image.setAdjustViewBounds(false);
-        image.setCropToPadding(false);
-        image.setMaxWidth(cellSize);
-        image.setMaxHeight(cellSize);
+        ImageView image = new ContainedMediaView(activity);
         image.setVisibility(View.GONE);
         image.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
@@ -507,6 +504,81 @@ final class MediaPreviewHelper {
 
     private static int dp(Activity activity, int value) {
         return (int) (value * activity.getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static class SquareMediaFrame extends FrameLayout {
+        private final int size;
+
+        SquareMediaFrame(Activity activity, int size) {
+            super(activity);
+            this.size = Math.max(1, size);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int exact = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY);
+            super.onMeasure(exact, exact);
+            setMeasuredDimension(size, size);
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            int save = canvas.save();
+            canvas.clipRect(0, 0, getWidth(), getHeight());
+            super.dispatchDraw(canvas);
+            canvas.restoreToCount(save);
+        }
+    }
+
+    private static class ContainedMediaView extends ImageView {
+        private final Matrix fitMatrix = new Matrix();
+
+        ContainedMediaView(Activity activity) {
+            super(activity);
+            setScaleType(ScaleType.MATRIX);
+            setAdjustViewBounds(false);
+            setCropToPadding(false);
+        }
+
+        @Override
+        public void setImageBitmap(Bitmap bitmap) {
+            super.setImageBitmap(bitmap);
+            post(this::fitDrawable);
+        }
+
+        @Override
+        public void setImageDrawable(Drawable drawable) {
+            super.setImageDrawable(drawable);
+            post(this::fitDrawable);
+        }
+
+        @Override
+        protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+            super.onSizeChanged(width, height, oldWidth, oldHeight);
+            fitDrawable();
+        }
+
+        private void fitDrawable() {
+            Drawable drawable = getDrawable();
+            int availableWidth = getWidth() - getPaddingLeft() - getPaddingRight();
+            int availableHeight = getHeight() - getPaddingTop() - getPaddingBottom();
+            if (drawable == null || availableWidth <= 0 || availableHeight <= 0) {
+                return;
+            }
+            int drawableWidth = drawable.getIntrinsicWidth();
+            int drawableHeight = drawable.getIntrinsicHeight();
+            if (drawableWidth <= 0 || drawableHeight <= 0) {
+                return;
+            }
+            float scale = Math.min(availableWidth / (float) drawableWidth,
+                    availableHeight / (float) drawableHeight);
+            float left = getPaddingLeft() + (availableWidth - drawableWidth * scale) / 2f;
+            float top = getPaddingTop() + (availableHeight - drawableHeight * scale) / 2f;
+            fitMatrix.reset();
+            fitMatrix.postScale(scale, scale);
+            fitMatrix.postTranslate(left, top);
+            setImageMatrix(fitMatrix);
+        }
     }
 
     private static class DownloadedMedia {
