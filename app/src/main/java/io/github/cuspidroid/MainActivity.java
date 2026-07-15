@@ -128,6 +128,7 @@ import java.util.LinkedHashSet;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -422,6 +423,7 @@ public class MainActivity extends Activity {
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService tabOverviewExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService tabReloadExecutor = Executors.newFixedThreadPool(TAB_RELOAD_PARALLELISM);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -491,6 +493,7 @@ public class MainActivity extends Activity {
     private int pageSearchGeneration;
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
+    private Future<?> bookmarkOverviewLoadTask;
     private Runnable backgroundTrimTask;
     private long appliedSync2chUpdateAt;
     private long appliedLocalBackupRestoreAt;
@@ -508,7 +511,7 @@ public class MainActivity extends Activity {
     private final Set<CuspTab> tabOverviewValueDirtyTabs = new LinkedHashSet<>();
     private Set<String> tabOverviewHistoryUrlCache;
     private boolean bookmarkOverviewDirty = true;
-    private int bookmarkOverviewRenderGeneration;
+    private volatile int bookmarkOverviewRenderGeneration;
     private final List<String> restoredTabOverviewNormalOrder = new ArrayList<>();
     private String restoredTabOverviewOrderSignature = "";
     private final List<String> lastTabOverviewNormalOrder = new ArrayList<>();
@@ -1144,6 +1147,11 @@ public class MainActivity extends Activity {
         saveTabs(true);
         closeImageClassifiers();
         ioExecutor.shutdownNow();
+        if (bookmarkOverviewLoadTask != null) {
+            bookmarkOverviewLoadTask.cancel(true);
+            bookmarkOverviewLoadTask = null;
+        }
+        tabOverviewExecutor.shutdownNow();
         tabReloadExecutor.shutdownNow();
         super.onDestroy();
     }
@@ -12760,17 +12768,32 @@ public class MainActivity extends Activity {
         list.addView(header);
         addTabOverviewSection(scroll, list, tabOverviewPrivateMode, allowSort);
         if (includeBookmarks && !tabOverviewPrivateMode && showBookmarksInTabOverview()) {
-            boolean privateMode = tabOverviewPrivateMode;
-            int generation = ++bookmarkOverviewRenderGeneration;
-            list.postDelayed(() -> {
+            scheduleInitialBookmarkOverviewSection(scroll, list);
+        }
+    }
+
+    private void scheduleInitialBookmarkOverviewSection(ScrollView scroll, LinearLayout list) {
+        if (scroll == null || list == null) {
+            return;
+        }
+        boolean privateMode = tabOverviewPrivateMode;
+        int generation = ++bookmarkOverviewRenderGeneration;
+        Map<String, CuspTab> openTabs = bookmarkOverviewOpenThreadTabs();
+        if (bookmarkOverviewLoadTask != null) {
+            bookmarkOverviewLoadTask.cancel(true);
+        }
+        bookmarkOverviewLoadTask = tabOverviewExecutor.submit(() -> {
+            BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot(openTabs, generation);
+            mainHandler.post(() -> {
                 if (!tabOverviewVisible || tabOverviewPrivateMode != privateMode
                         || list.getParent() != scroll || generation != bookmarkOverviewRenderGeneration) {
                     return;
                 }
-                addBookmarkOverviewSection(list, true);
+                bookmarkOverviewLoadTask = null;
+                addBookmarkOverviewSection(list, true, snapshot);
                 scheduleTabOverviewSlotRefresh(list);
-            }, 16L);
-        }
+            });
+        });
     }
 
     private void setTabOverviewListPadding(LinearLayout list) {
@@ -14511,7 +14534,14 @@ public class MainActivity extends Activity {
     }
 
     private void addBookmarkOverviewSection(LinearLayout list, boolean deferRows) {
-        BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
+        addBookmarkOverviewSection(list, deferRows, bookmarkOverviewSnapshot());
+    }
+
+    private void addBookmarkOverviewSection(LinearLayout list, boolean deferRows,
+                                            BookmarkOverviewSnapshot snapshot) {
+        if (list == null || snapshot == null) {
+            return;
+        }
         int generation = ++bookmarkOverviewRenderGeneration;
         List<SavedItem> bookmarks = snapshot.bookmarks;
         String selectedFolder = selectedBookmarkOverviewFolder(bookmarks);
@@ -14598,7 +14628,12 @@ public class MainActivity extends Activity {
     }
 
     private BookmarkOverviewSnapshot bookmarkOverviewSnapshot() {
-        BookmarkOverviewSnapshot cached = readBookmarkOverviewRenderCache();
+        return bookmarkOverviewSnapshot(bookmarkOverviewOpenThreadTabs(), -1);
+    }
+
+    private BookmarkOverviewSnapshot bookmarkOverviewSnapshot(Map<String, CuspTab> openThreadTabs,
+                                                               int expectedGeneration) {
+        BookmarkOverviewSnapshot cached = readBookmarkOverviewRenderCache(openThreadTabs);
         if (cached != null) {
             return cached;
         }
@@ -14609,7 +14644,8 @@ public class MainActivity extends Activity {
         JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
         Map<String, Integer> itemIndices = new LinkedHashMap<>();
         Map<String, Integer> unreadByFolder = new LinkedHashMap<>();
-        Map<String, CuspTab> openThreadTabs = bookmarkOverviewOpenThreadTabs();
+        Map<String, CuspTab> safeOpenThreadTabs = openThreadTabs == null
+                ? new LinkedHashMap<>() : openThreadTabs;
         for (int i = 0; i < bookmarks.size(); i++) {
             SavedItem bookmark = bookmarks.get(i);
             itemIndices.put(savedItemIdentity(bookmark.url, bookmark.folder), i);
@@ -14618,7 +14654,7 @@ public class MainActivity extends Activity {
             }
             BookmarkOverviewStatus status = bookmarkOverviewStatus(bookmark.url, statusRoot);
             int responseCount = status == null ? 0 : status.responseCount;
-            CuspTab openTab = matchingBookmarkOverviewOpenTab(bookmark.url, openThreadTabs);
+            CuspTab openTab = matchingBookmarkOverviewOpenTab(bookmark.url, safeOpenThreadTabs);
             if (openTab != null && openTab.hasThreadStats) {
                 responseCount = Math.max(responseCount, Math.max(openTab.knownMaxPostNumber, openTab.knownPostCount));
             }
@@ -14641,8 +14677,11 @@ public class MainActivity extends Activity {
             }
         }
         BookmarkOverviewSnapshot snapshot = new BookmarkOverviewSnapshot(
-                bookmarks, folders, orderRoot, statusRoot, readPosts, itemIndices, unreadByFolder, openThreadTabs);
-        writeBookmarkOverviewRenderCache(snapshot);
+                bookmarks, folders, orderRoot, statusRoot, readPosts, itemIndices, unreadByFolder,
+                safeOpenThreadTabs);
+        if (expectedGeneration < 0 || expectedGeneration == bookmarkOverviewRenderGeneration) {
+            writeBookmarkOverviewRenderCache(snapshot);
+        }
         return snapshot;
     }
 
@@ -14700,6 +14739,10 @@ public class MainActivity extends Activity {
     }
 
     private BookmarkOverviewSnapshot readBookmarkOverviewRenderCache() {
+        return readBookmarkOverviewRenderCache(bookmarkOverviewOpenThreadTabs());
+    }
+
+    private BookmarkOverviewSnapshot readBookmarkOverviewRenderCache(Map<String, CuspTab> openThreadTabs) {
         if (preferences == null) {
             return null;
         }
@@ -14758,7 +14801,7 @@ public class MainActivity extends Activity {
                     readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject(),
                     itemIndices,
                     unreadByFolder,
-                    bookmarkOverviewOpenThreadTabs());
+                    openThreadTabs);
         } catch (Exception ignored) {
             return null;
         }
