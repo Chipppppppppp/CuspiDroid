@@ -5,9 +5,6 @@
 <h1 align="center">CuspiDroid</h1>
 
 <p align="center">
-  <a href="https://github.com/ImranR98/Obtainium">
-    <img alt="Get it on Obtainium" src="https://img.shields.io/badge/Get%20it%20on-Obtainium-2563EB?style=for-the-badge">
-  </a>
   <a href="LICENSE">
     <img alt="License: GPL v3" src="https://img.shields.io/badge/License-GPLv3-0F766E?style=for-the-badge">
   </a>
@@ -15,24 +12,36 @@
 
 [Japanese README](README.md)
 
-CuspiDroid is an Android app for browsing 5ch-compatible BBS sites with a browser-like interface.
+CuspiDroid is an Android app for browsing and posting to 5ch and compatible BBS sites with a browser-like interface. It supports Android 6.0 and later.
 
 ## Features
 
-- Multiple browsing tabs
-- Address bar for both URL entry and search
-- Thread search through `find.5ch.io`
-- Native rendering for 5ch-compatible thread URLs
-- WebView handoff for authentication and web posting on the current thread
-- Imgur previews, blur protection for graphic images, and full-screen zoom
-- Settings for BBS links, history, read positions, NG rules, priority words, and bookmarks
-- Dark theme and private browsing
+- Browser-like navigation with multiple tabs, a tab overview, bookmark folders, and history
+- Combined URL and search address bar with thread search through `find.5ch.io` or a custom URL
+- Native board and thread views for 5ch and custom BBS sites, with pull-to-refresh
+- Saved scroll/read positions, first-unread jumps, unread coloring, list metadata, and sorting
+- Tree view, reply/link/popular-post filters, AA rendering, repeated-copy omission, and board-scoped NGWord/NGName/NGID rules
+- In-app posting, name/mail history, personal post history, and WebView integration for BBS authentication
+- Image, GIF, and video previews, full-screen zoom, graphic-image blur detection, and ImgBB uploads
+- Light, dark, and system themes; top or bottom address bar; configurable buttons and swipe gestures
+- Thread/media caching and separate controls for browsing, read, post, identity, and upload histories
+- Sync2ch synchronization for bookmarks, normal tabs, and read positions
+- CuspiDroid backup creation/restoration and ChMate backup import
+- Private browsing
 
 ## Install
 
 Download the APK from [Releases](https://github.com/Chipppppppppp/CuspiDroid/releases).
 
 To use Obtainium, add this GitHub repository as the app source.
+
+<p align="center">
+  <a href="https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/Chipppppppppp/CuspiDroid">
+    <img src="docs/images/badge_obtainium.png"
+         alt="Get it on Obtainium"
+         height="80">
+  </a>
+</p>
 
 ## Build
 
@@ -49,6 +58,8 @@ To build an optimized release APK:
 ```
 
 ## Custom BBS List
+
+You can add all BBS links below at once from **Settings → BBS Links → Manage BBS links → Add all BBS links from README**. Existing entries are not overwritten.
 
 | Name | URL |
 | --- | --- |

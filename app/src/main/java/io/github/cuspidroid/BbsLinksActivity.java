@@ -24,6 +24,15 @@ import java.util.List;
 public class BbsLinksActivity extends Activity {
     private static final String HISSI_TEMPLATE_EXAMPLE =
             "https://www.kyodemo.net/sdemo/b/e_e_liveedge/?hi={$id}&key={$key}&date={$date[yyyyMMdd]}";
+    private static final String[][] RECOMMENDED_CUSTOM_BBS_LINKS = {
+            {"まちBBS", "Machi BBS", "https://machi.to/bbsmenu.html"},
+            {"したらば掲示板", "Shitaraba", "https://bbs-menu.pages.dev/shitaraba_bbsmenu/bbsmenu.json"},
+            {"ふたばちゃんねる", "Futaba Channel", "https://www.2chan.net/bbsmenu.html"},
+            {"BBSPINK", "BBSPINK", "https://bbspink.org/ex0ch/bbsmenu.html"},
+            {"おーぷん2ちゃんねる", "Open2ch", "https://menu.open2ch.net/bbsmenu.html"},
+            {"エッヂ", "Edge", "https://bbs.eddibb.cc/liveedge/"},
+            {"AfternoonTea", "AfternoonTea", "https://afternoontea.st/boards/bbsmenu.html"}
+    };
 
     private SharedPreferences preferences;
     private LinearLayout list;
@@ -82,6 +91,15 @@ public class BbsLinksActivity extends Activity {
         addParams.setMargins(dp(18), 0, dp(18), dp(8));
         root.addView(add, addParams);
 
+        ViewGroup addRecommended = addRow(
+                MainActivity.text("README掲載BBSを一括追加", "Add all BBS links from README"),
+                MainActivity.text("未追加のカスタムBBSをまとめて追加", "Add all missing recommended custom BBS links"));
+        addRecommended.setOnClickListener(v -> addRecommendedBbsLinks());
+        LinearLayout.LayoutParams recommendedParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
+        recommendedParams.setMargins(dp(18), 0, dp(18), dp(8));
+        root.addView(addRecommended, recommendedParams);
+
         ScrollView scroll = new ScrollView(this);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -90,6 +108,32 @@ public class BbsLinksActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+    }
+
+    private void addRecommendedBbsLinks() {
+        List<MainActivity.BbsLink> existing = MainActivity.readBbsLinks(preferences);
+        int added = 0;
+        for (String[] item : RECOMMENDED_CUSTOM_BBS_LINKS) {
+            String url = item[2];
+            boolean found = false;
+            for (MainActivity.BbsLink link : existing) {
+                if (url.equals(link.url)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                continue;
+            }
+            MainActivity.addBbsLink(preferences, MainActivity.text(item[0], item[1]), url);
+            existing.add(new MainActivity.BbsLink(MainActivity.text(item[0], item[1]), url));
+            added++;
+        }
+        renderLinks();
+        Toast.makeText(this, added > 0
+                        ? MainActivity.text(added + "件のBBSを追加しました", "Added " + added + " BBS links")
+                        : MainActivity.text("掲載BBSはすべて追加済みです", "All listed BBS links are already added"),
+                Toast.LENGTH_SHORT).show();
     }
 
     private void renderLinks() {

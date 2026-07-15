@@ -7486,7 +7486,7 @@ public class MainActivity extends Activity {
 
     private View buildThreadView(ThreadPage page, CuspTab tab) {
         cancelThreadChunkRender(tab);
-        ScrollView scroll = new ScrollView(this);
+        ScrollView scroll = new ThreadScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -11196,7 +11196,7 @@ public class MainActivity extends Activity {
         final boolean[] refreshingTop = new boolean[1];
         final boolean[] refreshingBottom = new boolean[1];
         final boolean[] ignoreUntilUp = new boolean[1];
-        scroll.setOnTouchListener((v, event) -> {
+        View.OnTouchListener pullRefreshTouchListener = (v, event) -> {
             int topHidden = -dp(58);
             int topMax = dp(86);
             int bottomHidden = dp(58);
@@ -11382,7 +11382,12 @@ public class MainActivity extends Activity {
                 }
             }
             return false;
-        });
+        };
+        if (scroll instanceof ThreadScrollView) {
+            ((ThreadScrollView) scroll).setPullRefreshTouchListener(pullRefreshTouchListener);
+        } else {
+            scroll.setOnTouchListener(pullRefreshTouchListener);
+        }
     }
 
     private void enableTopPullRefresh(ScrollView scroll, View loader, Runnable refresh) {
@@ -28421,6 +28426,26 @@ public class MainActivity extends Activity {
                     leadingDotSpaceScore, doubleSpaceScore,
                     AA_SCORE_MIN,
                     AA_SCORE_PER_LINE_THRESHOLD);
+        }
+    }
+
+    private static class ThreadScrollView extends ScrollView {
+        private View.OnTouchListener pullRefreshTouchListener;
+
+        ThreadScrollView(Context context) {
+            super(context);
+        }
+
+        void setPullRefreshTouchListener(View.OnTouchListener listener) {
+            pullRefreshTouchListener = listener;
+        }
+
+        @Override
+        public boolean dispatchTouchEvent(MotionEvent event) {
+            if (pullRefreshTouchListener != null) {
+                pullRefreshTouchListener.onTouch(this, event);
+            }
+            return super.dispatchTouchEvent(event);
         }
     }
 
