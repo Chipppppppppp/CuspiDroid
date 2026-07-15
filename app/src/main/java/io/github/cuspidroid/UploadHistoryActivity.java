@@ -277,12 +277,12 @@ public class UploadHistoryActivity extends Activity {
         return new MediaPreviewHelper.Callback() {
             @Override
             public void openImage(String originalUrl, String mediaUrl) {
-                openUrl(mediaUrl);
+                MediaViewerActivity.open(UploadHistoryActivity.this, originalUrl, originalUrl, false);
             }
 
             @Override
             public void openVideo(String originalUrl, String mediaUrl) {
-                openUrl(mediaUrl);
+                MediaViewerActivity.open(UploadHistoryActivity.this, originalUrl, originalUrl, true);
             }
 
             @Override

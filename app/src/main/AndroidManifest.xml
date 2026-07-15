@@ -43,6 +43,10 @@
             android:name=".UploadHistoryActivity"
             android:exported="false" />
         <activity
+            android:name=".MediaViewerActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:exported="false" />
+        <activity
             android:name=".WritePostHistoryActivity"
             android:exported="false" />
         <activity

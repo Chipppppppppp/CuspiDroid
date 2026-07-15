@@ -423,6 +423,19 @@ final class MediaPreviewHelper {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
     }
 
+    static ViewerMedia loadForViewer(String url, int targetWidth, int targetHeight) throws Exception {
+        DownloadedMedia downloaded = downloadResolvedBytes(url, 40 * 1024 * 1024);
+        Drawable drawable = null;
+        if (isGifUrl(downloaded.url) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(downloaded.bytes)));
+            if (drawable instanceof AnimatedImageDrawable) {
+                ((AnimatedImageDrawable) drawable).setRepeatCount(AnimatedImageDrawable.REPEAT_INFINITE);
+            }
+        }
+        Bitmap bitmap = decodePreviewBitmap(downloaded.bytes, Math.max(targetWidth, targetHeight));
+        return new ViewerMedia(downloaded.url, downloaded.bytes, bitmap, drawable);
+    }
+
     private static String valueOr(String value, String fallback) {
         return value == null ? fallback : value;
     }
@@ -479,6 +492,20 @@ final class MediaPreviewHelper {
         DownloadedMedia(byte[] bytes, String url) {
             this.bytes = bytes;
             this.url = url;
+        }
+    }
+
+    static class ViewerMedia {
+        final String url;
+        final byte[] bytes;
+        final Bitmap bitmap;
+        final Drawable drawable;
+
+        ViewerMedia(String url, byte[] bytes, Bitmap bitmap, Drawable drawable) {
+            this.url = url;
+            this.bytes = bytes;
+            this.bitmap = bitmap;
+            this.drawable = drawable;
         }
     }
 }

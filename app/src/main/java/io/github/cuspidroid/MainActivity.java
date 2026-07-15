@@ -18208,6 +18208,10 @@ public class MainActivity extends Activity {
     }
 
     private void showImageViewer(String originalUrl, String imageUrl) {
+        MediaViewerActivity.open(this, originalUrl, imageUrl, false);
+    }
+
+    private void legacyShowImageViewer(String originalUrl, String imageUrl) {
         clearAddressFocus();
         FrameLayout overlay = new FrameLayout(this);
         imageOverlay = overlay;
@@ -18296,6 +18300,10 @@ public class MainActivity extends Activity {
     }
 
     private void showVideoViewer(String originalUrl, String videoUrl) {
+        MediaViewerActivity.open(this, originalUrl, videoUrl, true);
+    }
+
+    private void legacyShowVideoViewer(String originalUrl, String videoUrl) {
         clearAddressFocus();
         FrameLayout overlay = new FrameLayout(this);
         imageOverlay = overlay;
