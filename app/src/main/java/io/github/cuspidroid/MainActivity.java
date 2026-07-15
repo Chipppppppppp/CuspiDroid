@@ -390,6 +390,9 @@ public class MainActivity extends Activity {
     private static final int SEARCH_INITIAL_SLOT_BATCH = 20;
     private static final int SEARCH_DEFERRED_SLOT_BATCH = 120;
     private static final long SEARCH_DEFERRED_SLOT_DELAY_MS = 4L;
+    private static final int CUSTOM_BOARD_INITIAL_SLOT_BATCH = 12;
+    private static final int CUSTOM_BOARD_DEFERRED_SLOT_BATCH = 24;
+    private static final long CUSTOM_BOARD_DEFERRED_SLOT_DELAY_MS = 8L;
     private static final int SEARCH_VISIBLE_RENDER_BUDGET = 24;
     private static final int SEARCH_SCROLL_RENDER_BUDGET = 48;
     private static final int SEARCH_IDLE_RENDER_BUDGET = 96;
@@ -10059,40 +10062,56 @@ public class MainActivity extends Activity {
             count++;
         }
         if (count > 0) {
-            renderVirtualSearchSlots(scroll, list, slots, true);
+            boolean customBoard = page != null && page.url != null
+                    && isBoardUrl(page.url) && !is5chUrl(page.url)
+                    && (isRegisteredBbsUrl(page.url) || isKnownCustomBbsUrl(page.url));
+            renderVirtualSearchSlots(scroll, list, slots, true, customBoard);
         }
     }
 
     private void renderVirtualSearchSlots(ScrollView scroll, LinearLayout list, List<VirtualSearchSlot> slots,
                                           boolean deferSlots) {
+        renderVirtualSearchSlots(scroll, list, slots, deferSlots, false);
+    }
+
+    private void renderVirtualSearchSlots(ScrollView scroll, LinearLayout list, List<VirtualSearchSlot> slots,
+                                          boolean deferSlots, boolean incrementalCustomBoard) {
         VirtualSearchState state = new VirtualSearchState();
         list.setTag(state);
         if (slots == null || slots.isEmpty()) {
             return;
         }
+        int initialBatch = incrementalCustomBoard
+                ? CUSTOM_BOARD_INITIAL_SLOT_BATCH : SEARCH_INITIAL_SLOT_BATCH;
+        int deferredBatch = incrementalCustomBoard
+                ? CUSTOM_BOARD_DEFERRED_SLOT_BATCH : SEARCH_DEFERRED_SLOT_BATCH;
+        long deferredDelay = incrementalCustomBoard
+                ? CUSTOM_BOARD_DEFERRED_SLOT_DELAY_MS : SEARCH_DEFERRED_SLOT_DELAY_MS;
         int initialCount = deferSlots
-                ? Math.min(slots.size(), SEARCH_INITIAL_SLOT_BATCH)
+                ? Math.min(slots.size(), initialBatch)
                 : slots.size();
         appendVirtualSearchSlots(list, slots, 0, initialCount);
         ensureSearchSlotRefresh(scroll, list);
         scheduleSearchSlotRefresh(list);
         if (initialCount < slots.size()) {
-            list.post(() -> appendDeferredVirtualSearchSlots(scroll, list, slots, state, initialCount));
+            list.post(() -> appendDeferredVirtualSearchSlots(
+                    scroll, list, slots, state, initialCount, deferredBatch, deferredDelay));
         }
     }
 
     private void appendDeferredVirtualSearchSlots(ScrollView scroll, LinearLayout list,
                                                   List<VirtualSearchSlot> slots,
-                                                  VirtualSearchState state, int start) {
+                                                  VirtualSearchState state, int start,
+                                                  int batchSize, long delayMs) {
         if (list == null || slots == null || list.getTag() != state) {
             return;
         }
-        int end = Math.min(slots.size(), start + SEARCH_DEFERRED_SLOT_BATCH);
+        int end = Math.min(slots.size(), start + Math.max(1, batchSize));
         appendVirtualSearchSlots(list, slots, start, end);
         scheduleSearchSlotRefresh(list);
         if (end < slots.size()) {
-            list.postDelayed(() -> appendDeferredVirtualSearchSlots(scroll, list, slots, state, end),
-                    SEARCH_DEFERRED_SLOT_DELAY_MS);
+            list.postDelayed(() -> appendDeferredVirtualSearchSlots(
+                    scroll, list, slots, state, end, batchSize, delayMs), Math.max(0L, delayMs));
         }
     }
 
@@ -24180,7 +24199,25 @@ public class MainActivity extends Activity {
         if (restoreBoardHistoryPage(tab, url)) {
             return;
         }
+        if (NATIVE_THREAD.equals(tab.nativeKind) && isBoardUrl(url)) {
+            showImmediateBoardHistoryLoading(tab, url);
+            openInCurrentTab(url, false, tab.tabScope, bookmarkTabFolder(tab), true);
+            return;
+        }
         openInCurrentTab(url, false);
+    }
+
+    private void showImmediateBoardHistoryLoading(CuspTab tab, String url) {
+        if (tab == null || url == null || url.trim().isEmpty()) {
+            return;
+        }
+        tab.readerMode = true;
+        tab.nativeKind = NATIVE_BOARD;
+        tab.url = normalizeUrl(url);
+        tab.title = boardTitle(tab.url);
+        showImmediateNavigationLoading(tab);
+        updateAddressBarDisplay(false);
+        updateBottomThreadBar(tab);
     }
 
     private void rememberBoardHistoryScroll(CuspTab tab) {
