@@ -3182,10 +3182,18 @@ public class MainActivity extends Activity {
 
     private void createBlankTab() {
         showPendingNewTab();
+        focusPendingNewTabSearch();
     }
 
     private void createPrivateBlankTab() {
         showPendingNewTab(true);
+        focusPendingNewTabSearch();
+    }
+
+    private void focusPendingNewTabSearch() {
+        if (pendingNewTab) {
+            startAddressEntry();
+        }
     }
 
     private void showPendingNewTab() {
@@ -12489,7 +12497,10 @@ public class MainActivity extends Activity {
         reloadParams.setMargins(0, 0, dp(84), dp(18));
         root.addView(reloadAll, reloadParams);
 
-        ImageButton add = iconButton(R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> showPendingNewTab(tabOverviewPrivateMode));
+        ImageButton add = iconButton(R.drawable.ic_add, text("\u65b0\u898f\u30bf\u30d6", "New tab"), v -> {
+            showPendingNewTab(tabOverviewPrivateMode);
+            focusPendingNewTabSearch();
+        });
         add.setBackground(roundedDrawable(TEAL, TEAL, dp(22)));
         add.setColorFilter(Color.WHITE);
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
@@ -17046,11 +17057,11 @@ public class MainActivity extends Activity {
         TextView apply = new TextView(this);
         apply.setText(actionText);
         apply.setTextColor(Color.WHITE);
-        apply.setTextSize(14);
+        apply.setTextSize(13);
         apply.setGravity(Gravity.CENTER);
         apply.setTypeface(Typeface.DEFAULT_BOLD);
         apply.setBackground(roundedDrawable(TEAL, TEAL, dp(10)));
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(76), dp(44));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(60), dp(36));
         applyParams.setMargins(dp(8), 0, 0, 0);
         controls.addView(apply, applyParams);
         root.addView(controls, new LinearLayout.LayoutParams(
