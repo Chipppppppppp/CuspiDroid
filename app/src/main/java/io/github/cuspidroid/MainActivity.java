@@ -347,6 +347,8 @@ public class MainActivity extends Activity {
     private static final Charset LEGACY_BBS_POST_CHARSET = Charset.forName("MS932");
     private static final Charset SHITARABA_POST_CHARSET = Charset.forName("EUC-JP");
     private static final int TEAL = Color.rgb(15, 118, 110);
+    private static final int MY_POST_MARKER = Color.rgb(37, 99, 235);
+    private static final int REPLY_TO_MY_POST_MARKER = Color.rgb(217, 119, 6);
     private static final int SURFACE = Color.rgb(247, 248, 250);
     private static final int BORDER = Color.rgb(215, 221, 226);
     private static final int TEXT = Color.rgb(31, 41, 55);
@@ -3025,15 +3027,20 @@ public class MainActivity extends Activity {
     }
 
     private Drawable postBackground(boolean unread) {
-        return postBackground(unread, false);
+        return postBackground(unread, false, false);
     }
 
     private Drawable postBackground(boolean unread, boolean myPost) {
+        return postBackground(unread, myPost, false);
+    }
+
+    private Drawable postBackground(boolean unread, boolean myPost, boolean replyToMyPost) {
         int fill = unread && colorUnreadPosts() ? unreadColor() : postColor();
-        if (!myPost) {
+        if (!myPost && !replyToMyPost) {
             return roundedFill(fill, dp(12));
         }
-        return new MyPostBackgroundDrawable(fill, Color.rgb(37, 99, 235), dp(12), dp(5));
+        int marker = myPost ? MY_POST_MARKER : REPLY_TO_MY_POST_MARKER;
+        return new PostMarkerBackgroundDrawable(fill, marker, dp(12), dp(5));
     }
 
     private Drawable framedPostBackground(Drawable base) {
@@ -7919,7 +7926,8 @@ public class MainActivity extends Activity {
         boolean ngOmitted = ngCategory != null;
         boolean copyPasteOmitted = !ngOmitted && copyPasteSourcePost(page, post) != null;
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        card.setBackground(postBackground(isPostUnread(page, tab, post), isMyPost(page, post)));
+        card.setBackground(postBackground(isPostUnread(page, tab, post), isMyPost(page, post),
+                isReplyToMyPost(page, post)));
         card.setOnLongClickListener(v -> {
             if (!allowInteractions) {
                 return true;
@@ -8628,7 +8636,9 @@ public class MainActivity extends Activity {
                             showWriteDialog(">>" + post.number + "\n");
                         } else if (tx >= dp(54)) {
                             setReadThroughPost(tab, post);
-                            card.setBackground(postBackground(false, isMyPost(tab == null ? null : tab.threadPage, post)));
+                            ThreadPage page = tab == null ? null : tab.threadPage;
+                            card.setBackground(postBackground(false, isMyPost(page, post),
+                                    isReplyToMyPost(page, post)));
                         }
                     }
                     return true;
@@ -9323,7 +9333,8 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(isPostUnread(tab == null ? null : tab.threadPage, tab, post),
-                isMyPost(tab == null ? null : tab.threadPage, post)));
+                isMyPost(tab == null ? null : tab.threadPage, post),
+                isReplyToMyPost(tab == null ? null : tab.threadPage, post)));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(0, 0, 0, dp(10));
@@ -19850,7 +19861,8 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setTag(R.id.tag_post_card, true);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
-        Drawable background = postBackground(isPostUnread(page, tab, post), isMyPost(page, post));
+        Drawable background = postBackground(isPostUnread(page, tab, post), isMyPost(page, post),
+                isReplyToMyPost(page, post));
         card.setBackground(showFrame ? framedPostBackground(background) : background);
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
@@ -27390,6 +27402,29 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    private boolean isReplyToMyPost(ThreadPage page, Post post) {
+        if (page == null || page.posts == null || post == null || post.body == null) {
+            return false;
+        }
+        Matcher matcher = REPLY_PATTERN.matcher(post.body);
+        while (matcher.find()) {
+            int from = parsePositiveInt(matcher.group(1), -1);
+            int to = matcher.group(2) == null ? from : parsePositiveInt(matcher.group(2), from);
+            int first = Math.min(from, to);
+            int last = Math.max(from, to);
+            if (first <= 0) {
+                continue;
+            }
+            for (Post target : page.posts) {
+                if (target != null && target.number >= first && target.number <= last
+                        && isMyPost(page, target)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private int postHashOccurrences(ThreadPage page, String hash) {
         if (page == null || page.posts == null || hash == null || hash.isEmpty()) {
             return 0;
@@ -27718,7 +27753,8 @@ public class MainActivity extends Activity {
         for (Post post : tab.threadPage.posts) {
             View card = tab.postViews.get(post.number);
             if (card != null) {
-                card.setBackground(postBackground(isPostUnread(tab.threadPage, tab, post), isMyPost(tab.threadPage, post)));
+                card.setBackground(postBackground(isPostUnread(tab.threadPage, tab, post),
+                        isMyPost(tab.threadPage, post), isReplyToMyPost(tab.threadPage, post)));
             }
         }
         updateUnreadScrollMarkers(tab);
@@ -29351,7 +29387,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static class MyPostBackgroundDrawable extends Drawable {
+    private static class PostMarkerBackgroundDrawable extends Drawable {
         private final int fillColor;
         private final int markerColor;
         private final int radius;
@@ -29362,7 +29398,7 @@ public class MainActivity extends Activity {
         private ColorFilter colorFilter;
         private int alpha = 255;
 
-        MyPostBackgroundDrawable(int fillColor, int markerColor, int radius, int markerWidth) {
+        PostMarkerBackgroundDrawable(int fillColor, int markerColor, int radius, int markerWidth) {
             this.fillColor = fillColor;
             this.markerColor = markerColor;
             this.radius = radius;
