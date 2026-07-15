@@ -20,6 +20,7 @@ import android.graphics.ColorFilter;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -724,10 +725,16 @@ public class MainActivity extends Activity {
     }
 
     private int textColor() {
+        if (privateUiActive()) {
+            return Color.rgb(245, 247, 250);
+        }
         return Theme.text(this);
     }
 
     private int mutedColor() {
+        if (privateUiActive()) {
+            return Color.rgb(168, 176, 186);
+        }
         return Theme.muted(this);
     }
 
@@ -760,30 +767,30 @@ public class MainActivity extends Activity {
     }
 
     private int privateBackgroundColor() {
-        return Theme.dark(this) ? Color.rgb(1, 40, 29) : Color.rgb(5, 46, 25);
+        return Color.rgb(1, 40, 29);
     }
 
     private int privateCanvasColor() {
-        return Theme.dark(this) ? Color.rgb(0, 24, 17) : Color.rgb(2, 30, 16);
+        return Color.rgb(0, 24, 17);
     }
 
     private int privateBorderColor() {
-        return Theme.dark(this) ? Color.rgb(8, 72, 52) : Color.rgb(14, 78, 43);
+        return Color.rgb(8, 72, 52);
     }
 
     private int hintTextColor() {
-        return Theme.dark(this) ? Color.rgb(168, 176, 186) : Color.rgb(100, 116, 139);
+        return darkUiActive() ? Color.rgb(168, 176, 186) : Color.rgb(100, 116, 139);
     }
 
     private int privateBlue() {
-        return Theme.dark(this) ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
+        return darkUiActive() ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
     }
 
     private int privateButtonFill(boolean active) {
         if (!active) {
-            return Theme.dark(this) ? Color.rgb(17, 24, 39) : menuColor();
+            return darkUiActive() ? Color.rgb(17, 24, 39) : menuColor();
         }
-        return Theme.dark(this) ? Color.rgb(0, 14, 10) : Color.rgb(187, 247, 208);
+        return darkUiActive() ? Color.rgb(0, 14, 10) : Color.rgb(187, 247, 208);
     }
 
     private int privateButtonStroke(boolean active) {
@@ -794,10 +801,34 @@ public class MainActivity extends Activity {
     }
 
     private int privateButtonIcon(boolean active) {
-        if (!active && Theme.dark(this)) {
+        if (!active && darkUiActive()) {
             return Color.rgb(110, 231, 183);
         }
         return privateBlue();
+    }
+
+    private boolean darkUiActive() {
+        return Theme.dark(this) || privateUiActive();
+    }
+
+    private int accentColor() {
+        return privateUiActive() ? Color.rgb(20, 184, 166) : Theme.accent(this);
+    }
+
+    private int unreadColor() {
+        return privateUiActive() ? Color.rgb(4, 44, 43) : Theme.unread(this);
+    }
+
+    private int activeColor() {
+        return privateUiActive() ? Color.rgb(2, 48, 48) : Theme.active(this);
+    }
+
+    private int linkHighlightColor() {
+        return privateUiActive() ? Color.rgb(23, 37, 84) : Theme.linkHighlight(this);
+    }
+
+    private int searchHighlightColor() {
+        return privateUiActive() ? Color.rgb(10, 70, 82) : Theme.searchHighlight(this);
     }
 
     static String text(String ja, String en) {
@@ -1625,7 +1656,7 @@ public class MainActivity extends Activity {
 
     private GradientDrawable tabCountBackground(boolean selected) {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(selected ? Theme.active(this) : Color.TRANSPARENT);
+        drawable.setColor(selected ? activeColor() : Color.TRANSPARENT);
         drawable.setStroke(dp(2), selected ? TEAL : textColor());
         drawable.setCornerRadius(dp(5));
         return drawable;
@@ -2530,7 +2561,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("\u79fb\u52d5", "Go"), null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this, borderColor());
+            Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 try {
                     int number = Integer.parseInt(input.getText().toString().trim());
@@ -2986,7 +3017,7 @@ public class MainActivity extends Activity {
     }
 
     private Drawable postBackground(boolean unread, boolean myPost) {
-        int fill = unread && colorUnreadPosts() ? Theme.unread(this) : postColor();
+        int fill = unread && colorUnreadPosts() ? unreadColor() : postColor();
         if (!myPost) {
             return roundedFill(fill, dp(12));
         }
@@ -3134,6 +3165,39 @@ public class MainActivity extends Activity {
         if (threadSearchInput != null) {
             threadSearchInput.setBackground(addressBarBackground());
             threadSearchInput.setHintTextColor(hintTextColor());
+        }
+        tintChromeContents(bottomToolbar);
+        tintChromeContents(bottomThreadBar);
+        tintChromeContents(threadSearchBar);
+        if (threadSearchCount != null) {
+            threadSearchCount.setTextColor(mutedColor());
+        }
+        updateTabCountButton();
+    }
+
+    private void tintChromeContents(View view) {
+        if (view == null) {
+            return;
+        }
+        if (view instanceof TextView) {
+            TextView textView = (TextView) view;
+            textView.setTextColor(textColor());
+            if (textView instanceof EditText) {
+                textView.setHintTextColor(hintTextColor());
+            }
+            for (Drawable drawable : textView.getCompoundDrawables()) {
+                if (drawable != null) {
+                    drawable.setColorFilter(textColor(), PorterDuff.Mode.SRC_IN);
+                }
+            }
+        } else if (view instanceof ImageView) {
+            ((ImageView) view).setColorFilter(textColor());
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                tintChromeContents(group.getChildAt(i));
+            }
         }
     }
 
@@ -5126,7 +5190,7 @@ public class MainActivity extends Activity {
         SpannableStringBuilder builder = new SpannableStringBuilder(title).append(badge);
         int start = builder.length() - badge.trim().length();
         int end = builder.length();
-        builder.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        builder.setSpan(new BackgroundColorSpan(linkHighlightColor()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         builder.setSpan(new ForegroundColorSpan(Color.rgb(29, 78, 216)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         view.setText(builder);
     }
@@ -9126,7 +9190,7 @@ public class MainActivity extends Activity {
             openNgRuleAdd(page, "NGBe", ngBePresetValue(post));
         }));
         dialog.show();
-        Theme.styleDialog(dialog, this, borderColor());
+        Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
     }
 
     private String ngBePresetValue(Post post) {
@@ -10599,7 +10663,7 @@ public class MainActivity extends Activity {
         if (start < 0 || end <= start || end > text.length()) {
             return;
         }
-        text.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)),
+        text.setSpan(new BackgroundColorSpan(linkHighlightColor()),
                 start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         text.setSpan(new StyleSpan(Typeface.BOLD),
                 start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -14907,7 +14971,8 @@ public class MainActivity extends Activity {
                     refreshHomeBookmarksOrCurrentView();
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this,
+                surfaceColor(), textColor(), accentColor(), borderColor()));
         dialog.show();
     }
 
@@ -14922,7 +14987,8 @@ public class MainActivity extends Activity {
                     refreshHomeBookmarksOrCurrentView();
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this,
+                surfaceColor(), textColor(), accentColor(), borderColor()));
         dialog.show();
     }
 
@@ -15143,7 +15209,8 @@ public class MainActivity extends Activity {
                     refreshTabOverview();
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this,
+                surfaceColor(), textColor(), accentColor(), borderColor()));
         dialog.show();
     }
 
@@ -17843,7 +17910,7 @@ public class MainActivity extends Activity {
         String needle = query.trim().toLowerCase(Locale.ROOT);
         int index = haystack.indexOf(needle);
         while (index >= 0) {
-            text.setSpan(new BackgroundColorSpan(Theme.searchHighlight(this)),
+            text.setSpan(new BackgroundColorSpan(searchHighlightColor()),
                     index, index + needle.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             index = haystack.indexOf(needle, index + needle.length());
         }
@@ -17892,7 +17959,7 @@ public class MainActivity extends Activity {
         FrameLayout placeholder = new FrameLayout(this);
         placeholder.setClickable(true);
         placeholder.setClipToOutline(true);
-        placeholder.setBackgroundColor(Theme.dark(this) ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
+        placeholder.setBackgroundColor(darkUiActive() ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
         if (longClickAction != null) {
             placeholder.setOnLongClickListener(v -> {
                 longClickAction.run();
@@ -18062,7 +18129,7 @@ public class MainActivity extends Activity {
     }
 
     private int unavailableMediaColor() {
-        return Theme.dark(this) ? Color.rgb(24, 24, 27) : Color.rgb(226, 232, 240);
+        return darkUiActive() ? Color.rgb(24, 24, 27) : Color.rgb(226, 232, 240);
     }
 
     private void scheduleLazyImgurLoads() {
@@ -20208,7 +20275,7 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        int fill = unread && colorUnreadPosts() ? Theme.unread(this) : postColor();
+        int fill = unread && colorUnreadPosts() ? unreadColor() : postColor();
         target.setBackground(roundedDrawable(fill, TEAL, dp(8)));
     }
 
@@ -20727,7 +20794,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Post", null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this, borderColor());
+            Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String body = message.getText().toString();
             if (body.trim().isEmpty()) {
@@ -20742,7 +20809,7 @@ public class MainActivity extends Activity {
             });
         });
         dialog.show();
-        Theme.styleDialog(dialog, this, borderColor());
+        Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
         message.requestFocus();
         message.postDelayed(() -> {
             try {
@@ -20879,7 +20946,8 @@ public class MainActivity extends Activity {
                 .setPositiveButton("OK", null)
                 .create();
         pendingImgbbUploadDialog.setOnShowListener(d -> {
-            Theme.styleDialog(pendingImgbbUploadDialog, this, borderColor());
+            Theme.styleDialog(pendingImgbbUploadDialog, this,
+                    surfaceColor(), textColor(), accentColor(), borderColor());
             pendingImgbbUploadDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 if (pendingImgbbUploadUris.isEmpty()) {
                     Toast.makeText(this, text("\u753b\u50cf\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044", "Choose images."), Toast.LENGTH_SHORT).show();
@@ -20952,7 +21020,7 @@ public class MainActivity extends Activity {
         for (Uri uri : pendingImgbbUploadUris) {
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            image.setBackgroundColor(Theme.dark(this) ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
+            image.setBackgroundColor(darkUiActive() ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
             image.setImageURI(uri);
             image.setOnClickListener(v -> openImgbbImagePicker(pendingImgbbUploadMessage));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellSize, cellSize);
@@ -21082,7 +21150,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("\u4fdd\u5b58", "Save"), null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this, borderColor());
+            Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String value = input.getText().toString().trim();
                 if (value.isEmpty()) {
@@ -21114,7 +21182,8 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("ImgBB API\u3092\u958b\u304f", "Open ImgBB API"),
                         (d, which) -> openExternal("https://api.imgbb.com/"))
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this,
+                surfaceColor(), textColor(), accentColor(), borderColor()));
         dialog.show();
     }
 
@@ -21509,7 +21578,7 @@ public class MainActivity extends Activity {
                 })
                 .setPositiveButton("OK", null);
         AlertDialog dialog = builder.show();
-        Theme.styleDialog(dialog, this, borderColor());
+        Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
     }
 
     private String postToThread(String threadUrl, DatAddress address, String name, String mail, String message) throws Exception {
@@ -21931,7 +22000,8 @@ public class MainActivity extends Activity {
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setPositiveButton(text("\u524a\u9664", "Delete"), (d, which) -> deleteCookiesForSite(siteUrl))
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this,
+                surfaceColor(), textColor(), accentColor(), borderColor()));
         dialog.show();
     }
 
@@ -23084,7 +23154,7 @@ public class MainActivity extends Activity {
             int start = haystack.indexOf(needle);
             while (start >= 0) {
                 int end = start + needle.length();
-                highlighted.setSpan(new BackgroundColorSpan(Theme.linkHighlight(this)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                highlighted.setSpan(new BackgroundColorSpan(linkHighlightColor()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 highlighted.setSpan(new ForegroundColorSpan(Color.rgb(15, 118, 110)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 start = haystack.indexOf(needle, end);
             }
@@ -26920,7 +26990,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton(text("OK", "OK"), null)
                 .create();
         dialog.setOnShowListener(d -> {
-            Theme.styleDialog(dialog, this, borderColor());
+            Theme.styleDialog(dialog, this, surfaceColor(), textColor(), accentColor(), borderColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String folder = normalizeSavedFolder(input.getText().toString());
                 if (folder.isEmpty()) {
@@ -26955,7 +27025,8 @@ public class MainActivity extends Activity {
                     showSavedItemsView(key, folder);
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this,
+                surfaceColor(), textColor(), accentColor(), borderColor()));
         dialog.show();
     }
 
@@ -26970,7 +27041,8 @@ public class MainActivity extends Activity {
                     showSavedItemsView(key);
                 })
                 .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this, borderColor()));
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this,
+                surfaceColor(), textColor(), accentColor(), borderColor()));
         dialog.show();
     }
 

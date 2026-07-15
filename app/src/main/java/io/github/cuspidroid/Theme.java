@@ -118,23 +118,27 @@ final class Theme {
     }
 
     static void styleDialog(Dialog dialog, Context context, int borderColor) {
+        styleDialog(dialog, context, surface(context), text(context), accent(context), borderColor);
+    }
+
+    static void styleDialog(Dialog dialog, Context context, int backgroundColor, int textColor,
+                            int accentColor, int borderColor) {
         if (dialog == null) {
             return;
         }
-        stylePopupDialog(dialog, context, borderColor);
-        int accent = accent(context);
+        stylePopupDialog(dialog, context, backgroundColor, borderColor);
         View decor = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
-        tintDialogText(decor, text(context));
+        tintDialogText(decor, textColor);
         if (dialog instanceof android.app.AlertDialog) {
             android.app.AlertDialog alert = (android.app.AlertDialog) dialog;
             if (alert.getButton(android.app.AlertDialog.BUTTON_POSITIVE) != null) {
-                alert.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setTextColor(accent);
+                alert.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setTextColor(accentColor);
             }
             if (alert.getButton(android.app.AlertDialog.BUTTON_NEGATIVE) != null) {
-                alert.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(accent);
+                alert.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(accentColor);
             }
             if (alert.getButton(android.app.AlertDialog.BUTTON_NEUTRAL) != null) {
-                alert.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setTextColor(accent);
+                alert.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setTextColor(accentColor);
             }
         }
     }
@@ -144,12 +148,16 @@ final class Theme {
     }
 
     static void stylePopupDialog(Dialog dialog, Context context, int borderColor) {
+        stylePopupDialog(dialog, context, surface(context), borderColor);
+    }
+
+    static void stylePopupDialog(Dialog dialog, Context context, int backgroundColor, int borderColor) {
         if (dialog == null) {
             return;
         }
         if (dialog.getWindow() != null) {
             GradientDrawable background = new GradientDrawable();
-            background.setColor(surface(context));
+            background.setColor(backgroundColor);
             background.setCornerRadius(dp(context, 10));
             dialog.getWindow().setBackgroundDrawable(background);
 
