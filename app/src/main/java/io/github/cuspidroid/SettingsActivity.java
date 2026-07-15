@@ -151,7 +151,11 @@ public class SettingsActivity extends Activity {
 
     @Override
     protected void onPause() {
-        saveSettings(false);
+        // The overview owns no editable controls. Saving its detached control instances here
+        // would overwrite values changed in a category activity after returning to the overview.
+        if (this instanceof SettingsCategoryActivity) {
+            saveSettings(false);
+        }
         super.onPause();
     }
 
