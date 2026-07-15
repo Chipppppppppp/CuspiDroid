@@ -413,6 +413,7 @@ public class MainActivity extends Activity {
     private static final int MAX_BACKGROUND_PAGE_DATA_MANY_TABS = 1;
     private static final int MAX_BOARD_HISTORY_PAGES = 6;
     private static final int MAX_NEW_TAB_HISTORY_PAGES = 8;
+    private static final int BOARD_LOAD_PARALLELISM = 2;
     private static final int TAB_RELOAD_PARALLELISM = 4;
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
@@ -427,6 +428,7 @@ public class MainActivity extends Activity {
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService boardLoadExecutor = Executors.newFixedThreadPool(BOARD_LOAD_PARALLELISM);
     private final ExecutorService tabOverviewExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService tabReloadExecutor = Executors.newFixedThreadPool(TAB_RELOAD_PARALLELISM);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -1152,6 +1154,7 @@ public class MainActivity extends Activity {
         saveTabs(true);
         closeImageClassifiers();
         ioExecutor.shutdownNow();
+        boardLoadExecutor.shutdownNow();
         if (bookmarkOverviewLoadTask != null) {
             bookmarkOverviewLoadTask.cancel(true);
             bookmarkOverviewLoadTask = null;
@@ -7431,7 +7434,7 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.VISIBLE);
         }
 
-        ioExecutor.execute(() -> {
+        boardLoadExecutor.execute(() -> {
             SearchPage page;
             try {
                 page = downloadBoard(loadUrl);
@@ -7482,7 +7485,7 @@ public class MainActivity extends Activity {
         if (showProgress) {
             progressBar.setVisibility(View.VISIBLE);
         }
-        ioExecutor.execute(() -> {
+        boardLoadExecutor.execute(() -> {
             SearchPage page;
             try {
                 page = downloadBoard(loadUrl);
@@ -25504,6 +25507,7 @@ public class MainActivity extends Activity {
         JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
         List<ThreadHistoryItem> historyItems = threadHistory();
         Set<String> historyUrls = threadHistoryUrlSnapshot(historyItems);
+        List<BoardPriorityRule> priorityRules = readBoardPriorityRules(preferences);
         String boardDisplay = displayBoardTitle(pageUrl);
         int order = 1;
         for (String line : body.split("\\r?\\n")) {
@@ -25534,7 +25538,7 @@ public class MainActivity extends Activity {
             int readNumber = result.hasReadHistory ? boardThreadReadNumber(readPosts, result.url) : 0;
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = boardDisplay;
-            result.priorityMatch = matchingBoardPriorityWord(title, pageUrl);
+            result.priorityMatch = matchingBoardPriorityWord(title, pageUrl, priorityRules);
             result.meta = boardThreadMeta(result);
             page.results.add(result);
             order++;
@@ -26042,11 +26046,19 @@ public class MainActivity extends Activity {
     }
 
     private BoardPriorityMatch matchingBoardPriorityWord(String title, String boardUrl) {
+        return matchingBoardPriorityWord(title, boardUrl, readBoardPriorityRules(preferences));
+    }
+
+    private BoardPriorityMatch matchingBoardPriorityWord(String title, String boardUrl,
+                                                          List<BoardPriorityRule> rules) {
         if (title == null || title.isEmpty()) {
             return null;
         }
         String lowerTitle = title.toLowerCase(Locale.ROOT);
-        for (BoardPriorityRule rule : readBoardPriorityRules(preferences)) {
+        if (rules == null) {
+            return null;
+        }
+        for (BoardPriorityRule rule : rules) {
             if (!boardPriorityRuleApplies(rule, boardUrl)) {
                 continue;
             }
