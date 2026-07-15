@@ -3003,6 +3003,9 @@ public class MainActivity extends Activity {
     }
 
     private AlertDialog createUnifiedPopupDialog(View content) {
+        content.setBackground(menuBackground());
+        content.setForeground(roundedDrawable(
+                Color.TRANSPARENT, popupBorderColor(), dp(10), dp(2)));
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(content)
                 .create();
@@ -3020,8 +3023,8 @@ public class MainActivity extends Activity {
             return;
         }
         dialog.show();
-        Theme.stylePopupDialog(dialog, this);
         if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams params = dialog.getWindow().getAttributes();
             params.dimAmount = 0.32f;
