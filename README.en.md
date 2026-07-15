@@ -16,6 +16,8 @@ CuspiDroid is an Android app for browsing and posting to 5ch and compatible BBS 
 
 After jumping to a thread's bottom from the title bar, you can immediately scroll upward.
 
+Posting preserves the read position and does not resubmit an already successful post during confirmation.
+
 ## Features
 
 - Browser-like navigation with multiple tabs, search-field autofocus on new tabs, a tab overview, bookmark folders, and history

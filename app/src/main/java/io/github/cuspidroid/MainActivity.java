@@ -21418,7 +21418,6 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5148\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "Cannot find thread write target."), Toast.LENGTH_SHORT).show();
             return;
         }
-        int readNumberBeforePost = tab.readPostNumber;
         int lastPostNumberBeforePost = Math.max(tab.knownMaxPostNumber, maxPostNumber(tab.threadPage));
         long submittedAt = System.currentTimeMillis();
         progressBar.setVisibility(View.VISIBLE);
@@ -21447,8 +21446,7 @@ public class MainActivity extends Activity {
                 if (posted) {
                     Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5b8c\u4e86", "Posted."), Toast.LENGTH_SHORT).show();
                     refreshThreadFromBottom(tab, true, false, true,
-                            () -> recordPostedOwnPost(tab, message, readNumberBeforePost,
-                                    lastPostNumberBeforePost, submittedAt));
+                            () -> recordPostedOwnPost(tab, message, lastPostNumberBeforePost, submittedAt));
                 } else {
                     showCopyablePostFailure(messageText);
                 }
@@ -21456,24 +21454,26 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void recordPostedOwnPost(CuspTab tab, String body, int readNumberBeforePost,
+    private void recordPostedOwnPost(CuspTab tab, String body,
                                      int lastPostNumberBeforePost, long submittedAt) {
         if (tab == null || tab.threadPage == null || body == null) {
             return;
         }
-        Post posted = null;
+        String hash = postBodyHash(body);
+        boolean matchedPost = false;
         for (Post post : tab.threadPage.posts) {
             if (post != null && post.number > lastPostNumberBeforePost
-                    && (posted == null || post.number > posted.number)) {
-                posted = post;
+                    && hash.equals(postBodyHash(post.body))) {
+                saveMyPost(tab, body, post.number, submittedAt);
+                matchedPost = true;
             }
         }
-        int postedNumber = posted == null ? 0 : posted.number;
-        saveMyPost(tab, body, postedNumber, submittedAt);
-        if (postedNumber > 0) {
-            markReadTo(tab, Math.max(readNumberBeforePost, postedNumber), false);
-            renderTabs();
+        if (!matchedPost) {
+            // Keep a body-only entry until the server exposes the new post in a later refresh.
+            saveMyPost(tab, body, 0, submittedAt);
         }
+        refreshUnreadColors(tab);
+        renderTabs();
     }
 
     private void showCopyablePostFailure(String messageText) {
@@ -21542,8 +21542,11 @@ public class MainActivity extends Activity {
 
         PostResult first = sendPostWithCookie(endpoint, referer, payload, null, requestCharset, contentType, redirectSuccess);
         String firstPlain = cleanText(first.body);
+        if (postSucceeded(firstPlain)) {
+            return "write done";
+        }
         if (!requiresCookieConfirm(firstPlain)) {
-            return postSucceeded(firstPlain, address) ? "write done" : first.body;
+            return first.body;
         }
 
         String cookie = cookieHeader(first.cookies);
@@ -27199,7 +27202,7 @@ public class MainActivity extends Activity {
             if (postNumber > 0 && number == postNumber) {
                 return true;
             }
-            return postedAt > 0 && savedPostedAt == postedAt;
+            return postNumber <= 0 && number <= 0 && postedAt > 0 && savedPostedAt == postedAt;
         }
         return postNumber <= 0 && hash != null && !hash.isEmpty() && hash.equals(myPostHash(value));
     }
