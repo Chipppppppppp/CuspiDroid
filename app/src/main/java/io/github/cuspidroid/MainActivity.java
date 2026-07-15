@@ -21749,7 +21749,7 @@ public class MainActivity extends Activity {
             try {
                 result = createThreadWithCookieConfirm(boardUrl, address, subject, name, mail, message);
                 String plain = cleanText(result);
-                success = postSucceeded(plain, address);
+                success = postSucceeded(postSuccessText(address, result), address);
                 if (!success) {
                     result = isEdgeAuthenticationError(address, plain)
                             ? plain : shorten(plain.replace('\n', ' '), 220);
@@ -21857,7 +21857,7 @@ public class MainActivity extends Activity {
             try {
                 result = postToThreadWithCookieConfirm(tab.url, address, name, mail, message);
                 String plain = cleanText(result);
-                success = postSucceeded(plain, address);
+                success = postSucceeded(postSuccessText(address, result), address);
                 if (!success) {
                     result = isEdgeAuthenticationError(address, plain)
                             ? plain : shorten(plain.replace('\n', ' '), 220);
@@ -21964,8 +21964,14 @@ public class MainActivity extends Activity {
     }
 
     private boolean isEdgeAuthenticationError(DatAddress address, String messageText) {
-        return isEdgeAddress(address) && messageText != null
-                && messageText.toLowerCase(Locale.ROOT).contains("e-unauthenticated");
+        if (!isEdgeAddress(address) || messageText == null) {
+            return false;
+        }
+        String lower = messageText.toLowerCase(Locale.ROOT);
+        return lower.contains("e-unauthenticated")
+                || lower.contains("just a moment")
+                || lower.contains("challenge-platform")
+                || lower.contains("enable javascript and cookies");
     }
 
     private String edgeAuthenticationCode(String messageText) {
@@ -22031,7 +22037,7 @@ public class MainActivity extends Activity {
 
         PostResult first = sendPostWithCookie(endpoint, referer, payload, null, requestCharset, contentType, redirectSuccess);
         String firstPlain = cleanText(first.body);
-        if (postSucceeded(firstPlain)) {
+        if (isEdgeAddress(address) ? postSucceeded(first.body, address) : postSucceeded(firstPlain)) {
             return "write done";
         }
         if (!requiresCookieConfirm(firstPlain)) {
@@ -22046,8 +22052,7 @@ public class MainActivity extends Activity {
         }
         String confirmPayload = confirmPostPayload(first.body, fields, requestCharset, submitFirst);
         PostResult second = sendPostWithCookie(endpoint, referer, confirmPayload, cookie, requestCharset, contentType, redirectSuccess);
-        String secondPlain = cleanText(second.body);
-        return postSucceeded(secondPlain, address) ? "write done" : second.body;
+        return postSucceeded(postSuccessText(address, second.body), address) ? "write done" : second.body;
     }
 
     private String createThreadWithCookieConfirm(String boardUrl, DatAddress address, String subject,
@@ -22064,7 +22069,7 @@ public class MainActivity extends Activity {
         PostResult first = sendPostWithCookie(endpoint, boardUrl, payload, null,
                 requestCharset, contentType, redirectSuccess);
         String firstPlain = cleanText(first.body);
-        if (postSucceeded(firstPlain, address)) {
+        if (postSucceeded(postSuccessText(address, first.body), address)) {
             return "write done";
         }
         if (!requiresCookieConfirm(firstPlain)) {
@@ -22080,8 +22085,7 @@ public class MainActivity extends Activity {
         String confirmPayload = confirmPostPayload(first.body, fields, requestCharset, submitFirst);
         PostResult second = sendPostWithCookie(endpoint, boardUrl, confirmPayload, cookie,
                 requestCharset, contentType, redirectSuccess);
-        String secondPlain = cleanText(second.body);
-        return postSucceeded(secondPlain, address) ? "write done" : second.body;
+        return postSucceeded(postSuccessText(address, second.body), address) ? "write done" : second.body;
     }
 
     private Map<String, String> createThreadFields(DatAddress address, String subject,
@@ -22578,6 +22582,11 @@ public class MainActivity extends Activity {
         if (postSucceeded(text == null ? "" : text)) {
             return true;
         }
+        if (isEdgeAddress(address)) {
+            // Edge returns an empty body on success. Treating any other HTTP 200 body as
+            // success hides authentication errors and Cloudflare/interstitial HTML.
+            return text == null || text.trim().isEmpty();
+        }
         if (isLikelyAcceptedShitarabaPostError(address, text)) {
             return true;
         }
@@ -22604,6 +22613,10 @@ public class MainActivity extends Activity {
         String value = text == null ? "" : text;
         String lower = value.toLowerCase(Locale.ROOT);
         return !lower.contains("error_code") && !value.contains("ERROR");
+    }
+
+    private String postSuccessText(DatAddress address, String responseBody) {
+        return isEdgeAddress(address) ? responseBody : cleanText(responseBody == null ? "" : responseBody);
     }
 
     private boolean isLikelyAcceptedShitarabaPostError(DatAddress address, String text) {
