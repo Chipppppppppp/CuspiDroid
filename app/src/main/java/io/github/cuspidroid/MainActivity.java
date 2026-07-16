@@ -3462,6 +3462,7 @@ public class MainActivity extends Activity {
                 tab.cachedUnreadCount = item.optInt("cachedUnreadCount", 0);
                 tab.hasThreadStats = item.optBoolean("hasThreadStats", tab.knownMaxPostNumber > 0);
                 tab.knownThreadArchived = item.optBoolean("knownThreadArchived", false);
+                tab.deferredThreadUpdatePostNumber = item.optInt("deferredThreadUpdatePostNumber", 0);
                 tab.overviewBoardName = item.optString("overviewBoardName", "");
                 tab.overviewTitle = item.optString("overviewTitle", "");
                 restoreNavigationHistory(tab, item);
@@ -3573,6 +3574,7 @@ public class MainActivity extends Activity {
                 item.put("cachedUnreadCount", tab.cachedUnreadCount);
                 item.put("hasThreadStats", tab.hasThreadStats);
                 item.put("knownThreadArchived", tab.knownThreadArchived);
+                item.put("deferredThreadUpdatePostNumber", tab.deferredThreadUpdatePostNumber);
                 item.put("overviewBoardName", overviewBoardNameForSave(tab));
                 item.put("overviewTitle", overviewTitleForSave(tab));
                 item.put("navigationIndex", tab.navigationIndex);
@@ -4504,6 +4506,7 @@ public class MainActivity extends Activity {
         updateBottomThreadBar(tab);
         updateThreadSearchBar(tab);
         renderTabs();
+        scheduleDeferredThreadUpdate(tab);
         scheduleThreadScrollChromeRefresh(tab, 5);
         scheduleTabUnload();
         scheduleBackgroundTrim();
@@ -4542,6 +4545,23 @@ public class MainActivity extends Activity {
             if (shouldRestoreThreadScroll(tab)) {
                 restoreThreadScroll(tab);
             }
+        });
+    }
+
+    private void scheduleDeferredThreadUpdate(CuspTab tab) {
+        if (tab == null || tab.deferredThreadUpdateLoading
+                || tab.deferredThreadUpdatePostNumber <= 0
+                || !NATIVE_THREAD.equals(tab.nativeKind)) {
+            return;
+        }
+        tab.deferredThreadUpdateLoading = true;
+        mainHandler.post(() -> {
+            if (tab != currentTab() || !tabs.contains(tab) || tabOverviewVisible
+                    || tab.url == null || tab.url.isEmpty()) {
+                tab.deferredThreadUpdateLoading = false;
+                return;
+            }
+            loadThread(tab, tab.url, false);
         });
     }
 
@@ -5935,6 +5955,10 @@ public class MainActivity extends Activity {
 
     private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
         final String loadUrl = url;
+        if (tab.url != null && !tab.url.isEmpty() && !sameSavedUrl(tab.url, loadUrl)) {
+            tab.deferredThreadUpdatePostNumber = 0;
+            tab.deferredThreadUpdateLoading = false;
+        }
         rememberThreadScroll(tab);
         if (showFullLoading) {
             prepareChromeForLoading();
@@ -5961,6 +5985,9 @@ public class MainActivity extends Activity {
     private void loadThreadAfterLoading(CuspTab tab, String loadUrl, boolean keepExistingScroll,
                                         boolean showFullLoading) {
         if (tab == null || !tabs.contains(tab) || !loadUrl.equals(tab.url)) {
+            if (tab != null) {
+                tab.deferredThreadUpdateLoading = false;
+            }
             return;
         }
         ThreadPage cached = readCachedThreadPage(loadUrl);
@@ -5999,11 +6026,13 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 resetTopRefreshLoader(tab.boardTopLoader);
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
+                    tab.deferredThreadUpdateLoading = false;
                     if (tab == currentTab()) {
                         progressBar.setVisibility(View.GONE);
                     }
                     return;
                 }
+                finishDeferredThreadUpdate(tab, result);
                 if (result.error == null && result.url != null && !result.url.trim().isEmpty()) {
                     replaceCurrentNavigationUrl(tab, loadUrl, result.url);
                     tab.url = result.url;
@@ -24672,6 +24701,14 @@ public class MainActivity extends Activity {
         tab.knownThreadArchived = archived;
         tab.knownBoardOrder = Math.max(0, status.boardOrder);
         tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, status.url));
+        int loadedPostNumber = maxPostNumber(tab.threadPage);
+        if (loadedPostNumber <= 0) {
+            loadedPostNumber = Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
+        }
+        if (status.responseCount > loadedPostNumber) {
+            tab.deferredThreadUpdatePostNumber = Math.max(
+                    tab.deferredThreadUpdatePostNumber, status.responseCount);
+        }
         if (tab.threadPage != null) {
             tab.threadPage.title = title;
             tab.threadPage.archived = archived;
@@ -24705,6 +24742,17 @@ public class MainActivity extends Activity {
             preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_STATUS, root.toString()).apply();
             markBookmarkOverviewDirty();
         } catch (Exception ignored) {
+        }
+    }
+
+    private void finishDeferredThreadUpdate(CuspTab tab, ThreadPage result) {
+        if (tab == null || !tab.deferredThreadUpdateLoading) {
+            return;
+        }
+        tab.deferredThreadUpdateLoading = false;
+        if (result != null && result.error == null
+                && maxPostNumber(result) >= tab.deferredThreadUpdatePostNumber) {
+            tab.deferredThreadUpdatePostNumber = 0;
         }
     }
 
@@ -28105,9 +28153,13 @@ public class MainActivity extends Activity {
         if (tab == null || page == null) {
             return;
         }
-        tab.knownMaxPostNumber = maxPostNumber(page);
-        tab.knownPostCount = page.posts == null ? 0 : page.posts.size();
-        tab.cachedUnreadCount = countUnreadPosts(page, tab.readPostNumber);
+        int pageMaxPostNumber = maxPostNumber(page);
+        int pagePostCount = page.posts == null ? 0 : page.posts.size();
+        tab.knownMaxPostNumber = Math.max(pageMaxPostNumber, tab.deferredThreadUpdatePostNumber);
+        tab.knownPostCount = Math.max(pagePostCount, tab.deferredThreadUpdatePostNumber);
+        tab.cachedUnreadCount = tab.deferredThreadUpdatePostNumber > pageMaxPostNumber
+                ? Math.max(0, tab.deferredThreadUpdatePostNumber - tab.readPostNumber)
+                : countUnreadPosts(page, tab.readPostNumber);
         tab.knownThreadArchived = page.archived;
         tab.hasThreadStats = true;
     }
@@ -29690,6 +29742,8 @@ public class MainActivity extends Activity {
         int cachedUnreadCount;
         boolean hasThreadStats;
         boolean knownThreadArchived;
+        int deferredThreadUpdatePostNumber;
+        boolean deferredThreadUpdateLoading;
         String overviewBoardName = "";
         String overviewTitle = "";
         long bottomScrollLockUntil;
