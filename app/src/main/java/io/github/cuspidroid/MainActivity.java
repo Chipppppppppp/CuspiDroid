@@ -6628,14 +6628,9 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                String html = download(loadUrl);
-                page = parseSearchPage(loadUrl, html);
+                page = downloadSearchPage(loadUrl);
             } catch (Exception error) {
-                if (isFindSearchNoResultsResponse(loadUrl, error)) {
-                    page = parseSearchPage(loadUrl, "");
-                } else {
-                    page = SearchPage.error(loadUrl, error.getMessage());
-                }
+                page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
             runOnUiThread(() -> {
@@ -6659,6 +6654,31 @@ public class MainActivity extends Activity {
                 renderTabs();
             });
         });
+    }
+
+    private SearchPage downloadSearchPage(String loadUrl) throws Exception {
+        Exception lastError = null;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            try {
+                return parseSearchPage(loadUrl, download(loadUrl));
+            } catch (Exception error) {
+                lastError = error;
+                if (!isFindSearchBadGateway(loadUrl, error)) {
+                    throw error;
+                }
+            }
+        }
+        try {
+            SearchPage fallback = downloadFullTextSearchPage(
+                    fullTextSearchUrl(searchQueryFromUrl(loadUrl)), 1);
+            fallback.url = loadUrl;
+            fallback.title = searchTitle(loadUrl);
+            fallback.fullTextHasMore = false;
+            fallback.fullTextReachedEnd = true;
+            return fallback;
+        } catch (Exception fallbackError) {
+            throw lastError == null ? fallbackError : lastError;
+        }
     }
 
     private void loadFullTextSearchResults(CuspTab tab, String url) {
@@ -25009,25 +25029,29 @@ public class MainActivity extends Activity {
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Accept-Encoding", "gzip");
         HttpURLConnection connection = openConnectionFollowingRedirects(urlText, userAgent, headers);
-        int code = connection.getResponseCode();
-        InputStream stream = responseInputStream(connection, code);
-        if (stream == null) {
-            throw new HttpStatusException(code, "");
+        try {
+            int code = connection.getResponseCode();
+            InputStream stream = responseInputStream(connection, code);
+            if (stream == null) {
+                throw new HttpStatusException(code, "");
+            }
+            byte[] bytes = readBytes(stream);
+            Charset charset = responseCharset(connection, Charset.forName("UTF-8"));
+            String body = new String(bytes, charset);
+            Charset metaCharset = htmlMetaCharset(body);
+            if (metaCharset != null && !metaCharset.equals(charset)) {
+                body = new String(bytes, metaCharset);
+            }
+            if (code >= 400) {
+                throw new HttpStatusException(code, stripTags(body));
+            }
+            return body;
+        } finally {
+            connection.disconnect();
         }
-        byte[] bytes = readBytes(stream);
-        Charset charset = responseCharset(connection, Charset.forName("UTF-8"));
-        String body = new String(bytes, charset);
-        Charset metaCharset = htmlMetaCharset(body);
-        if (metaCharset != null && !metaCharset.equals(charset)) {
-            body = new String(bytes, metaCharset);
-        }
-        if (code >= 400) {
-            throw new HttpStatusException(code, stripTags(body));
-        }
-        return body;
     }
 
-    private boolean isFindSearchNoResultsResponse(String url, Exception error) {
+    private boolean isFindSearchBadGateway(String url, Exception error) {
         return isFindSearchUrl(url)
                 && error instanceof HttpStatusException
                 && ((HttpStatusException) error).statusCode == HttpURLConnection.HTTP_BAD_GATEWAY;
