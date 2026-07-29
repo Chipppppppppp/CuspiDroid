@@ -88,7 +88,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -440,6 +444,11 @@ public class MainActivity extends Activity {
     private FrameLayout overlayFrame;
     private EditText addressBar;
     private FrameLayout contentFrame;
+    private WebView inlineWebView;
+    private boolean inlineWebViewMode;
+    private String inlineWebViewUrl = "";
+    private int inlineWebViewBadGatewayRetries;
+    private boolean inlineWebViewLoadingFallback;
     private ProgressBar progressBar;
     private LinearLayout bottomThreadBar;
     private FrameLayout bottomThreadBarSlot;
@@ -928,6 +937,11 @@ public class MainActivity extends Activity {
 
     private List<String> addressBarButtonIds() {
         List<String> ids = orderedButtonIdsFromPreferences(PREF_ADDRESS_BAR_BUTTONS, DEFAULT_ADDRESS_BAR_BUTTONS, ADDRESS_BUTTON_IDS);
+        if (inlineWebViewMode) {
+            ids.remove(ADDRESS_BAR_NEW_TAB);
+            ids.remove(ADDRESS_BAR_TABS);
+            ids.remove(ADDRESS_MENU_BOOKMARK);
+        }
         if (!ids.contains(ADDRESS_BAR_MENU)) {
             ids.add(ADDRESS_BAR_MENU);
         }
@@ -939,6 +953,14 @@ public class MainActivity extends Activity {
                 DEFAULT_ADDRESS_MENU_BUTTONS, ADDRESS_BUTTON_IDS);
         ids.remove(ADDRESS_MENU_NAV);
         ids.remove(ADDRESS_BAR_MENU);
+        if (inlineWebViewMode) {
+            ids.remove(ADDRESS_BAR_NEW_TAB);
+            ids.remove(ADDRESS_BAR_TABS);
+            ids.remove(ADDRESS_MENU_BOOKMARK);
+            if (!addressButtonPlaced(ADDRESS_MENU_WEBVIEW) && !ids.contains(ADDRESS_MENU_WEBVIEW)) {
+                ids.add(0, ADDRESS_MENU_WEBVIEW);
+            }
+        }
         if (!addressButtonPlaced(ADDRESS_MENU_SETTINGS) && !ids.contains(ADDRESS_MENU_SETTINGS)) {
             ids.add(ADDRESS_MENU_SETTINGS);
         }
@@ -1146,6 +1168,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (inlineWebView != null) {
+            inlineWebView.stopLoading();
+            inlineWebView.loadUrl("about:blank");
+            inlineWebView.destroy();
+            inlineWebView = null;
+        }
         if (saveTabsTask != null) {
             mainHandler.removeCallbacks(saveTabsTask);
             saveTabsTask = null;
@@ -1188,6 +1216,14 @@ public class MainActivity extends Activity {
         }
         if (addressBar != null && addressBar.hasFocus()) {
             clearAddressFocus();
+            return;
+        }
+        if (inlineWebViewMode) {
+            if (inlineWebView != null && inlineWebView.canGoBack()) {
+                inlineWebView.goBack();
+            } else {
+                closeInlineWebView();
+            }
             return;
         }
         if (isPageSearchOpen()) {
@@ -2174,7 +2210,8 @@ public class MainActivity extends Activity {
     }
 
     private int addressButtonIcon(String id, CuspTab tab) {
-        if (ADDRESS_MENU_WEBVIEW.equals(id)) return R.drawable.ic_arrow_forward;
+        if (ADDRESS_MENU_WEBVIEW.equals(id)) return inlineWebViewMode
+                ? R.drawable.ic_arrow_back : R.drawable.ic_arrow_forward;
         if (ADDRESS_MENU_BOOKMARK.equals(id)) return savedIcon(PREF_THREAD_BOOKMARKS, tab == null ? "" : tab.url);
         if (ADDRESS_MENU_FIND.equals(id)) return R.drawable.ic_search;
         if (ADDRESS_MENU_SYNC.equals(id)) return R.drawable.ic_refresh;
@@ -2198,11 +2235,19 @@ public class MainActivity extends Activity {
             dismissPopupAnimated(popup);
         }
         if (ADDRESS_MENU_WEBVIEW.equals(id)) {
-            openCurrentThreadInWebView();
+            if (inlineWebViewMode) {
+                closeInlineWebView();
+            } else {
+                openCurrentThreadInWebView();
+            }
         } else if (ADDRESS_MENU_BOOKMARK.equals(id)) {
             toggleCurrentBookmark();
         } else if (ADDRESS_MENU_FIND.equals(id)) {
-            showThreadSearchDialog();
+            if (inlineWebViewMode && inlineWebView != null) {
+                inlineWebView.showFindDialog("", true);
+            } else {
+                showThreadSearchDialog();
+            }
         } else if (ADDRESS_MENU_SYNC.equals(id)) {
             runSync2chNow();
         } else if (ADDRESS_MENU_SETTINGS.equals(id)) {
@@ -2217,13 +2262,29 @@ public class MainActivity extends Activity {
                 showThreadMenu(anchor);
             }
         } else if (ADDRESS_NAV_BACK.equals(id)) {
-            onBackPressed();
+            if (inlineWebViewMode && inlineWebView != null && inlineWebView.canGoBack()) {
+                inlineWebView.goBack();
+            } else {
+                onBackPressed();
+            }
         } else if (ADDRESS_NAV_FORWARD.equals(id)) {
-            goForward();
+            if (inlineWebViewMode && inlineWebView != null) {
+                inlineWebView.goForward();
+            } else {
+                goForward();
+            }
         } else if (ADDRESS_NAV_SHARE.equals(id)) {
-            shareCurrentThread();
+            if (inlineWebViewMode) {
+                shareUrl(inlineWebViewUrl);
+            } else {
+                shareCurrentThread();
+            }
         } else if (ADDRESS_NAV_RELOAD.equals(id)) {
-            reloadFromMenu();
+            if (inlineWebViewMode && inlineWebView != null) {
+                inlineWebView.reload();
+            } else {
+                reloadFromMenu();
+            }
         }
     }
 
@@ -2483,6 +2544,10 @@ public class MainActivity extends Activity {
     private void rebuildAddressBarButtons() {
         if (bottomToolbar == null) {
             return;
+        }
+        for (View button : addressBarButtons.values()) {
+            bottomToolbar.removeView(button);
+            toolbarButtons.remove(button);
         }
         addressBarButtons.clear();
         tabCountButton = null;
@@ -2757,6 +2822,11 @@ public class MainActivity extends Activity {
     }
 
     private boolean addressNavEnabled(String id, CuspTab tab) {
+        if (inlineWebViewMode && inlineWebView != null) {
+            if (ADDRESS_NAV_BACK.equals(id)) return true;
+            if (ADDRESS_NAV_FORWARD.equals(id)) return inlineWebView.canGoForward();
+            if (ADDRESS_NAV_SHARE.equals(id) || ADDRESS_NAV_RELOAD.equals(id)) return true;
+        }
         boolean hasShareOrReload = tab != null
                 && tab.url != null
                 && !tab.url.trim().isEmpty()
@@ -2899,7 +2969,9 @@ public class MainActivity extends Activity {
     }
 
     private String buttonLabel(String id) {
-        if (ADDRESS_MENU_WEBVIEW.equals(id)) return text("WebView\u3067\u958b\u304f", "Open in WebView");
+        if (ADDRESS_MENU_WEBVIEW.equals(id)) return inlineWebViewMode
+                ? text("\u30a2\u30d7\u30ea\u306b\u623b\u308b", "Return to app")
+                : text("WebView\u3067\u958b\u304f", "Open in WebView");
         if (ADDRESS_MENU_BOOKMARK.equals(id)) return text("\u30d6\u30c3\u30af\u30de\u30fc\u30af", "Bookmark");
         if (ADDRESS_MENU_FIND.equals(id)) return text("\u30da\u30fc\u30b8\u5185\u691c\u7d22", "Find in page");
         if (ADDRESS_MENU_SYNC.equals(id)) return text("Sync2ch\u3067\u540c\u671f", "Sync with Sync2ch");
@@ -4803,7 +4875,9 @@ public class MainActivity extends Activity {
         if (bottomThreadBar == null || bottomThreadTitle == null) {
             return;
         }
-        if (tabOverviewVisible) {
+        if (inlineWebViewMode) {
+            bottomThreadBar.setVisibility(View.GONE);
+        } else if (tabOverviewVisible) {
             bottomThreadBar.setVisibility(View.GONE);
         } else if (isAddressEditing()) {
             bottomThreadBar.setVisibility(View.GONE);
@@ -5378,7 +5452,7 @@ public class MainActivity extends Activity {
         if (addressBar == null || addressBar.hasFocus() && !focusText) {
             return;
         }
-        addressBar.setText(addressBarTextForTab(currentTab()));
+        addressBar.setText(inlineWebViewMode ? inlineWebViewUrl : addressBarTextForTab(currentTab()));
         if (focusText) {
             focusAddressBarText();
         } else {
@@ -5472,6 +5546,11 @@ public class MainActivity extends Activity {
         }
         boolean urlLike = looksLikeUrl(input);
         String url = urlLike ? normalizeUrl(input) : searchUrl(input);
+        if (inlineWebViewMode && inlineWebView != null) {
+            clearAddressFocus();
+            inlineWebView.loadUrl(url);
+            return;
+        }
         if (pendingNewTab) {
             clearAddressFocus();
             openPendingNewTabUrl(url);
@@ -23511,9 +23590,93 @@ public class MainActivity extends Activity {
             Toast.makeText(this, text("\u958b\u304fURL\u304c\u3042\u308a\u307e\u305b\u3093", "No thread URL to open."), Toast.LENGTH_SHORT).show();
             return;
         }
-        Intent intent = new Intent(this, AuthActivity.class);
-        intent.putExtra(AuthActivity.EXTRA_URL, tab.url);
-        startActivity(intent);
+        inlineWebViewMode = true;
+        inlineWebViewUrl = tab.url;
+        inlineWebViewBadGatewayRetries = 0;
+        inlineWebViewLoadingFallback = false;
+        inlineWebView = new WebView(this);
+        inlineWebView.setBackgroundColor(bgColor());
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(inlineWebView, true);
+        }
+        WebSettings settings = inlineWebView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        inlineWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                if (url != null && !url.equals(inlineWebViewUrl)) {
+                    inlineWebViewBadGatewayRetries = 0;
+                    inlineWebViewLoadingFallback = false;
+                }
+                inlineWebViewUrl = url == null ? "" : url;
+                updateAddressBarDisplay(false);
+                updateAddressBarButtons(currentTab());
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                CookieManager.getInstance().flush();
+                inlineWebViewUrl = url == null ? inlineWebViewUrl : url;
+                updateAddressBarDisplay(false);
+                updateAddressBarButtons(currentTab());
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request,
+                                            WebResourceResponse errorResponse) {
+                if (request == null || errorResponse == null || !request.isForMainFrame()
+                        || errorResponse.getStatusCode() != HttpURLConnection.HTTP_BAD_GATEWAY
+                        || !isFindSearchUrl(request.getUrl() == null
+                        ? "" : request.getUrl().toString())) {
+                    return;
+                }
+                if (inlineWebViewBadGatewayRetries < 4) {
+                    inlineWebViewBadGatewayRetries++;
+                    view.postDelayed(view::reload, 180);
+                } else if (!inlineWebViewLoadingFallback) {
+                    inlineWebViewLoadingFallback = true;
+                    view.loadUrl(fullTextSearchUrl(searchQueryFromUrl(
+                            request.getUrl() == null ? "" : request.getUrl().toString())));
+                }
+            }
+        });
+        contentFrame.removeAllViews();
+        contentFrame.addView(inlineWebView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        rebuildAddressBarButtons();
+        updateBottomThreadBar(tab);
+        updateAddressBarDisplay(false);
+        inlineWebView.loadUrl(tab.url);
+    }
+
+    private void closeInlineWebView() {
+        if (!inlineWebViewMode) {
+            return;
+        }
+        inlineWebViewMode = false;
+        WebView closing = inlineWebView;
+        inlineWebView = null;
+        inlineWebViewUrl = "";
+        inlineWebViewBadGatewayRetries = 0;
+        inlineWebViewLoadingFallback = false;
+        if (closing != null) {
+            contentFrame.removeView(closing);
+            closing.stopLoading();
+            closing.loadUrl("about:blank");
+            closing.destroy();
+        }
+        rebuildAddressBarButtons();
+        if (currentIndex >= 0 && currentIndex < tabs.size()) {
+            switchToTab(currentIndex, true);
+        } else {
+            updateAddressBarDisplay(false);
+            updateBottomThreadBar(currentTab());
+        }
     }
 
     private void showThreadSearchDialog() {
