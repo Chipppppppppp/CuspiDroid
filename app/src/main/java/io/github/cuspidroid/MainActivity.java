@@ -2245,9 +2245,14 @@ public class MainActivity extends Activity {
     }
 
     private void openCurrentThreadBoard() {
-        String boardUrl = currentThreadBoardUrl(currentTab());
+        CuspTab source = currentTab();
+        String boardUrl = currentThreadBoardUrl(source);
         if (boardUrl == null) {
             Toast.makeText(this, text("\u677fURL\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board URL found."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (open5chLinksInNewTab() && is5chUrl(boardUrl)) {
+            createTab(boardUrl, true, tabs.indexOf(source), false, isPrivateTab(source));
             return;
         }
         openInCurrentTab(boardUrl);
@@ -6626,7 +6631,11 @@ public class MainActivity extends Activity {
                 String html = download(loadUrl);
                 page = parseSearchPage(loadUrl, html);
             } catch (Exception error) {
-                page = SearchPage.error(loadUrl, error.getMessage());
+                if (isFindSearchNoResultsResponse(loadUrl, error)) {
+                    page = parseSearchPage(loadUrl, "");
+                } else {
+                    page = SearchPage.error(loadUrl, error.getMessage());
+                }
             }
             SearchPage result = page;
             runOnUiThread(() -> {
@@ -25003,7 +25012,7 @@ public class MainActivity extends Activity {
         int code = connection.getResponseCode();
         InputStream stream = responseInputStream(connection, code);
         if (stream == null) {
-            throw new IllegalStateException("HTTP " + code);
+            throw new HttpStatusException(code, "");
         }
         byte[] bytes = readBytes(stream);
         Charset charset = responseCharset(connection, Charset.forName("UTF-8"));
@@ -25013,9 +25022,15 @@ public class MainActivity extends Activity {
             body = new String(bytes, metaCharset);
         }
         if (code >= 400) {
-            throw new IllegalStateException("HTTP " + code + "\n" + stripTags(body));
+            throw new HttpStatusException(code, stripTags(body));
         }
         return body;
+    }
+
+    private boolean isFindSearchNoResultsResponse(String url, Exception error) {
+        return isFindSearchUrl(url)
+                && error instanceof HttpStatusException
+                && ((HttpStatusException) error).statusCode == HttpURLConnection.HTTP_BAD_GATEWAY;
     }
 
     private InputStream responseInputStream(HttpURLConnection connection, int code) throws Exception {
@@ -30284,6 +30299,16 @@ public class MainActivity extends Activity {
             this.root = root;
             this.input = input;
             this.apply = apply;
+        }
+    }
+
+    private static class HttpStatusException extends IllegalStateException {
+        final int statusCode;
+
+        HttpStatusException(int statusCode, String body) {
+            super("HTTP " + statusCode
+                    + (body == null || body.trim().isEmpty() ? "" : "\n" + body));
+            this.statusCode = statusCode;
         }
     }
 
