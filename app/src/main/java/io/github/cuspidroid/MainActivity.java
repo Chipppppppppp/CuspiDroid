@@ -88,6 +88,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -6735,6 +6737,25 @@ public class MainActivity extends Activity {
         }
         boolean[] submitted = {false};
         browser.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request,
+                                            WebResourceResponse errorResponse) {
+                if (view.getTag() != null || request == null || errorResponse == null
+                        || !request.isForMainFrame()
+                        || errorResponse.getStatusCode() != HttpURLConnection.HTTP_BAD_GATEWAY
+                        || !(isFindSearchUrl(request.getUrl() == null
+                        ? "" : request.getUrl().toString())
+                        || isFindHomeUrl(request.getUrl() == null
+                        ? "" : request.getUrl().toString()))) {
+                    return;
+                }
+                SearchPage page = SearchPage.error(loadUrl, text(
+                        "find.5ch.io\u304c\u4e00\u6642\u7684\u306b\u5229\u7528\u3067\u304d\u307e\u305b\u3093\uff08HTTP 502 Bad Gateway\uff09\u3002\u6642\u9593\u3092\u304a\u3044\u3066\u304b\u3089\u518d\u5ea6\u691c\u7d22\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+                        "find.5ch.io is temporarily unavailable (HTTP 502 Bad Gateway). Please try searching again later."));
+                finishFindSearchBrowser(view);
+                finishSearchResults(tab, loadUrl, page, foreground);
+            }
+
             @Override
             public void onPageFinished(WebView view, String currentUrl) {
                 if (view.getTag() != null) {
