@@ -7995,7 +7995,6 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ThreadScrollView(this);
         tab.threadScroll = scroll;
         scroll.setFillViewport(true);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleThreadMediaLoads);
         scroll.setOnClickListener(v -> dismissTopReplyPopup());
@@ -11891,6 +11890,7 @@ public class MainActivity extends Activity {
                     }
                     if (edge > 0) {
                         refreshingBottom[0] = true;
+                        markReadTo(tab, maxPostNumber(tab.threadPage));
                         bottomLoader.setVisibility(View.VISIBLE);
                         bottomLoader.setRotation(0f);
                         setBottomRefreshSpinning(bottomLoader, true);
@@ -16286,44 +16286,7 @@ public class MainActivity extends Activity {
             resetTopRefreshLoader(loader);
             return;
         }
-        ScrollView scroll = findScrollView(contentFrame);
-        if (scroll == null || scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof LinearLayout)) {
-            resetTopRefreshLoader(loader);
-            return;
-        }
-        LinearLayout list = (LinearLayout) scroll.getChildAt(0);
-        int restoreY = scroll.getScrollY();
-        boolean privateMode = tabOverviewPrivateMode;
-        mainHandler.postDelayed(() -> {
-            if (!tabOverviewVisible || contentFrame == null || tabOverviewPrivateMode != privateMode
-                    || scroll.getParent() == null || list.getParent() != scroll) {
-                resetTopRefreshLoader(loader);
-                return;
-            }
-            tabOverviewResultCache.clear();
-            tabOverviewBoardTitleCache.clear();
-            tabOverviewHistoryUrlCache = null;
-            tabOverviewValueDirtyTabs.clear();
-            tabOverviewValueDirtyTabs.addAll(tabs);
-            if (!tabOverviewPrivateMode && showBookmarksInTabOverview()) {
-                markBookmarkOverviewDirty();
-            }
-            boolean updatedBookmarks = refreshTabOverviewBookmarkSectionOnly(contentFrame);
-            boolean updatedTabs = refreshTabOverviewTabSlotsOnly();
-            if (!updatedBookmarks && !updatedTabs) {
-                populateTabOverviewList(scroll, list, true, true);
-            }
-            scheduleDeferredTabOverviewSort(list, privateMode);
-            syncClosedTabUndoBar();
-            renderTabs();
-            scroll.post(() -> {
-                if (scroll.getChildCount() > 0) {
-                    int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
-                    scroll.scrollTo(0, Math.min(restoreY, range));
-                }
-                resetTopRefreshLoader(loader);
-            });
-        }, 180);
+        reloadAllTabs(false, () -> resetTopRefreshLoader(loader));
     }
 
     private boolean refreshTabOverviewBookmarkSectionOnly() {
@@ -24748,6 +24711,10 @@ public class MainActivity extends Activity {
     }
 
     private void reloadAllTabs(boolean centerSpinner) {
+        reloadAllTabs(centerSpinner, null);
+    }
+
+    private void reloadAllTabs(boolean centerSpinner, Runnable onComplete) {
         boolean wasOverview = tabOverviewVisible;
         List<CuspTab> targets = new ArrayList<>();
         for (CuspTab tab : new ArrayList<>(tabs)) {
@@ -24782,6 +24749,9 @@ public class MainActivity extends Activity {
                         syncClosedTabUndoBar();
                     }
                 }
+                if (onComplete != null) {
+                    onComplete.run();
+                }
             }
         };
         for (CuspTab tab : targets) {
@@ -24790,8 +24760,13 @@ public class MainActivity extends Activity {
         for (SavedItem bookmark : bookmarkTargets) {
             reloadBookmarkForOverview(bookmark, done);
         }
-        if (wasOverview && totalTargets == 0) {
-            tabOverviewVisible = true;
+        if (totalTargets == 0) {
+            if (wasOverview) {
+                tabOverviewVisible = true;
+            }
+            if (onComplete != null) {
+                onComplete.run();
+            }
         }
     }
 
