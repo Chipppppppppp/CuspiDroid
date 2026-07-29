@@ -22,7 +22,7 @@ Posting preserves the read position and does not resubmit an already successful 
 
 - Browser-like navigation with multiple tabs, search-field autofocus on new tabs, a tab overview, bookmark folders, and history
 - Lightweight tab metadata is stored separately from page caches so the tab overview appears quickly after a cold start; page caches load lazily for the selected tab, while bookmark folders and unread state are prepared in the background
-- Reload All in the tab overview refreshes only lightweight metadata such as titles and response counts, without downloading new post bodies; threads with detected updates load those posts lazily when their tab is opened
+- Reload All in the tab overview refreshes only lightweight metadata such as titles and response counts, without downloading new post bodies; threads with detected updates load those posts lazily when their tab is opened, and collapsed bookmark folders immediately reflect the latest aggregate unread count
 - Combined URL and search address bar with thread search through `find.5ch.io` or a custom URL
 - Next-thread search with an editable query that narrows candidates from the current board using title similarity and thread-number continuity, displayed like the board list
 - A shared dialog design for long-pressed posts, media/link/popular-post filters, and next-thread candidates, with matching animations, gray borders, background dimming, and tap-outside dismissal

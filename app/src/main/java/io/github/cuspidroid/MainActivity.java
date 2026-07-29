@@ -13284,6 +13284,7 @@ public class MainActivity extends Activity {
                 || !savedItemExists(PREF_THREAD_BOOKMARKS, url)) {
             return;
         }
+        markBookmarkOverviewDirty();
         if (tabOverviewVisible && !tabOverviewPrivateMode && contentFrame != null) {
             refreshTabOverviewBookmarkSectionOnly(contentFrame);
             return;
@@ -16424,6 +16425,9 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         if (refreshTabOverviewAfterToggle && tabOverviewVisible && contentFrame != null) {
+            // Folder totals are stored in the overview snapshot, while item rows can read live tab state.
+            // Rebuild the snapshot before folding so the aggregate never comes from an older read position.
+            markBookmarkOverviewDirty();
             if (refreshBookmarkOverviewFolderExpansionInPlace(key)) {
                 bookmarkOverviewDirty = false;
                 renderTabs();
