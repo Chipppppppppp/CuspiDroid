@@ -1,6 +1,7 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -32,23 +33,73 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Shared full-screen viewer used by thread media and upload history media. */
+/** Full-screen thread media gallery with zoom, swipe navigation and sensitive-media gating. */
 public class MediaViewerActivity extends Activity {
-    private static final String EXTRA_ORIGINAL_URL = "original_url";
-    private static final String EXTRA_MEDIA_URL = "media_url";
-    private static final String EXTRA_VIDEO = "video";
+    private static final String EXTRA_ORIGINAL_URLS = "original_urls";
+    private static final String EXTRA_MEDIA_URLS = "media_urls";
+    private static final String EXTRA_VIDEOS = "videos";
+    private static final String EXTRA_SENSITIVE = "sensitive";
+    private static final String EXTRA_INDEX = "index";
+
+    static final class MediaItem {
+        final String originalUrl;
+        final String mediaUrl;
+        final boolean video;
+        final boolean sensitive;
+
+        MediaItem(String originalUrl, String mediaUrl, boolean video, boolean sensitive) {
+            this.originalUrl = originalUrl;
+            this.mediaUrl = mediaUrl;
+            this.video = video;
+            this.sensitive = sensitive;
+        }
+    }
 
     private ExecutorService executor;
+    private FrameLayout root;
+    private final List<MediaItem> items = new ArrayList<>();
+    private final List<Integer> revealed = new ArrayList<>();
+    private int index;
+    private int loadGeneration;
+    private ZoomImageView currentZoom;
+    private boolean warningShowing;
+    private float gestureDownX;
+    private float gestureDownY;
+    private boolean gestureMultiTouch;
 
     static void open(Context context, String originalUrl, String mediaUrl, boolean video) {
+        List<MediaItem> items = new ArrayList<>();
+        items.add(new MediaItem(originalUrl, mediaUrl, video, false));
+        open(context, items, 0);
+    }
+
+    static void open(Context context, List<MediaItem> mediaItems, int selectedIndex) {
+        if (mediaItems == null || mediaItems.isEmpty()) {
+            return;
+        }
+        ArrayList<String> originals = new ArrayList<>();
+        ArrayList<String> media = new ArrayList<>();
+        boolean[] videos = new boolean[mediaItems.size()];
+        boolean[] sensitive = new boolean[mediaItems.size()];
+        for (int i = 0; i < mediaItems.size(); i++) {
+            MediaItem item = mediaItems.get(i);
+            originals.add(item.originalUrl);
+            media.add(item.mediaUrl);
+            videos[i] = item.video;
+            sensitive[i] = item.sensitive;
+        }
         Intent intent = new Intent(context, MediaViewerActivity.class);
-        intent.putExtra(EXTRA_ORIGINAL_URL, originalUrl);
-        intent.putExtra(EXTRA_MEDIA_URL, mediaUrl);
-        intent.putExtra(EXTRA_VIDEO, video);
+        intent.putStringArrayListExtra(EXTRA_ORIGINAL_URLS, originals);
+        intent.putStringArrayListExtra(EXTRA_MEDIA_URLS, media);
+        intent.putExtra(EXTRA_VIDEOS, videos);
+        intent.putExtra(EXTRA_SENSITIVE, sensitive);
+        intent.putExtra(EXTRA_INDEX, Math.max(0, Math.min(selectedIndex, mediaItems.size() - 1)));
         context.startActivity(intent);
     }
 
@@ -58,97 +109,197 @@ public class MediaViewerActivity extends Activity {
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
         executor = Executors.newSingleThreadExecutor();
-        String originalUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_URL);
-        String mediaUrl = getIntent().getStringExtra(EXTRA_MEDIA_URL);
-        if (mediaUrl == null || mediaUrl.trim().isEmpty()) {
+        readItems();
+        if (items.isEmpty()) {
             finish();
             return;
         }
-        if (getIntent().getBooleanExtra(EXTRA_VIDEO, false)) {
-            showVideo(originalUrl, mediaUrl);
-        } else {
-            showImage(originalUrl, mediaUrl);
+        index = Math.max(0, Math.min(getIntent().getIntExtra(EXTRA_INDEX, 0), items.size() - 1));
+        root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+        root.setClickable(true);
+        setContentView(root);
+        showCurrent();
+    }
+
+    private void readItems() {
+        ArrayList<String> originals = getIntent().getStringArrayListExtra(EXTRA_ORIGINAL_URLS);
+        ArrayList<String> media = getIntent().getStringArrayListExtra(EXTRA_MEDIA_URLS);
+        boolean[] videos = getIntent().getBooleanArrayExtra(EXTRA_VIDEOS);
+        boolean[] sensitive = getIntent().getBooleanArrayExtra(EXTRA_SENSITIVE);
+        if (media == null) {
+            return;
+        }
+        for (int i = 0; i < media.size(); i++) {
+            String mediaUrl = media.get(i);
+            if (mediaUrl == null || mediaUrl.trim().isEmpty()) {
+                continue;
+            }
+            String originalUrl = originals != null && i < originals.size()
+                    ? originals.get(i) : mediaUrl;
+            items.add(new MediaItem(originalUrl, mediaUrl,
+                    videos != null && i < videos.length && videos[i],
+                    sensitive != null && i < sensitive.length && sensitive[i]));
         }
     }
 
     @Override
     protected void onDestroy() {
+        loadGeneration++;
         if (executor != null) {
             executor.shutdownNow();
         }
         super.onDestroy();
     }
 
-    private void showImage(String originalUrl, String mediaUrl) {
-        FrameLayout root = viewerRoot();
-        ZoomImageView image = new ZoomImageView(this);
-        root.addView(image, matchParentParams());
+    private void showCurrent() {
+        int generation = ++loadGeneration;
+        warningShowing = false;
+        currentZoom = null;
+        root.removeAllViews();
+        MediaItem item = items.get(index);
+        if (item.video) {
+            showVideo(item, generation);
+        } else {
+            showImage(item, generation);
+        }
+        addViewerActions(item);
+        addPositionIndicator();
+        root.setAlpha(0.7f);
+        root.animate().alpha(1f).setDuration(120).start();
+    }
 
-        ProgressBar spinner = spinner(root);
-        TextView play = playOverlay(root);
-        addViewerActions(root, originalUrl, mediaUrl, false);
+    private void showImage(MediaItem item, int generation) {
+        ZoomImageView image = new ZoomImageView(this);
+        currentZoom = image;
+        root.addView(image, matchParentParams());
+        ProgressBar spinner = spinner();
+        TextView play = playOverlay();
 
         executor.execute(() -> {
             MediaPreviewHelper.ViewerMedia loaded = null;
             try {
-                loaded = MediaPreviewHelper.loadForViewer(mediaUrl,
+                loaded = MediaPreviewHelper.loadForViewer(item.mediaUrl,
                         getResources().getDisplayMetrics().widthPixels * 3,
                         getResources().getDisplayMetrics().heightPixels * 3);
             } catch (Exception ignored) {
             }
             MediaPreviewHelper.ViewerMedia result = loaded;
+            boolean sensitive = item.sensitive;
+            if (result != null && result.bitmap != null) {
+                Boolean cached = MediaPreviewHelper.readSensitive(
+                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE), item.mediaUrl);
+                sensitive = sensitive || (cached != null ? cached
+                        : SensitiveImageClassifier.get(this).isSensitive(result.bitmap));
+                if (cached == null) {
+                    MediaPreviewHelper.saveSensitive(
+                            getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
+                            item.mediaUrl, sensitive);
+                }
+            }
+            boolean finalSensitive = sensitive;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
+                if (!isCurrent(generation)) {
                     return;
                 }
                 spinner.setVisibility(View.GONE);
                 if (result == null || (result.bitmap == null && result.drawable == null)) {
-                    Toast.makeText(this, MainActivity.text("画像を表示できません", "Image failed to load."),
-                            Toast.LENGTH_SHORT).show();
-                    finish();
+                    loadFailed(MainActivity.text("\u753b\u50cf\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093",
+                            "Image failed to load."));
                     return;
                 }
-                boolean animated = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
-                        && result.drawable instanceof AnimatedImageDrawable;
-                boolean autoplay = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
-                        .getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false);
-                if (result.drawable != null && animated && !autoplay) {
-                    if (result.bitmap != null) {
-                        image.setImageBitmap(result.bitmap);
-                    } else {
-                        image.setImageDrawable(result.drawable);
-                    }
-                    play.setVisibility(View.VISIBLE);
-                    play.setOnClickListener(v -> {
-                        image.setImageDrawable(result.drawable);
-                        ((AnimatedImageDrawable) result.drawable).start();
-                        play.setVisibility(View.GONE);
-                    });
-                } else if (result.drawable != null) {
-                    image.setImageDrawable(result.drawable);
-                    if (animated) {
-                        ((AnimatedImageDrawable) result.drawable).start();
-                    }
+                if (finalSensitive && result.bitmap != null && !revealed.contains(index)) {
+                    image.setImageBitmap(MediaPreviewHelper.blurredBitmap(result.bitmap));
+                    showSensitiveWarning(() -> displayImage(image, play, result));
                 } else {
-                    image.setImageBitmap(result.bitmap);
+                    displayImage(image, play, result);
                 }
             });
         });
     }
 
-    private void showVideo(String originalUrl, String mediaUrl) {
-        FrameLayout root = viewerRoot();
+    private void displayImage(ZoomImageView image, TextView play,
+                              MediaPreviewHelper.ViewerMedia result) {
+        boolean animated = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                && result.drawable instanceof AnimatedImageDrawable;
+        boolean autoplay = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false);
+        if (result.drawable != null && animated && !autoplay) {
+            image.setImageBitmap(result.bitmap);
+            play.setVisibility(View.VISIBLE);
+            play.setOnClickListener(v -> {
+                image.setImageDrawable(result.drawable);
+                ((AnimatedImageDrawable) result.drawable).start();
+                play.setVisibility(View.GONE);
+            });
+        } else if (result.drawable != null) {
+            image.setImageDrawable(result.drawable);
+            if (animated) {
+                ((AnimatedImageDrawable) result.drawable).start();
+            }
+        } else {
+            image.setImageBitmap(result.bitmap);
+        }
+    }
+
+    private void showVideo(MediaItem item, int generation) {
+        ImageView poster = new ImageView(this);
+        poster.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        poster.setBackgroundColor(Color.BLACK);
+        root.addView(poster, matchParentParams());
+        ProgressBar spinner = spinner();
+        executor.execute(() -> {
+            Bitmap bitmap = null;
+            try {
+                bitmap = MediaPreviewHelper.videoPosterBitmap(item.mediaUrl);
+            } catch (Exception ignored) {
+            }
+            boolean sensitive = item.sensitive;
+            if (bitmap != null) {
+                Boolean cached = MediaPreviewHelper.readSensitive(
+                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE), item.mediaUrl);
+                sensitive = sensitive || (cached != null ? cached
+                        : SensitiveImageClassifier.get(this).isSensitive(bitmap));
+                if (cached == null) {
+                    MediaPreviewHelper.saveSensitive(
+                            getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
+                            item.mediaUrl, sensitive);
+                }
+            }
+            Bitmap finalBitmap = bitmap;
+            boolean finalSensitive = sensitive;
+            runOnUiThread(() -> {
+                if (!isCurrent(generation)) {
+                    return;
+                }
+                spinner.setVisibility(View.GONE);
+                if (finalSensitive && !revealed.contains(index)) {
+                    if (finalBitmap != null) {
+                        poster.setImageBitmap(MediaPreviewHelper.blurredBitmap(finalBitmap));
+                    }
+                    showSensitiveWarning(() -> startVideo(item, generation));
+                } else {
+                    startVideo(item, generation);
+                }
+            });
+        });
+    }
+
+    private void startVideo(MediaItem item, int generation) {
+        if (!isCurrent(generation)) {
+            return;
+        }
+        root.removeAllViews();
         VideoView video = new VideoView(this);
-        video.setVideoURI(Uri.parse(mediaUrl));
+        video.setVideoURI(Uri.parse(item.mediaUrl));
         root.addView(video, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
-
         MediaController controller = new MediaController(this);
         controller.setAnchorView(video);
         video.setMediaController(controller);
-        ProgressBar spinner = spinner(root);
-        addViewerActions(root, originalUrl, mediaUrl, true);
-
+        ProgressBar spinner = spinner();
+        addViewerActions(item);
+        addPositionIndicator();
         video.setOnPreparedListener(player -> {
             spinner.setVisibility(View.GONE);
             centerVideo(video, player.getVideoWidth(), player.getVideoHeight());
@@ -157,29 +308,83 @@ public class MediaViewerActivity extends Activity {
         });
         video.setOnErrorListener((player, what, extra) -> {
             spinner.setVisibility(View.GONE);
-            Toast.makeText(this, MainActivity.text("動画を表示できません", "Video failed to load."),
-                    Toast.LENGTH_SHORT).show();
+            loadFailed(MainActivity.text("\u52d5\u753b\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093",
+                    "Video failed to load."));
             return true;
         });
     }
 
-    private FrameLayout viewerRoot() {
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
-        root.setClickable(true);
-        setContentView(root);
-        return root;
+    private void showSensitiveWarning(Runnable revealAction) {
+        if (warningShowing || isFinishing() || isDestroyed()) {
+            return;
+        }
+        warningShowing = true;
+        new AlertDialog.Builder(this)
+                .setTitle(MainActivity.text("\u6ce8\u610f\u304c\u5fc5\u8981\u306a\u30e1\u30c7\u30a3\u30a2",
+                        "Sensitive media"))
+                .setMessage(MainActivity.text(
+                        "\u30b0\u30ed\u753b\u50cf\u307e\u305f\u306f\u7cde\u4fbf\u306a\u3069\u306e\u4e0d\u5feb\u306a\u5185\u5bb9\u306e\u53ef\u80fd\u6027\u304c\u3042\u308b\u305f\u3081\u3001\u307c\u304b\u3057\u3066\u3044\u307e\u3059\u3002\u8868\u793a\u3057\u307e\u3059\u304b\uff1f",
+                        "This media may contain graphic violence, feces, or other disturbing content. It has been blurred. Show it?"))
+                .setNegativeButton(MainActivity.text("\u307c\u304b\u3057\u305f\u307e\u307e", "Keep blurred"),
+                        (dialog, which) -> warningShowing = false)
+                .setPositiveButton(MainActivity.text("\u8868\u793a", "Show"), (dialog, which) -> {
+                    warningShowing = false;
+                    if (!revealed.contains(index)) {
+                        revealed.add(index);
+                    }
+                    revealAction.run();
+                })
+                .setOnCancelListener(dialog -> warningShowing = false)
+                .show();
     }
 
-    private ProgressBar spinner(FrameLayout root) {
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                gestureDownX = event.getX();
+                gestureDownY = event.getY();
+                gestureMultiTouch = false;
+                break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                gestureMultiTouch = true;
+                break;
+            case MotionEvent.ACTION_UP:
+                float dx = event.getX() - gestureDownX;
+                float dy = event.getY() - gestureDownY;
+                boolean canSwipe = currentZoom == null || currentZoom.atMinimumScale();
+                if (!warningShowing && !gestureMultiTouch && canSwipe
+                        && Math.abs(dx) >= dp(72) && Math.abs(dx) > Math.abs(dy) * 1.35f) {
+                    if (dx < 0 && index + 1 < items.size()) {
+                        index++;
+                        showCurrent();
+                        return true;
+                    }
+                    if (dx > 0 && index > 0) {
+                        index--;
+                        showCurrent();
+                        return true;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
+    private boolean isCurrent(int generation) {
+        return generation == loadGeneration && !isFinishing() && !isDestroyed();
+    }
+
+    private ProgressBar spinner() {
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER);
-        root.addView(spinner, params);
+        root.addView(spinner, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER));
         return spinner;
     }
 
-    private TextView playOverlay(FrameLayout root) {
+    private TextView playOverlay() {
         TextView play = new TextView(this);
         play.setText("\u25b6");
         play.setTextColor(Color.WHITE);
@@ -191,20 +396,34 @@ public class MediaViewerActivity extends Activity {
         return play;
     }
 
-    private void addViewerActions(FrameLayout root, String originalUrl, String mediaUrl, boolean video) {
-        addAction(root, R.drawable.ic_close,
-                MainActivity.text(video ? "動画を閉じる" : "画像を閉じる", video ? "Close video" : "Close image"),
-                14, v -> finish());
-        addAction(root, R.drawable.ic_arrow_forward,
-                MainActivity.text(video ? "動画リンクを開く" : "画像リンクを開く",
-                        video ? "Open video link" : "Open image link"),
-                68, v -> openExternal(originalUrl));
-        addAction(root, R.drawable.ic_download,
-                MainActivity.text(video ? "動画を保存" : "画像を保存", video ? "Download video" : "Download image"),
-                122, v -> saveMedia(mediaUrl, video));
+    private void addPositionIndicator() {
+        if (items.size() <= 1) {
+            return;
+        }
+        TextView indicator = new TextView(this);
+        indicator.setText((index + 1) + " / " + items.size());
+        indicator.setTextColor(Color.WHITE);
+        indicator.setTextSize(14);
+        indicator.setGravity(Gravity.CENTER);
+        indicator.setBackgroundColor(Color.argb(110, 0, 0, 0));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(72), dp(36));
+        params.gravity = Gravity.TOP | Gravity.LEFT;
+        params.setMargins(dp(14), dp(24), 0, 0);
+        root.addView(indicator, params);
     }
 
-    private void addAction(FrameLayout root, int icon, String description, int rightMargin,
+    private void addViewerActions(MediaItem item) {
+        addAction(R.drawable.ic_close, MainActivity.text("\u9589\u3058\u308b", "Close"),
+                14, v -> finish());
+        addAction(R.drawable.ic_arrow_forward,
+                MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u30ea\u30f3\u30af\u3092\u958b\u304f", "Open media link"),
+                68, v -> openExternal(item.originalUrl));
+        addAction(R.drawable.ic_download,
+                MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u3092\u4fdd\u5b58", "Download media"),
+                122, v -> saveMedia(item.mediaUrl, item.video));
+    }
+
+    private void addAction(int icon, String description, int rightMargin,
                            View.OnClickListener listener) {
         ImageButton button = new ImageButton(this);
         button.setImageResource(icon);
@@ -226,13 +445,14 @@ public class MediaViewerActivity extends Activity {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         } catch (Exception ignored) {
-            Toast.makeText(this, MainActivity.text("リンクを開けません", "Cannot open link."), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, MainActivity.text("\u30ea\u30f3\u30af\u3092\u958b\u3051\u307e\u305b\u3093",
+                    "Cannot open link."), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void saveMedia(String mediaUrl, boolean video) {
-        Toast.makeText(this, MainActivity.text(video ? "動画を保存中" : "画像を保存中",
-                video ? "Saving video..." : "Saving image..."), Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u3092\u4fdd\u5b58\u4e2d",
+                "Saving media..."), Toast.LENGTH_SHORT).show();
         executor.execute(() -> {
             String savedName = null;
             String error = null;
@@ -245,17 +465,16 @@ public class MediaViewerActivity extends Activity {
                 savedName = fileName(media.url, mime);
                 writeMedia(savedName, mime, media.bytes, video);
             } catch (Exception exception) {
-                error = exception.getMessage() == null
-                        ? MainActivity.text("保存に失敗しました", "Save failed.")
-                        : exception.getMessage();
+                error = exception.getMessage();
             }
             String finalName = savedName;
             String finalError = error;
             runOnUiThread(() -> Toast.makeText(this,
                     finalError == null
-                            ? MainActivity.text("メディアを保存しました", "Media saved.") + "\n" + finalName
-                            : MainActivity.text("保存に失敗しました", "Save failed.")
-                                    + (finalError == null ? "" : ": " + finalError),
+                            ? MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f",
+                                    "Media saved.") + "\n" + finalName
+                            : MainActivity.text("\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
+                                    "Save failed.") + (finalError == null ? "" : ": " + finalError),
                     finalError == null ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG).show());
         });
     }
@@ -266,7 +485,8 @@ public class MediaViewerActivity extends Activity {
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
             values.put(MediaStore.MediaColumns.RELATIVE_PATH,
-                    (video ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES) + "/CuspiDroid");
+                    (video ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES)
+                            + "/CuspiDroid");
             Uri collection = video ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                     : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
             Uri destination = getContentResolver().insert(collection, values);
@@ -281,7 +501,8 @@ public class MediaViewerActivity extends Activity {
             }
             return;
         }
-        File directory = getExternalFilesDir(video ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES);
+        File directory = getExternalFilesDir(
+                video ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES);
         if (directory == null || (!directory.exists() && !directory.mkdirs())) {
             throw new IllegalStateException("Could not open destination.");
         }
@@ -295,11 +516,10 @@ public class MediaViewerActivity extends Activity {
         if (path != null && !path.trim().isEmpty() && path.contains(".")) {
             return path.replaceAll("[^A-Za-z0-9._-]", "_");
         }
-        String extension = mime == null ? "bin" : mime.toLowerCase(Locale.ROOT).replace("image/", "").replace("video/", "");
-        if ("jpeg".equals(extension)) {
-            extension = "jpg";
-        }
-        return "cuspidroid-" + System.currentTimeMillis() + "." + extension;
+        String extension = mime == null ? "bin"
+                : mime.toLowerCase(Locale.ROOT).replace("image/", "").replace("video/", "");
+        return "jpeg".equals(extension) ? "cuspidroid-" + System.currentTimeMillis() + ".jpg"
+                : "cuspidroid-" + System.currentTimeMillis() + "." + extension;
     }
 
     private void centerVideo(VideoView video, int videoWidth, int videoHeight) {
@@ -308,10 +528,15 @@ public class MediaViewerActivity extends Activity {
         }
         int availableWidth = getResources().getDisplayMetrics().widthPixels;
         int availableHeight = getResources().getDisplayMetrics().heightPixels;
-        float scale = Math.min(availableWidth / (float) videoWidth, availableHeight / (float) videoHeight);
+        float scale = Math.min(availableWidth / (float) videoWidth,
+                availableHeight / (float) videoHeight);
         video.setLayoutParams(new FrameLayout.LayoutParams(
                 Math.max(1, Math.round(videoWidth * scale)),
                 Math.max(1, Math.round(videoHeight * scale)), Gravity.CENTER));
+    }
+
+    private void loadFailed(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
     private FrameLayout.LayoutParams matchParentParams() {
@@ -336,18 +561,25 @@ public class MediaViewerActivity extends Activity {
             super(context);
             setScaleType(ScaleType.MATRIX);
             setBackgroundColor(Color.BLACK);
-            scaleDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                @Override
-                public boolean onScale(ScaleGestureDetector detector) {
-                    float next = Math.max(minScale, Math.min(minScale * 5f, scale * detector.getScaleFactor()));
-                    float factor = next / scale;
-                    scale = next;
-                    matrix.postScale(factor, factor, detector.getFocusX(), detector.getFocusY());
-                    constrain();
-                    setImageMatrix(matrix);
-                    return true;
-                }
-            });
+            scaleDetector = new ScaleGestureDetector(context,
+                    new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                        @Override
+                        public boolean onScale(ScaleGestureDetector detector) {
+                            float next = Math.max(minScale,
+                                    Math.min(minScale * 5f, scale * detector.getScaleFactor()));
+                            float factor = next / scale;
+                            scale = next;
+                            matrix.postScale(factor, factor,
+                                    detector.getFocusX(), detector.getFocusY());
+                            constrain();
+                            setImageMatrix(matrix);
+                            return true;
+                        }
+                    });
+        }
+
+        boolean atMinimumScale() {
+            return scale <= minScale * 1.01f;
         }
 
         @Override
@@ -413,7 +645,8 @@ public class MediaViewerActivity extends Activity {
             scale = fit;
             matrix.reset();
             matrix.postScale(fit, fit);
-            matrix.postTranslate((getWidth() - width * fit) / 2f, (getHeight() - height * fit) / 2f);
+            matrix.postTranslate((getWidth() - width * fit) / 2f,
+                    (getHeight() - height * fit) / 2f);
             setImageMatrix(matrix);
         }
 
@@ -424,10 +657,14 @@ public class MediaViewerActivity extends Activity {
             android.graphics.RectF rect = new android.graphics.RectF(
                     0, 0, getDrawable().getIntrinsicWidth(), getDrawable().getIntrinsicHeight());
             matrix.mapRect(rect);
-            float dx = rect.width() <= getWidth() ? (getWidth() - rect.width()) / 2f - rect.left
-                    : rect.left > 0 ? -rect.left : rect.right < getWidth() ? getWidth() - rect.right : 0;
-            float dy = rect.height() <= getHeight() ? (getHeight() - rect.height()) / 2f - rect.top
-                    : rect.top > 0 ? -rect.top : rect.bottom < getHeight() ? getHeight() - rect.bottom : 0;
+            float dx = rect.width() <= getWidth()
+                    ? (getWidth() - rect.width()) / 2f - rect.left
+                    : rect.left > 0 ? -rect.left
+                    : rect.right < getWidth() ? getWidth() - rect.right : 0;
+            float dy = rect.height() <= getHeight()
+                    ? (getHeight() - rect.height()) / 2f - rect.top
+                    : rect.top > 0 ? -rect.top
+                    : rect.bottom < getHeight() ? getHeight() - rect.bottom : 0;
             matrix.postTranslate(dx, dy);
         }
     }

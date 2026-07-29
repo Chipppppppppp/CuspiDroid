@@ -11,7 +11,6 @@ import android.content.ContentValues;
 import android.content.SharedPreferences;
 import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
-import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -96,7 +95,6 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.tensorflow.lite.Interpreter;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -113,10 +111,7 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.MappedByteBuffer;
 import java.nio.charset.Charset;
-import java.nio.channels.FileChannel;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -565,8 +560,6 @@ public class MainActivity extends Activity {
     private final List<String> newTabNavigationHistory = new ArrayList<>();
     private final LinkedHashMap<String, NewTabHistoryPage> newTabHistoryPages = new LinkedHashMap<>();
     private int newTabNavigationIndex = -1;
-    private Interpreter graphicViolenceInterpreter;
-    private boolean graphicViolenceModelLoadAttempted;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private final List<DeferredMediaPreview> deferredMediaPreviews = new ArrayList<>();
     private final List<DeferredTextDecoration> deferredTextDecorations = new ArrayList<>();
@@ -1183,7 +1176,6 @@ public class MainActivity extends Activity {
             unloadTabsTask = null;
         }
         saveTabs(true);
-        closeImageClassifiers();
         ioExecutor.shutdownNow();
         boardLoadExecutor.shutdownNow();
         if (bookmarkOverviewLoadTask != null) {
@@ -17897,15 +17889,15 @@ public class MainActivity extends Activity {
         MediaPreviewHelper.Callback base = mediaPreviewCallbacks();
         return new MediaPreviewHelper.Callback() {
             @Override
-            public void openImage(String originalUrl, String mediaUrl) {
+            public void openImage(String originalUrl, String mediaUrl, boolean sensitive) {
                 popup.dismiss();
-                base.openImage(originalUrl, mediaUrl);
+                base.openImage(originalUrl, mediaUrl, sensitive);
             }
 
             @Override
-            public void openVideo(String originalUrl, String mediaUrl) {
+            public void openVideo(String originalUrl, String mediaUrl, boolean sensitive) {
                 popup.dismiss();
-                base.openVideo(originalUrl, mediaUrl);
+                base.openVideo(originalUrl, mediaUrl, sensitive);
             }
 
             @Override
@@ -18295,7 +18287,8 @@ public class MainActivity extends Activity {
 
     private View imgurPreview(String originalUrl, String imageUrl, Runnable longClickAction, int cellSize) {
         return MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
-                originalUrl, imageUrl, false, cellSize, longClickAction, mediaPreviewCallbacks());
+                originalUrl, imageUrl, false, cellSize, longClickAction,
+                SensitiveImageClassifier.get(this), mediaPreviewCallbacks());
     }
 
     private TextView mediaPlayOverlay() {
@@ -18310,19 +18303,20 @@ public class MainActivity extends Activity {
 
     private View videoPreview(String originalUrl, String videoUrl, Runnable longClickAction, int cellSize) {
         return MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
-                originalUrl, videoUrl, true, cellSize, longClickAction, mediaPreviewCallbacks());
+                originalUrl, videoUrl, true, cellSize, longClickAction,
+                SensitiveImageClassifier.get(this), mediaPreviewCallbacks());
     }
 
     private MediaPreviewHelper.Callback mediaPreviewCallbacks() {
         return new MediaPreviewHelper.Callback() {
             @Override
-            public void openImage(String originalUrl, String mediaUrl) {
-                showImageViewer(originalUrl, mediaUrl);
+            public void openImage(String originalUrl, String mediaUrl, boolean sensitive) {
+                showThreadMediaViewer(originalUrl, mediaUrl, false, sensitive);
             }
 
             @Override
-            public void openVideo(String originalUrl, String mediaUrl) {
-                showVideoViewer(originalUrl, mediaUrl);
+            public void openVideo(String originalUrl, String mediaUrl, boolean sensitive) {
+                showThreadMediaViewer(originalUrl, mediaUrl, true, sensitive);
             }
 
             @Override
@@ -18330,6 +18324,41 @@ public class MainActivity extends Activity {
                 MainActivity.this.openExternal(url);
             }
         };
+    }
+
+    private void showThreadMediaViewer(String originalUrl, String mediaUrl,
+                                       boolean video, boolean sensitive) {
+        List<MediaViewerActivity.MediaItem> items = new ArrayList<>();
+        int selected = -1;
+        CuspTab tab = currentTab();
+        ThreadPage page = tab == null ? null : tab.threadPage;
+        Set<String> added = new LinkedHashSet<>();
+        if (page != null && page.posts != null) {
+            for (Post post : page.posts) {
+                for (ImgurLink link : threadMediaLinks(post)) {
+                    String key = link.imageUrl + "\n" + link.video;
+                    if (!added.add(key)) {
+                        continue;
+                    }
+                    Boolean cached = readCachedImageSensitive(link.imageUrl);
+                    boolean itemSensitive = cached != null && cached;
+                    boolean matches = link.imageUrl.equals(mediaUrl)
+                            || link.originalUrl.equals(originalUrl);
+                    if (matches) {
+                        itemSensitive = sensitive;
+                        selected = items.size();
+                    }
+                    items.add(new MediaViewerActivity.MediaItem(
+                            link.originalUrl, link.imageUrl, link.video, itemSensitive));
+                }
+            }
+        }
+        if (selected < 0) {
+            selected = items.size();
+            items.add(new MediaViewerActivity.MediaItem(
+                    originalUrl, mediaUrl, video, sensitive));
+        }
+        MediaViewerActivity.open(this, items, selected);
     }
 
     private View deferredMediaPreview(ImgurLink link, Runnable longClickAction, int cellSize) {
@@ -18583,7 +18612,7 @@ public class MainActivity extends Activity {
                 } else if (cachedSensitive != null) {
                     sensitive = cachedSensitive;
                 } else {
-                    sensitive = isGraphicViolenceImage(bitmap);
+                    sensitive = isSensitiveImage(bitmap);
                     saveImageSensitive(preview.imageUrl, sensitive);
                 }
                 if ((gif ? blurGifThumbnails() : blurImgurImages()) && sensitive) {
@@ -19268,7 +19297,9 @@ public class MainActivity extends Activity {
 
     private Boolean readCachedImageSensitive(String url) {
         JSONObject item = imageMeta(url);
-        if (item == null || !item.has("sensitive")) {
+        if (item == null || !item.has("sensitive")
+                || item.optInt("sensitiveModelVersion", 0)
+                < MediaPreviewHelper.SENSITIVE_MODEL_VERSION) {
             return null;
         }
         return item.optBoolean("sensitive", false);
@@ -19303,6 +19334,7 @@ public class MainActivity extends Activity {
             item.put("missing", missing);
             if (sensitive != null) {
                 item.put("sensitive", sensitive);
+                item.put("sensitiveModelVersion", MediaPreviewHelper.SENSITIVE_MODEL_VERSION);
             }
             item.put("savedAt", System.currentTimeMillis());
             root.put(url, item);
@@ -19337,81 +19369,8 @@ public class MainActivity extends Activity {
         return Bitmap.createScaledBitmap(small, bitmap.getWidth(), bitmap.getHeight(), true);
     }
 
-    private boolean isGraphicViolenceImage(Bitmap bitmap) {
-        Interpreter interpreter = graphicViolenceInterpreter();
-        if (interpreter == null || bitmap == null) {
-            return false;
-        }
-        try {
-            float[][] output = new float[1][3];
-            interpreter.run(graphicViolenceInput(bitmap), output);
-            int winner = 0;
-            for (int i = 1; i < output[0].length; i++) {
-                if (output[0][i] > output[0][winner]) {
-                    winner = i;
-                }
-            }
-            return winner != 2 && output[0][winner] >= 0.995f;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private Interpreter graphicViolenceInterpreter() {
-        if (graphicViolenceInterpreter != null) {
-            return graphicViolenceInterpreter;
-        }
-        if (graphicViolenceModelLoadAttempted) {
-            return null;
-        }
-        graphicViolenceModelLoadAttempted = true;
-        try {
-            graphicViolenceInterpreter = new Interpreter(loadMappedAsset("graphic_violence.tflite"));
-            return graphicViolenceInterpreter;
-        } catch (Throwable ignored) {
-            graphicViolenceInterpreter = null;
-            return null;
-        }
-    }
-
-    private MappedByteBuffer loadMappedAsset(String name) throws Exception {
-        try (AssetFileDescriptor descriptor = getAssets().openFd(name);
-             FileInputStream input = new FileInputStream(descriptor.getFileDescriptor());
-             FileChannel channel = input.getChannel()) {
-            return channel.map(FileChannel.MapMode.READ_ONLY, descriptor.getStartOffset(), descriptor.getDeclaredLength());
-        }
-    }
-
-    private ByteBuffer graphicViolenceInput(Bitmap bitmap) {
-        int cropSize = Math.min(bitmap.getWidth(), bitmap.getHeight());
-        Bitmap cropped = Bitmap.createBitmap(bitmap,
-                Math.max(0, (bitmap.getWidth() - cropSize) / 2),
-                Math.max(0, (bitmap.getHeight() - cropSize) / 2),
-                cropSize,
-                cropSize);
-        Bitmap scaled = Bitmap.createScaledBitmap(cropped, 320, 320, true);
-        if (cropped != bitmap) {
-            cropped.recycle();
-        }
-        ByteBuffer data = ByteBuffer.allocateDirect(1 * 320 * 320 * 3 * 4);
-        data.order(ByteOrder.LITTLE_ENDIAN);
-        int[] pixels = new int[320 * 320];
-        scaled.getPixels(pixels, 0, 320, 0, 0, 320, 320);
-        for (int color : pixels) {
-            data.putFloat(Color.red(color));
-            data.putFloat(Color.green(color));
-            data.putFloat(Color.blue(color));
-        }
-        data.rewind();
-        scaled.recycle();
-        return data;
-    }
-
-    private void closeImageClassifiers() {
-        if (graphicViolenceInterpreter != null) {
-            graphicViolenceInterpreter.close();
-            graphicViolenceInterpreter = null;
-        }
+    private boolean isSensitiveImage(Bitmap bitmap) {
+        return SensitiveImageClassifier.get(this).isSensitive(bitmap);
     }
 
     private Bitmap boxBlur(Bitmap source, int iterations) {

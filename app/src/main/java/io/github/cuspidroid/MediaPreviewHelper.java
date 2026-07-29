@@ -20,6 +20,8 @@ import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import org.json.JSONObject;
+
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -34,9 +36,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class MediaPreviewHelper {
+    static final int SENSITIVE_MODEL_VERSION = 2;
+
     interface Callback {
-        void openImage(String originalUrl, String mediaUrl);
-        void openVideo(String originalUrl, String mediaUrl);
+        void openImage(String originalUrl, String mediaUrl, boolean sensitive);
+        void openVideo(String originalUrl, String mediaUrl, boolean sensitive);
         void openExternal(String url);
     }
 
@@ -46,8 +50,16 @@ final class MediaPreviewHelper {
     static View create(Activity activity, SharedPreferences preferences, Executor executor, Handler mainHandler,
                        String originalUrl, String mediaUrl, boolean video, int cellSize,
                        Runnable longClickAction, Callback callback) {
+        return create(activity, preferences, executor, mainHandler, originalUrl, mediaUrl, video,
+                cellSize, longClickAction, null, callback);
+    }
+
+    static View create(Activity activity, SharedPreferences preferences, Executor executor, Handler mainHandler,
+                       String originalUrl, String mediaUrl, boolean video, int cellSize,
+                       Runnable longClickAction, SensitiveImageClassifier classifier, Callback callback) {
         FrameLayout frame = new SquareMediaFrame(activity, cellSize);
         final String[] activeMediaUrl = {mediaUrl};
+        final boolean[] activeSensitive = {false};
         frame.setClickable(true);
         frame.setClipChildren(true);
         frame.setClipToPadding(true);
@@ -66,9 +78,9 @@ final class MediaPreviewHelper {
         image.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
             if (video || isVideoUrl(openUrl)) {
-                callback.openVideo(originalUrl, openUrl);
+                callback.openVideo(originalUrl, openUrl, activeSensitive[0]);
             } else {
-                callback.openImage(originalUrl, openUrl);
+                callback.openImage(originalUrl, openUrl, activeSensitive[0]);
             }
         });
         if (longClickAction != null) {
@@ -100,9 +112,9 @@ final class MediaPreviewHelper {
         play.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
             if (video || isVideoUrl(openUrl)) {
-                callback.openVideo(originalUrl, openUrl);
+                callback.openVideo(originalUrl, openUrl, activeSensitive[0]);
             } else {
-                callback.openImage(originalUrl, openUrl);
+                callback.openImage(originalUrl, openUrl, activeSensitive[0]);
             }
         });
         frame.addView(play, new FrameLayout.LayoutParams(
@@ -111,15 +123,16 @@ final class MediaPreviewHelper {
         frame.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
             if (video || isVideoUrl(openUrl)) {
-                callback.openVideo(originalUrl, openUrl);
+                callback.openVideo(originalUrl, openUrl, activeSensitive[0]);
             } else {
-                callback.openImage(originalUrl, openUrl);
+                callback.openImage(originalUrl, openUrl, activeSensitive[0]);
             }
         });
 
         executor.execute(() -> {
             Bitmap bitmap = null;
             Drawable drawable = null;
+            boolean sensitive = false;
             try {
                 boolean gif = isGifUrl(mediaUrl);
                 if (video || isVideoUrl(mediaUrl)) {
@@ -179,19 +192,39 @@ final class MediaPreviewHelper {
                     }
                     bitmap = decodePreviewBitmap(bytes, cellSize);
                 }
+                boolean activeGif = isGifUrl(activeMediaUrl[0]);
+                boolean checkSensitive = classifier != null && preferences.getBoolean(
+                        MainActivity.PREF_BLUR_IMGUR, true)
+                        && (!video || preferences.getBoolean(
+                                MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true))
+                        && (!activeGif || preferences.getBoolean(
+                                MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
+                if (bitmap != null && checkSensitive) {
+                    Boolean cached = readSensitive(preferences, activeMediaUrl[0]);
+                    sensitive = cached != null ? cached : classifier.isSensitive(bitmap);
+                    if (cached == null) {
+                        saveSensitive(preferences, activeMediaUrl[0], sensitive);
+                    }
+                }
             } catch (Exception ignored) {
                 bitmap = null;
                 drawable = null;
             }
             Bitmap finalBitmap = bitmap;
             Drawable finalDrawable = drawable;
+            boolean finalSensitive = sensitive;
             boolean gif = isGifUrl(activeMediaUrl[0]);
             mainHandler.post(() -> runWhenAttached(frame, () -> {
                 if (activity.isFinishing() || activity.isDestroyed()) {
                     return;
                 }
+                activeSensitive[0] = finalSensitive;
                 spinner.setVisibility(View.GONE);
-                if (finalDrawable != null && gif && autoplayGifs(preferences)) {
+                if (finalBitmap != null && finalSensitive) {
+                    image.setImageBitmap(blurredBitmap(finalBitmap));
+                    image.setVisibility(View.VISIBLE);
+                    play.setVisibility(View.GONE);
+                } else if (finalDrawable != null && gif && autoplayGifs(preferences)) {
                     image.setImageDrawable(finalDrawable);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && finalDrawable instanceof AnimatedImageDrawable) {
                         ((AnimatedImageDrawable) finalDrawable).start();
@@ -218,6 +251,52 @@ final class MediaPreviewHelper {
             }));
         });
         return frame;
+    }
+
+    static Boolean readSensitive(SharedPreferences preferences, String url) {
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(MainActivity.PREF_IMGUR_META, "{}"));
+            JSONObject item = root.optJSONObject(url);
+            return item == null || !item.has("sensitive")
+                    || item.optInt("sensitiveModelVersion", 0) < SENSITIVE_MODEL_VERSION
+                    ? null : item.optBoolean("sensitive", false);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    static void saveSensitive(SharedPreferences preferences, String url, boolean sensitive) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject root = new JSONObject(preferences.getString(MainActivity.PREF_IMGUR_META, "{}"));
+            JSONObject item = root.optJSONObject(url);
+            if (item == null) {
+                item = new JSONObject();
+            }
+            item.put("sensitive", sensitive);
+            item.put("sensitiveModelVersion", SENSITIVE_MODEL_VERSION);
+            item.put("savedAt", System.currentTimeMillis());
+            root.put(url, item);
+            preferences.edit().putString(MainActivity.PREF_IMGUR_META, root.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    static Bitmap blurredBitmap(Bitmap bitmap) {
+        int width = Math.max(1, bitmap.getWidth() / 14);
+        int height = Math.max(1, bitmap.getHeight() / 14);
+        Bitmap small = Bitmap.createScaledBitmap(bitmap, width, height, true);
+        Bitmap blurred = Bitmap.createScaledBitmap(small,
+                bitmap.getWidth(), bitmap.getHeight(), false);
+        if (small != bitmap) {
+            small.recycle();
+        }
+        return blurred;
     }
 
     private static void runWhenAttached(View view, Runnable action) {
@@ -461,7 +540,7 @@ final class MediaPreviewHelper {
         return value == null ? fallback : value;
     }
 
-    private static Bitmap videoPosterBitmap(String videoUrl) {
+    static Bitmap videoPosterBitmap(String videoUrl) {
         for (String candidate : videoPosterCandidates(videoUrl)) {
             try {
                 byte[] bytes = downloadBytes(candidate, 4 * 1024 * 1024);
