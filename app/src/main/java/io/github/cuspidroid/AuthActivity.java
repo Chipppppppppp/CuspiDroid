@@ -8,7 +8,6 @@ import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.KeyEvent;
@@ -24,8 +23,6 @@ import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.webkit.CookieManager;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -41,9 +38,6 @@ public class AuthActivity extends Activity {
     private WebView webView;
     private EditText addressBar;
     private LinearLayout toolbar;
-    private String retryUrl = "";
-    private int badGatewayRetries;
-    private boolean loadingSearchFallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -92,11 +86,6 @@ public class AuthActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                if (url != null && !url.equals(retryUrl)) {
-                    retryUrl = url;
-                    badGatewayRetries = 0;
-                    loadingSearchFallback = false;
-                }
                 updateAddressBar(url);
             }
 
@@ -104,25 +93,6 @@ public class AuthActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 CookieManager.getInstance().flush();
                 updateAddressBar(url);
-            }
-
-            @Override
-            public void onReceivedHttpError(WebView view, WebResourceRequest request,
-                                            WebResourceResponse errorResponse) {
-                if (request == null || errorResponse == null || !request.isForMainFrame()
-                        || errorResponse.getStatusCode() != 502
-                        || !isFindSearchUrl(request.getUrl() == null ? "" : request.getUrl().toString())) {
-                    return;
-                }
-                if (badGatewayRetries < 4) {
-                    badGatewayRetries++;
-                    view.postDelayed(view::reload, 180);
-                    return;
-                }
-                if (!loadingSearchFallback) {
-                    loadingSearchFallback = true;
-                    view.loadUrl(fullTextSearchUrl(searchQuery(request.getUrl())));
-                }
             }
         });
 
@@ -258,34 +228,6 @@ public class AuthActivity extends Activity {
             return template + (template.contains("?") ? "&" : "?") + "q=" + encoded;
         } catch (Exception ignored) {
             return MainActivity.HOME_URL;
-        }
-    }
-
-    private boolean isFindSearchUrl(String url) {
-        try {
-            Uri uri = Uri.parse(normalize(url));
-            String host = uri.getHost();
-            return host != null
-                    && ("find.5ch.io".equalsIgnoreCase(host) || "find.5ch.net".equalsIgnoreCase(host))
-                    && "/search".equals(uri.getPath());
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private String searchQuery(Uri uri) {
-        if (uri == null) {
-            return "";
-        }
-        String query = uri.getQueryParameter("q");
-        return query == null ? "" : query;
-    }
-
-    private String fullTextSearchUrl(String query) {
-        try {
-            return "https://search2ch.info/?q=" + URLEncoder.encode(query == null ? "" : query, "UTF-8");
-        } catch (Exception ignored) {
-            return "https://search2ch.info/";
         }
     }
 

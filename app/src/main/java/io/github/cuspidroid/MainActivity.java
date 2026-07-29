@@ -88,8 +88,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 import android.webkit.CookieManager;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -447,8 +445,6 @@ public class MainActivity extends Activity {
     private WebView inlineWebView;
     private boolean inlineWebViewMode;
     private String inlineWebViewUrl = "";
-    private int inlineWebViewBadGatewayRetries;
-    private boolean inlineWebViewLoadingFallback;
     private ProgressBar progressBar;
     private LinearLayout bottomThreadBar;
     private FrameLayout bottomThreadBarSlot;
@@ -510,6 +506,8 @@ public class MainActivity extends Activity {
     private final Map<TextView, CharSequence> pageSearchOriginalText = new LinkedHashMap<>();
     private int pageSearchIndex = -1;
     private int pageSearchGeneration;
+    private int inlineWebViewFindIndex = -1;
+    private int inlineWebViewFindCount;
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
     private Future<?> bookmarkOverviewLoadTask;
@@ -1360,7 +1358,9 @@ public class MainActivity extends Activity {
             if (actionId == EditorInfo.IME_ACTION_SEARCH
                     || actionId == EditorInfo.IME_ACTION_DONE
                     || enter) {
-                if (isThreadPageSearchActive()) {
+                if (inlineWebViewMode && inlineWebView != null) {
+                    inlineWebView.findNext(true);
+                } else if (isThreadPageSearchActive()) {
                     CuspTab tab = currentTab();
                     if (tab != null && !tab.threadSearchMatches.isEmpty()) {
                         moveThreadSearch(1);
@@ -1389,7 +1389,10 @@ public class MainActivity extends Activity {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 if (!updatingThreadSearchInput) {
-                    if (isThreadPageSearchActive()) {
+                    if (inlineWebViewMode && inlineWebView != null) {
+                        pageSearchQuery = s.toString();
+                        inlineWebView.findAllAsync(pageSearchQuery);
+                    } else if (isThreadPageSearchActive()) {
                         scheduleThreadSearch(s.toString(), true);
                     } else {
                         updatePageSearch(s.toString(), true);
@@ -2244,7 +2247,7 @@ public class MainActivity extends Activity {
             toggleCurrentBookmark();
         } else if (ADDRESS_MENU_FIND.equals(id)) {
             if (inlineWebViewMode && inlineWebView != null) {
-                inlineWebView.showFindDialog("", true);
+                openInlineWebViewFind();
             } else {
                 showThreadSearchDialog();
             }
@@ -6704,60 +6707,99 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.VISIBLE);
         }
 
+        if (isFindSearchUrl(loadUrl)) {
+            loadFindSearchInBrowser(tab, loadUrl, foreground);
+            return;
+        }
         ioExecutor.execute(() -> {
             SearchPage page;
             try {
-                page = downloadSearchPage(loadUrl);
+                page = parseSearchPage(loadUrl, download(loadUrl));
             } catch (Exception error) {
                 page = SearchPage.error(loadUrl, error.getMessage());
             }
             SearchPage result = page;
-            runOnUiThread(() -> {
-                if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
-                    resetTopRefreshLoader(tab.boardTopLoader);
-                    if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
-                        progressBar.setVisibility(View.GONE);
-                    }
-                    return;
-                }
-                tab.title = result.title;
-                tab.searchPage = result;
-                resetTopRefreshLoader(tab.boardTopLoader);
-                tab.readerView = buildSearchView(result, true, tab);
-                if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
-                    progressBar.setVisibility(View.GONE);
-                }
-                if (tab == currentTab() && !tabOverviewVisible) {
-                    switchToTab(currentIndex);
-                }
-                renderTabs();
-            });
+            runOnUiThread(() -> finishSearchResults(tab, loadUrl, result, foreground));
         });
     }
 
-    private SearchPage downloadSearchPage(String loadUrl) throws Exception {
-        Exception lastError = null;
-        for (int attempt = 0; attempt < 4; attempt++) {
-            try {
-                return parseSearchPage(loadUrl, download(loadUrl));
-            } catch (Exception error) {
-                lastError = error;
-                if (!isFindSearchBadGateway(loadUrl, error)) {
-                    throw error;
+    private void loadFindSearchInBrowser(CuspTab tab, String loadUrl, boolean foreground) {
+        WebView browser = new WebView(this);
+        browser.setAlpha(0f);
+        WebSettings settings = browser.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        CookieManager.getInstance().setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
+        }
+        boolean[] submitted = {false};
+        browser.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String currentUrl) {
+                if (view.getTag() != null) {
+                    return;
                 }
+                if (!submitted[0] && isFindHomeUrl(currentUrl)) {
+                    submitted[0] = true;
+                    view.evaluateJavascript("window.location.assign(" + JSONObject.quote(loadUrl) + ")", null);
+                    return;
+                }
+                if (!submitted[0] || !isFindSearchUrl(currentUrl)) {
+                    return;
+                }
+                view.evaluateJavascript("document.documentElement.outerHTML", value -> {
+                    if (view.getTag() != null) {
+                        return;
+                    }
+                    SearchPage page;
+                    try {
+                        String html = value == null ? "" : new JSONArray("[" + value + "]").optString(0, "");
+                        page = parseSearchPage(loadUrl, html);
+                    } catch (Exception error) {
+                        page = SearchPage.error(loadUrl, error.getMessage());
+                    }
+                    finishFindSearchBrowser(view);
+                    finishSearchResults(tab, loadUrl, page, foreground);
+                });
             }
+        });
+        overlayFrame.addView(browser, new FrameLayout.LayoutParams(dp(1), dp(1)));
+        browser.loadUrl(HOME_URL);
+    }
+
+    private void finishFindSearchBrowser(WebView browser) {
+        if (browser == null || browser.getTag() != null) {
+            return;
         }
-        try {
-            SearchPage fallback = downloadFullTextSearchPage(
-                    fullTextSearchUrl(searchQueryFromUrl(loadUrl)), 1);
-            fallback.url = loadUrl;
-            fallback.title = searchTitle(loadUrl);
-            fallback.fullTextHasMore = false;
-            fallback.fullTextReachedEnd = true;
-            return fallback;
-        } catch (Exception fallbackError) {
-            throw lastError == null ? fallbackError : lastError;
+        browser.setTag(Boolean.TRUE);
+        if (browser.getParent() instanceof ViewGroup) {
+            ((ViewGroup) browser.getParent()).removeView(browser);
         }
+        browser.stopLoading();
+        browser.loadUrl("about:blank");
+        browser.destroy();
+    }
+
+    private void finishSearchResults(CuspTab tab, String loadUrl, SearchPage result, boolean foreground) {
+        if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
+            resetTopRefreshLoader(tab.boardTopLoader);
+            if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
+                progressBar.setVisibility(View.GONE);
+            }
+            return;
+        }
+        tab.title = result.title;
+        tab.searchPage = result;
+        resetTopRefreshLoader(tab.boardTopLoader);
+        tab.readerView = buildSearchView(result, true, tab);
+        if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
+            progressBar.setVisibility(View.GONE);
+        }
+        if (tab == currentTab() && !tabOverviewVisible) {
+            switchToTab(currentIndex);
+        }
+        renderTabs();
     }
 
     private void loadFullTextSearchResults(CuspTab tab, String url) {
@@ -23592,8 +23634,6 @@ public class MainActivity extends Activity {
         }
         inlineWebViewMode = true;
         inlineWebViewUrl = tab.url;
-        inlineWebViewBadGatewayRetries = 0;
-        inlineWebViewLoadingFallback = false;
         inlineWebView = new WebView(this);
         inlineWebView.setBackgroundColor(bgColor());
         CookieManager cookieManager = CookieManager.getInstance();
@@ -23606,13 +23646,14 @@ public class MainActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+        inlineWebView.setFindListener((activeMatchOrdinal, numberOfMatches, isDoneCounting) -> {
+            inlineWebViewFindIndex = numberOfMatches <= 0 ? -1 : activeMatchOrdinal;
+            inlineWebViewFindCount = numberOfMatches;
+            updatePageSearchCount();
+        });
         inlineWebView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                if (url != null && !url.equals(inlineWebViewUrl)) {
-                    inlineWebViewBadGatewayRetries = 0;
-                    inlineWebViewLoadingFallback = false;
-                }
                 inlineWebViewUrl = url == null ? "" : url;
                 updateAddressBarDisplay(false);
                 updateAddressBarButtons(currentTab());
@@ -23626,24 +23667,6 @@ public class MainActivity extends Activity {
                 updateAddressBarButtons(currentTab());
             }
 
-            @Override
-            public void onReceivedHttpError(WebView view, WebResourceRequest request,
-                                            WebResourceResponse errorResponse) {
-                if (request == null || errorResponse == null || !request.isForMainFrame()
-                        || errorResponse.getStatusCode() != HttpURLConnection.HTTP_BAD_GATEWAY
-                        || !isFindSearchUrl(request.getUrl() == null
-                        ? "" : request.getUrl().toString())) {
-                    return;
-                }
-                if (inlineWebViewBadGatewayRetries < 4) {
-                    inlineWebViewBadGatewayRetries++;
-                    view.postDelayed(view::reload, 180);
-                } else if (!inlineWebViewLoadingFallback) {
-                    inlineWebViewLoadingFallback = true;
-                    view.loadUrl(fullTextSearchUrl(searchQueryFromUrl(
-                            request.getUrl() == null ? "" : request.getUrl().toString())));
-                }
-            }
         });
         contentFrame.removeAllViews();
         contentFrame.addView(inlineWebView, new FrameLayout.LayoutParams(
@@ -23658,12 +23681,15 @@ public class MainActivity extends Activity {
         if (!inlineWebViewMode) {
             return;
         }
+        if (pageSearchOpen) {
+            closeThreadSearch();
+        }
         inlineWebViewMode = false;
         WebView closing = inlineWebView;
         inlineWebView = null;
         inlineWebViewUrl = "";
-        inlineWebViewBadGatewayRetries = 0;
-        inlineWebViewLoadingFallback = false;
+        inlineWebViewFindIndex = -1;
+        inlineWebViewFindCount = 0;
         if (closing != null) {
             contentFrame.removeView(closing);
             closing.stopLoading();
@@ -23691,6 +23717,19 @@ public class MainActivity extends Activity {
             pageSearchMatches.clear();
             updateThreadSearchBar(tab);
         }
+        focusThreadSearchInput();
+    }
+
+    private void openInlineWebViewFind() {
+        if (!inlineWebViewMode || inlineWebView == null) {
+            return;
+        }
+        pageSearchOpen = true;
+        pageSearchQuery = "";
+        inlineWebViewFindIndex = -1;
+        inlineWebViewFindCount = 0;
+        inlineWebView.clearMatches();
+        updateThreadSearchBar(currentTab());
         focusThreadSearchInput();
     }
 
@@ -23794,7 +23833,9 @@ public class MainActivity extends Activity {
     }
 
     private void moveActivePageSearch(int direction) {
-        if (isThreadPageSearchActive()) {
+        if (inlineWebViewMode && inlineWebView != null) {
+            inlineWebView.findNext(direction >= 0);
+        } else if (isThreadPageSearchActive()) {
             moveThreadSearch(direction);
         } else {
             movePageSearch(direction);
@@ -23832,6 +23873,9 @@ public class MainActivity extends Activity {
         }
         if (threadSearchBar != null) {
             threadSearchBar.setVisibility(View.GONE);
+        }
+        if (inlineWebView != null) {
+            inlineWebView.clearMatches();
         }
         syncChromeBarSlots(false);
         int pageGeneration = ++pageSearchGeneration;
@@ -23980,6 +24024,16 @@ public class MainActivity extends Activity {
 
     private void updatePageSearchCount() {
         if (threadSearchCount == null) {
+            return;
+        }
+        if (inlineWebViewMode) {
+            if (pageSearchQuery == null || pageSearchQuery.trim().isEmpty()) {
+                threadSearchCount.setText("");
+            } else if (inlineWebViewFindCount <= 0) {
+                threadSearchCount.setText("0/0");
+            } else {
+                threadSearchCount.setText((inlineWebViewFindIndex + 1) + "/" + inlineWebViewFindCount);
+            }
             return;
         }
         if (pageSearchQuery == null || pageSearchQuery.trim().isEmpty()) {
@@ -25212,12 +25266,6 @@ public class MainActivity extends Activity {
         } finally {
             connection.disconnect();
         }
-    }
-
-    private boolean isFindSearchBadGateway(String url, Exception error) {
-        return isFindSearchUrl(url)
-                && error instanceof HttpStatusException
-                && ((HttpStatusException) error).statusCode == HttpURLConnection.HTTP_BAD_GATEWAY;
     }
 
     private InputStream responseInputStream(HttpURLConnection connection, int code) throws Exception {
