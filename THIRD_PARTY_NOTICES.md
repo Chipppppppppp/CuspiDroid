@@ -1,19 +1,35 @@
 # Third-party model notices
 
-## ScatSpotter YOLOX-nano feces detector
+## Unified inappropriate-image classifier
 
-- Model file: `app/src/main/assets/yolox_nano_poop.tflite` (converted to
-  TensorFlow Lite without changing the float32 weights)
-- Upstream model: `yolox_nano_poop_cropped_only_best.onnx`
-- Model source: https://github.com/Erotemic/poop_models
-- Project and training-code source: https://github.com/Erotemic/shitspotter
-- Training dataset: https://huggingface.co/datasets/erotemic/shitspotter
-- Dataset/model attribution: Jonathan Crall, *ScatSpotter: A Dog Poop Detection Dataset*
-- License stated by the upstream project for its published data and models: Creative Commons Attribution 4.0 International (CC BY 4.0)
-- License text: https://creativecommons.org/licenses/by/4.0/
-- Bundled model SHA-256: `ed9fad59209363ea3dc5f78e7ef73baffada5a4e512facd04a58385a008ec9f4`
+- Model file: `app/src/main/assets/inappropriate_image.tflite`
+- Base model: `OwenElliott/image-safety-classifier-xs`
+- Base-model source:
+  https://huggingface.co/OwenElliott/image-safety-classifier-xs
+- Architecture: SwiftFormer XS
+- Base-model license: MIT
+- Fecal-content adaptation data and project:
+  https://github.com/Erotemic/shitspotter
+- ScatSpotter dataset:
+  https://huggingface.co/datasets/erotemic/shitspotter
+- ScatSpotter attribution: Jonathan Crall,
+  *ScatSpotter: A Dog Poop Detection Dataset*
+- ScatSpotter license: Creative Commons Attribution 4.0 International
+  (CC BY 4.0)
+- Additional human-feces training and validation images:
+  https://commons.wikimedia.org/wiki/Category:Human_feces
+  (individual files remain subject to the licenses and attribution shown on
+  their Wikimedia Commons file pages; the source images are not bundled)
+- Mobile conversion: Google LiteRT Torch
+  https://github.com/google-ai-edge/ai-edge-torch
+- Bundled model SHA-256:
+  `83b7056b776701c1846663cb4e4099d195f75024e670ae1fc6d8169d0f7ac583`
 
-The model is used only for on-device detection. Images are not uploaded to a
-moderation service. Detection is probabilistic and may produce false positives
-or false negatives, especially outside the outdoor dog-feces imagery represented
-in the training data.
+CuspiDroid loads this one model for all inappropriate-image decisions. Its
+shared SwiftFormer backbone produces one calibrated unsafe score covering the
+base model's NSFW/NSFL classes and the fecal-content adaptation. Images are
+processed only on the device and are not uploaded to a moderation service.
+
+Detection is probabilistic and may produce false positives or false negatives.
+The fecal-content adaptation was evaluated with image-level train/validation
+separation, including held-out human-feces images.

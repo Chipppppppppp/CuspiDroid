@@ -36,7 +36,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class MediaPreviewHelper {
-    static final int SENSITIVE_MODEL_VERSION = 2;
+    static final int SENSITIVE_MODEL_VERSION = 3;
 
     interface Callback {
         void openImage(String originalUrl, String mediaUrl, boolean sensitive);
@@ -288,15 +288,65 @@ final class MediaPreviewHelper {
     }
 
     static Bitmap blurredBitmap(Bitmap bitmap) {
-        int width = Math.max(1, bitmap.getWidth() / 14);
-        int height = Math.max(1, bitmap.getHeight() / 14);
-        Bitmap small = Bitmap.createScaledBitmap(bitmap, width, height, true);
-        Bitmap blurred = Bitmap.createScaledBitmap(small,
-                bitmap.getWidth(), bitmap.getHeight(), false);
-        if (small != bitmap) {
+        int smallWidth = Math.max(1, bitmap.getWidth() / 12);
+        int smallHeight = Math.max(1, bitmap.getHeight() / 12);
+        Bitmap small = Bitmap.createScaledBitmap(
+                bitmap, smallWidth, smallHeight, true);
+        Bitmap softened = boxBlur(small, 1);
+        if (softened != small) {
             small.recycle();
         }
+        Bitmap blurred = Bitmap.createScaledBitmap(softened,
+                bitmap.getWidth(), bitmap.getHeight(), true);
+        if (blurred != softened) {
+            softened.recycle();
+        }
         return blurred;
+    }
+
+    private static Bitmap boxBlur(Bitmap source, int iterations) {
+        Bitmap current = source.copy(Bitmap.Config.ARGB_8888, true);
+        int width = current.getWidth();
+        int height = current.getHeight();
+        if (width < 3 || height < 3) {
+            return current;
+        }
+        int[] pixels = new int[width * height];
+        int[] blurred = new int[width * height];
+        for (int pass = 0; pass < iterations; pass++) {
+            current.getPixels(pixels, 0, width, 0, 0, width, height);
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int a = 0;
+                    int r = 0;
+                    int g = 0;
+                    int b = 0;
+                    int count = 0;
+                    for (int dy = -1; dy <= 1; dy++) {
+                        int yy = y + dy;
+                        if (yy < 0 || yy >= height) {
+                            continue;
+                        }
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int xx = x + dx;
+                            if (xx < 0 || xx >= width) {
+                                continue;
+                            }
+                            int color = pixels[yy * width + xx];
+                            a += Color.alpha(color);
+                            r += Color.red(color);
+                            g += Color.green(color);
+                            b += Color.blue(color);
+                            count++;
+                        }
+                    }
+                    blurred[y * width + x] = Color.argb(
+                            a / count, r / count, g / count, b / count);
+                }
+            }
+            current.setPixels(blurred, 0, width, 0, 0, width, height);
+        }
+        return current;
     }
 
     private static void runWhenAttached(View view, Runnable action) {
