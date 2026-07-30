@@ -120,6 +120,19 @@ public class HistoryActivity extends Activity {
             text.setTextColor(textColor());
             row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
+            int unread = MainActivity.historyUnreadCount(preferences, item);
+            if (unread > 0) {
+                TextView unreadBadge = new TextView(this);
+                unreadBadge.setText(String.valueOf(unread));
+                unreadBadge.setTextColor(Color.WHITE);
+                unreadBadge.setTextSize(12);
+                unreadBadge.setGravity(Gravity.CENTER);
+                unreadBadge.setBackground(unreadBadgeBackground());
+                LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(34), dp(24));
+                unreadParams.setMargins(dp(8), 0, 0, 0);
+                row.addView(unreadBadge, unreadParams);
+            }
+
             ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history item"));
             delete.setOnClickListener(v -> {
                 MainActivity.removeThreadHistory(preferences, item.url);
@@ -175,6 +188,13 @@ public class HistoryActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.TRANSPARENT);
         drawable.setCornerRadius(dp(8));
+        return drawable;
+    }
+
+    private GradientDrawable unreadBadgeBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.rgb(15, 118, 110));
+        drawable.setCornerRadius(dp(12));
         return drawable;
     }
 

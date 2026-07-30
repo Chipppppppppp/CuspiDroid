@@ -87,7 +87,7 @@ final class Theme {
     }
 
     static int searchHighlight(Context context) {
-        return dark(context) ? Color.rgb(10, 70, 82) : Color.rgb(187, 247, 208);
+        return active(context);
     }
 
     static int linkHighlight(Context context) {

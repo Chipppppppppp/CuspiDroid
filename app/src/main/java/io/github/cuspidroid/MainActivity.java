@@ -842,7 +842,7 @@ public class MainActivity extends Activity {
     }
 
     private int searchHighlightColor() {
-        return privateUiActive() ? Color.rgb(10, 70, 82) : Theme.searchHighlight(this);
+        return activeColor();
     }
 
     static String text(String ja, String en) {
@@ -17065,6 +17065,7 @@ public class MainActivity extends Activity {
             row.addView(viewedAt);
         }
         shell.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        addUnreadBadgeIfNeeded(shell, historyUnreadCount(preferences, item));
 
         ImageButton delete = iconButton(R.drawable.ic_close, text("\u5c65\u6b74\u3092\u524a\u9664", "Delete history"), v -> {
             removeThreadHistory(preferences, item.url);
@@ -26689,7 +26690,7 @@ public class MainActivity extends Activity {
         return cleanText(value);
     }
 
-    private void addThreadHistory(String url, String title) {
+    private void addThreadHistory(String url, String title, int responseCount) {
         if (url == null || url.trim().isEmpty() || title == null || title.trim().isEmpty()) {
             return;
         }
@@ -26699,7 +26700,7 @@ public class MainActivity extends Activity {
                 history.remove(i);
             }
         }
-        history.add(0, new ThreadHistoryItem(title, url, System.currentTimeMillis()));
+        history.add(0, new ThreadHistoryItem(title, url, System.currentTimeMillis(), responseCount));
         while (history.size() > 100) {
             history.remove(history.size() - 1);
         }
@@ -26710,6 +26711,7 @@ public class MainActivity extends Activity {
                 object.put("title", item.title);
                 object.put("url", item.url);
                 object.put("lastViewedAt", item.lastViewedAt);
+                object.put("responseCount", item.responseCount);
                 array.put(object);
             }
         } catch (Exception ignored) {
@@ -26721,7 +26723,8 @@ public class MainActivity extends Activity {
         if (isPrivateTab(tab) || !browsingHistoryEnabled()) {
             return;
         }
-        addThreadHistory(url, title);
+        int responseCount = tab == null ? 0 : Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
+        addThreadHistory(url, title, responseCount);
     }
 
     static List<ThreadHistoryItem> readThreadHistory(SharedPreferences preferences) {
@@ -26825,8 +26828,9 @@ public class MainActivity extends Activity {
                 String url = object.optString("url", "").trim();
                 long fallbackViewedAt = System.currentTimeMillis() - i;
                 long lastViewedAt = object.optLong("lastViewedAt", fallbackViewedAt);
+                int responseCount = Math.max(0, object.optInt("responseCount", 0));
                 if (!title.isEmpty() && !url.isEmpty()) {
-                    history.add(new ThreadHistoryItem(title, url, lastViewedAt));
+                    history.add(new ThreadHistoryItem(title, url, lastViewedAt, responseCount));
                 }
             }
         } catch (Exception ignored) {
@@ -26836,6 +26840,13 @@ public class MainActivity extends Activity {
 
     private List<ThreadHistoryItem> threadHistory() {
         return readThreadHistory(preferences);
+    }
+
+    static int historyUnreadCount(SharedPreferences preferences, ThreadHistoryItem item) {
+        if (preferences == null || item == null || item.responseCount <= 0) {
+            return 0;
+        }
+        return Math.max(0, item.responseCount - readPostNumber(preferences, item.url));
     }
 
     private boolean threadHistoryContains(String url) {
@@ -28443,6 +28454,7 @@ public class MainActivity extends Activity {
                 object.put("title", item.title);
                 object.put("url", item.url);
                 object.put("lastViewedAt", item.lastViewedAt);
+                object.put("responseCount", item.responseCount);
                 array.put(object);
             }
         } catch (Exception ignored) {
@@ -30275,15 +30287,21 @@ public class MainActivity extends Activity {
         final String title;
         final String url;
         final long lastViewedAt;
+        final int responseCount;
 
         ThreadHistoryItem(String title, String url) {
-            this(title, url, 0);
+            this(title, url, 0, 0);
         }
 
         ThreadHistoryItem(String title, String url, long lastViewedAt) {
+            this(title, url, lastViewedAt, 0);
+        }
+
+        ThreadHistoryItem(String title, String url, long lastViewedAt, int responseCount) {
             this.title = title;
             this.url = url;
             this.lastViewedAt = lastViewedAt;
+            this.responseCount = Math.max(0, responseCount);
         }
     }
 
