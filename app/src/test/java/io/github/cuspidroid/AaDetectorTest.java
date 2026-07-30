@@ -33,6 +33,13 @@ public class AaDetectorTest {
     }
 
     @Test
+    public void logicalAndSetOperatorSymbolsAreAccepted() {
+        String body = "∧∨a\n∩∪b\n∨∩c\n∪∧d";
+
+        assertTrue(AaDetector.isLikelyAa(body));
+    }
+
+    @Test
     public void fewerThanFourNonblankLinesAreRejected() {
         String body = ".,a\n.,b\n.,c\n   \n\u3000";
 
@@ -40,9 +47,16 @@ public class AaDetectorTest {
     }
 
     @Test
-    public void ratioMustBeGreaterThanPointEight() {
-        String body = ".,a\n.,b\nplain c\nplain d\nplain e";
+    public void ratioMustBeGreaterThanPointSevenFive() {
+        String body = ".,a\nplain  b\nplain c\nplain d";
 
         assertFalse(AaDetector.isLikelyAa(body));
+    }
+
+    @Test
+    public void ratioAbovePointSevenFiveIsAccepted() {
+        String body = ".,a\n.,b\nplain c\nplain d\nplain e";
+
+        assertTrue(AaDetector.isLikelyAa(body));
     }
 }

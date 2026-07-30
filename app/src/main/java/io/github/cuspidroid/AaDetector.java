@@ -1,7 +1,7 @@
 package io.github.cuspidroid;
 
 final class AaDetector {
-    static final float SCORE_PER_LINE_THRESHOLD = 0.8f;
+    static final float SCORE_PER_LINE_THRESHOLD = 0.75f;
     static final int LINE_COUNT_MIN = 4;
 
     private AaDetector() {
@@ -135,6 +135,10 @@ final class AaDetector {
             case '|':
             case 0xFF5C:
             case 0xFFE8:
+            case 0x2227: // logical and
+            case 0x2228: // logical or
+            case 0x2229: // intersection
+            case 0x222A: // union
                 return true;
             default:
                 return false;
