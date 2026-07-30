@@ -425,8 +425,10 @@ public class MainActivity extends Activity {
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService boardLoadExecutor = Executors.newFixedThreadPool(BOARD_LOAD_PARALLELISM);
+    private final ExecutorService tabPayloadExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService tabOverviewExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService tabReloadExecutor = Executors.newFixedThreadPool(TAB_RELOAD_PARALLELISM);
+    private final AtomicInteger tabPayloadCleanupGeneration = new AtomicInteger();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private LinearLayout suggestionsPanel;
@@ -1172,6 +1174,7 @@ public class MainActivity extends Activity {
         saveTabs(true);
         ioExecutor.shutdownNow();
         boardLoadExecutor.shutdownNow();
+        tabPayloadExecutor.shutdownNow();
         if (bookmarkOverviewLoadTask != null) {
             bookmarkOverviewLoadTask.cancel(true);
             bookmarkOverviewLoadTask = null;
@@ -3326,6 +3329,9 @@ public class MainActivity extends Activity {
         if (select) {
             if (url != null && !url.trim().isEmpty()) {
                 tab.readerView = loadingView("");
+                if (shouldPreviewNativeBbsLoading(url)) {
+                    primeTabForNativeLoading(tab, url);
+                }
             }
             switchToTab(tabs.size() - 1);
             postOpenInSelectedTab(tab, url);
@@ -3656,7 +3662,7 @@ public class MainActivity extends Activity {
                     updateTabThreadStats(tab, tab.threadPage);
                 }
                 if (currentTabForSave) {
-                    persistCurrentTabPayload(tab);
+                    persistCurrentTabPayload(tab, synchronous);
                 }
                 array.put(item);
                 if (tab == current) {
@@ -3677,13 +3683,30 @@ public class MainActivity extends Activity {
             } else {
                 editor.apply();
             }
-            tabPayloadStore.removeStale(activeSessionIds);
+            if (synchronous) {
+                tabPayloadCleanupGeneration.incrementAndGet();
+                tabPayloadStore.removeStale(activeSessionIds);
+            } else {
+                Set<String> activeIds = new LinkedHashSet<>(activeSessionIds);
+                int cleanupGeneration = tabPayloadCleanupGeneration.incrementAndGet();
+                tabPayloadExecutor.execute(() -> {
+                    if (cleanupGeneration == tabPayloadCleanupGeneration.get()) {
+                        tabPayloadStore.removeStale(activeIds);
+                    }
+                });
+            }
         } catch (Exception ignored) {
         }
     }
 
-    private void persistCurrentTabPayload(CuspTab tab) {
+    private void persistCurrentTabPayload(CuspTab tab, boolean synchronous) {
         if (tab == null || tab.sessionId == null || tab.sessionId.isEmpty()) {
+            return;
+        }
+        int generation = ++tab.payloadSaveGeneration;
+        if (!synchronous && NATIVE_BOARD.equals(tab.nativeKind)
+                && tab.searchPage != null && tab.searchPage.error == null) {
+            scheduleBoardPayloadSave(tab, tab.sessionId, tab.searchPage, generation);
             return;
         }
         try {
@@ -3702,12 +3725,38 @@ public class MainActivity extends Activity {
                 return;
             }
             String raw = payload.toString();
-            if (!raw.equals(tab.lastSavedPayloadJson) && tabPayloadStore.write(tab.sessionId, raw)) {
-                tab.lastSavedPayloadJson = raw;
-                tab.payloadLoaded = true;
+            synchronized (tab) {
+                if (!raw.equals(tab.lastSavedPayloadJson) && tabPayloadStore.write(tab.sessionId, raw)) {
+                    tab.lastSavedPayloadJson = raw;
+                    tab.payloadLoaded = true;
+                }
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private void scheduleBoardPayloadSave(CuspTab tab, String sessionId,
+                                          SearchPage page, int generation) {
+        tabPayloadExecutor.execute(() -> {
+            if (tab == null || page == null || generation != tab.payloadSaveGeneration) {
+                return;
+            }
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("searchPage", searchPageToJson(page));
+                String raw = payload.toString();
+                synchronized (tab) {
+                    if (generation != tab.payloadSaveGeneration
+                            || raw.equals(tab.lastSavedPayloadJson)
+                            || !tabPayloadStore.write(sessionId, raw)) {
+                        return;
+                    }
+                    tab.lastSavedPayloadJson = raw;
+                    tab.payloadLoaded = true;
+                }
+            } catch (Exception ignored) {
+            }
+        });
     }
 
     private void requestSaveTabsSoon() {
@@ -3893,8 +3942,12 @@ public class MainActivity extends Activity {
         if (tab == null || tab.readerView == null) {
             return;
         }
+        if (tab.boardLoading) {
+            cancelBoardLoad(tab);
+        }
         rememberTabScroll(tab);
         clearTabViewState(tab);
+        tab.boardHistoryPages.clear();
     }
 
     private void clearTabViewState(CuspTab tab) {
@@ -5312,8 +5365,8 @@ public class MainActivity extends Activity {
             if (isBbsInternalPageUrl(tab.url)) {
                 return internalPageTitle(tab.url);
             }
-            String title = tab.overviewTitle != null && !tab.overviewTitle.trim().isEmpty()
-                    && tab.readerView == null ? tab.overviewTitle.trim() : displayBoardTitle(tab.url);
+            String title = tab.title == null || tab.title.trim().isEmpty()
+                    ? displayBoardTitle(tab.url) : tab.title.trim();
             return isBoardUrl(tab.url) && !isBbsDirectoryUrl(tab.url) ? boardTitleWithPrefix(title) : title;
         }
         if (tab.overviewTitle != null && !tab.overviewTitle.trim().isEmpty()
@@ -5548,9 +5601,11 @@ public class MainActivity extends Activity {
             return;
         }
         CuspTab tab = currentTab();
-        if (urlLike && shouldPreviewNativeBbsLoading(url) && showImmediateNavigationLoading(tab)) {
+        if (urlLike && shouldPreviewNativeBbsLoading(url)) {
+            recordNavigation(tab, url);
+            showImmediateNavigationLoading(tab, url);
             clearAddressFocus();
-            postOpenInSelectedTab(tab, url);
+            postOpenInSelectedTab(tab, url, false);
             return;
         }
         clearAddressFocus();
@@ -5562,11 +5617,15 @@ public class MainActivity extends Activity {
     }
 
     private void postOpenInSelectedTab(CuspTab tab, String url) {
+        postOpenInSelectedTab(tab, url, true);
+    }
+
+    private void postOpenInSelectedTab(CuspTab tab, String url, boolean addHistory) {
         mainHandler.post(() -> {
             if (tab == null || !tabs.contains(tab) || tab != currentTab() || tabOverviewVisible) {
                 return;
             }
-            openInCurrentTab(url);
+            openInCurrentTab(url, addHistory);
         });
     }
 
@@ -5592,6 +5651,38 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private boolean showImmediateNavigationLoading(CuspTab tab, String url) {
+        if (tab == null || url == null || url.trim().isEmpty()) {
+            return false;
+        }
+        primeTabForNativeLoading(tab, url);
+        boolean shown = showImmediateNavigationLoading(tab);
+        if (shown && tab == currentTab() && !tabOverviewVisible) {
+            updateAddressBarDisplay(false);
+            updateBottomThreadBar(tab);
+        }
+        return shown;
+    }
+
+    private void primeTabForNativeLoading(CuspTab tab, String url) {
+        if (tab == null || url == null || url.trim().isEmpty()) {
+            return;
+        }
+        String normalized = normalizeUrl(url);
+        tab.readerMode = true;
+        tab.url = normalized;
+        if (isThreadUrl(normalized)) {
+            tab.nativeKind = NATIVE_THREAD;
+            tab.title = hostTitle(normalized);
+        } else if (isBoardUrl(normalized)) {
+            tab.nativeKind = NATIVE_BOARD;
+            tab.title = boardTitle(normalized);
+        } else {
+            tab.title = hostTitle(normalized);
+        }
+        tab.overviewTitle = tab.title == null ? "" : tab.title;
+    }
+
     private boolean shouldPreviewNativeBbsLoading(String url) {
         if (url == null || isInternalPageUrl(url)) {
             return false;
@@ -5605,7 +5696,8 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             return false;
         }
-        return is5chUrl(url) || isBbsMenuUrl(url) || isRegisteredBbsUrl(url);
+        return is5chUrl(url) || isBbsMenuUrl(url)
+                || isKnownCustomBbsUrl(url) || isRegisteredBbsUrl(url);
     }
 
     private void openInCurrentTab(String url, boolean addHistory) {
@@ -6017,6 +6109,9 @@ public class MainActivity extends Activity {
         tab.backToNewTab = false;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tab.readerView = loadingView("");
+        if (shouldPreviewNativeBbsLoading(url)) {
+            primeTabForNativeLoading(tab, url);
+        }
         tab.navigationHistory.add(returnUrl);
         tab.navigationIndex = 0;
         tabs.add(tab);
@@ -7603,6 +7698,11 @@ public class MainActivity extends Activity {
 
     private void loadBoard(CuspTab tab, String url, boolean foreground) {
         final String loadUrl = url;
+        if (foreground && isEdgeBbsUrl(loadUrl)) {
+            cancelOtherEdgeBoardLoads(tab);
+        }
+        cancelBoardLoad(tab);
+        final int loadGeneration = ++tab.boardLoadGeneration;
         if (foreground) {
             prepareChromeForLoading();
         }
@@ -7625,40 +7725,105 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.VISIBLE);
         }
 
-        boardLoadExecutor.execute(() -> {
+        tab.boardLoading = true;
+        tab.boardLoadTask = boardLoadExecutor.submit(() -> {
             SearchPage page;
             try {
                 page = downloadBoard(loadUrl);
             } catch (Exception error) {
-                page = SearchPage.error(loadUrl, error.getMessage());
-            }
-            SearchPage result = page;
-            runOnUiThread(() -> {
-                if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
-                    resetTopRefreshLoader(tab.boardTopLoader);
-                    if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
-                        progressBar.setVisibility(View.GONE);
-                    }
+                if (Thread.currentThread().isInterrupted()) {
                     return;
                 }
-                if (result.error == null && result.url != null && !result.url.trim().isEmpty()) {
-                    replaceCurrentNavigationUrl(tab, loadUrl, result.url);
-                    tab.url = result.url;
-                }
-                tab.title = result.title;
-                tab.searchPage = result;
-                tab.readerView = buildSearchView(result, false, tab);
-                cacheBoardHistoryPage(tab, result, tab.readerView);
-                if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
-                    progressBar.setVisibility(View.GONE);
-                }
-                if (tab == currentTab() && !tabOverviewVisible) {
-                    switchToTab(currentIndex);
-                }
-                requestSaveTabsSoon();
-                renderTabs();
-            });
+                page = SearchPage.error(loadUrl, error.getMessage());
+            }
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
+            SearchPage result = page;
+            runOnUiThread(() -> finishBoardLoad(
+                    tab, loadUrl, result, loadGeneration));
         });
+    }
+
+    private void finishBoardLoad(CuspTab tab, String loadUrl, SearchPage result, int loadGeneration) {
+        if (tab == null || loadGeneration != tab.boardLoadGeneration
+                || !tabs.contains(tab) || !loadUrl.equals(tab.url)) {
+            return;
+        }
+        tab.boardLoadTask = null;
+        tab.boardLoading = false;
+        if (result.error == null && result.url != null && !result.url.trim().isEmpty()) {
+            replaceCurrentNavigationUrl(tab, loadUrl, result.url);
+            tab.url = result.url;
+        }
+        tab.title = result.title;
+        tab.overviewTitle = result.title == null ? "" : result.title;
+        tab.searchPage = result;
+        refreshTabOverviewValuesForTab(tab);
+        requestSaveTabsSoon();
+        renderTabs();
+
+        if (tab != currentTab() || tabOverviewVisible) {
+            if (isLoadingReaderView(tab.readerView)) {
+                tab.readerView = null;
+            }
+            scheduleBackgroundTrim();
+            return;
+        }
+        mainHandler.post(() -> renderLoadedBoardIfVisible(tab, result, loadGeneration));
+    }
+
+    private void renderLoadedBoardIfVisible(CuspTab tab, SearchPage result, int loadGeneration) {
+        if (tab == null || result == null || loadGeneration != tab.boardLoadGeneration
+                || !tabs.contains(tab) || tab != currentTab() || tabOverviewVisible
+                || tab.searchPage != result) {
+            if (tab != null && isLoadingReaderView(tab.readerView)
+                    && (tab != currentTab() || tabOverviewVisible)) {
+                tab.readerView = null;
+            }
+            return;
+        }
+        tab.readerView = buildSearchView(result, false, tab);
+        cacheBoardHistoryPage(tab, result, tab.readerView);
+        progressBar.setVisibility(View.GONE);
+        hideCenterSpinner();
+        switchToTab(currentIndex);
+    }
+
+    private void cancelOtherEdgeBoardLoads(CuspTab keep) {
+        for (CuspTab candidate : new ArrayList<>(tabs)) {
+            if (candidate != null && candidate != keep && candidate.boardLoading
+                    && isEdgeBbsUrl(candidate.url)) {
+                cancelBoardLoad(candidate);
+            }
+        }
+    }
+
+    private void cancelBoardLoad(CuspTab tab) {
+        if (tab == null) {
+            return;
+        }
+        Future<?> task = tab.boardLoadTask;
+        if (task != null) {
+            task.cancel(true);
+        }
+        tab.boardLoadTask = null;
+        tab.boardLoading = false;
+        tab.boardLoadGeneration++;
+        if (isLoadingReaderView(tab.readerView)
+                && (tab != currentTab() || tabOverviewVisible
+                || tab.readerView.getParent() == null)) {
+            tab.readerView = null;
+        }
+    }
+
+    private boolean isEdgeBbsUrl(String url) {
+        try {
+            String host = Uri.parse(normalizeUrl(url)).getHost();
+            return host != null && "bbs.eddibb.cc".equalsIgnoreCase(host);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void refreshBoardFromTop(CuspTab tab) {
@@ -25170,6 +25335,9 @@ public class MainActivity extends Activity {
         if (closing == null) {
             return;
         }
+        if (closing.boardLoading) {
+            cancelBoardLoad(closing);
+        }
         CuspTab current = currentTab();
         if (!closingCurrent && (current != null && isLoadingReaderView(current.readerView))) {
             return;
@@ -25753,6 +25921,7 @@ public class MainActivity extends Activity {
     }
 
     private SearchPage downloadBoard(String boardUrl) throws Exception {
+        throwIfBoardLoadInterrupted();
         BoardSubject subject = null;
         Uri originalUri = Uri.parse(normalizeUrl(boardUrl));
         String originalHost = originalUri.getHost();
@@ -25776,6 +25945,7 @@ public class MainActivity extends Activity {
         if (isFutabaBoardUrl(redirectedUrl)) {
             return parseFutabaBoard(redirectedUrl, download(redirectedUrl));
         }
+        throwIfBoardLoadInterrupted();
         if (subject == null && originalHost != null && originalBoard != null
                 && !sameSavedUrl(boardUrl, redirectedUrl)) {
             try {
@@ -25811,12 +25981,15 @@ public class MainActivity extends Activity {
         page.title = boardTitle(pageUrl);
         JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
         Map<String, Integer> readNumbers = readPostNumberSnapshot(readPosts);
+        throwIfBoardLoadInterrupted();
         List<ThreadHistoryItem> historyItems = threadHistory();
         Set<String> historyUrls = threadHistoryUrlSnapshot(historyItems);
+        throwIfBoardLoadInterrupted();
         List<BoardPriorityRule> priorityRules = readBoardPriorityRules(preferences);
         String boardDisplay = displayBoardTitle(pageUrl);
         int order = 1;
         for (String line : body.split("\\r?\\n")) {
+            throwIfBoardLoadInterrupted();
             int sep = line.indexOf("<>");
             int sepLength = 2;
             if (sep <= 0) {
@@ -25850,7 +26023,14 @@ public class MainActivity extends Activity {
             order++;
         }
         sortBoardResults(page.results);
+        throwIfBoardLoadInterrupted();
         return page;
+    }
+
+    private void throwIfBoardLoadInterrupted() throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Board load cancelled.");
+        }
     }
 
     private Map<String, Integer> readPostNumberSnapshot(JSONObject readPosts) {
@@ -25867,7 +26047,8 @@ public class MainActivity extends Activity {
                     continue;
                 }
                 for (String identity : threadHistoryKeys(url)) {
-                    numbers.put(identity, Math.max(number, numbers.getOrDefault(identity, 0)));
+                    Integer saved = numbers.get(identity);
+                    numbers.put(identity, Math.max(number, saved == null ? 0 : saved));
                 }
             }
         } catch (Exception ignored) {
@@ -25879,7 +26060,8 @@ public class MainActivity extends Activity {
         int read = 0;
         if (readNumbers != null) {
             for (String identity : threadHistoryKeys(url)) {
-                read = Math.max(read, readNumbers.getOrDefault(identity, 0));
+                Integer saved = readNumbers.get(identity);
+                read = Math.max(read, saved == null ? 0 : saved);
             }
         }
         CuspTab openTab = matchingThreadTab(url);
@@ -29223,11 +29405,21 @@ public class MainActivity extends Activity {
     }
 
     private String boardNameFromUrl(String url) {
+        Uri uri = Uri.parse(url);
+        if ("bbs.eddibb.cc".equalsIgnoreCase(uri.getHost())) {
+            List<String> parts = pathParts(uri.getPath());
+            if (!parts.isEmpty()) {
+                String first = parts.get(0);
+                if (!"test".equalsIgnoreCase(first) && !"bbs".equalsIgnoreCase(first)
+                        && !"dat".equalsIgnoreCase(first)) {
+                    return first;
+                }
+            }
+        }
         String registeredBoard = registeredMenuBoardName(url);
         if (registeredBoard != null) {
             return registeredBoard;
         }
-        Uri uri = Uri.parse(url);
         if (isShitarabaHost(uri.getHost())) {
             List<String> parts = pathParts(uri.getPath());
             if (parts.size() >= 4 && "bbs".equalsIgnoreCase(parts.get(0))
@@ -30014,7 +30206,11 @@ public class MainActivity extends Activity {
         String lastSavedPayloadJson = "";
         boolean payloadLoaded = true;
         boolean payloadLoading;
+        volatile int payloadSaveGeneration;
         final LinkedHashMap<String, BoardHistoryPage> boardHistoryPages = new LinkedHashMap<>();
+        Future<?> boardLoadTask;
+        volatile int boardLoadGeneration;
+        boolean boardLoading;
         ScrollView threadScroll;
         LinearLayout threadList;
         View threadBottomLoader;
