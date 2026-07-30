@@ -219,7 +219,8 @@ public class MediaViewerActivity extends Activity {
                 }
                 if (finalSensitive && result.bitmap != null
                         && !revealed.contains(index)) {
-                    image.setImageBitmap(MediaPreviewHelper.blurredBitmap(result.bitmap));
+                    image.setImageBitmap(
+                            MediaPreviewHelper.viewerBlurredBitmap(result.bitmap));
                     addRevealButton(() -> displayImage(image, play, result));
                 } else {
                     displayImage(image, play, result);
@@ -287,7 +288,8 @@ public class MediaViewerActivity extends Activity {
                 spinner.setVisibility(View.GONE);
                 if (finalSensitive && !revealed.contains(index)) {
                     if (finalBitmap != null) {
-                        poster.setImageBitmap(MediaPreviewHelper.blurredBitmap(finalBitmap));
+                        poster.setImageBitmap(
+                                MediaPreviewHelper.viewerBlurredBitmap(finalBitmap));
                     }
                     addRevealButton(() -> startVideo(item, generation));
                 } else {

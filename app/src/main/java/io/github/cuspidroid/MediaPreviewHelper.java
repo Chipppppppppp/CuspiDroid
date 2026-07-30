@@ -329,10 +329,19 @@ final class MediaPreviewHelper {
     }
 
     static Bitmap blurredBitmap(Bitmap bitmap) {
-        int width = Math.max(1, bitmap.getWidth() / 24);
-        int height = Math.max(1, bitmap.getHeight() / 24);
+        return blurredBitmap(bitmap, 24, 2);
+    }
+
+    static Bitmap viewerBlurredBitmap(Bitmap bitmap) {
+        return blurredBitmap(bitmap, 48, 3);
+    }
+
+    private static Bitmap blurredBitmap(Bitmap bitmap, int reduction,
+                                        int iterations) {
+        int width = Math.max(1, bitmap.getWidth() / reduction);
+        int height = Math.max(1, bitmap.getHeight() / reduction);
         Bitmap small = Bitmap.createScaledBitmap(bitmap, width, height, true);
-        Bitmap softened = boxBlur(small, 2);
+        Bitmap softened = boxBlur(small, iterations);
         if (softened != small && small != bitmap) {
             small.recycle();
         }
