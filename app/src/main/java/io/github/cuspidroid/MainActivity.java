@@ -10251,7 +10251,7 @@ public class MainActivity extends Activity {
         if (count > 0) {
             boolean customBoard = page != null && page.url != null
                     && isBoardUrl(page.url) && !is5chUrl(page.url)
-                    && (isRegisteredBbsUrl(page.url) || isKnownCustomBbsUrl(page.url));
+                    && (isKnownCustomBbsUrl(page.url) || isRegisteredBbsUrl(page.url));
             renderVirtualSearchSlots(scroll, list, slots, true, customBoard);
         }
     }
@@ -25643,7 +25643,8 @@ public class MainActivity extends Activity {
     }
 
     private boolean isRegisteredShortThreadPath(String url, List<String> parts) {
-        if (parts == null || parts.size() < 2 || is5chUrl(url) || !isRegisteredBbsUrl(url)) {
+        if (parts == null || parts.size() < 2 || is5chUrl(url)
+                || !isKnownCustomBbsUrl(url) && !isRegisteredBbsUrl(url)) {
             return false;
         }
         String board = parts.get(0);
@@ -25809,6 +25810,7 @@ public class MainActivity extends Activity {
         page.url = pageUrl;
         page.title = boardTitle(pageUrl);
         JSONObject readPosts = readHistoryEnabled() ? preferenceJsonObject(PREF_READ_POSTS) : new JSONObject();
+        Map<String, Integer> readNumbers = readPostNumberSnapshot(readPosts);
         List<ThreadHistoryItem> historyItems = threadHistory();
         Set<String> historyUrls = threadHistoryUrlSnapshot(historyItems);
         List<BoardPriorityRule> priorityRules = readBoardPriorityRules(preferences);
@@ -25839,7 +25841,7 @@ public class MainActivity extends Activity {
             result.boardOrder = order;
             result.createdAt = threadCreatedAtMillis(key);
             result.hasReadHistory = threadHistoryContains(historyUrls, historyItems, result.url);
-            int readNumber = result.hasReadHistory ? boardThreadReadNumber(readPosts, result.url) : 0;
+            int readNumber = result.hasReadHistory ? boardThreadReadNumber(readNumbers, result.url) : 0;
             result.unread = result.hasReadHistory ? Math.max(0, responses - readNumber) : 0;
             result.boardName = boardDisplay;
             result.priorityMatch = matchingBoardPriorityWord(title, pageUrl, priorityRules);
@@ -25849,6 +25851,42 @@ public class MainActivity extends Activity {
         }
         sortBoardResults(page.results);
         return page;
+    }
+
+    private Map<String, Integer> readPostNumberSnapshot(JSONObject readPosts) {
+        Map<String, Integer> numbers = new LinkedHashMap<>();
+        if (readPosts == null) {
+            return numbers;
+        }
+        try {
+            Iterator<String> keys = readPosts.keys();
+            while (keys.hasNext()) {
+                String url = keys.next();
+                int number = readPosts.optInt(url, 0);
+                if (number <= 0) {
+                    continue;
+                }
+                for (String identity : threadHistoryKeys(url)) {
+                    numbers.put(identity, Math.max(number, numbers.getOrDefault(identity, 0)));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return numbers;
+    }
+
+    private int boardThreadReadNumber(Map<String, Integer> readNumbers, String url) {
+        int read = 0;
+        if (readNumbers != null) {
+            for (String identity : threadHistoryKeys(url)) {
+                read = Math.max(read, readNumbers.getOrDefault(identity, 0));
+            }
+        }
+        CuspTab openTab = matchingThreadTab(url);
+        if (openTab != null) {
+            read = Math.max(read, openTab.readPostNumber);
+        }
+        return read;
     }
 
     private int boardThreadReadNumber(JSONObject readPosts, String url) {
@@ -26251,7 +26289,7 @@ public class MainActivity extends Activity {
             return false;
         }
         String lowerHost = host.toLowerCase(Locale.ROOT);
-        return isRegisteredBbsUrl(url)
+        return (isKnownCustomBbsUrl(url) || isRegisteredBbsUrl(url))
                 && !is5chUrl(url)
                 && !lowerHost.endsWith(".open2ch.net")
                 && !lowerHost.equals("open2ch.net")
@@ -26871,7 +26909,7 @@ public class MainActivity extends Activity {
                 return true;
             }
         }
-        return threadHistoryContainsByIdentity(historyItems, url);
+        return false;
     }
 
     private boolean threadHistoryContainsByIdentity(List<ThreadHistoryItem> historyItems, String url) {
@@ -26919,8 +26957,32 @@ public class MainActivity extends Activity {
             if (address.server != null && !address.server.isEmpty()) {
                 keys.add("dat-server:" + address.server.toLowerCase(Locale.ROOT) + "/" + board + "/" + key);
             }
+            String family = threadHistoryHostFamily(address.host);
+            if (!family.isEmpty()) {
+                keys.add("dat-family:" + family + "/" + board + "/" + key);
+            }
         }
         return keys;
+    }
+
+    private String threadHistoryHostFamily(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        if (lower.equals("open2ch.net") || lower.endsWith(".open2ch.net")) {
+            return "open2ch.net";
+        }
+        if (lower.equals("machi.to") || lower.endsWith(".machi.to")) {
+            return "machi.to";
+        }
+        if (lower.equals("bbspink.org") || lower.endsWith(".bbspink.org")) {
+            return "bbspink.org";
+        }
+        if (isFutabaHost(lower)) {
+            return "2chan.net";
+        }
+        if (isShitarabaHost(lower) || isShitarabaMenuHost(lower)) {
+            return "shitaraba";
+        }
+        return "";
     }
 
     private String normalizeHistoryUrl(String url) {
@@ -28972,7 +29034,7 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(url);
             String host = uri.getHost();
             return host != null
-                    && (is5chUrl(url) || isRegisteredBbsUrl(url) || isKnownCustomBbsUrl(url))
+                    && (is5chUrl(url) || isKnownCustomBbsUrl(url) || isRegisteredBbsUrl(url))
                     && boardNameFromUrl(url) != null;
         } catch (Exception error) {
             return false;
@@ -28987,9 +29049,9 @@ public class MainActivity extends Activity {
                 return false;
             }
             if (isBbsMenuUrl(url)) {
-                return is5chUrl(url) || isRegisteredBbsUrl(url) || isKnownCustomBbsUrl(url);
+                return is5chUrl(url) || isKnownCustomBbsUrl(url) || isRegisteredBbsUrl(url);
             }
-            return (isRegisteredBbsUrl(url) || isKnownCustomBbsUrl(url)) && boardNameFromUrl(url) == null;
+            return (isKnownCustomBbsUrl(url) || isRegisteredBbsUrl(url)) && boardNameFromUrl(url) == null;
         } catch (Exception error) {
             return false;
         }
