@@ -387,15 +387,13 @@ public class MainActivity extends Activity {
     private static final int POPUP_INITIAL_RENDER_COUNT = 1;
     private static final int POPUP_RENDER_CHUNK_SIZE = 1;
     private static final int DEFERRED_TEXT_DECORATION_BUDGET = 4;
-    private static final int SEARCH_INITIAL_SLOT_BATCH = 20;
-    private static final int SEARCH_DEFERRED_SLOT_BATCH = 120;
-    private static final long SEARCH_DEFERRED_SLOT_DELAY_MS = 4L;
-    private static final int CUSTOM_BOARD_INITIAL_SLOT_BATCH = 12;
-    private static final int CUSTOM_BOARD_DEFERRED_SLOT_BATCH = 24;
-    private static final long CUSTOM_BOARD_DEFERRED_SLOT_DELAY_MS = 8L;
-    private static final int SEARCH_VISIBLE_RENDER_BUDGET = 24;
-    private static final int SEARCH_SCROLL_RENDER_BUDGET = 48;
-    private static final int SEARCH_IDLE_RENDER_BUDGET = 96;
+    private static final int SEARCH_INITIAL_SLOT_BATCH = 12;
+    private static final int SEARCH_DEFERRED_SLOT_BATCH = 20;
+    private static final int CUSTOM_BOARD_INITIAL_SLOT_BATCH = 8;
+    private static final int CUSTOM_BOARD_DEFERRED_SLOT_BATCH = 12;
+    private static final int SEARCH_VISIBLE_RENDER_BUDGET = 12;
+    private static final int SEARCH_SCROLL_RENDER_BUDGET = 8;
+    private static final int SEARCH_IDLE_RENDER_BUDGET = 16;
     private static final int EXTRACT_VISIBLE_RENDER_BUDGET = 8;
     private static final int EXTRACT_SCROLL_RENDER_BUDGET = 12;
     private static final int EXTRACT_IDLE_RENDER_BUDGET = 24;
@@ -7485,11 +7483,12 @@ public class MainActivity extends Activity {
         if (footer != null && footer.getParent() == list) {
             list.removeView(footer);
         }
+        VirtualSearchState state = (VirtualSearchState) list.getTag();
         int end = Math.max(previousResultCount, page.results.size());
         for (int i = previousResultCount; i < end; i++) {
             SearchResult result = page.results.get(i);
             if (!shouldHideNgThreadTitle(result.title)) {
-                addVirtualSearchSlot(list, new VirtualSearchSlot(null, result, false));
+                state.slots.add(new VirtualSearchSlot(null, result, false));
             }
         }
         boolean showFooter = isFullTextSearchUrl(page.url) && !page.results.isEmpty()
@@ -7505,6 +7504,7 @@ public class MainActivity extends Activity {
         }
         if (addedResultCount > 0) {
             ensureSearchSlotRefresh(scroll, list);
+            maybeAppendVirtualSearchSlots(scroll, list, state);
             scheduleSearchSlotRefresh(list);
         }
         return true;
@@ -10272,34 +10272,44 @@ public class MainActivity extends Activity {
                 ? CUSTOM_BOARD_INITIAL_SLOT_BATCH : SEARCH_INITIAL_SLOT_BATCH;
         int deferredBatch = incrementalCustomBoard
                 ? CUSTOM_BOARD_DEFERRED_SLOT_BATCH : SEARCH_DEFERRED_SLOT_BATCH;
-        long deferredDelay = incrementalCustomBoard
-                ? CUSTOM_BOARD_DEFERRED_SLOT_DELAY_MS : SEARCH_DEFERRED_SLOT_DELAY_MS;
         int initialCount = deferSlots
                 ? Math.min(slots.size(), initialBatch)
                 : slots.size();
+        state.slots.addAll(slots);
+        state.appendedSlotCount = initialCount;
+        state.appendBatchSize = Math.max(1, deferredBatch);
         appendVirtualSearchSlots(list, slots, 0, initialCount);
         ensureSearchSlotRefresh(scroll, list);
         scheduleSearchSlotRefresh(list);
         if (initialCount < slots.size()) {
-            list.post(() -> appendDeferredVirtualSearchSlots(
-                    scroll, list, slots, state, initialCount, deferredBatch, deferredDelay));
+            list.post(() -> maybeAppendVirtualSearchSlots(scroll, list, state));
         }
     }
 
-    private void appendDeferredVirtualSearchSlots(ScrollView scroll, LinearLayout list,
-                                                  List<VirtualSearchSlot> slots,
-                                                  VirtualSearchState state, int start,
-                                                  int batchSize, long delayMs) {
-        if (list == null || slots == null || list.getTag() != state) {
+    private void maybeAppendVirtualSearchSlots(ScrollView scroll, LinearLayout list,
+                                               VirtualSearchState state) {
+        if (scroll == null || list == null || state == null || list.getTag() != state
+                || state.appendedSlotCount >= state.slots.size()) {
             return;
         }
-        int end = Math.min(slots.size(), start + Math.max(1, batchSize));
-        appendVirtualSearchSlots(list, slots, start, end);
-        scheduleSearchSlotRefresh(list);
-        if (end < slots.size()) {
-            list.postDelayed(() -> appendDeferredVirtualSearchSlots(
-                    scroll, list, slots, state, end, batchSize, delayMs), Math.max(0L, delayMs));
+        int viewportHeight = scroll.getHeight();
+        if (viewportHeight <= 0) {
+            list.post(() -> maybeAppendVirtualSearchSlots(scroll, list, state));
+            return;
         }
+        int prefetchEdge = scroll.getScrollY() + viewportHeight + viewportHeight / 2;
+        if (list.getHeight() > prefetchEdge) {
+            return;
+        }
+        int start = state.appendedSlotCount;
+        int end = Math.min(state.slots.size(), start + state.appendBatchSize);
+        state.appendedSlotCount = end;
+        appendVirtualSearchSlots(list, state.slots, start, end);
+        list.post(() -> {
+            if (list.getTag() == state) {
+                scheduleSearchSlotRefresh(list);
+            }
+        });
     }
 
     private void appendVirtualSearchSlots(LinearLayout list, List<VirtualSearchSlot> slots, int start, int end) {
@@ -10420,6 +10430,7 @@ public class MainActivity extends Activity {
                 }
             }
         }
+        maybeAppendVirtualSearchSlots(scroll, list, state);
     }
 
     private void collectSearchSlotsInRange(ViewGroup list, int start, int end, Set<FrameLayout> keep) {
@@ -30163,8 +30174,11 @@ public class MainActivity extends Activity {
 
     private static class VirtualSearchState {
         final Set<FrameLayout> renderedSlots = new LinkedHashSet<>();
+        final List<VirtualSearchSlot> slots = new ArrayList<>();
         Runnable refreshTask;
         boolean refreshPending;
+        int appendedSlotCount;
+        int appendBatchSize = 1;
         long lastScrollAt;
     }
 
