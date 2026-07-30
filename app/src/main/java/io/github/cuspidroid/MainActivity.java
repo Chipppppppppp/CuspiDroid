@@ -10626,7 +10626,7 @@ public class MainActivity extends Activity {
         if (showMetaField(PREF_BOARD_SHOW_ORDER, PREF_TAB_SHOW_ORDER, tabOverview)) {
             row.addView(boardThreadMetaItem(text("\u9806\u4f4d", "Rank"),
                     result.boardOrder > 0 ? String.valueOf(result.boardOrder) : "-", Gravity.END,
-                    metaBlue(Math.max(0, result.boardOrder), false), true),
+                    metaRankBlue(result.boardOrder), true),
                     boardThreadMetaItemParams(dp(31)));
         }
         if (showMetaField(PREF_BOARD_SHOW_VELOCITY, PREF_TAB_SHOW_VELOCITY, tabOverview)) {
@@ -10971,10 +10971,10 @@ public class MainActivity extends Activity {
             return "";
         }
         SpannableString text = new SpannableString(value);
-        applyMetaNumberStyle(text, value, "(?:\u30ec\u30b9|Posts):\\s*(\\d+)", false);
-        applyMetaNumberStyle(text, value, "(?:\u52e2\u3044|Speed):\\s*(\\d+(?:\\.\\d+)?)", true);
-        applyMetaNumberStyle(text, value, "(?:\u9806\u4f4d|Rank):\\s*(\\d+)", false);
-        applyMetaNumberStyle(text, value, "(?:\u672a\u8aad|Unread):\\s*(\\d+)", false);
+        applyMetaNumberStyle(text, value, "(?:\u30ec\u30b9|Posts):\\s*(\\d+)", false, false);
+        applyMetaNumberStyle(text, value, "(?:\u52e2\u3044|Speed):\\s*(\\d+(?:\\.\\d+)?)", true, false);
+        applyMetaNumberStyle(text, value, "(?:\u9806\u4f4d|Rank):\\s*(\\d+)", false, true);
+        applyMetaNumberStyle(text, value, "(?:\u672a\u8aad|Unread):\\s*(\\d+)", false, false);
         return text;
     }
 
@@ -11025,7 +11025,8 @@ public class MainActivity extends Activity {
         return saved ? R.drawable.ic_star : R.drawable.ic_star_border;
     }
 
-    private void applyMetaNumberStyle(SpannableString text, String value, String pattern, boolean velocity) {
+    private void applyMetaNumberStyle(SpannableString text, String value, String pattern,
+                                      boolean velocity, boolean rank) {
         Matcher matcher = Pattern.compile(pattern).matcher(value);
         while (matcher.find()) {
             int start = matcher.start(1);
@@ -11036,9 +11037,18 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
                 continue;
             }
-            text.setSpan(new ForegroundColorSpan(metaBlue(number, velocity)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            int color = rank ? metaRankBlue((int) number) : metaBlue(number, velocity);
+            text.setSpan(new ForegroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             text.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+    }
+
+    private int metaRankBlue(int rank) {
+        if (rank <= 0) {
+            return metaBlue(0d, false);
+        }
+        double ratio = 1d - Math.min(1d, (rank - 1d) / 999d);
+        return metaBlue(ratio * 1000d, false);
     }
 
     private int metaBlue(double value, boolean velocity) {
