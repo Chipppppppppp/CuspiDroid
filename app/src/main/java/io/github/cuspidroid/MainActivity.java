@@ -11047,7 +11047,7 @@ public class MainActivity extends Activity {
         if (rank <= 0) {
             return metaBlue(0d, false);
         }
-        double ratio = 1d - Math.min(1d, (rank - 1d) / 999d);
+        double ratio = Math.max(0d, (200d - rank) / 199d);
         return metaBlue(ratio * 1000d, false);
     }
 
