@@ -5622,11 +5622,32 @@ public class MainActivity extends Activity {
 
     private void postOpenInSelectedTab(CuspTab tab, String url, boolean addHistory) {
         runAfterNextLoadingDraw(tab, () -> {
-            if (tab == null || !tabs.contains(tab) || tab != currentTab() || tabOverviewVisible) {
+            if (tab == null || !tabs.contains(tab)) {
+                return;
+            }
+            if (isDirectEdgeBoardUrl(url)) {
+                startEdgeBoardLoadWithoutBlockingUi(tab, url, addHistory);
+                return;
+            }
+            if (tab != currentTab() || tabOverviewVisible) {
                 return;
             }
             openInCurrentTab(url, addHistory);
         });
+    }
+
+    private void startEdgeBoardLoadWithoutBlockingUi(CuspTab tab, String url, boolean addHistory) {
+        if (tab == null || !tabs.contains(tab) || !isDirectEdgeBoardUrl(url)) {
+            return;
+        }
+        String normalized = normalizeUrl(url);
+        applyThreadTabScope(tab, TabScope.NORMAL, bookmarkTabFolder(tab));
+        tab.title = text("\u8aad\u307f\u8fbc\u307f\u4e2d\u2026", "Loading\u2026");
+        tab.overviewTitle = tab.title;
+        if (addHistory) {
+            recordNavigation(tab, normalized);
+        }
+        loadBoard(tab, normalized, false, false);
     }
 
     private void runAfterNextLoadingDraw(CuspTab tab, Runnable action) {
@@ -5636,24 +5657,33 @@ public class MainActivity extends Activity {
         View loading = tab == null ? null : tab.readerView;
         if (tab == currentTab() && !tabOverviewVisible && isLoadingReaderView(loading)
                 && loading.getParent() != null) {
-            ViewTreeObserver observer = loading.getViewTreeObserver();
-            if (observer.isAlive()) {
-                observer.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-                    @Override
-                    public boolean onPreDraw() {
-                        ViewTreeObserver currentObserver = loading.getViewTreeObserver();
-                        if (currentObserver.isAlive()) {
-                            currentObserver.removeOnPreDrawListener(this);
-                        }
-                        mainHandler.post(action);
-                        return true;
-                    }
-                });
-                loading.invalidate();
-                return;
-            }
+            runAfterNextViewDraw(loading, action);
+            return;
         }
         mainHandler.post(action);
+    }
+
+    private void runAfterNextViewDraw(View view, Runnable action) {
+        if (view == null || action == null) {
+            return;
+        }
+        ViewTreeObserver observer = view.getViewTreeObserver();
+        if (!observer.isAlive()) {
+            mainHandler.post(action);
+            return;
+        }
+        observer.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                ViewTreeObserver currentObserver = view.getViewTreeObserver();
+                if (currentObserver.isAlive()) {
+                    currentObserver.removeOnPreDrawListener(this);
+                }
+                mainHandler.post(action);
+                return true;
+            }
+        });
+        view.invalidate();
     }
 
     private boolean showImmediateNavigationLoading(CuspTab tab) {
@@ -5695,7 +5725,9 @@ public class MainActivity extends Activity {
                 if (!tabs.contains(tab)) {
                     return;
                 }
-                primeTabForNativeLoading(tab, url);
+                if (!isDirectEdgeBoardUrl(url)) {
+                    primeTabForNativeLoading(tab, url);
+                }
                 if (tab == currentTab() && !tabOverviewVisible) {
                     updateAddressBarDisplay(false);
                     updateBottomThreadBar(tab);
@@ -7777,8 +7809,12 @@ public class MainActivity extends Activity {
     }
 
     private void loadBoard(CuspTab tab, String url, boolean foreground) {
+        loadBoard(tab, url, foreground, true);
+    }
+
+    private void loadBoard(CuspTab tab, String url, boolean foreground, boolean updateInitialTitle) {
         final String loadUrl = url;
-        if (foreground && isEdgeBbsUrl(loadUrl)) {
+        if ((foreground || !updateInitialTitle) && isEdgeBbsUrl(loadUrl)) {
             cancelOtherEdgeBoardLoads(tab);
         }
         cancelBoardLoad(tab);
@@ -7792,7 +7828,10 @@ public class MainActivity extends Activity {
         tab.readerMode = true;
         tab.nativeKind = NATIVE_BOARD;
         tab.url = loadUrl;
-        tab.title = boardTitle(loadUrl);
+        if (updateInitialTitle) {
+            tab.title = boardTitle(loadUrl);
+            tab.overviewTitle = tab.title == null ? "" : tab.title;
+        }
         if (foreground || tab.readerView == null) {
             tab.readerView = loadingView("");
         }
@@ -13004,14 +13043,14 @@ public class MainActivity extends Activity {
         pendingHistoryAll = false;
         tabOverviewVisible = true;
         contentFrame.removeAllViews();
-        contentFrame.addView(loadingView(""));
+        View overviewLoading = loadingView("");
+        contentFrame.addView(overviewLoading);
         visibleThreadPage = null;
         visibleThreadScroll = null;
         visiblePostViews.clear();
         syncLoadingUiWithCurrentSurface();
         updateBottomThreadBar(currentTab());
-        renderTabs();
-        mainHandler.post(() -> {
+        runAfterNextViewDraw(overviewLoading, () -> {
             if (!tabOverviewVisible || tabOverviewPrivateMode != targetPrivateMode) {
                 return;
             }
