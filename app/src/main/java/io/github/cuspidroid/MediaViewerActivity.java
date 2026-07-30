@@ -328,9 +328,13 @@ public class MediaViewerActivity extends Activity {
 
     private void addRevealButton(Runnable revealAction) {
         Button reveal = new Button(this);
-        reveal.setText(MainActivity.text("\u8868\u793a", "Reveal"));
+        reveal.setText(MainActivity.text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
+        reveal.setTextSize(15);
         reveal.setTextColor(Color.WHITE);
         reveal.setBackgroundColor(Color.argb(190, 15, 23, 42));
+        reveal.setMinWidth(0);
+        reveal.setMinHeight(0);
+        reveal.setPadding(dp(16), 0, dp(16), 0);
         reveal.setOnClickListener(v -> {
             if (!revealed.contains(index)) {
                 revealed.add(index);
@@ -339,9 +343,10 @@ public class MediaViewerActivity extends Activity {
             revealAction.run();
         });
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                dp(132), dp(48), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        params.setMargins(0, 0, 0, dp(30));
+                dp(156), dp(52), Gravity.CENTER);
         root.addView(reveal, params);
+        reveal.setElevation(dp(12));
+        reveal.bringToFront();
     }
 
     private boolean shouldCheckWithModel(MediaItem item) {
