@@ -9,17 +9,16 @@ import org.tensorflow.lite.Interpreter;
 
 import java.io.FileInputStream;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
 /**
- * Single on-device classifier for inappropriate imagery, including NSFW,
- * graphic/NSFL and fecal content.
+ * Single on-device classifier for violent or filthy imagery.
  */
 final class SensitiveImageClassifier {
-    private static final int INPUT_SIZE = 224;
-    private static final float SENSITIVE_THRESHOLD = 0.64f;
+    private static final int INPUT_SIZE = 96;
+    private static final float SENSITIVE_THRESHOLD = 0.35f;
+    private static final float OUTPUT_SCALE = 1f / 256f;
     private static volatile SensitiveImageClassifier instance;
 
     private final Context context;
@@ -52,41 +51,14 @@ final class SensitiveImageClassifier {
         if (active == null) {
             return false;
         }
-        float fullFrameScore = unsafeScore(bitmap, active);
-        if (fullFrameScore >= SENSITIVE_THRESHOLD) {
-            return true;
-        }
-        if (fullFrameScore < 0.20f) {
-            return false;
-        }
-
-        int cropWidth = Math.max(1, Math.round(bitmap.getWidth() * 0.65f));
-        int cropHeight = Math.max(1, Math.round(bitmap.getHeight() * 0.65f));
-        int[][] origins = {
-                {0, 0},
-                {bitmap.getWidth() - cropWidth, 0},
-                {0, bitmap.getHeight() - cropHeight},
-                {bitmap.getWidth() - cropWidth, bitmap.getHeight() - cropHeight}
-        };
-        for (int[] origin : origins) {
-            Bitmap crop = Bitmap.createBitmap(bitmap, origin[0], origin[1],
-                    cropWidth, cropHeight);
-            float score = unsafeScore(crop, active);
-            if (crop != bitmap) {
-                crop.recycle();
-            }
-            if (score >= SENSITIVE_THRESHOLD) {
-                return true;
-            }
-        }
-        return false;
+        return unsafeScore(bitmap, active) >= SENSITIVE_THRESHOLD;
     }
 
     private float unsafeScore(Bitmap bitmap, Interpreter active) {
         try {
-            float[][] output = new float[1][1];
+            byte[][] output = new byte[1][1];
             active.run(input(bitmap), output);
-            return output[0][0];
+            return (output[0][0] & 0xff) * OUTPUT_SCALE;
         } catch (Throwable ignored) {
             return 0f;
         }
@@ -105,7 +77,7 @@ final class SensitiveImageClassifier {
             options.setNumThreads(Math.max(1,
                     Math.min(2, Runtime.getRuntime().availableProcessors())));
             interpreter = new Interpreter(
-                    loadMappedAsset("inappropriate_image.tflite"), options);
+                    loadMappedAsset("violence_filth_v1_int8.tflite"), options);
         } catch (Throwable ignored) {
             interpreter = null;
         }
@@ -120,13 +92,11 @@ final class SensitiveImageClassifier {
         if (scaled != bitmap) {
             scaled.recycle();
         }
-        ByteBuffer data = ByteBuffer.allocateDirect(pixels.length * 3 * 4)
-                .order(ByteOrder.nativeOrder());
-        for (int channel = 0; channel < 3; channel++) {
-            for (int color : pixels) {
-                data.putFloat(channel == 0 ? Color.red(color)
-                        : channel == 1 ? Color.green(color) : Color.blue(color));
-            }
+        ByteBuffer data = ByteBuffer.allocateDirect(pixels.length * 3);
+        for (int color : pixels) {
+            data.put((byte) Color.red(color));
+            data.put((byte) Color.green(color));
+            data.put((byte) Color.blue(color));
         }
         data.rewind();
         return data;

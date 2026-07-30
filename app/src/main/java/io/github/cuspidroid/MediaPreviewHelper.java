@@ -36,7 +36,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class MediaPreviewHelper {
-    static final int SENSITIVE_MODEL_VERSION = 3;
+    static final int SENSITIVE_MODEL_VERSION = 4;
 
     interface Callback {
         void openImage(String originalUrl, String mediaUrl, boolean sensitive);
