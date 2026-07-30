@@ -23897,13 +23897,7 @@ public class MainActivity extends Activity {
             }
             pageSearchOriginalText.put(view, original);
             SpannableString highlighted = new SpannableString(original);
-            int start = haystack.indexOf(needle);
-            while (start >= 0) {
-                int end = start + needle.length();
-                highlighted.setSpan(new BackgroundColorSpan(linkHighlightColor()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                highlighted.setSpan(new ForegroundColorSpan(Color.rgb(15, 118, 110)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                start = haystack.indexOf(needle, end);
-            }
+            applySearchHighlights(highlighted, pageSearchQuery);
             view.setText(highlighted);
             pageSearchMatches.add(view);
         }
