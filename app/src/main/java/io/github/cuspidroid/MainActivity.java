@@ -3329,9 +3329,6 @@ public class MainActivity extends Activity {
         if (select) {
             if (url != null && !url.trim().isEmpty()) {
                 tab.readerView = loadingView("");
-                if (shouldPreviewNativeBbsLoading(url)) {
-                    primeTabForNativeLoading(tab, url);
-                }
             }
             switchToTab(tabs.size() - 1);
             postOpenInSelectedTab(tab, url);
@@ -5613,6 +5610,9 @@ public class MainActivity extends Activity {
     }
 
     private void openInCurrentTab(String url) {
+        if (beginImmediateEdgeBoardNavigation(url, currentTab(), true)) {
+            return;
+        }
         openInCurrentTab(url, true);
     }
 
@@ -5621,7 +5621,7 @@ public class MainActivity extends Activity {
     }
 
     private void postOpenInSelectedTab(CuspTab tab, String url, boolean addHistory) {
-        mainHandler.post(() -> {
+        runAfterNextLoadingDraw(tab, () -> {
             if (tab == null || !tabs.contains(tab) || tab != currentTab() || tabOverviewVisible) {
                 return;
             }
@@ -5629,11 +5629,37 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void runAfterNextLoadingDraw(CuspTab tab, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        View loading = tab == null ? null : tab.readerView;
+        if (tab == currentTab() && !tabOverviewVisible && isLoadingReaderView(loading)
+                && loading.getParent() != null) {
+            ViewTreeObserver observer = loading.getViewTreeObserver();
+            if (observer.isAlive()) {
+                observer.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        ViewTreeObserver currentObserver = loading.getViewTreeObserver();
+                        if (currentObserver.isAlive()) {
+                            currentObserver.removeOnPreDrawListener(this);
+                        }
+                        mainHandler.post(action);
+                        return true;
+                    }
+                });
+                loading.invalidate();
+                return;
+            }
+        }
+        mainHandler.post(action);
+    }
+
     private boolean showImmediateNavigationLoading(CuspTab tab) {
         if (tab == null || !tabs.contains(tab)) {
             return false;
         }
-        prepareChromeForLoading();
         tab.readerView = loadingView("");
         tab.searchPage = null;
         tab.threadPage = null;
@@ -5647,7 +5673,15 @@ public class MainActivity extends Activity {
             visiblePostViews.clear();
         }
         syncLoadingUiWithCurrentSurface();
-        renderTabs();
+        runAfterNextLoadingDraw(tab, () -> {
+            if (!tabs.contains(tab)) {
+                return;
+            }
+            if (tab == currentTab() && !tabOverviewVisible && isLoadingReaderView(tab.readerView)) {
+                prepareChromeForLoading();
+            }
+            renderTabs();
+        });
         return true;
     }
 
@@ -5655,13 +5689,62 @@ public class MainActivity extends Activity {
         if (tab == null || url == null || url.trim().isEmpty()) {
             return false;
         }
-        primeTabForNativeLoading(tab, url);
         boolean shown = showImmediateNavigationLoading(tab);
-        if (shown && tab == currentTab() && !tabOverviewVisible) {
-            updateAddressBarDisplay(false);
-            updateBottomThreadBar(tab);
+        if (shown) {
+            runAfterNextLoadingDraw(tab, () -> {
+                if (!tabs.contains(tab)) {
+                    return;
+                }
+                primeTabForNativeLoading(tab, url);
+                if (tab == currentTab() && !tabOverviewVisible) {
+                    updateAddressBarDisplay(false);
+                    updateBottomThreadBar(tab);
+                }
+            });
         }
         return shown;
+    }
+
+    private boolean beginImmediateEdgeBoardNavigation(String url, CuspTab requestedTab, boolean addHistory) {
+        if (!isDirectEdgeBoardUrl(url)) {
+            return false;
+        }
+        if (pendingNewTab) {
+            openPendingNewTabUrl(url);
+            return true;
+        }
+        CuspTab tab = requestedTab == null ? currentTab() : requestedTab;
+        if (tab == null || !tabs.contains(tab)) {
+            createTab(url, true);
+            return true;
+        }
+        showImmediateNavigationLoading(tab);
+        int index = tabs.indexOf(tab);
+        if (index >= 0 && index != currentIndex) {
+            switchToTab(index);
+        }
+        postOpenInSelectedTab(tab, url, addHistory);
+        return true;
+    }
+
+    private boolean isDirectEdgeBoardUrl(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            Uri uri = Uri.parse(normalizeUrl(url));
+            if (!"bbs.eddibb.cc".equalsIgnoreCase(uri.getHost())) {
+                return false;
+            }
+            List<String> parts = pathParts(uri.getPath());
+            return parts.size() == 1
+                    && !"test".equalsIgnoreCase(parts.get(0))
+                    && !"bbs".equalsIgnoreCase(parts.get(0))
+                    && !"dat".equalsIgnoreCase(parts.get(0))
+                    && !"auth-code".equalsIgnoreCase(parts.get(0));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void primeTabForNativeLoading(CuspTab tab, String url) {
@@ -6109,9 +6192,6 @@ public class MainActivity extends Activity {
         tab.backToNewTab = false;
         tab.lastActivatedAt = android.os.SystemClock.uptimeMillis();
         tab.readerView = loadingView("");
-        if (shouldPreviewNativeBbsLoading(url)) {
-            primeTabForNativeLoading(tab, url);
-        }
         tab.navigationHistory.add(returnUrl);
         tab.navigationIndex = 0;
         tabs.add(tab);
@@ -23448,6 +23528,9 @@ public class MainActivity extends Activity {
 
     private boolean routeLink(String rawUrl, CuspTab sourceTab) {
         String url = normalizeUrl(rawUrl);
+        if (beginImmediateEdgeBoardNavigation(url, sourceTab, true)) {
+            return true;
+        }
         if (pendingNewTab) {
             openPendingNewTabUrl(url);
             return true;
