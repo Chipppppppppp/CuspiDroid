@@ -10,6 +10,7 @@ import android.graphics.ImageDecoder;
 import android.graphics.Matrix;
 import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.view.Gravity;
@@ -127,13 +128,7 @@ final class MediaPreviewHelper {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         Button reveal = new Button(activity);
-        reveal.setText(MainActivity.text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
-        reveal.setTextSize(11);
-        reveal.setTextColor(Color.WHITE);
-        reveal.setBackgroundColor(Color.argb(200, 15, 23, 42));
-        reveal.setMinWidth(0);
-        reveal.setMinHeight(0);
-        reveal.setPadding(dp(activity, 4), 0, dp(activity, 4), 0);
+        styleRevealButton(activity, reveal, 11, 4);
         reveal.setVisibility(View.GONE);
         FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(
                 Math.min(dp(activity, 112), Math.max(1, cellSize - dp(activity, 8))),
@@ -330,6 +325,21 @@ final class MediaPreviewHelper {
 
     static Bitmap blurredBitmap(Bitmap bitmap) {
         return blurredBitmap(bitmap, 24, 2);
+    }
+
+    static void styleRevealButton(Activity activity, Button reveal, float textSize, int horizontalPaddingDp) {
+        reveal.setText(MainActivity.text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
+        reveal.setTextSize(textSize);
+        reveal.setTextColor(Theme.text(activity));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Theme.menu(activity));
+        background.setStroke(dp(activity, 2), Theme.border(activity));
+        background.setCornerRadius(dp(activity, 10));
+        reveal.setBackground(background);
+        reveal.setMinWidth(0);
+        reveal.setMinHeight(0);
+        reveal.setPadding(dp(activity, horizontalPaddingDp), 0,
+                dp(activity, horizontalPaddingDp), 0);
     }
 
     static Bitmap viewerBlurredBitmap(Bitmap bitmap) {

@@ -330,13 +330,7 @@ public class MediaViewerActivity extends Activity {
 
     private void addRevealButton(Runnable revealAction) {
         Button reveal = new Button(this);
-        reveal.setText(MainActivity.text("\u95b2\u89a7\u6ce8\u610f", "Sensitive"));
-        reveal.setTextSize(15);
-        reveal.setTextColor(Color.WHITE);
-        reveal.setBackgroundColor(Color.argb(190, 15, 23, 42));
-        reveal.setMinWidth(0);
-        reveal.setMinHeight(0);
-        reveal.setPadding(dp(16), 0, dp(16), 0);
+        MediaPreviewHelper.styleRevealButton(this, reveal, 15, 16);
         reveal.setOnClickListener(v -> {
             if (!revealed.contains(index)) {
                 revealed.add(index);
