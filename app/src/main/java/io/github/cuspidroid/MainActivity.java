@@ -421,11 +421,6 @@ public class MainActivity extends Activity {
     private static final String AA_FONT_FAMILY = "Textar";
     private static final float POST_TEXT_SIZE_SP = 15f;
     private static final float AA_LINE_SPACING_MULTIPLIER = 1.0f;
-    private static final float AA_SCORE_PER_LINE_THRESHOLD = 0.5f;
-    private static final int AA_SCORE_MIN = 5;
-    private static final Pattern AA_LEADING_DOT_SPACE_PATTERN = Pattern.compile(
-            "^(?:[.\\uFF0E]+[\\s\\p{Zs}\\u2028\\u2029]+|[\\s\\p{Zs}\\u2028\\u2029]{2,})");
-    private static final Pattern AA_DOUBLE_SPACE_PATTERN = Pattern.compile("[\\s\\p{Zs}\\u2028\\u2029]{2,}");
     private static final int POST_OUTER_GAP_DP = 4;
     private static final String LOADING_VIEW_TAG = "cuspidroid_loading_view";
 
@@ -18237,7 +18232,7 @@ public class MainActivity extends Activity {
     }
 
     private static boolean likelyAaPost(String body) {
-        return aaDebugMetrics(body).aa;
+        return AaDetector.isLikelyAa(body);
     }
 
     private View aaDebugView(String body) {
@@ -18251,39 +18246,9 @@ public class MainActivity extends Activity {
     }
 
     private static AaDebugMetrics aaDebugMetrics(String body) {
-        if (body == null) {
-            return new AaDebugMetrics(false, "null", 0, 0, 0, 0, 0f);
-        }
-        String value = body.replace("\r\n", "\n").replace('\r', '\n');
-        String[] lines = value.split("\\n", -1);
-        int lineCount = 0;
-        int score = 0;
-        int leadingDotSpaceScore = 0;
-        int doubleSpaceScore = 0;
-        for (String line : lines) {
-            if (line.isEmpty()) {
-                continue;
-            }
-            lineCount++;
-            Matcher leading = AA_LEADING_DOT_SPACE_PATTERN.matcher(line);
-            boolean leadingMatch = leading.find();
-            int bodyStart = leadingMatch ? leading.end() : 0;
-            if (leadingMatch) {
-                score += 2;
-                leadingDotSpaceScore += 2;
-            }
-            if (AA_DOUBLE_SPACE_PATTERN.matcher(line.substring(bodyStart)).find()) {
-                score++;
-                doubleSpaceScore++;
-            }
-        }
-        if (lineCount <= 0) {
-            return new AaDebugMetrics(false, "no-lines", 0, 0, 0, 0, 0f);
-        }
-        float ratio = score / (float) lineCount;
-        boolean aa = score >= AA_SCORE_MIN && ratio > AA_SCORE_PER_LINE_THRESHOLD;
-        return new AaDebugMetrics(aa, aa ? "score-ratio" : "below",
-                lineCount, score, leadingDotSpaceScore, doubleSpaceScore, ratio);
+        AaDetector.Metrics metrics = AaDetector.metrics(body);
+        return new AaDebugMetrics(metrics.aa, metrics.reason, metrics.lineCount, metrics.score,
+                metrics.leadingLayoutScore, metrics.doubleSpaceScore, metrics.ratio);
     }
 
     private void applySearchHighlights(SpannableString text, String query) {
@@ -29775,28 +29740,28 @@ public class MainActivity extends Activity {
         final String reason;
         final int lineCount;
         final int score;
-        final int leadingDotSpaceScore;
+        final int leadingLayoutScore;
         final int doubleSpaceScore;
         final float ratio;
 
         AaDebugMetrics(boolean aa, String reason, int lineCount, int score,
-                       int leadingDotSpaceScore, int doubleSpaceScore, float ratio) {
+                       int leadingLayoutScore, int doubleSpaceScore, float ratio) {
             this.aa = aa;
             this.reason = reason;
             this.lineCount = lineCount;
             this.score = score;
-            this.leadingDotSpaceScore = leadingDotSpaceScore;
+            this.leadingLayoutScore = leadingLayoutScore;
             this.doubleSpaceScore = doubleSpaceScore;
             this.ratio = ratio;
         }
 
         String debugText() {
             return String.format(Locale.ROOT,
-                    "AA debug: %s (%s) lines=%d score=%d ratio=%.2f leading-dot-space=%d double-space-lines=%d | threshold: score>=%d & ratio>%.2f",
+                    "AA debug: %s (%s) lines=%d score=%d ratio=%.2f leading-layout=%d double-space-lines=%d | threshold: lines>=%d & ratio>%.2f",
                     aa ? "YES" : "NO", reason, lineCount, score, ratio,
-                    leadingDotSpaceScore, doubleSpaceScore,
-                    AA_SCORE_MIN,
-                    AA_SCORE_PER_LINE_THRESHOLD);
+                    leadingLayoutScore, doubleSpaceScore,
+                    AaDetector.LINE_COUNT_MIN,
+                    AaDetector.SCORE_PER_LINE_THRESHOLD);
         }
     }
 
