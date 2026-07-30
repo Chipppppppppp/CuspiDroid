@@ -95,11 +95,9 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -195,6 +193,7 @@ public class MainActivity extends Activity {
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_BLUR_VIDEO_THUMBNAILS = "blur_video_thumbnails";
     static final String PREF_BLUR_GIF_THUMBNAILS = "blur_gif_thumbnails";
+    static final String PREF_BLUR_SENSITIVE_WORD_POSTS = "blur_sensitive_word_posts";
     static final String PREF_AUTOPLAY_GIFS = "autoplay_gifs";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_HIDE_BARS_ON_SCROLL = "hide_bars_on_scroll";
@@ -359,6 +358,8 @@ public class MainActivity extends Activity {
     private static final Pattern HREF_PATTERN = Pattern.compile("<a\\b[^>]*\\bhref\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern REPLY_PATTERN = Pattern.compile(">>\\s*(\\d{1,5})(?:\\s*[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2015\\u2212\\uff0d~\\uff5e]\\s*(\\d{1,5}))?");
+    private static final Pattern SENSITIVE_MEDIA_WORD_PATTERN = Pattern.compile(
+            "\u30b0\u30ed|\u95b2\u89a7\u6ce8\u610f|\u6b7b\u306d|\u6b7b\u4f53|\u907a\u4f53|\u60e8\u6bba|\u6d41\u8840");
     private static final Pattern BE_PATTERN = Pattern.compile("\\bBE:?\\s*([A-Za-z0-9+/._-]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern EDGE_AUTH_CODE_PATTERN = Pattern.compile("(?:['\"])?(\\d{6})(?:['\"])?");
     private static final int REQUEST_IMGBB_IMAGE = 42;
@@ -17160,6 +17161,13 @@ public class MainActivity extends Activity {
 
     private View postContent(String value, ThreadPage page, String highlight, Runnable longClickAction,
                              List<ImgurLink> mediaLinks) {
+        return postContent(value, page, highlight, longClickAction, mediaLinks,
+                shouldBlurMediaForBody(value));
+    }
+
+    private View postContent(String value, ThreadPage page, String highlight,
+                             Runnable longClickAction, List<ImgurLink> mediaLinks,
+                             boolean forceSensitive) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         TextView bodyText = postBodyText(value, page, highlight);
@@ -17183,7 +17191,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         if (!mediaLinks.isEmpty()) {
-            box.addView(mediaGrid(mediaLinks, longClickAction));
+            box.addView(mediaGrid(mediaLinks, longClickAction, forceSensitive));
         }
         if (aaDebugEnabled()) {
             box.addView(aaDebugView(value));
@@ -17191,7 +17199,8 @@ public class MainActivity extends Activity {
         return box;
     }
 
-    private View mediaGrid(List<ImgurLink> mediaLinks, Runnable longClickAction) {
+    private View mediaGrid(List<ImgurLink> mediaLinks, Runnable longClickAction,
+                           boolean forceSensitive) {
         GridLayout grid = new GridLayout(this);
         int count = mediaLinks.size();
         int available = Math.max(dp(96), getResources().getDisplayMetrics().widthPixels - dp(56));
@@ -17202,7 +17211,8 @@ public class MainActivity extends Activity {
         grid.setPadding(0, dp(6), 0, dp(2));
         for (int i = 0; i < count; i++) {
             ImgurLink link = mediaLinks.get(i);
-            View cell = deferredMediaPreview(link, longClickAction, cellSize);
+            View cell = deferredMediaPreview(
+                    link, longClickAction, cellSize, forceSensitive);
             GridLayout.LayoutParams params = new GridLayout.LayoutParams();
             params.width = cellSize;
             params.height = cellSize;
@@ -17349,7 +17359,8 @@ public class MainActivity extends Activity {
             }
             if (mode == ThreadExtractMode.MEDIA) {
                 for (ImgurLink link : threadMediaLinks(post)) {
-                    items.add(new ThreadExtractItem(post.number, link.originalUrl, link));
+                    items.add(new ThreadExtractItem(
+                            post.number, link.originalUrl, link, 0, post));
                 }
             } else {
                 Matcher matcher = URL_TEXT_PATTERN.matcher(post.body);
@@ -17785,6 +17796,8 @@ public class MainActivity extends Activity {
             if (mode == ThreadExtractMode.MEDIA && item.media != null) {
                 View preview = MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
                         item.media.originalUrl, item.media.imageUrl, item.media.video, dp(76), null,
+                        shouldBlurMediaForPost(page, item.post),
+                        this::isGraphicViolenceImage,
                         extractMediaPreviewCallbacks(popup));
                 LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(76), dp(76));
                 previewParams.setMargins(0, 0, dp(10), 0);
@@ -17919,7 +17932,8 @@ public class MainActivity extends Activity {
             }
         };
         if (!post.aaMode) {
-            return postContent(post.body, page, tab.threadSearchQuery, longClick, imgurLinks(post));
+            return postContent(post.body, page, tab.threadSearchQuery,
+                    longClick, imgurLinks(post), shouldBlurMediaForPost(page, post));
         }
         TextView body = new TextView(this);
         body.setTag(R.id.tag_post_swipe_text, true);
@@ -17971,7 +17985,8 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         List<ImgurLink> mediaLinks = imgurLinks(post);
         if (!mediaLinks.isEmpty()) {
-            box.addView(mediaGrid(mediaLinks, longClick));
+            box.addView(mediaGrid(
+                    mediaLinks, longClick, shouldBlurMediaForPost(page, post)));
         }
         if (aaDebugEnabled()) {
             box.addView(aaDebugView(post.body));
@@ -18285,10 +18300,11 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View imgurPreview(String originalUrl, String imageUrl, Runnable longClickAction, int cellSize) {
+    private View imgurPreview(String originalUrl, String imageUrl, Runnable longClickAction,
+                              int cellSize, boolean forceSensitive) {
         return MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
                 originalUrl, imageUrl, false, cellSize, longClickAction,
-                SensitiveImageClassifier.get(this), mediaPreviewCallbacks());
+                forceSensitive, this::isGraphicViolenceImage, mediaPreviewCallbacks());
     }
 
     private TextView mediaPlayOverlay() {
@@ -18301,10 +18317,11 @@ public class MainActivity extends Activity {
         return play;
     }
 
-    private View videoPreview(String originalUrl, String videoUrl, Runnable longClickAction, int cellSize) {
+    private View videoPreview(String originalUrl, String videoUrl, Runnable longClickAction,
+                              int cellSize, boolean forceSensitive) {
         return MediaPreviewHelper.create(this, preferences, ioExecutor, mainHandler,
                 originalUrl, videoUrl, true, cellSize, longClickAction,
-                SensitiveImageClassifier.get(this), mediaPreviewCallbacks());
+                forceSensitive, this::isGraphicViolenceImage, mediaPreviewCallbacks());
     }
 
     private MediaPreviewHelper.Callback mediaPreviewCallbacks() {
@@ -18335,21 +18352,25 @@ public class MainActivity extends Activity {
         Set<String> added = new LinkedHashSet<>();
         if (page != null && page.posts != null) {
             for (Post post : page.posts) {
+                boolean wordSensitive = shouldBlurMediaForPost(page, post);
                 for (ImgurLink link : threadMediaLinks(post)) {
                     String key = link.imageUrl + "\n" + link.video;
                     if (!added.add(key)) {
                         continue;
                     }
-                    Boolean cached = readCachedImageSensitive(link.imageUrl);
-                    boolean itemSensitive = cached != null && cached;
+                    Boolean cached = MediaPreviewHelper.readSensitive(
+                            preferences, link.imageUrl);
+                    boolean itemSensitive = wordSensitive
+                            || (cached != null && cached);
                     boolean matches = link.imageUrl.equals(mediaUrl)
                             || link.originalUrl.equals(originalUrl);
                     if (matches) {
-                        itemSensitive = sensitive;
+                        itemSensitive = itemSensitive || sensitive;
                         selected = items.size();
                     }
                     items.add(new MediaViewerActivity.MediaItem(
-                            link.originalUrl, link.imageUrl, link.video, itemSensitive));
+                            link.originalUrl, link.imageUrl,
+                            link.video, itemSensitive));
                 }
             }
         }
@@ -18361,7 +18382,8 @@ public class MainActivity extends Activity {
         MediaViewerActivity.open(this, items, selected);
     }
 
-    private View deferredMediaPreview(ImgurLink link, Runnable longClickAction, int cellSize) {
+    private View deferredMediaPreview(ImgurLink link, Runnable longClickAction,
+                                      int cellSize, boolean forceSensitive) {
         FrameLayout placeholder = new FrameLayout(this);
         placeholder.setClickable(true);
         placeholder.setClipToOutline(true);
@@ -18378,7 +18400,8 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(28), dp(28));
         spinnerParams.gravity = Gravity.CENTER;
         placeholder.addView(spinner, spinnerParams);
-        DeferredMediaPreview preview = new DeferredMediaPreview(link, placeholder, longClickAction, cellSize);
+        DeferredMediaPreview preview = new DeferredMediaPreview(
+                link, placeholder, longClickAction, cellSize, forceSensitive);
         placeholder.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
@@ -18504,8 +18527,10 @@ public class MainActivity extends Activity {
             int index = group.indexOfChild(preview.placeholder);
             ViewGroup.LayoutParams params = preview.placeholder.getLayoutParams();
             View media = preview.link.video
-                    ? videoPreview(preview.link.originalUrl, preview.link.imageUrl, preview.longClickAction, preview.cellSize)
-                    : imgurPreview(preview.link.originalUrl, preview.link.imageUrl, preview.longClickAction, preview.cellSize);
+                    ? videoPreview(preview.link.originalUrl, preview.link.imageUrl,
+                            preview.longClickAction, preview.cellSize, preview.forceSensitive)
+                    : imgurPreview(preview.link.originalUrl, preview.link.imageUrl,
+                            preview.longClickAction, preview.cellSize, preview.forceSensitive);
             group.removeView(preview.placeholder);
             group.addView(media, Math.max(0, index), params);
             deferredMediaPreviews.remove(preview);
@@ -18612,7 +18637,7 @@ public class MainActivity extends Activity {
                 } else if (cachedSensitive != null) {
                     sensitive = cachedSensitive;
                 } else {
-                    sensitive = isSensitiveImage(bitmap);
+                    sensitive = isGraphicViolenceImage(bitmap);
                     saveImageSensitive(preview.imageUrl, sensitive);
                 }
                 if ((gif ? blurGifThumbnails() : blurImgurImages()) && sensitive) {
@@ -19299,7 +19324,7 @@ public class MainActivity extends Activity {
         JSONObject item = imageMeta(url);
         if (item == null || !item.has("sensitive")
                 || item.optInt("sensitiveModelVersion", 0)
-                < MediaPreviewHelper.SENSITIVE_MODEL_VERSION) {
+                != MediaPreviewHelper.SENSITIVE_MODEL_VERSION) {
             return null;
         }
         return item.optBoolean("sensitive", false);
@@ -19334,7 +19359,8 @@ public class MainActivity extends Activity {
             item.put("missing", missing);
             if (sensitive != null) {
                 item.put("sensitive", sensitive);
-                item.put("sensitiveModelVersion", MediaPreviewHelper.SENSITIVE_MODEL_VERSION);
+                item.put("sensitiveModelVersion",
+                        MediaPreviewHelper.SENSITIVE_MODEL_VERSION);
             }
             item.put("savedAt", System.currentTimeMillis());
             root.put(url, item);
@@ -19365,7 +19391,7 @@ public class MainActivity extends Activity {
         return MediaPreviewHelper.blurredBitmap(bitmap);
     }
 
-    private boolean isSensitiveImage(Bitmap bitmap) {
+    private boolean isGraphicViolenceImage(Bitmap bitmap) {
         return SensitiveImageClassifier.get(this).isSensitive(bitmap);
     }
 
@@ -20003,7 +20029,9 @@ public class MainActivity extends Activity {
         metaRow.addView(postJump, new LinearLayout.LayoutParams(dp(34), dp(34)));
         card.addView(metaRow);
 
-        View body = tab == null ? postContent(post.body, page, null, () -> showPostActionMenu(card, null, post))
+        View body = tab == null ? postContent(post.body, page, null,
+                () -> showPostActionMenu(card, null, post), imgurLinks(post),
+                shouldBlurMediaForPost(page, post))
                 : postBodyView(card, page, tab, post);
         body.setPadding(0, dp(4), 0, 0);
         card.addView(body);
@@ -23378,6 +23406,55 @@ public class MainActivity extends Activity {
 
     private boolean blurGifThumbnails() {
         return blurImgurImages() && preferences.getBoolean(PREF_BLUR_GIF_THUMBNAILS, true);
+    }
+
+    private boolean shouldBlurMediaForBody(String body) {
+        return preferences.getBoolean(PREF_BLUR_SENSITIVE_WORD_POSTS, true)
+                && containsSensitiveMediaWord(body);
+    }
+
+    private boolean shouldBlurMediaForPost(ThreadPage page, Post post) {
+        if (!preferences.getBoolean(PREF_BLUR_SENSITIVE_WORD_POSTS, true)
+                || post == null) {
+            return false;
+        }
+        return containsSensitiveMediaWord(post.body)
+                || sensitiveMediaReplyTargets(page).contains(post.number);
+    }
+
+    private boolean containsSensitiveMediaWord(String body) {
+        return body != null && SENSITIVE_MEDIA_WORD_PATTERN.matcher(body).find();
+    }
+
+    private Set<Integer> sensitiveMediaReplyTargets(ThreadPage page) {
+        if (page == null || page.posts == null) {
+            return Collections.emptySet();
+        }
+        if (page.sensitiveMediaReplyTargets != null) {
+            return page.sensitiveMediaReplyTargets;
+        }
+        Set<Integer> targets = new LinkedHashSet<>();
+        for (Post reply : page.posts) {
+            if (reply == null || !containsSensitiveMediaWord(reply.body)) {
+                continue;
+            }
+            Matcher matcher = REPLY_PATTERN.matcher(reply.body);
+            while (matcher.find()) {
+                int start = parsePositiveInt(matcher.group(1), -1);
+                int end = matcher.group(2) == null ? start
+                        : parsePositiveInt(matcher.group(2), start);
+                if (start <= 0 || end <= 0) {
+                    continue;
+                }
+                int lower = Math.min(start, end);
+                int upper = Math.min(Math.max(start, end), lower + 1000);
+                for (int number = lower; number <= upper; number++) {
+                    targets.add(number);
+                }
+            }
+        }
+        page.sensitiveMediaReplyTargets = targets;
+        return targets;
     }
 
     private boolean autoplayGifs() {
@@ -29664,13 +29741,17 @@ public class MainActivity extends Activity {
         final FrameLayout placeholder;
         final Runnable longClickAction;
         final int cellSize;
+        final boolean forceSensitive;
         boolean created;
 
-        DeferredMediaPreview(ImgurLink link, FrameLayout placeholder, Runnable longClickAction, int cellSize) {
+        DeferredMediaPreview(ImgurLink link, FrameLayout placeholder,
+                             Runnable longClickAction, int cellSize,
+                             boolean forceSensitive) {
             this.link = link;
             this.placeholder = placeholder;
             this.longClickAction = longClickAction;
             this.cellSize = cellSize;
+            this.forceSensitive = forceSensitive;
         }
     }
 
@@ -30370,6 +30451,7 @@ public class MainActivity extends Activity {
         List<Post> posts = new ArrayList<>();
         Map<Integer, Post> postsByNumber = new LinkedHashMap<>();
         Map<String, Post> firstPostByBody = new LinkedHashMap<>();
+        Set<Integer> sensitiveMediaReplyTargets;
         boolean copyPasteIndexBuilt;
 
         static ThreadPage error(String url, String message) {

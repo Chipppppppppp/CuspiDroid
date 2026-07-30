@@ -1,7 +1,6 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -19,7 +18,9 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -68,10 +69,12 @@ public class MediaViewerActivity extends Activity {
     private int index;
     private int loadGeneration;
     private ZoomImageView currentZoom;
-    private boolean warningShowing;
     private float gestureDownX;
     private float gestureDownY;
     private boolean gestureMultiTouch;
+    private boolean gestureSwiping;
+    private boolean swipeAnimating;
+    private int touchSlop;
 
     static void open(Context context, String originalUrl, String mediaUrl, boolean video) {
         List<MediaItem> items = new ArrayList<>();
@@ -109,6 +112,7 @@ public class MediaViewerActivity extends Activity {
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
         executor = Executors.newSingleThreadExecutor();
+        touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
         readItems();
         if (items.isEmpty()) {
             finish();
@@ -154,7 +158,8 @@ public class MediaViewerActivity extends Activity {
 
     private void showCurrent() {
         int generation = ++loadGeneration;
-        warningShowing = false;
+        root.animate().cancel();
+        root.setTranslationX(0f);
         currentZoom = null;
         root.removeAllViews();
         MediaItem item = items.get(index);
@@ -186,16 +191,20 @@ public class MediaViewerActivity extends Activity {
             }
             MediaPreviewHelper.ViewerMedia result = loaded;
             boolean sensitive = item.sensitive;
-            if (result != null && result.bitmap != null) {
+            if (result != null && result.bitmap != null
+                    && shouldCheckWithModel(item)) {
                 Boolean cached = MediaPreviewHelper.readSensitive(
-                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE), item.mediaUrl);
-                sensitive = sensitive || (cached != null ? cached
-                        : SensitiveImageClassifier.get(this).isSensitive(result.bitmap));
+                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
+                        item.mediaUrl);
+                boolean modelSensitive = cached != null ? cached
+                        : SensitiveImageClassifier.get(this)
+                                .isSensitive(result.bitmap);
                 if (cached == null) {
                     MediaPreviewHelper.saveSensitive(
                             getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
-                            item.mediaUrl, sensitive);
+                            item.mediaUrl, modelSensitive);
                 }
+                sensitive = sensitive || modelSensitive;
             }
             boolean finalSensitive = sensitive;
             runOnUiThread(() -> {
@@ -208,9 +217,10 @@ public class MediaViewerActivity extends Activity {
                             "Image failed to load."));
                     return;
                 }
-                if (finalSensitive && result.bitmap != null && !revealed.contains(index)) {
+                if (finalSensitive && result.bitmap != null
+                        && !revealed.contains(index)) {
                     image.setImageBitmap(MediaPreviewHelper.blurredBitmap(result.bitmap));
-                    showSensitiveWarning(() -> displayImage(image, play, result));
+                    addRevealButton(() -> displayImage(image, play, result));
                 } else {
                     displayImage(image, play, result);
                 }
@@ -255,16 +265,18 @@ public class MediaViewerActivity extends Activity {
             } catch (Exception ignored) {
             }
             boolean sensitive = item.sensitive;
-            if (bitmap != null) {
+            if (bitmap != null && shouldCheckWithModel(item)) {
                 Boolean cached = MediaPreviewHelper.readSensitive(
-                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE), item.mediaUrl);
-                sensitive = sensitive || (cached != null ? cached
-                        : SensitiveImageClassifier.get(this).isSensitive(bitmap));
+                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
+                        item.mediaUrl);
+                boolean modelSensitive = cached != null ? cached
+                        : SensitiveImageClassifier.get(this).isSensitive(bitmap);
                 if (cached == null) {
                     MediaPreviewHelper.saveSensitive(
                             getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
-                            item.mediaUrl, sensitive);
+                            item.mediaUrl, modelSensitive);
                 }
+                sensitive = sensitive || modelSensitive;
             }
             Bitmap finalBitmap = bitmap;
             boolean finalSensitive = sensitive;
@@ -277,7 +289,7 @@ public class MediaViewerActivity extends Activity {
                     if (finalBitmap != null) {
                         poster.setImageBitmap(MediaPreviewHelper.blurredBitmap(finalBitmap));
                     }
-                    showSensitiveWarning(() -> startVideo(item, generation));
+                    addRevealButton(() -> startVideo(item, generation));
                 } else {
                     startVideo(item, generation);
                 }
@@ -314,63 +326,117 @@ public class MediaViewerActivity extends Activity {
         });
     }
 
-    private void showSensitiveWarning(Runnable revealAction) {
-        if (warningShowing || isFinishing() || isDestroyed()) {
-            return;
+    private void addRevealButton(Runnable revealAction) {
+        Button reveal = new Button(this);
+        reveal.setText(MainActivity.text("\u8868\u793a", "Reveal"));
+        reveal.setTextColor(Color.WHITE);
+        reveal.setBackgroundColor(Color.argb(190, 15, 23, 42));
+        reveal.setOnClickListener(v -> {
+            if (!revealed.contains(index)) {
+                revealed.add(index);
+            }
+            root.removeView(reveal);
+            revealAction.run();
+        });
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                dp(132), dp(48), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        params.setMargins(0, 0, 0, dp(30));
+        root.addView(reveal, params);
+    }
+
+    private boolean shouldCheckWithModel(MediaItem item) {
+        android.content.SharedPreferences preferences = getSharedPreferences(
+                MainActivity.PREFS_NAME, MODE_PRIVATE);
+        if (!preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true)) {
+            return false;
         }
-        warningShowing = true;
-        new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("\u6ce8\u610f\u304c\u5fc5\u8981\u306a\u30e1\u30c7\u30a3\u30a2",
-                        "Sensitive media"))
-                .setMessage(MainActivity.text(
-                        "\u30b0\u30ed\u753b\u50cf\u307e\u305f\u306f\u7cde\u4fbf\u306a\u3069\u306e\u4e0d\u5feb\u306a\u5185\u5bb9\u306e\u53ef\u80fd\u6027\u304c\u3042\u308b\u305f\u3081\u3001\u307c\u304b\u3057\u3066\u3044\u307e\u3059\u3002\u8868\u793a\u3057\u307e\u3059\u304b\uff1f",
-                        "This media may contain graphic violence, feces, or other disturbing content. It has been blurred. Show it?"))
-                .setNegativeButton(MainActivity.text("\u307c\u304b\u3057\u305f\u307e\u307e", "Keep blurred"),
-                        (dialog, which) -> warningShowing = false)
-                .setPositiveButton(MainActivity.text("\u8868\u793a", "Show"), (dialog, which) -> {
-                    warningShowing = false;
-                    if (!revealed.contains(index)) {
-                        revealed.add(index);
-                    }
-                    revealAction.run();
-                })
-                .setOnCancelListener(dialog -> warningShowing = false)
-                .show();
+        if (item.video && !preferences.getBoolean(
+                MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)) {
+            return false;
+        }
+        return !isGifUrl(item.mediaUrl) || preferences.getBoolean(
+                MainActivity.PREF_BLUR_GIF_THUMBNAILS, true);
+    }
+
+    private boolean isGifUrl(String url) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".gif") || lower.contains(".gif?");
     }
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
+        if (swipeAnimating) {
+            return true;
+        }
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 gestureDownX = event.getX();
                 gestureDownY = event.getY();
                 gestureMultiTouch = false;
+                gestureSwiping = false;
+                root.animate().cancel();
                 break;
             case MotionEvent.ACTION_POINTER_DOWN:
                 gestureMultiTouch = true;
+                gestureSwiping = false;
+                root.animate().translationX(0f).setDuration(120).start();
+                break;
+            case MotionEvent.ACTION_MOVE:
+                float moveX = event.getX() - gestureDownX;
+                float moveY = event.getY() - gestureDownY;
+                boolean canDrag = currentZoom == null || currentZoom.atMinimumScale();
+                if (!gestureMultiTouch && canDrag
+                        && (gestureSwiping || (Math.abs(moveX) > touchSlop
+                        && Math.abs(moveX) > Math.abs(moveY) * 1.2f))) {
+                    gestureSwiping = true;
+                    boolean atEdge = (moveX > 0 && index == 0)
+                            || (moveX < 0 && index == items.size() - 1);
+                    root.setTranslationX(atEdge ? moveX * 0.28f : moveX);
+                    return true;
+                }
                 break;
             case MotionEvent.ACTION_UP:
                 float dx = event.getX() - gestureDownX;
-                float dy = event.getY() - gestureDownY;
-                boolean canSwipe = currentZoom == null || currentZoom.atMinimumScale();
-                if (!warningShowing && !gestureMultiTouch && canSwipe
-                        && Math.abs(dx) >= dp(72) && Math.abs(dx) > Math.abs(dy) * 1.35f) {
-                    if (dx < 0 && index + 1 < items.size()) {
-                        index++;
-                        showCurrent();
-                        return true;
+                if (gestureSwiping) {
+                    int direction = dx < 0 ? 1 : -1;
+                    boolean canMove = direction > 0 ? index + 1 < items.size() : index > 0;
+                    if (canMove && Math.abs(dx) >= Math.max(dp(56), root.getWidth() * 0.16f)) {
+                        animateToItem(direction);
+                    } else {
+                        root.animate().translationX(0f).setDuration(160).start();
                     }
-                    if (dx > 0 && index > 0) {
-                        index--;
-                        showCurrent();
-                        return true;
-                    }
+                    gestureSwiping = false;
+                    return true;
+                }
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                if (gestureSwiping) {
+                    root.animate().translationX(0f).setDuration(160).start();
+                    gestureSwiping = false;
+                    return true;
                 }
                 break;
             default:
                 break;
         }
         return super.dispatchTouchEvent(event);
+    }
+
+    private void animateToItem(int direction) {
+        float width = Math.max(1, root.getWidth());
+        swipeAnimating = true;
+        root.animate()
+                .translationX(direction > 0 ? -width : width)
+                .setDuration(160)
+                .withEndAction(() -> {
+                    index += direction;
+                    showCurrent();
+                    root.setTranslationX(direction > 0 ? width : -width);
+                    root.animate().translationX(0f).setDuration(180)
+                            .withEndAction(() -> swipeAnimating = false)
+                            .start();
+                })
+                .start();
     }
 
     private boolean isCurrent(int generation) {

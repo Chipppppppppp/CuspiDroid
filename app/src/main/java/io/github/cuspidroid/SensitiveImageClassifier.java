@@ -9,16 +9,14 @@ import org.tensorflow.lite.Interpreter;
 
 import java.io.FileInputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
-/**
- * Single on-device classifier for violent or filthy imagery.
- */
+/** Shared wrapper around the original graphic-violence model. */
 final class SensitiveImageClassifier {
-    private static final int INPUT_SIZE = 96;
-    private static final float SENSITIVE_THRESHOLD = 0.35f;
-    private static final float OUTPUT_SCALE = 1f / 256f;
+    private static final int INPUT_SIZE = 320;
+    private static final float SENSITIVE_THRESHOLD = 0.995f;
     private static volatile SensitiveImageClassifier instance;
 
     private final Context context;
@@ -31,7 +29,8 @@ final class SensitiveImageClassifier {
             synchronized (SensitiveImageClassifier.class) {
                 current = instance;
                 if (current == null) {
-                    current = new SensitiveImageClassifier(context.getApplicationContext());
+                    current = new SensitiveImageClassifier(
+                            context.getApplicationContext());
                     instance = current;
                 }
             }
@@ -44,23 +43,22 @@ final class SensitiveImageClassifier {
     }
 
     synchronized boolean isSensitive(Bitmap bitmap) {
-        if (bitmap == null) {
-            return false;
-        }
         Interpreter active = interpreter();
-        if (active == null) {
+        if (active == null || bitmap == null) {
             return false;
         }
-        return unsafeScore(bitmap, active) >= SENSITIVE_THRESHOLD;
-    }
-
-    private float unsafeScore(Bitmap bitmap, Interpreter active) {
         try {
-            byte[][] output = new byte[1][1];
+            float[][] output = new float[1][3];
             active.run(input(bitmap), output);
-            return (output[0][0] & 0xff) * OUTPUT_SCALE;
+            int winner = 0;
+            for (int i = 1; i < output[0].length; i++) {
+                if (output[0][i] > output[0][winner]) {
+                    winner = i;
+                }
+            }
+            return winner != 2 && output[0][winner] >= SENSITIVE_THRESHOLD;
         } catch (Throwable ignored) {
-            return 0f;
+            return false;
         }
     }
 
@@ -73,11 +71,8 @@ final class SensitiveImageClassifier {
         }
         loadAttempted = true;
         try {
-            Interpreter.Options options = new Interpreter.Options();
-            options.setNumThreads(Math.max(1,
-                    Math.min(2, Runtime.getRuntime().availableProcessors())));
-            interpreter = new Interpreter(
-                    loadMappedAsset("violence_filth_v1_int8.tflite"), options);
+            interpreter = new Interpreter(loadMappedAsset(
+                    "graphic_violence.tflite"));
         } catch (Throwable ignored) {
             interpreter = null;
         }
@@ -85,26 +80,38 @@ final class SensitiveImageClassifier {
     }
 
     private ByteBuffer input(Bitmap bitmap) {
+        int cropSize = Math.min(bitmap.getWidth(), bitmap.getHeight());
+        Bitmap cropped = Bitmap.createBitmap(bitmap,
+                Math.max(0, (bitmap.getWidth() - cropSize) / 2),
+                Math.max(0, (bitmap.getHeight() - cropSize) / 2),
+                cropSize, cropSize);
         Bitmap scaled = Bitmap.createScaledBitmap(
-                bitmap, INPUT_SIZE, INPUT_SIZE, true);
+                cropped, INPUT_SIZE, INPUT_SIZE, true);
+        if (cropped != bitmap && cropped != scaled) {
+            cropped.recycle();
+        }
         int[] pixels = new int[INPUT_SIZE * INPUT_SIZE];
-        scaled.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE);
+        scaled.getPixels(pixels, 0, INPUT_SIZE, 0, 0,
+                INPUT_SIZE, INPUT_SIZE);
+        ByteBuffer data = ByteBuffer.allocateDirect(
+                INPUT_SIZE * INPUT_SIZE * 3 * 4)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (int color : pixels) {
+            data.putFloat(Color.red(color));
+            data.putFloat(Color.green(color));
+            data.putFloat(Color.blue(color));
+        }
+        data.rewind();
         if (scaled != bitmap) {
             scaled.recycle();
         }
-        ByteBuffer data = ByteBuffer.allocateDirect(pixels.length * 3);
-        for (int color : pixels) {
-            data.put((byte) Color.red(color));
-            data.put((byte) Color.green(color));
-            data.put((byte) Color.blue(color));
-        }
-        data.rewind();
         return data;
     }
 
     private MappedByteBuffer loadMappedAsset(String name) throws Exception {
         try (AssetFileDescriptor descriptor = context.getAssets().openFd(name);
-             FileInputStream input = new FileInputStream(descriptor.getFileDescriptor());
+             FileInputStream input = new FileInputStream(
+                     descriptor.getFileDescriptor());
              FileChannel channel = input.getChannel()) {
             return channel.map(FileChannel.MapMode.READ_ONLY,
                     descriptor.getStartOffset(), descriptor.getDeclaredLength());

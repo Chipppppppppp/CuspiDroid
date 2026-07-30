@@ -77,6 +77,7 @@ public class SettingsActivity extends Activity {
     private CheckBox blurImgurImages;
     private CheckBox blurVideoThumbnails;
     private CheckBox blurGifThumbnails;
+    private CheckBox blurSensitiveWordPosts;
     private CheckBox autoplayGifs;
     private EditText imgbbApiKey;
     private RadioButton addressBarTop;
@@ -413,6 +414,18 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, blurImgurImages);
         root.addView(blurImgurImages);
 
+        blurSensitiveWordPosts = new CheckBox(this);
+        blurSensitiveWordPosts.setText(MainActivity.text(
+                "\u6ce8\u610f\u8a9e\u3092\u542b\u3080\u66f8\u304d\u8fbc\u307f\u30fb\u8fd4\u4fe1\u5148\u306e\u30e1\u30c7\u30a3\u30a2\u3092\u307c\u304b\u3059",
+                "Blur media in warning posts and their reply targets"));
+        blurSensitiveWordPosts.setTextColor(textColor());
+        blurSensitiveWordPosts.setTextSize(16);
+        Theme.tintCompoundButton(this, blurSensitiveWordPosts);
+        root.addView(blurSensitiveWordPosts);
+        root.addView(helperText(MainActivity.text(
+                "\u300c\u30b0\u30ed\u300d\u300c\u6b7b\u306d\u300d\u300c\u95b2\u89a7\u6ce8\u610f\u300d\u306a\u3069\u3092\u542b\u3080\u66f8\u304d\u8fbc\u307f\u3068\u3001\u305d\u306e\u8fd4\u4fe1\u5148\u306e\u753b\u50cf\u30fbGIF\u30fb\u52d5\u753b\u304c\u5bfe\u8c61\u3067\u3059\u3002",
+                "Applies to images, GIFs, and videos in posts containing warning terms and in posts targeted by those replies.")));
+
         blurVideoThumbnails = new CheckBox(this);
         blurVideoThumbnails.setText(MainActivity.text("\u52d5\u753b\u30b5\u30e0\u30cd\u30a4\u30eb\u3082\u5224\u5b9a\u3057\u3066\u307c\u304b\u3059", "Also check and blur video thumbnails"));
         blurVideoThumbnails.setTextColor(textColor());
@@ -693,6 +706,8 @@ public class SettingsActivity extends Activity {
         externalLinkInApp.setChecked(preferences.getBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false));
         showMediaPreviews.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_MEDIA, true));
         blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
+        blurSensitiveWordPosts.setChecked(preferences.getBoolean(
+                MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true));
         blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
         blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
         autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false));
@@ -766,6 +781,8 @@ public class SettingsActivity extends Activity {
         });
         blurVideoThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         blurGifThumbnails.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        blurSensitiveWordPosts.setOnCheckedChangeListener(
+                (buttonView, isChecked) -> saveSettings(false));
         autoplayGifs.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         imgbbApiKey.setOnEditorActionListener((v, actionId, event) -> {
             saveSettings(false);
@@ -912,6 +929,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, externalLinkInApp.isChecked())
                 .putBoolean(MainActivity.PREF_SHOW_MEDIA, showMediaPreviews.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, blurImgurImages.isChecked())
+                .putBoolean(MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS,
+                        blurSensitiveWordPosts.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS,
                         blurImgurImages.isChecked() && blurVideoThumbnails.isChecked())
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS,
@@ -1155,6 +1174,7 @@ public class SettingsActivity extends Activity {
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE)
                 .putBoolean(MainActivity.PREF_SHOW_MEDIA, true)
                 .putBoolean(MainActivity.PREF_BLUR_IMGUR, true)
+                .putBoolean(MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true)
                 .putBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false)
@@ -1234,6 +1254,8 @@ public class SettingsActivity extends Activity {
         boolean mediaEnabled = showMediaPreviews.isChecked();
         blurImgurImages.setEnabled(mediaEnabled);
         blurImgurImages.setAlpha(mediaEnabled ? 1f : 0.45f);
+        blurSensitiveWordPosts.setEnabled(mediaEnabled);
+        blurSensitiveWordPosts.setAlpha(mediaEnabled ? 1f : 0.45f);
         boolean videoBlurEnabled = mediaEnabled && blurImgurImages.isChecked();
         blurVideoThumbnails.setEnabled(videoBlurEnabled);
         blurVideoThumbnails.setAlpha(videoBlurEnabled ? 1f : 0.45f);

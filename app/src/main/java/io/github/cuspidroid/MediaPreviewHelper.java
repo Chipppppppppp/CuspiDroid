@@ -15,6 +15,7 @@ import android.os.Handler;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -36,7 +37,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class MediaPreviewHelper {
-    static final int SENSITIVE_MODEL_VERSION = 4;
+    static final int SENSITIVE_MODEL_VERSION = 5;
+
+    interface ImageClassifier {
+        boolean isSensitive(Bitmap bitmap);
+    }
 
     interface Callback {
         void openImage(String originalUrl, String mediaUrl, boolean sensitive);
@@ -51,15 +56,16 @@ final class MediaPreviewHelper {
                        String originalUrl, String mediaUrl, boolean video, int cellSize,
                        Runnable longClickAction, Callback callback) {
         return create(activity, preferences, executor, mainHandler, originalUrl, mediaUrl, video,
-                cellSize, longClickAction, null, callback);
+                cellSize, longClickAction, false, null, callback);
     }
 
     static View create(Activity activity, SharedPreferences preferences, Executor executor, Handler mainHandler,
                        String originalUrl, String mediaUrl, boolean video, int cellSize,
-                       Runnable longClickAction, SensitiveImageClassifier classifier, Callback callback) {
+                       Runnable longClickAction, boolean forceSensitive,
+                       ImageClassifier classifier, Callback callback) {
         FrameLayout frame = new SquareMediaFrame(activity, cellSize);
         final String[] activeMediaUrl = {mediaUrl};
-        final boolean[] activeSensitive = {false};
+        final boolean[] activeSensitive = {forceSensitive};
         frame.setClickable(true);
         frame.setClipChildren(true);
         frame.setClipToPadding(true);
@@ -120,6 +126,18 @@ final class MediaPreviewHelper {
         frame.addView(play, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
+        Button reveal = new Button(activity);
+        reveal.setText(MainActivity.text("\u8868\u793a", "Reveal"));
+        reveal.setTextSize(13);
+        reveal.setTextColor(Color.WHITE);
+        reveal.setBackgroundColor(Color.argb(200, 15, 23, 42));
+        reveal.setVisibility(View.GONE);
+        FrameLayout.LayoutParams revealParams = new FrameLayout.LayoutParams(
+                dp(activity, 92), dp(activity, 42),
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        revealParams.setMargins(0, 0, 0, dp(activity, 8));
+        frame.addView(reveal, revealParams);
+
         frame.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
             if (video || isVideoUrl(openUrl)) {
@@ -132,7 +150,7 @@ final class MediaPreviewHelper {
         executor.execute(() -> {
             Bitmap bitmap = null;
             Drawable drawable = null;
-            boolean sensitive = false;
+            boolean sensitive = forceSensitive;
             try {
                 boolean gif = isGifUrl(mediaUrl);
                 if (video || isVideoUrl(mediaUrl)) {
@@ -145,18 +163,6 @@ final class MediaPreviewHelper {
                         if (bitmap != null) {
                             byte[] bytes = bitmapToPng(bitmap);
                             AppCache.write(activity, preferences, "media", "video:" + mediaUrl, ".png", bytes);
-                        }
-                    }
-                } else if (gif && !autoplayGifs(preferences)) {
-                    byte[] cached = AppCache.read(activity, preferences, "media", "gif-poster:" + mediaUrl, ".png");
-                    if (cached != null) {
-                        bitmap = BitmapFactory.decodeByteArray(cached, 0, cached.length);
-                    }
-                    if (bitmap == null) {
-                        bitmap = videoPosterBitmap(mediaUrl);
-                        if (bitmap != null) {
-                            byte[] bytes = bitmapToPng(bitmap);
-                            AppCache.write(activity, preferences, "media", "gif-poster:" + mediaUrl, ".png", bytes);
                         }
                     }
                 } else {
@@ -199,7 +205,7 @@ final class MediaPreviewHelper {
                                 MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true))
                         && (!activeGif || preferences.getBoolean(
                                 MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
-                if (bitmap != null && checkSensitive) {
+                if (!sensitive && bitmap != null && checkSensitive) {
                     Boolean cached = readSensitive(preferences, activeMediaUrl[0]);
                     sensitive = cached != null ? cached : classifier.isSensitive(bitmap);
                     if (cached == null) {
@@ -220,10 +226,41 @@ final class MediaPreviewHelper {
                 }
                 activeSensitive[0] = finalSensitive;
                 spinner.setVisibility(View.GONE);
-                if (finalBitmap != null && finalSensitive) {
-                    image.setImageBitmap(blurredBitmap(finalBitmap));
-                    image.setVisibility(View.VISIBLE);
+                if (finalSensitive) {
+                    if (finalBitmap != null) {
+                        image.setImageBitmap(blurredBitmap(finalBitmap));
+                        image.setVisibility(View.VISIBLE);
+                    }
                     play.setVisibility(View.GONE);
+                    reveal.setVisibility(View.VISIBLE);
+                    reveal.setOnClickListener(v -> {
+                        reveal.setVisibility(View.GONE);
+                        if (finalBitmap == null) {
+                            play.setVisibility(video || gif ? View.VISIBLE : View.GONE);
+                            error.setVisibility(video || gif ? View.GONE : View.VISIBLE);
+                        } else if (finalDrawable != null && gif && autoplayGifs(preferences)) {
+                            image.setImageDrawable(finalDrawable);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                                    && finalDrawable instanceof AnimatedImageDrawable) {
+                                ((AnimatedImageDrawable) finalDrawable).start();
+                            }
+                            play.setVisibility(View.GONE);
+                        } else {
+                            image.setImageBitmap(finalBitmap);
+                            play.setVisibility(video || (gif && !autoplayGifs(preferences))
+                                    ? View.VISIBLE : View.GONE);
+                            if (gif && !autoplayGifs(preferences) && finalDrawable != null) {
+                                play.setOnClickListener(playView -> {
+                                    image.setImageDrawable(finalDrawable);
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                                            && finalDrawable instanceof AnimatedImageDrawable) {
+                                        ((AnimatedImageDrawable) finalDrawable).start();
+                                    }
+                                    play.setVisibility(View.GONE);
+                                });
+                            }
+                        }
+                    });
                 } else if (finalDrawable != null && gif && autoplayGifs(preferences)) {
                     image.setImageDrawable(finalDrawable);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && finalDrawable instanceof AnimatedImageDrawable) {
@@ -261,7 +298,7 @@ final class MediaPreviewHelper {
             JSONObject root = new JSONObject(preferences.getString(MainActivity.PREF_IMGUR_META, "{}"));
             JSONObject item = root.optJSONObject(url);
             return item == null || !item.has("sensitive")
-                    || item.optInt("sensitiveModelVersion", 0) < SENSITIVE_MODEL_VERSION
+                    || item.optInt("sensitiveModelVersion", 0) != SENSITIVE_MODEL_VERSION
                     ? null : item.optBoolean("sensitive", false);
         } catch (Exception ignored) {
             return null;
@@ -288,12 +325,11 @@ final class MediaPreviewHelper {
     }
 
     static Bitmap blurredBitmap(Bitmap bitmap) {
-        int smallWidth = Math.max(1, bitmap.getWidth() / 12);
-        int smallHeight = Math.max(1, bitmap.getHeight() / 12);
-        Bitmap small = Bitmap.createScaledBitmap(
-                bitmap, smallWidth, smallHeight, true);
-        Bitmap softened = boxBlur(small, 1);
-        if (softened != small) {
+        int width = Math.max(1, bitmap.getWidth() / 12);
+        int height = Math.max(1, bitmap.getHeight() / 12);
+        Bitmap small = Bitmap.createScaledBitmap(bitmap, width, height, true);
+        Bitmap softened = boxBlur(small);
+        if (softened != small && small != bitmap) {
             small.recycle();
         }
         Bitmap blurred = Bitmap.createScaledBitmap(softened,
@@ -304,7 +340,7 @@ final class MediaPreviewHelper {
         return blurred;
     }
 
-    private static Bitmap boxBlur(Bitmap source, int iterations) {
+    private static Bitmap boxBlur(Bitmap source) {
         Bitmap current = source.copy(Bitmap.Config.ARGB_8888, true);
         int width = current.getWidth();
         int height = current.getHeight();
@@ -313,39 +349,37 @@ final class MediaPreviewHelper {
         }
         int[] pixels = new int[width * height];
         int[] blurred = new int[width * height];
-        for (int pass = 0; pass < iterations; pass++) {
-            current.getPixels(pixels, 0, width, 0, 0, width, height);
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    int a = 0;
-                    int r = 0;
-                    int g = 0;
-                    int b = 0;
-                    int count = 0;
-                    for (int dy = -1; dy <= 1; dy++) {
-                        int yy = y + dy;
-                        if (yy < 0 || yy >= height) {
+        current.getPixels(pixels, 0, width, 0, 0, width, height);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int a = 0;
+                int r = 0;
+                int g = 0;
+                int b = 0;
+                int count = 0;
+                for (int dy = -1; dy <= 1; dy++) {
+                    int yy = y + dy;
+                    if (yy < 0 || yy >= height) {
+                        continue;
+                    }
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int xx = x + dx;
+                        if (xx < 0 || xx >= width) {
                             continue;
                         }
-                        for (int dx = -1; dx <= 1; dx++) {
-                            int xx = x + dx;
-                            if (xx < 0 || xx >= width) {
-                                continue;
-                            }
-                            int color = pixels[yy * width + xx];
-                            a += Color.alpha(color);
-                            r += Color.red(color);
-                            g += Color.green(color);
-                            b += Color.blue(color);
-                            count++;
-                        }
+                        int color = pixels[yy * width + xx];
+                        a += Color.alpha(color);
+                        r += Color.red(color);
+                        g += Color.green(color);
+                        b += Color.blue(color);
+                        count++;
                     }
-                    blurred[y * width + x] = Color.argb(
-                            a / count, r / count, g / count, b / count);
                 }
+                blurred[y * width + x] = Color.argb(
+                        a / count, r / count, g / count, b / count);
             }
-            current.setPixels(blurred, 0, width, 0, 0, width, height);
         }
+        current.setPixels(blurred, 0, width, 0, 0, width, height);
         return current;
     }
 
