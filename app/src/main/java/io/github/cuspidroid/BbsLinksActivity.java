@@ -589,7 +589,7 @@ public class BbsLinksActivity extends Activity {
 
     private GradientDrawable addIconBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.rgb(15, 118, 110));
+        drawable.setColor(Theme.accent(this));
         drawable.setCornerRadius(dp(13));
         return drawable;
     }

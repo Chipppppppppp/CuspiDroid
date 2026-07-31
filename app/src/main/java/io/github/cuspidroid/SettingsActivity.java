@@ -65,12 +65,8 @@ public class SettingsActivity extends Activity {
     private static final int REQUEST_CHMATE_DATABASE = 4201;
     private static final int REQUEST_CUSPIDROID_BACKUP_CREATE = 4202;
     private static final int REQUEST_CUSPIDROID_BACKUP_RESTORE = 4203;
-    private static final int TEXT = Color.rgb(31, 41, 55);
-    private static final int MUTED = Color.rgb(79, 91, 103);
-    private static final int SURFACE = Color.rgb(247, 248, 250);
-    private static final int BORDER = Color.rgb(215, 221, 226);
-
     private SharedPreferences preferences;
+    private String appliedThemeSignature;
     private CheckBox open5chInNewTab;
     private CheckBox externalLinkInApp;
     private CheckBox showMediaPreviews;
@@ -109,10 +105,6 @@ public class SettingsActivity extends Activity {
     private ProgressBar cacheUsage;
     private TextView cacheUsageText;
     private Button clearCacheButton;
-    private RadioButton themeSystem;
-    private RadioButton themeLight;
-    private RadioButton themeDark;
-    private RadioGroup themeGroup;
     private RadioButton searchFind5chIo;
     private RadioButton searchCustom;
     private EditText customTemplate;
@@ -145,6 +137,7 @@ public class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
+        appliedThemeSignature = Theme.signature(this);
         buildLayout();
         loadSettings();
         setupAutoSave();
@@ -163,6 +156,12 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        String currentThemeSignature = Theme.signature(this);
+        if (!currentThemeSignature.equals(appliedThemeSignature)) {
+            appliedThemeSignature = currentThemeSignature;
+            recreate();
+            return;
+        }
         updateCacheUsage();
     }
 
@@ -202,18 +201,11 @@ public class SettingsActivity extends Activity {
         root.addView(sectionTitle(R.drawable.ic_settings,
                 MainActivity.text("\u5916\u89b3\u3068\u30db\u30fc\u30e0", "Appearance & Home"),
                 MainActivity.text("\u30c6\u30fc\u30de\u3001\u30d0\u30fc\u306e\u4f4d\u7f6e\u3001\u30db\u30fc\u30e0\u3068\u30e1\u30cb\u30e5\u30fc", "Theme, bar position, home screen, and menus")));
-        themeGroup = new RadioGroup(this);
-        themeGroup.setOrientation(RadioGroup.VERTICAL);
-        themeSystem = radio(MainActivity.text("\u7aef\u672b\u306e\u30c6\u30fc\u30de\u306b\u5f93\u3046", "Follow device theme"));
-        themeLight = radio(MainActivity.text("\u30e9\u30a4\u30c8", "Light"));
-        themeDark = radio(MainActivity.text("\u30c0\u30fc\u30af", "Dark"));
-        themeSystem.setId(View.generateViewId());
-        themeLight.setId(View.generateViewId());
-        themeDark.setId(View.generateViewId());
-        themeGroup.addView(themeSystem);
-        themeGroup.addView(themeLight);
-        themeGroup.addView(themeDark);
-        root.addView(themeGroup);
+        root.addView(managementRow(R.drawable.ic_edit,
+                MainActivity.text("テーマを選択・カスタマイズ", "Select and customize themes"),
+                MainActivity.text("通常・プライベートの割り当て、色編集、インポート・エクスポート",
+                        "Normal/private assignments, color editing, import, and export"),
+                v -> startActivity(new Intent(this, ThemeSettingsActivity.class))));
 
         RadioGroup addressBarPosition = new RadioGroup(this);
         addressBarPosition.setOrientation(RadioGroup.HORIZONTAL);
@@ -748,15 +740,6 @@ public class SettingsActivity extends Activity {
         cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
         updateCacheDependentSettings();
         updateCacheUsage();
-        String themeMode = preferences.getString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
-        if (Theme.MODE_DARK.equals(themeMode)) {
-            themeDark.setChecked(true);
-        } else if (Theme.MODE_LIGHT.equals(themeMode)) {
-            themeLight.setChecked(true);
-        } else {
-            themeSystem.setChecked(true);
-        }
-
         String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
         customTemplate.setText(template);
         if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template)
@@ -847,10 +830,6 @@ public class SettingsActivity extends Activity {
             updateCacheDependentSettings();
             saveSettings(false);
         });
-        themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
-            saveThemeMode();
-            group.post(this::recreate);
-        });
         searchFind5chIo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
                 saveSettings(false);
@@ -917,13 +896,6 @@ public class SettingsActivity extends Activity {
             }
         }
 
-        String themeMode = Theme.MODE_SYSTEM;
-        if (themeLight.isChecked()) {
-            themeMode = Theme.MODE_LIGHT;
-        } else if (themeDark.isChecked()) {
-            themeMode = Theme.MODE_DARK;
-        }
-
         preferences.edit()
                 .putBoolean(MainActivity.PREF_5CH_NEW_TAB, open5chInNewTab.isChecked())
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, externalLinkInApp.isChecked())
@@ -962,19 +934,8 @@ public class SettingsActivity extends Activity {
                 .putString(MainActivity.PREF_SYNC2CH_ID, sync2chId.getText().toString().trim())
                 .putString(MainActivity.PREF_SYNC2CH_API_PASSWORD, sync2chApiPassword.getText().toString().trim())
                 .putBoolean(MainActivity.PREF_CACHE_ENABLED, cacheEnabled.isChecked())
-                .putString(MainActivity.PREF_THEME_MODE, themeMode)
                 .putString(MainActivity.PREF_SEARCH_TEMPLATE, template)
                 .apply();
-    }
-
-    private void saveThemeMode() {
-        String themeMode = Theme.MODE_SYSTEM;
-        if (themeLight.isChecked()) {
-            themeMode = Theme.MODE_LIGHT;
-        } else if (themeDark.isChecked()) {
-            themeMode = Theme.MODE_DARK;
-        }
-        preferences.edit().putString(MainActivity.PREF_THEME_MODE, themeMode).apply();
     }
 
     private void confirmResetDefaults() {
@@ -1199,6 +1160,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_AA_DEBUG, false)
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
                 .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)
+                .putString(Theme.PREF_NORMAL_THEME, Theme.MODE_SYSTEM)
+                .putString(Theme.PREF_PRIVATE_THEME, Theme.ID_PRIVATE)
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
                 .putBoolean(MainActivity.PREF_BOARD_SHOW_BOARD_NAME, false)
                 .putBoolean(MainActivity.PREF_BOARD_SHOW_RESPONSES, true)
@@ -1457,11 +1420,11 @@ public class SettingsActivity extends Activity {
     private TextView smallActionButton(String value) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextColor(Color.WHITE);
+        view.setTextColor(Theme.contrastingText(Theme.accent(this)));
         view.setTextSize(14);
         view.setGravity(Gravity.CENTER);
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(15, 118, 110));
+        background.setColor(Theme.accent(this));
         background.setCornerRadius(dp(10));
         view.setBackground(background);
         return view;
@@ -1504,7 +1467,7 @@ public class SettingsActivity extends Activity {
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.rgb(15, 118, 110));
+        icon.setColorFilter(Theme.accent(this));
         icon.setPadding(dp(8), dp(8), dp(8), dp(8));
         icon.setBackground(roundedIconBubble());
         row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
@@ -1558,7 +1521,7 @@ public class SettingsActivity extends Activity {
         button.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null);
         button.setCompoundDrawablePadding(dp(8));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Theme.dark(this) ? Color.rgb(75, 85, 99) : Color.rgb(100, 116, 139));
+        background.setColor(Theme.subtle(this));
         background.setCornerRadius(dp(10));
         button.setBackground(background);
         return button;
@@ -1574,20 +1537,19 @@ public class SettingsActivity extends Activity {
 
     private GradientDrawable roundedIconBubble() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.dark(this) ? Color.rgb(17, 55, 58) : Color.rgb(220, 252, 247));
+        drawable.setColor(Theme.active(this));
         drawable.setCornerRadius(dp(13));
         return drawable;
     }
 
     private Drawable cacheUsageDrawable() {
-        boolean dark = Theme.dark(this);
         GradientDrawable track = new GradientDrawable();
-        track.setColor(dark ? Color.rgb(34, 45, 56) : Color.rgb(226, 232, 240));
-        track.setStroke(dp(1), dark ? Color.rgb(86, 98, 112) : borderColor());
+        track.setColor(Theme.field(this));
+        track.setStroke(dp(1), Theme.strongBorder(this));
         track.setCornerRadius(dp(9));
 
         GradientDrawable progress = new GradientDrawable();
-        progress.setColor(dark ? Color.rgb(45, 212, 191) : Theme.accent(this));
+        progress.setColor(Theme.accent(this));
         progress.setCornerRadius(dp(9));
 
         ClipDrawable clippedProgress = new ClipDrawable(progress, Gravity.LEFT, ClipDrawable.HORIZONTAL);

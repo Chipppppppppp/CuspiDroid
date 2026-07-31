@@ -18,11 +18,6 @@ import android.widget.Toast;
 import java.util.List;
 
 public class HistoryActivity extends Activity {
-    private static final int TEXT = Color.rgb(31, 41, 55);
-    private static final int MUTED = Color.rgb(79, 91, 103);
-    private static final int SURFACE = Color.rgb(247, 248, 250);
-    private static final int BORDER = Color.rgb(215, 221, 226);
-
     private SharedPreferences preferences;
     private LinearLayout list;
 
@@ -124,7 +119,7 @@ public class HistoryActivity extends Activity {
             if (unread > 0) {
                 TextView unreadBadge = new TextView(this);
                 unreadBadge.setText(String.valueOf(unread));
-                unreadBadge.setTextColor(Color.WHITE);
+                unreadBadge.setTextColor(Theme.contrastingText(Theme.accent(this)));
                 unreadBadge.setTextSize(12);
                 unreadBadge.setGravity(Gravity.CENTER);
                 unreadBadge.setBackground(unreadBadgeBackground());
@@ -193,7 +188,7 @@ public class HistoryActivity extends Activity {
 
     private GradientDrawable unreadBadgeBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.rgb(15, 118, 110));
+        drawable.setColor(Theme.accent(this));
         drawable.setCornerRadius(dp(12));
         return drawable;
     }

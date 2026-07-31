@@ -553,7 +553,7 @@ final class MediaPreviewHelper {
     }
 
     private static int mediaBackground(Activity activity) {
-        return Theme.dark(activity) ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249);
+        return Theme.field(activity);
     }
 
     private static boolean autoplayGifs(SharedPreferences preferences) {

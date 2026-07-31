@@ -344,12 +344,8 @@ public class MainActivity extends Activity {
     private static final Charset POST_CHARSET = Charset.forName("UTF-8");
     private static final Charset LEGACY_BBS_POST_CHARSET = Charset.forName("MS932");
     private static final Charset SHITARABA_POST_CHARSET = Charset.forName("EUC-JP");
-    private static final int TEAL = Color.rgb(15, 118, 110);
     private static final int MY_POST_MARKER = Color.rgb(37, 99, 235);
     private static final int REPLY_TO_MY_POST_MARKER = Color.rgb(112, 88, 163);
-    private static final int SURFACE = Color.rgb(247, 248, 250);
-    private static final int BORDER = Color.rgb(215, 221, 226);
-    private static final int TEXT = Color.rgb(31, 41, 55);
     private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?[;:]//|ttps?[;:]//|ttp[;:]//)\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
     private static final Pattern HISSI_DATE_PATTERN = Pattern.compile("(20\\d{2})[./\\-](\\d{1,2})[./\\-](\\d{1,2})|(20\\d{2})年(\\d{1,2})月(\\d{1,2})日");
@@ -457,6 +453,8 @@ public class MainActivity extends Activity {
     private TextView tabCountLabel;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
+    /** Current semantic accent, retained for legacy drawing code that captures an int color. */
+    private int TEAL;
     private TabPayloadStore tabPayloadStore;
     private EditText pendingImgbbUploadMessage;
     private int pendingImgbbExpirationSeconds;
@@ -718,127 +716,79 @@ public class MainActivity extends Activity {
     }
 
     private int bgColor() {
-        if (privateUiActive()) {
-            return privateCanvasColor();
-        }
-        return Theme.background(this);
+        return Theme.background(this, privateUiActive());
     }
 
     private int surfaceColor() {
-        if (privateUiActive()) {
-            return privateBackgroundColor();
-        }
-        return Theme.surface(this);
+        return Theme.surface(this, privateUiActive());
     }
 
     private int postColor() {
-        if (privateUiActive()) {
-            return privateBackgroundColor();
-        }
-        return Theme.post(this);
+        return Theme.post(this, privateUiActive());
     }
 
     private int textColor() {
-        if (privateUiActive()) {
-            return Color.rgb(245, 247, 250);
-        }
-        return Theme.text(this);
+        return Theme.text(this, privateUiActive());
     }
 
     private int mutedColor() {
-        if (privateUiActive()) {
-            return Color.rgb(168, 176, 186);
-        }
-        return Theme.muted(this);
+        return Theme.muted(this, privateUiActive());
     }
 
     private int borderColor() {
-        if (privateUiActive()) {
-            return privateBorderColor();
-        }
-        return Theme.border(this);
+        return Theme.border(this, privateUiActive());
     }
 
     private int menuColor() {
-        if (privateUiActive()) {
-            return privateBackgroundColor();
-        }
-        return Theme.menu(this);
+        return Theme.menu(this, privateUiActive());
     }
 
     private int barColor() {
-        if (privateUiActive()) {
-            return privateCanvasColor();
-        }
-        return Theme.topBar(this);
+        return Theme.topBar(this, privateUiActive());
     }
 
     private int fieldColor() {
-        if (privateUiActive()) {
-            return privateBackgroundColor();
-        }
-        return Theme.field(this);
-    }
-
-    private int privateBackgroundColor() {
-        return Color.rgb(1, 40, 29);
-    }
-
-    private int privateCanvasColor() {
-        return Color.rgb(0, 24, 17);
-    }
-
-    private int privateBorderColor() {
-        return Color.rgb(8, 72, 52);
+        return Theme.field(this, privateUiActive());
     }
 
     private int hintTextColor() {
-        return darkUiActive() ? Color.rgb(168, 176, 186) : Color.rgb(100, 116, 139);
+        return Theme.subtle(this, privateUiActive());
     }
 
     private int privateBlue() {
-        return darkUiActive() ? Color.rgb(52, 211, 153) : Color.rgb(21, 128, 61);
+        return Theme.accent(this, privateUiActive());
     }
 
     private int privateButtonFill(boolean active) {
-        if (!active) {
-            return darkUiActive() ? Color.rgb(17, 24, 39) : menuColor();
-        }
-        return darkUiActive() ? Color.rgb(0, 14, 10) : Color.rgb(187, 247, 208);
+        return active ? Theme.active(this, privateUiActive()) : Theme.menu(this, privateUiActive());
     }
 
     private int privateButtonStroke(boolean active) {
-        if (!active) {
-            return borderColor();
-        }
-        return privateBackgroundColor();
+        return active ? Theme.strongBorder(this, privateUiActive()) : borderColor();
     }
 
     private int privateButtonIcon(boolean active) {
-        if (!active && darkUiActive()) {
-            return Color.rgb(110, 231, 183);
-        }
         return privateBlue();
     }
 
     private boolean darkUiActive() {
-        return Theme.dark(this) || privateUiActive();
+        return Theme.dark(this, privateUiActive());
     }
 
     private int accentColor() {
-        return privateUiActive() ? Color.rgb(20, 184, 166) : Theme.accent(this);
+        return Theme.accent(this, privateUiActive());
     }
 
     private int unreadColor() {
-        return privateUiActive() ? Color.rgb(4, 44, 43) : Theme.unread(this);
+        return Theme.unread(this, privateUiActive());
     }
 
     private int activeColor() {
-        return privateUiActive() ? Color.rgb(2, 48, 48) : Theme.active(this);
+        return Theme.active(this, privateUiActive());
     }
 
     private int linkHighlightColor() {
-        return privateUiActive() ? Color.rgb(23, 37, 84) : Theme.linkHighlight(this);
+        return Theme.linkHighlight(this, privateUiActive());
     }
 
     private int searchHighlightColor() {
@@ -1292,6 +1242,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildLayout() {
+        TEAL = accentColor();
         addressBarTop = addressBarOnTop();
         applySystemBarTheme();
         toolbarButtons.clear();
@@ -2074,24 +2025,7 @@ public class MainActivity extends Activity {
     }
 
     private void applySystemBarTheme() {
-        getWindow().setStatusBarColor(bgColor());
-        getWindow().setNavigationBarColor(barColor());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            int flags = getWindow().getDecorView().getSystemUiVisibility();
-            if (Theme.dark(this) || privateUiActive()) {
-                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            } else {
-                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                if (Theme.dark(this) || privateUiActive()) {
-                    flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-                } else {
-                    flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-                }
-            }
-            getWindow().getDecorView().setSystemUiVisibility(flags);
-        }
+        Theme.applySystemBars(this, privateUiActive());
     }
 
     private void showAddressMenuAtToolbarEdge(PopupWindow popup, View menu, boolean alignLeft) {
@@ -2491,9 +2425,10 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
             return;
         }
-        int active = Color.argb(170, 15, 118, 110);
-        int thumb = Color.rgb(15, 118, 110);
-        int track = Color.argb(70, 15, 118, 110);
+        int accent = accentColor();
+        int active = Color.argb(170, Color.red(accent), Color.green(accent), Color.blue(accent));
+        int thumb = accent;
+        int track = Color.argb(70, Color.red(accent), Color.green(accent), Color.blue(accent));
         seek.setProgressTintList(ColorStateList.valueOf(active));
         seek.setThumbTintList(ColorStateList.valueOf(thumb));
         seek.setProgressBackgroundTintList(ColorStateList.valueOf(track));
@@ -3236,7 +3171,8 @@ public class MainActivity extends Activity {
         int bar = barColor();
         int stroke = borderColor();
         boolean privateActive = privateUiActive();
-        boolean dark = Theme.dark(this);
+        TEAL = Theme.accent(this, privateActive);
+        boolean dark = Theme.dark(this, privateActive);
         if (bg == appliedChromeBgColor
                 && bar == appliedChromeBarColor
                 && stroke == appliedChromeStrokeColor
@@ -3568,7 +3504,7 @@ public class MainActivity extends Activity {
     }
 
     private String themeMode() {
-        return preferences.getString(PREF_THEME_MODE, Theme.MODE_SYSTEM);
+        return Theme.signature(this);
     }
 
     private void openInTab(CuspTab tab, String url, boolean addHistory) {
@@ -11039,12 +10975,12 @@ public class MainActivity extends Activity {
 
         TextView badge = new TextView(this);
         badge.setText(String.valueOf(unread));
-        badge.setTextColor(Color.WHITE);
+        badge.setTextColor(Theme.contrastingText(accentColor()));
         badge.setTextSize(11);
         badge.setTypeface(Typeface.DEFAULT_BOLD);
         badge.setGravity(Gravity.CENTER);
         badge.setIncludeFontPadding(false);
-        badge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(10)));
+        badge.setBackground(roundedDrawable(accentColor(), accentColor(), dp(10)));
         LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(28), dp(18));
         badgeParams.gravity = Gravity.END;
         column.addView(badge, badgeParams);
@@ -16815,10 +16751,10 @@ public class MainActivity extends Activity {
         }
         TextView unreadBadge = new TextView(this);
         unreadBadge.setText(String.valueOf(unread));
-        unreadBadge.setTextColor(Color.WHITE);
+        unreadBadge.setTextColor(Theme.contrastingText(accentColor()));
         unreadBadge.setTextSize(12);
         unreadBadge.setGravity(Gravity.CENTER);
-        unreadBadge.setBackground(roundedDrawable(Color.rgb(15, 118, 110), Color.rgb(15, 118, 110), dp(12)));
+        unreadBadge.setBackground(roundedDrawable(accentColor(), accentColor(), dp(12)));
         LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(34), dp(24));
         unreadParams.setMargins(dp(8), 0, 0, 0);
         row.addView(unreadBadge, unreadParams);
@@ -17355,7 +17291,7 @@ public class MainActivity extends Activity {
         if (item.lastViewedAt > 0) {
             TextView viewedAt = new TextView(this);
             viewedAt.setText(text("\u6700\u7d42\u95b2\u89a7: ", "Last viewed: ") + formatHistoryTime(item.lastViewedAt));
-            viewedAt.setTextColor(Color.rgb(100, 116, 139));
+            viewedAt.setTextColor(mutedColor());
             viewedAt.setTextSize(12);
             row.addView(viewedAt);
         }
@@ -18658,7 +18594,7 @@ public class MainActivity extends Activity {
         FrameLayout placeholder = new FrameLayout(this);
         placeholder.setClickable(true);
         placeholder.setClipToOutline(true);
-        placeholder.setBackgroundColor(darkUiActive() ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
+        placeholder.setBackgroundColor(fieldColor());
         if (longClickAction != null) {
             placeholder.setOnLongClickListener(v -> {
                 longClickAction.run();
@@ -18831,7 +18767,7 @@ public class MainActivity extends Activity {
     }
 
     private int unavailableMediaColor() {
-        return darkUiActive() ? Color.rgb(24, 24, 27) : Color.rgb(226, 232, 240);
+        return Theme.strongBorder(this, privateUiActive());
     }
 
     private void scheduleLazyImgurLoads() {
@@ -21602,7 +21538,7 @@ public class MainActivity extends Activity {
         box.setText(value);
         box.setTextSize(14);
         box.setTextColor(textColor());
-        Theme.tintCompoundButton(this, box);
+        Theme.tintCompoundButton(this, box, privateUiActive());
         return box;
     }
 
@@ -21655,7 +21591,7 @@ public class MainActivity extends Activity {
         for (Uri uri : pendingImgbbUploadUris) {
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            image.setBackgroundColor(darkUiActive() ? Color.rgb(15, 23, 42) : Color.rgb(241, 245, 249));
+            image.setBackgroundColor(fieldColor());
             image.setImageURI(uri);
             image.setOnClickListener(v -> openImgbbImagePicker(pendingImgbbUploadMessage));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellSize, cellSize);
@@ -31273,7 +31209,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static abstract class PostNameSpan extends ClickableSpan {
+    private abstract class PostNameSpan extends ClickableSpan {
         final String name;
 
         PostNameSpan(String name) {

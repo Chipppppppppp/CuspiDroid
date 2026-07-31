@@ -367,7 +367,7 @@ public class ListDisplaySettingsActivity extends Activity {
         row.setFocusable(true);
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.rgb(15, 118, 110));
+        icon.setColorFilter(Theme.accent(this));
         icon.setPadding(dp(8), dp(8), dp(8), dp(8));
         icon.setBackground(managementIconBackground());
         row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));

@@ -29,11 +29,6 @@ import java.util.List;
 import java.util.Map;
 
 public class ReadPostsActivity extends Activity {
-    private static final int TEXT = Color.rgb(31, 41, 55);
-    private static final int MUTED = Color.rgb(79, 91, 103);
-    private static final int SURFACE = Color.rgb(247, 248, 250);
-    private static final int BORDER = Color.rgb(215, 221, 226);
-
     private SharedPreferences preferences;
     private LinearLayout list;
 

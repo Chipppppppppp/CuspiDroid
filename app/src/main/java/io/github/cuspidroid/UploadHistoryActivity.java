@@ -585,7 +585,7 @@ public class UploadHistoryActivity extends Activity {
 
     private GradientDrawable thumbnailBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.dark(this) ? Color.rgb(30, 36, 43) : Color.rgb(236, 240, 244));
+        drawable.setColor(Theme.field(this));
         drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(6));
         return drawable;

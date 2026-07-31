@@ -198,7 +198,7 @@ public class GestureSettingsActivity extends Activity {
             }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(textColor());
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(mutedColor());
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(Color.rgb(15, 118, 110));
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(Theme.accent(this));
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 if (!pendingGesture[0].isEmpty() && !MainActivity.validGesture(pendingGesture[0])) {
                     result.setText(MainActivity.text("\u5de6\u307e\u305f\u306f\u53f3\u304b\u3089\u958b\u59cb", "Start left or right"));
@@ -248,15 +248,15 @@ public class GestureSettingsActivity extends Activity {
     }
 
     private void tintSensitivityBar() {
-        int active = Color.rgb(15, 118, 110);
-        int inactive = Theme.dark(this) ? Color.rgb(71, 85, 105) : Color.rgb(203, 213, 225);
-        int thumb = Theme.dark(this) ? Color.rgb(45, 212, 191) : active;
+        int active = Theme.accent(this);
+        int inactive = Theme.border(this);
+        int thumb = active;
         sensitivity.setProgressTintList(ColorStateList.valueOf(active));
         sensitivity.setProgressBackgroundTintList(ColorStateList.valueOf(inactive));
         sensitivity.setThumbTintList(ColorStateList.valueOf(thumb));
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             sensitivity.setTickMarkTintList(ColorStateList.valueOf(
-                    Theme.dark(this) ? Color.rgb(148, 163, 184) : Color.rgb(100, 116, 139)));
+                    Theme.subtle(this)));
         }
     }
 
@@ -322,7 +322,7 @@ public class GestureSettingsActivity extends Activity {
 
     private GradientDrawable captureBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Theme.dark(this) ? Color.rgb(17, 24, 39) : Color.rgb(248, 250, 252));
+        drawable.setColor(Theme.surface(this));
         drawable.setStroke(dp(1), borderColor());
         drawable.setCornerRadius(dp(10));
         return drawable;

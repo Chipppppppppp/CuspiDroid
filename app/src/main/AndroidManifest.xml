@@ -19,6 +19,9 @@
             android:name=".SettingsCategoryActivity"
             android:exported="false" />
         <activity
+            android:name=".ThemeSettingsActivity"
+            android:exported="false" />
+        <activity
             android:name=".DebugSettingsActivity"
             android:exported="false" />
         <activity
