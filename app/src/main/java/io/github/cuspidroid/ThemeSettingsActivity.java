@@ -46,7 +46,6 @@ public class ThemeSettingsActivity extends Activity {
     private SharedPreferences preferences;
     private LinearLayout customThemeList;
     private LinearLayout normalSelector;
-    private LinearLayout privateSelector;
     private Theme.Palette pendingExport;
 
     @Override
@@ -81,19 +80,15 @@ public class ThemeSettingsActivity extends Activity {
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
         TextView intro = text(MainActivity.text(
-                "通常時とプライベートブラウジング時のテーマを個別に選択できます。組み込みテーマを元に色を編集し、JSONファイルで共有できます。",
-                "Choose themes independently for normal and private browsing. Customize colors from a built-in theme and share them as JSON files."),
+                "通常時とプライベートブラウジング時に共通するテーマを選択できます。組み込みテーマを元に色を編集し、JSONファイルで共有できます。",
+                "Choose one theme shared by normal and private browsing. Customize colors from a built-in theme and share them as JSON files."),
                 14, Theme.muted(this));
         intro.setPadding(0, dp(4), 0, dp(16));
         root.addView(intro);
 
-        root.addView(sectionLabel(MainActivity.text("使用するテーマ", "Theme assignments")));
-        root.addView(fieldLabel(MainActivity.text("通常のブラウジング", "Normal browsing")));
-        normalSelector = themeSelector(true);
+        root.addView(sectionLabel(MainActivity.text("使用するテーマ", "App theme")));
+        normalSelector = themeSelector();
         root.addView(normalSelector, selectorParams());
-        root.addView(fieldLabel(MainActivity.text("プライベートブラウジング", "Private browsing")));
-        privateSelector = themeSelector(false);
-        root.addView(privateSelector, selectorParams());
 
         root.addView(sectionLabel(MainActivity.text("カスタムテーマ", "Custom themes")));
         root.addView(actionButton(MainActivity.text("カスタムテーマを作成", "Create custom theme"),
@@ -110,32 +105,29 @@ public class ThemeSettingsActivity extends Activity {
     }
 
     private void refreshSelectors() {
-        renderSelector(normalSelector, selectedChoice(true));
-        renderSelector(privateSelector, selectedChoice(false));
+        renderSelector(normalSelector, selectedChoice());
     }
 
-    private List<Choice> choices(boolean includeSystem) {
+    private List<Choice> choices() {
         List<Choice> result = new ArrayList<>();
-        if (includeSystem) {
-            result.add(new Choice(Theme.MODE_SYSTEM, Theme.displayName(this, Theme.MODE_SYSTEM),
-                    Theme.previewPalette(this, Theme.MODE_SYSTEM)));
-        }
+        result.add(new Choice(Theme.MODE_SYSTEM, Theme.displayName(this, Theme.MODE_SYSTEM),
+                Theme.previewPalette(this, Theme.MODE_SYSTEM)));
         for (Theme.Palette palette : Theme.selectablePalettes(this)) {
             result.add(new Choice(palette.id, Theme.displayName(this, palette.id), palette));
         }
         return result;
     }
 
-    private Choice selectedChoice(boolean normal) {
-        List<Choice> choices = choices(normal);
-        String selectedId = normal ? Theme.normalSelection(this) : Theme.privateSelection(this);
+    private Choice selectedChoice() {
+        List<Choice> choices = choices();
+        String selectedId = Theme.normalSelection(this);
         for (Choice choice : choices) {
             if (choice.id.equals(selectedId)) return choice;
         }
         return choices.get(0);
     }
 
-    private LinearLayout themeSelector(boolean normal) {
+    private LinearLayout themeSelector() {
         LinearLayout selector = new LinearLayout(this);
         selector.setOrientation(LinearLayout.HORIZONTAL);
         selector.setGravity(Gravity.CENTER_VERTICAL);
@@ -143,10 +135,8 @@ public class ThemeSettingsActivity extends Activity {
         selector.setBackground(fieldBackground());
         selector.setClickable(true);
         selector.setFocusable(true);
-        selector.setContentDescription(normal
-                ? MainActivity.text("通常のブラウジング用テーマを選択", "Choose normal browsing theme")
-                : MainActivity.text("プライベートブラウジング用テーマを選択", "Choose private browsing theme"));
-        selector.setOnClickListener(v -> showThemeDropdown(selector, normal));
+        selector.setContentDescription(MainActivity.text("アプリのテーマを選択", "Choose app theme"));
+        selector.setOnClickListener(v -> showThemeDropdown(selector));
         return selector;
     }
 
@@ -172,9 +162,9 @@ public class ThemeSettingsActivity extends Activity {
         selector.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22)));
     }
 
-    private void showThemeDropdown(View anchor, boolean normal) {
-        List<Choice> choices = choices(normal);
-        String selectedId = normal ? Theme.normalSelection(this) : Theme.privateSelection(this);
+    private void showThemeDropdown(View anchor) {
+        List<Choice> choices = choices();
+        String selectedId = Theme.normalSelection(this);
 
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -190,7 +180,7 @@ public class ThemeSettingsActivity extends Activity {
         popup.setOutsideTouchable(true);
         popup.setElevation(dp(10));
         for (Choice choice : choices) {
-            list.addView(themeChoiceRow(choice, choice.id.equals(selectedId), popup, normal), dropdownRowParams());
+            list.addView(themeChoiceRow(choice, choice.id.equals(selectedId), popup), dropdownRowParams());
         }
         int width = Math.max(anchor.getWidth(), dp(280));
         scroll.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -200,7 +190,7 @@ public class ThemeSettingsActivity extends Activity {
         popup.showAsDropDown(anchor, 0, dp(4));
     }
 
-    private View themeChoiceRow(Choice choice, boolean selected, PopupWindow popup, boolean normal) {
+    private View themeChoiceRow(Choice choice, boolean selected, PopupWindow popup) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(12), dp(9), dp(12), dp(9));
@@ -208,13 +198,12 @@ public class ThemeSettingsActivity extends Activity {
         row.setClickable(true);
         row.setFocusable(true);
         row.setOnClickListener(v -> {
-            String current = normal ? Theme.normalSelection(this) : Theme.privateSelection(this);
+            String current = Theme.normalSelection(this);
             if (choice.id.equals(current)) {
                 popup.dismiss();
                 return;
             }
-            preferences.edit().putString(normal ? Theme.PREF_NORMAL_THEME : Theme.PREF_PRIVATE_THEME,
-                    choice.id).apply();
+            preferences.edit().putString(Theme.PREF_NORMAL_THEME, choice.id).apply();
             Theme.invalidateCache();
             popup.dismiss();
             recreate();

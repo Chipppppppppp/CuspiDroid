@@ -429,6 +429,9 @@ public class MainActivity extends Activity {
     private FrameLayout overlayFrame;
     private EditText addressBar;
     private FrameLayout contentFrame;
+    private LinearLayout privateBrowsingBar;
+    private ImageView privateBrowsingBarIcon;
+    private TextView privateBrowsingBarLabel;
     private WebView inlineWebView;
     private boolean inlineWebViewMode;
     private String inlineWebViewUrl = "";
@@ -714,55 +717,55 @@ public class MainActivity extends Activity {
     }
 
     private int bgColor() {
-        return Theme.background(this, privateUiActive());
+        return Theme.background(this);
     }
 
     private int surfaceColor() {
-        return Theme.surface(this, privateUiActive());
+        return Theme.surface(this);
     }
 
     private int postColor() {
-        return Theme.post(this, privateUiActive());
+        return Theme.post(this);
     }
 
     private int textColor() {
-        return Theme.text(this, privateUiActive());
+        return Theme.text(this);
     }
 
     private int mutedColor() {
-        return Theme.muted(this, privateUiActive());
+        return Theme.muted(this);
     }
 
     private int borderColor() {
-        return Theme.border(this, privateUiActive());
+        return Theme.border(this);
     }
 
     private int menuColor() {
-        return Theme.menu(this, privateUiActive());
+        return Theme.menu(this);
     }
 
     private int barColor() {
-        return Theme.topBar(this, privateUiActive());
+        return Theme.topBar(this);
     }
 
     private int fieldColor() {
-        return Theme.field(this, privateUiActive());
+        return Theme.field(this);
     }
 
     private int hintTextColor() {
-        return Theme.subtle(this, privateUiActive());
+        return Theme.subtle(this);
     }
 
     private int privateBlue() {
-        return Theme.accent(this, privateUiActive());
+        return Theme.accent(this);
     }
 
     private int privateButtonFill(boolean active) {
-        return active ? Theme.active(this, privateUiActive()) : Theme.menu(this, privateUiActive());
+        return active ? Theme.active(this) : Theme.menu(this);
     }
 
     private int privateButtonStroke(boolean active) {
-        return active ? Theme.strongBorder(this, privateUiActive()) : borderColor();
+        return active ? Theme.strongBorder(this) : borderColor();
     }
 
     private int privateButtonIcon(boolean active) {
@@ -770,55 +773,55 @@ public class MainActivity extends Activity {
     }
 
     private boolean darkUiActive() {
-        return Theme.dark(this, privateUiActive());
+        return Theme.dark(this);
     }
 
     private int accentColor() {
-        return Theme.accent(this, privateUiActive());
+        return Theme.accent(this);
     }
 
     private int unreadColor() {
-        return Theme.unread(this, privateUiActive());
+        return Theme.unread(this);
     }
 
     private int activeColor() {
-        return Theme.active(this, privateUiActive());
+        return Theme.active(this);
     }
 
     private int linkHighlightColor() {
-        return Theme.linkHighlight(this, privateUiActive());
+        return Theme.linkHighlight(this);
     }
 
     private int sidebarColor() {
-        return Theme.sidebar(this, privateUiActive());
+        return Theme.sidebar(this);
     }
 
     private int sidebarThumbColor() {
-        return Theme.sidebarThumb(this, privateUiActive());
+        return Theme.sidebarThumb(this);
     }
 
     private int sidebarUnreadColor() {
-        return Theme.sidebarUnread(this, privateUiActive());
+        return Theme.sidebarUnread(this);
     }
 
     private int myPostMarkerColor() {
-        return Theme.myPostMarker(this, privateUiActive());
+        return Theme.myPostMarker(this);
     }
 
     private int replyPostMarkerColor() {
-        return Theme.replyPostMarker(this, privateUiActive());
+        return Theme.replyPostMarker(this);
     }
 
     private int treeConnectorColor() {
-        return Theme.treeConnector(this, privateUiActive());
+        return Theme.treeConnector(this);
     }
 
     private int metricLowColor() {
-        return Theme.metricLow(this, privateUiActive());
+        return Theme.metricLow(this);
     }
 
     private int metricHighColor() {
-        return Theme.metricHigh(this, privateUiActive());
+        return Theme.metricHigh(this);
     }
 
     private int withAlpha(int color, int alpha) {
@@ -1288,6 +1291,11 @@ public class MainActivity extends Activity {
         setContentView(root);
         installKeyboardFocusWatcher(root);
 
+        privateBrowsingBar = buildPrivateBrowsingBar();
+        root.addView(privateBrowsingBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        updatePrivateBrowsingBar(privateUiActive());
+
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
         progressBar.setVisibility(View.GONE);
@@ -1599,6 +1607,48 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
         }
         syncChromeBarSlots(false);
+    }
+
+    private LinearLayout buildPrivateBrowsingBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER);
+        bar.setMinimumHeight(dp(32));
+        bar.setPadding(dp(12), dp(5), dp(12), dp(5));
+        bar.setContentDescription(text("プライベートブラウジング", "Private browsing"));
+
+        privateBrowsingBarIcon = new ImageView(this);
+        privateBrowsingBarIcon.setImageResource(R.drawable.ic_private_glasses);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(18), dp(18));
+        iconParams.setMargins(0, 0, dp(8), 0);
+        bar.addView(privateBrowsingBarIcon, iconParams);
+
+        privateBrowsingBarLabel = new TextView(this);
+        privateBrowsingBarLabel.setText(text("プライベートブラウジング", "Private browsing"));
+        privateBrowsingBarLabel.setTextSize(13);
+        privateBrowsingBarLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        privateBrowsingBarLabel.setIncludeFontPadding(false);
+        bar.addView(privateBrowsingBarLabel);
+        return bar;
+    }
+
+    private void updatePrivateBrowsingBar(boolean privateActive) {
+        if (privateBrowsingBar == null) {
+            return;
+        }
+        privateBrowsingBar.setVisibility(privateActive ? View.VISIBLE : View.GONE);
+        if (!privateActive) {
+            return;
+        }
+        int indicator = accentColor();
+        int foreground = Theme.contrastingText(indicator);
+        privateBrowsingBar.setBackgroundColor(indicator);
+        if (privateBrowsingBarIcon != null) {
+            privateBrowsingBarIcon.setColorFilter(foreground);
+        }
+        if (privateBrowsingBarLabel != null) {
+            privateBrowsingBarLabel.setTextColor(foreground);
+        }
     }
 
     private FrameLayout chromeBarSlot(View bar, int height) {
@@ -2059,7 +2109,7 @@ public class MainActivity extends Activity {
     }
 
     private void applySystemBarTheme() {
-        Theme.applySystemBars(this, privateUiActive());
+        Theme.applySystemBars(this);
     }
 
     private void showAddressMenuAtToolbarEdge(PopupWindow popup, View menu, boolean alignLeft) {
@@ -3205,8 +3255,9 @@ public class MainActivity extends Activity {
         int bar = barColor();
         int stroke = borderColor();
         boolean privateActive = privateUiActive();
-        TEAL = Theme.accent(this, privateActive);
-        boolean dark = Theme.dark(this, privateActive);
+        updatePrivateBrowsingBar(privateActive);
+        TEAL = Theme.accent(this);
+        boolean dark = Theme.dark(this);
         if (bg == appliedChromeBgColor
                 && bar == appliedChromeBarColor
                 && stroke == appliedChromeStrokeColor
@@ -18801,7 +18852,7 @@ public class MainActivity extends Activity {
     }
 
     private int unavailableMediaColor() {
-        return Theme.strongBorder(this, privateUiActive());
+        return Theme.strongBorder(this);
     }
 
     private void scheduleLazyImgurLoads() {
@@ -21572,7 +21623,7 @@ public class MainActivity extends Activity {
         box.setText(value);
         box.setTextSize(14);
         box.setTextColor(textColor());
-        Theme.tintCompoundButton(this, box, privateUiActive());
+        Theme.tintCompoundButton(this, box);
         return box;
     }
 

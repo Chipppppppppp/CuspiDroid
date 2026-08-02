@@ -39,7 +39,6 @@ final class Theme {
     static final String CUSTOM_PREFIX = "custom:";
 
     static final String PREF_NORMAL_THEME = "normal_theme_id";
-    static final String PREF_PRIVATE_THEME = "private_theme_id";
     static final String PREF_CUSTOM_THEMES = "custom_themes_json";
 
     static final String EXPORT_FORMAT = "cuspidroid-theme";
@@ -155,70 +154,37 @@ final class Theme {
 
     private static String cachedJson;
     private static String cachedNormalId;
-    private static String cachedPrivateId;
     private static int cachedNight = -1;
     private static Palette cachedNormal;
-    private static Palette cachedPrivate;
 
     private Theme() {
     }
 
-    static boolean dark(Context context) {
-        return palette(context, false).dark;
-    }
-
-    static boolean dark(Context context, boolean privateBrowsing) {
-        return palette(context, privateBrowsing).dark;
-    }
-
-    static int background(Context context) { return background(context, false); }
-    static int background(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).background; }
-    static int topBar(Context context) { return topBar(context, false); }
-    static int topBar(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).topBar; }
-    static int surface(Context context) { return surface(context, false); }
-    static int surface(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).surface; }
-    static int post(Context context) { return post(context, false); }
-    static int post(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).post; }
-    static int unread(Context context) { return unread(context, false); }
-    static int unread(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).unread; }
-    static int field(Context context) { return field(context, false); }
-    static int field(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).field; }
-    static int menu(Context context) { return menu(context, false); }
-    static int menu(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).menu; }
-    static int text(Context context) { return text(context, false); }
-    static int text(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).text; }
-    static int muted(Context context) { return muted(context, false); }
-    static int muted(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).muted; }
-    static int subtle(Context context) { return subtle(context, false); }
-    static int subtle(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).subtle; }
-    static int border(Context context) { return border(context, false); }
-    static int border(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).border; }
-    static int strongBorder(Context context) { return strongBorder(context, false); }
-    static int strongBorder(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).strongBorder; }
-    static int active(Context context) { return active(context, false); }
-    static int active(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).active; }
-    static int searchHighlight(Context context) { return searchHighlight(context, false); }
-    static int searchHighlight(Context context, boolean privateBrowsing) { return active(context, privateBrowsing); }
-    static int linkHighlight(Context context) { return linkHighlight(context, false); }
-    static int linkHighlight(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).linkHighlight; }
-    static int accent(Context context) { return accent(context, false); }
-    static int accent(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).accent; }
-    static int sidebar(Context context) { return sidebar(context, false); }
-    static int sidebar(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).sidebar; }
-    static int sidebarThumb(Context context) { return sidebarThumb(context, false); }
-    static int sidebarThumb(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).sidebarThumb; }
-    static int sidebarUnread(Context context) { return sidebarUnread(context, false); }
-    static int sidebarUnread(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).sidebarUnread; }
-    static int myPostMarker(Context context) { return myPostMarker(context, false); }
-    static int myPostMarker(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).myPostMarker; }
-    static int replyPostMarker(Context context) { return replyPostMarker(context, false); }
-    static int replyPostMarker(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).replyPostMarker; }
-    static int treeConnector(Context context) { return treeConnector(context, false); }
-    static int treeConnector(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).treeConnector; }
-    static int metricLow(Context context) { return metricLow(context, false); }
-    static int metricLow(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).metricLow; }
-    static int metricHigh(Context context) { return metricHigh(context, false); }
-    static int metricHigh(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).metricHigh; }
+    static boolean dark(Context context) { return palette(context).dark; }
+    static int background(Context context) { return palette(context).background; }
+    static int topBar(Context context) { return palette(context).topBar; }
+    static int surface(Context context) { return palette(context).surface; }
+    static int post(Context context) { return palette(context).post; }
+    static int unread(Context context) { return palette(context).unread; }
+    static int field(Context context) { return palette(context).field; }
+    static int menu(Context context) { return palette(context).menu; }
+    static int text(Context context) { return palette(context).text; }
+    static int muted(Context context) { return palette(context).muted; }
+    static int subtle(Context context) { return palette(context).subtle; }
+    static int border(Context context) { return palette(context).border; }
+    static int strongBorder(Context context) { return palette(context).strongBorder; }
+    static int active(Context context) { return palette(context).active; }
+    static int searchHighlight(Context context) { return active(context); }
+    static int linkHighlight(Context context) { return palette(context).linkHighlight; }
+    static int accent(Context context) { return palette(context).accent; }
+    static int sidebar(Context context) { return palette(context).sidebar; }
+    static int sidebarThumb(Context context) { return palette(context).sidebarThumb; }
+    static int sidebarUnread(Context context) { return palette(context).sidebarUnread; }
+    static int myPostMarker(Context context) { return palette(context).myPostMarker; }
+    static int replyPostMarker(Context context) { return palette(context).replyPostMarker; }
+    static int treeConnector(Context context) { return palette(context).treeConnector; }
+    static int metricLow(Context context) { return palette(context).metricLow; }
+    static int metricHigh(Context context) { return palette(context).metricHigh; }
 
     static int contrastingText(int background) {
         int brightness = (Color.red(background) * 299 + Color.green(background) * 587
@@ -234,14 +200,10 @@ final class Theme {
         return prefs.getString(MainActivity.PREF_THEME_MODE, MODE_SYSTEM);
     }
 
-    static String privateSelection(Context context) {
-        return preferences(context).getString(PREF_PRIVATE_THEME, ID_PRIVATE);
-    }
-
     static String signature(Context context) {
         SharedPreferences prefs = preferences(context);
         int night = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        return normalSelection(context) + "|" + privateSelection(context) + "|" + night + "|"
+        return normalSelection(context) + "|" + night + "|"
                 + prefs.getString(PREF_CUSTOM_THEMES, "[]");
     }
 
@@ -331,7 +293,6 @@ final class Theme {
         SharedPreferences prefs = preferences(context);
         SharedPreferences.Editor editor = prefs.edit();
         if (id.equals(normalSelection(context))) editor.putString(PREF_NORMAL_THEME, MODE_SYSTEM);
-        if (id.equals(privateSelection(context))) editor.putString(PREF_PRIVATE_THEME, ID_PRIVATE);
         JSONArray array = paletteArray(palettes);
         editor.putString(PREF_CUSTOM_THEMES, array.toString()).apply();
         invalidateCache();
@@ -382,16 +343,12 @@ final class Theme {
     }
 
     static void tintCompoundButton(Context context, CompoundButton button) {
-        tintCompoundButton(context, button, false);
-    }
-
-    static void tintCompoundButton(Context context, CompoundButton button, boolean privateBrowsing) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || button == null) return;
         int[][] states = new int[][]{
                 new int[]{android.R.attr.state_checked},
                 new int[]{-android.R.attr.state_checked}
         };
-        int[] colors = new int[]{accent(context, privateBrowsing), subtle(context, privateBrowsing)};
+        int[] colors = new int[]{accent(context), subtle(context)};
         button.setButtonTintList(new ColorStateList(states, colors));
     }
 
@@ -448,40 +405,32 @@ final class Theme {
     }
 
     static void applySystemBars(Activity activity) {
-        applySystemBars(activity, false);
-    }
-
-    static void applySystemBars(Activity activity, boolean privateBrowsing) {
-        activity.getWindow().setStatusBarColor(background(activity, privateBrowsing));
-        activity.getWindow().setNavigationBarColor(topBar(activity, privateBrowsing));
+        activity.getWindow().setStatusBarColor(background(activity));
+        activity.getWindow().setNavigationBarColor(topBar(activity));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
-            if (dark(activity, privateBrowsing)) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (dark(activity)) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
             else flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                if (dark(activity, privateBrowsing)) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                if (dark(activity)) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
                 else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             }
             activity.getWindow().getDecorView().setSystemUiVisibility(flags);
         }
     }
 
-    private static synchronized Palette palette(Context context, boolean privateBrowsing) {
+    private static synchronized Palette palette(Context context) {
         SharedPreferences prefs = preferences(context);
         String json = prefs.getString(PREF_CUSTOM_THEMES, "[]");
         String normalId = normalSelection(context);
-        String privateId = privateSelection(context);
         int night = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        if (!json.equals(cachedJson) || !normalId.equals(cachedNormalId)
-                || !privateId.equals(cachedPrivateId) || night != cachedNight) {
+        if (!json.equals(cachedJson) || !normalId.equals(cachedNormalId) || night != cachedNight) {
             cachedJson = json;
             cachedNormalId = normalId;
-            cachedPrivateId = privateId;
             cachedNight = night;
             cachedNormal = resolve(context, normalId, night);
-            cachedPrivate = resolve(context, privateId, night);
         }
-        return privateBrowsing ? cachedPrivate : cachedNormal;
+        return cachedNormal;
     }
 
     private static Palette resolve(Context context, String id, int night) {
@@ -506,10 +455,8 @@ final class Theme {
     static synchronized void invalidateCache() {
         cachedJson = null;
         cachedNormalId = null;
-        cachedPrivateId = null;
         cachedNight = -1;
         cachedNormal = null;
-        cachedPrivate = null;
     }
 
     private static SharedPreferences preferences(Context context) {
