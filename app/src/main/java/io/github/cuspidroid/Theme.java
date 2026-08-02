@@ -30,6 +30,12 @@ final class Theme {
     static final String MODE_DARK = "dark";
     static final String ID_PRIVATE = "private";
     static final String ID_BLUE = "blue";
+    static final String ID_GREEN_LIGHT = "green_light";
+    static final String ID_BLUE_DARK = "blue_dark";
+    static final String ID_PURPLE_LIGHT = "purple_light";
+    static final String ID_PURPLE_DARK = "purple_dark";
+    static final String ID_CRIMSON_LIGHT = "crimson_light";
+    static final String ID_CRIMSON_DARK = "crimson_dark";
     static final String CUSTOM_PREFIX = "custom:";
 
     static final String PREF_NORMAL_THEME = "normal_theme_id";
@@ -45,33 +51,75 @@ final class Theme {
             "linkHighlight", "accent"
     };
 
-    private static final Palette LIGHT = new Palette(MODE_LIGHT, "Light", false,
+    private static final Palette LIGHT = new Palette(MODE_LIGHT, "Teal (Light)", false,
             Color.WHITE, Color.rgb(242, 246, 249), Color.rgb(247, 248, 250),
             Color.rgb(250, 251, 252), Color.rgb(232, 247, 244), Color.rgb(241, 245, 249),
             Color.WHITE, Color.rgb(31, 41, 55), Color.rgb(79, 91, 103),
             Color.rgb(100, 116, 139), Color.rgb(215, 221, 226), Color.rgb(148, 163, 184),
             Color.rgb(224, 242, 241), Color.rgb(219, 234, 254), Color.rgb(15, 118, 110));
 
-    private static final Palette DARK = new Palette(MODE_DARK, "Dark", true,
+    private static final Palette DARK = new Palette(MODE_DARK, "Teal (Dark)", true,
             Color.BLACK, Color.BLACK, Color.rgb(12, 12, 12), Color.rgb(16, 16, 16),
             Color.rgb(4, 44, 43), Color.rgb(18, 18, 18), Color.rgb(12, 12, 12),
             Color.rgb(245, 247, 250), Color.rgb(168, 176, 186), Color.rgb(116, 128, 141),
             Color.rgb(54, 62, 72), Color.rgb(86, 98, 112), Color.rgb(2, 48, 48),
             Color.rgb(23, 37, 84), Color.rgb(20, 184, 166));
 
-    private static final Palette PRIVATE = new Palette(ID_PRIVATE, "Private browsing", true,
+    private static final Palette GREEN_LIGHT = new Palette(ID_GREEN_LIGHT, "Green (Light)", false,
+            Color.rgb(244, 251, 247), Color.rgb(231, 247, 238), Color.rgb(250, 253, 251),
+            Color.rgb(247, 252, 249), Color.rgb(220, 252, 231), Color.rgb(234, 247, 239),
+            Color.WHITE, Color.rgb(18, 53, 36), Color.rgb(70, 100, 81),
+            Color.rgb(102, 130, 115), Color.rgb(183, 222, 197), Color.rgb(103, 185, 133),
+            Color.rgb(209, 250, 229), Color.rgb(220, 252, 231), Color.rgb(21, 128, 61));
+
+    private static final Palette PRIVATE = new Palette(ID_PRIVATE, "Green (Dark)", true,
             Color.rgb(0, 24, 17), Color.rgb(0, 24, 17), Color.rgb(1, 40, 29),
             Color.rgb(1, 40, 29), Color.rgb(4, 44, 43), Color.rgb(1, 40, 29),
             Color.rgb(1, 40, 29), Color.rgb(245, 247, 250), Color.rgb(168, 176, 186),
             Color.rgb(168, 176, 186), Color.rgb(8, 72, 52), Color.rgb(16, 104, 76),
             Color.rgb(2, 48, 48), Color.rgb(23, 37, 84), Color.rgb(52, 211, 153));
 
-    private static final Palette BLUE = new Palette(ID_BLUE, "Blue", false,
+    private static final Palette BLUE = new Palette(ID_BLUE, "Blue (Light)", false,
             Color.rgb(246, 249, 255), Color.rgb(234, 242, 255), Color.WHITE,
             Color.rgb(248, 250, 255), Color.rgb(224, 242, 254), Color.rgb(237, 244, 255),
             Color.WHITE, Color.rgb(23, 37, 84), Color.rgb(71, 85, 105),
             Color.rgb(100, 116, 139), Color.rgb(191, 219, 254), Color.rgb(96, 165, 250),
             Color.rgb(219, 234, 254), Color.rgb(191, 219, 254), Color.rgb(37, 99, 235));
+
+    private static final Palette BLUE_DARK = new Palette(ID_BLUE_DARK, "Blue (Dark)", true,
+            Color.rgb(7, 20, 38), Color.rgb(10, 25, 47), Color.rgb(13, 31, 56),
+            Color.rgb(16, 36, 63), Color.rgb(16, 45, 78), Color.rgb(17, 40, 68),
+            Color.rgb(13, 31, 56), Color.rgb(239, 246, 255), Color.rgb(169, 188, 211),
+            Color.rgb(127, 152, 181), Color.rgb(41, 74, 109), Color.rgb(59, 130, 246),
+            Color.rgb(18, 59, 104), Color.rgb(23, 37, 84), Color.rgb(96, 165, 250));
+
+    private static final Palette PURPLE_LIGHT = new Palette(ID_PURPLE_LIGHT, "Purple (Light)", false,
+            Color.rgb(251, 248, 255), Color.rgb(243, 234, 255), Color.rgb(254, 252, 255),
+            Color.rgb(252, 249, 255), Color.rgb(243, 232, 255), Color.rgb(246, 238, 255),
+            Color.WHITE, Color.rgb(59, 29, 90), Color.rgb(107, 84, 125),
+            Color.rgb(133, 109, 150), Color.rgb(222, 200, 242), Color.rgb(183, 131, 227),
+            Color.rgb(240, 225, 255), Color.rgb(237, 233, 254), Color.rgb(126, 34, 206));
+
+    private static final Palette PURPLE_DARK = new Palette(ID_PURPLE_DARK, "Purple (Dark)", true,
+            Color.rgb(23, 13, 35), Color.rgb(26, 15, 40), Color.rgb(33, 19, 47),
+            Color.rgb(39, 22, 56), Color.rgb(53, 32, 76), Color.rgb(43, 24, 61),
+            Color.rgb(33, 19, 47), Color.rgb(250, 245, 255), Color.rgb(196, 181, 208),
+            Color.rgb(157, 135, 174), Color.rgb(83, 53, 106), Color.rgb(139, 92, 246),
+            Color.rgb(64, 33, 93), Color.rgb(46, 16, 101), Color.rgb(192, 132, 252));
+
+    private static final Palette CRIMSON_LIGHT = new Palette(ID_CRIMSON_LIGHT, "Crimson (Light)", false,
+            Color.rgb(255, 248, 249), Color.rgb(255, 236, 239), Color.rgb(255, 252, 252),
+            Color.rgb(255, 249, 250), Color.rgb(255, 228, 230), Color.rgb(255, 240, 242),
+            Color.WHITE, Color.rgb(74, 22, 32), Color.rgb(123, 75, 84),
+            Color.rgb(149, 104, 115), Color.rgb(244, 194, 203), Color.rgb(232, 121, 141),
+            Color.rgb(255, 224, 229), Color.rgb(255, 228, 230), Color.rgb(190, 18, 60));
+
+    private static final Palette CRIMSON_DARK = new Palette(ID_CRIMSON_DARK, "Crimson (Dark)", true,
+            Color.rgb(33, 8, 14), Color.rgb(41, 11, 19), Color.rgb(49, 15, 24),
+            Color.rgb(56, 17, 28), Color.rgb(74, 21, 35), Color.rgb(64, 20, 33),
+            Color.rgb(49, 15, 24), Color.rgb(255, 241, 242), Color.rgb(216, 173, 181),
+            Color.rgb(184, 135, 145), Color.rgb(113, 48, 66), Color.rgb(190, 52, 85),
+            Color.rgb(88, 23, 42), Color.rgb(76, 5, 25), Color.rgb(251, 113, 133));
 
     private static String cachedJson;
     private static String cachedNormalId;
@@ -150,12 +198,23 @@ final class Theme {
     }
 
     static List<Palette> selectablePalettes(Context context) {
+        List<Palette> result = builtInPalettes();
+        result.addAll(customPalettes(context));
+        return result;
+    }
+
+    static List<Palette> builtInPalettes() {
         List<Palette> result = new ArrayList<>();
         result.add(LIGHT.copy());
         result.add(DARK.copy());
+        result.add(GREEN_LIGHT.copy());
         result.add(PRIVATE.copy());
         result.add(BLUE.copy());
-        result.addAll(customPalettes(context));
+        result.add(BLUE_DARK.copy());
+        result.add(PURPLE_LIGHT.copy());
+        result.add(PURPLE_DARK.copy());
+        result.add(CRIMSON_LIGHT.copy());
+        result.add(CRIMSON_DARK.copy());
         return result;
     }
 
@@ -180,8 +239,14 @@ final class Theme {
     static Palette paletteById(Context context, String id) {
         if (MODE_LIGHT.equals(id)) return LIGHT.copy();
         if (MODE_DARK.equals(id)) return DARK.copy();
+        if (ID_GREEN_LIGHT.equals(id)) return GREEN_LIGHT.copy();
         if (ID_PRIVATE.equals(id)) return PRIVATE.copy();
         if (ID_BLUE.equals(id)) return BLUE.copy();
+        if (ID_BLUE_DARK.equals(id)) return BLUE_DARK.copy();
+        if (ID_PURPLE_LIGHT.equals(id)) return PURPLE_LIGHT.copy();
+        if (ID_PURPLE_DARK.equals(id)) return PURPLE_DARK.copy();
+        if (ID_CRIMSON_LIGHT.equals(id)) return CRIMSON_LIGHT.copy();
+        if (ID_CRIMSON_DARK.equals(id)) return CRIMSON_DARK.copy();
         for (Palette palette : customPalettes(context)) {
             if (palette.id.equals(id)) return palette;
         }
@@ -245,10 +310,16 @@ final class Theme {
         if (MODE_SYSTEM.equals(id)) return MainActivity.text("端末のテーマに従う", "Follow device theme");
         Palette palette = paletteById(context, id);
         if (palette == null) return MainActivity.text("不明なテーマ", "Unknown theme");
-        if (MODE_LIGHT.equals(id)) return MainActivity.text("ライト", "Light");
-        if (MODE_DARK.equals(id)) return MainActivity.text("ダーク", "Dark");
-        if (ID_PRIVATE.equals(id)) return MainActivity.text("プライベートブラウジング", "Private browsing");
-        if (ID_BLUE.equals(id)) return MainActivity.text("ブルー（サンプル）", "Blue (sample)");
+        if (MODE_LIGHT.equals(id)) return MainActivity.text("ティール (ライト)", "Teal (Light)");
+        if (MODE_DARK.equals(id)) return MainActivity.text("ティール (ダーク)", "Teal (Dark)");
+        if (ID_GREEN_LIGHT.equals(id)) return MainActivity.text("グリーン (ライト)", "Green (Light)");
+        if (ID_PRIVATE.equals(id)) return MainActivity.text("グリーン (ダーク)", "Green (Dark)");
+        if (ID_BLUE.equals(id)) return MainActivity.text("ブルー (ライト)", "Blue (Light)");
+        if (ID_BLUE_DARK.equals(id)) return MainActivity.text("ブルー (ダーク)", "Blue (Dark)");
+        if (ID_PURPLE_LIGHT.equals(id)) return MainActivity.text("パープル (ライト)", "Purple (Light)");
+        if (ID_PURPLE_DARK.equals(id)) return MainActivity.text("パープル (ダーク)", "Purple (Dark)");
+        if (ID_CRIMSON_LIGHT.equals(id)) return MainActivity.text("クリムゾン (ライト)", "Crimson (Light)");
+        if (ID_CRIMSON_DARK.equals(id)) return MainActivity.text("クリムゾン (ダーク)", "Crimson (Dark)");
         return palette.name;
     }
 
