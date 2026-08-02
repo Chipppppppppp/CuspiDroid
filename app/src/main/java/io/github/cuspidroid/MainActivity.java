@@ -430,8 +430,11 @@ public class MainActivity extends Activity {
     private EditText addressBar;
     private FrameLayout contentFrame;
     private LinearLayout privateBrowsingBar;
+    private FrameLayout privateBrowsingBarSlot;
     private ImageView privateBrowsingBarIcon;
     private TextView privateBrowsingBarLabel;
+    private ValueAnimator privateBrowsingBarAnimator;
+    private boolean privateBrowsingBarVisible;
     private WebView inlineWebView;
     private boolean inlineWebViewMode;
     private String inlineWebViewUrl = "";
@@ -1291,10 +1294,18 @@ public class MainActivity extends Activity {
         setContentView(root);
         installKeyboardFocusWatcher(root);
 
+        if (privateBrowsingBarAnimator != null) {
+            privateBrowsingBarAnimator.cancel();
+        }
         privateBrowsingBar = buildPrivateBrowsingBar();
-        root.addView(privateBrowsingBar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        updatePrivateBrowsingBar(privateUiActive());
+        privateBrowsingBarSlot = chromeBarSlot(privateBrowsingBar, dp(32));
+        privateBrowsingBarVisible = privateUiActive();
+        applyPrivateBrowsingBarColors();
+        privateBrowsingBar.setVisibility(privateBrowsingBarVisible ? View.VISIBLE : View.INVISIBLE);
+        privateBrowsingBar.setAlpha(privateBrowsingBarVisible ? 1f : 0f);
+        privateBrowsingBar.setTranslationY(privateBrowsingBarVisible ? 0f : -dp(32));
+        root.addView(privateBrowsingBarSlot, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, privateBrowsingBarVisible ? dp(32) : 0));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
@@ -1615,7 +1626,7 @@ public class MainActivity extends Activity {
         bar.setGravity(Gravity.CENTER);
         bar.setMinimumHeight(dp(32));
         bar.setPadding(dp(12), dp(5), dp(12), dp(5));
-        bar.setContentDescription(text("プライベートブラウジング", "Private browsing"));
+        bar.setContentDescription(text("プライベート", "Private"));
 
         privateBrowsingBarIcon = new ImageView(this);
         privateBrowsingBarIcon.setImageResource(R.drawable.ic_private_glasses);
@@ -1624,7 +1635,7 @@ public class MainActivity extends Activity {
         bar.addView(privateBrowsingBarIcon, iconParams);
 
         privateBrowsingBarLabel = new TextView(this);
-        privateBrowsingBarLabel.setText(text("プライベートブラウジング", "Private browsing"));
+        privateBrowsingBarLabel.setText(text("プライベート", "Private"));
         privateBrowsingBarLabel.setTextSize(13);
         privateBrowsingBarLabel.setTypeface(Typeface.DEFAULT_BOLD);
         privateBrowsingBarLabel.setIncludeFontPadding(false);
@@ -1633,13 +1644,46 @@ public class MainActivity extends Activity {
     }
 
     private void updatePrivateBrowsingBar(boolean privateActive) {
-        if (privateBrowsingBar == null) {
+        if (privateBrowsingBar == null || privateBrowsingBarSlot == null) {
             return;
         }
-        privateBrowsingBar.setVisibility(privateActive ? View.VISIBLE : View.GONE);
-        if (!privateActive) {
+        applyPrivateBrowsingBarColors();
+        if (privateActive == privateBrowsingBarVisible) {
             return;
         }
+        privateBrowsingBarVisible = privateActive;
+        privateBrowsingBar.animate().cancel();
+        privateBrowsingBar.setVisibility(View.VISIBLE);
+        privateBrowsingBar.animate()
+                .alpha(privateActive ? 1f : 0f)
+                .translationY(privateActive ? 0f : -dp(32))
+                .setDuration(220)
+                .withEndAction(() -> {
+                    if (!privateBrowsingBarVisible) {
+                        privateBrowsingBar.setVisibility(View.INVISIBLE);
+                    }
+                })
+                .start();
+
+        if (privateBrowsingBarAnimator != null) {
+            privateBrowsingBarAnimator.cancel();
+        }
+        ViewGroup.LayoutParams currentParams = privateBrowsingBarSlot.getLayoutParams();
+        int startHeight = currentParams == null ? 0 : currentParams.height;
+        privateBrowsingBarAnimator = ValueAnimator.ofInt(startHeight, privateActive ? dp(32) : 0);
+        privateBrowsingBarAnimator.setDuration(220);
+        privateBrowsingBarAnimator.addUpdateListener(animation -> {
+            ViewGroup.LayoutParams params = privateBrowsingBarSlot.getLayoutParams();
+            if (params == null) {
+                return;
+            }
+            params.height = (int) animation.getAnimatedValue();
+            privateBrowsingBarSlot.setLayoutParams(params);
+        });
+        privateBrowsingBarAnimator.start();
+    }
+
+    private void applyPrivateBrowsingBarColors() {
         int indicator = accentColor();
         int foreground = Theme.contrastingText(indicator);
         privateBrowsingBar.setBackgroundColor(indicator);
