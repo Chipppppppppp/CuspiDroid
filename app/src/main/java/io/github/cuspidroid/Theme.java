@@ -29,6 +29,7 @@ final class Theme {
     static final String MODE_LIGHT = "light";
     static final String MODE_DARK = "dark";
     static final String ID_PRIVATE = "private";
+    static final String ID_BLUE = "blue";
     static final String CUSTOM_PREFIX = "custom:";
 
     static final String PREF_NORMAL_THEME = "normal_theme_id";
@@ -64,6 +65,13 @@ final class Theme {
             Color.rgb(1, 40, 29), Color.rgb(245, 247, 250), Color.rgb(168, 176, 186),
             Color.rgb(168, 176, 186), Color.rgb(8, 72, 52), Color.rgb(16, 104, 76),
             Color.rgb(2, 48, 48), Color.rgb(23, 37, 84), Color.rgb(52, 211, 153));
+
+    private static final Palette BLUE = new Palette(ID_BLUE, "Blue", false,
+            Color.rgb(246, 249, 255), Color.rgb(234, 242, 255), Color.WHITE,
+            Color.rgb(248, 250, 255), Color.rgb(224, 242, 254), Color.rgb(237, 244, 255),
+            Color.WHITE, Color.rgb(23, 37, 84), Color.rgb(71, 85, 105),
+            Color.rgb(100, 116, 139), Color.rgb(191, 219, 254), Color.rgb(96, 165, 250),
+            Color.rgb(219, 234, 254), Color.rgb(191, 219, 254), Color.rgb(37, 99, 235));
 
     private static String cachedJson;
     private static String cachedNormalId;
@@ -146,6 +154,7 @@ final class Theme {
         result.add(LIGHT.copy());
         result.add(DARK.copy());
         result.add(PRIVATE.copy());
+        result.add(BLUE.copy());
         result.addAll(customPalettes(context));
         return result;
     }
@@ -172,6 +181,7 @@ final class Theme {
         if (MODE_LIGHT.equals(id)) return LIGHT.copy();
         if (MODE_DARK.equals(id)) return DARK.copy();
         if (ID_PRIVATE.equals(id)) return PRIVATE.copy();
+        if (ID_BLUE.equals(id)) return BLUE.copy();
         for (Palette palette : customPalettes(context)) {
             if (palette.id.equals(id)) return palette;
         }
@@ -238,7 +248,18 @@ final class Theme {
         if (MODE_LIGHT.equals(id)) return MainActivity.text("ライト", "Light");
         if (MODE_DARK.equals(id)) return MainActivity.text("ダーク", "Dark");
         if (ID_PRIVATE.equals(id)) return MainActivity.text("プライベートブラウジング", "Private browsing");
+        if (ID_BLUE.equals(id)) return MainActivity.text("ブルー（サンプル）", "Blue (sample)");
         return palette.name;
+    }
+
+    static Palette previewPalette(Context context, String id) {
+        if (MODE_SYSTEM.equals(id)) {
+            int night = context.getResources().getConfiguration().uiMode
+                    & Configuration.UI_MODE_NIGHT_MASK;
+            return (night == Configuration.UI_MODE_NIGHT_YES ? DARK : LIGHT).copy();
+        }
+        Palette palette = paletteById(context, id);
+        return palette == null ? LIGHT.copy() : palette;
     }
 
     static void tintCompoundButton(Context context, CompoundButton button) {

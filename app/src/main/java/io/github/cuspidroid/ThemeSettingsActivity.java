@@ -5,19 +5,19 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -40,11 +40,8 @@ public class ThemeSettingsActivity extends Activity {
 
     private SharedPreferences preferences;
     private LinearLayout customThemeList;
-    private Spinner normalSpinner;
-    private Spinner privateSpinner;
-    private List<Choice> normalChoices = new ArrayList<>();
-    private List<Choice> privateChoices = new ArrayList<>();
-    private boolean loadingSelections;
+    private LinearLayout normalSelector;
+    private LinearLayout privateSelector;
     private Theme.Palette pendingExport;
 
     @Override
@@ -87,11 +84,11 @@ public class ThemeSettingsActivity extends Activity {
 
         root.addView(sectionLabel(MainActivity.text("使用するテーマ", "Theme assignments")));
         root.addView(fieldLabel(MainActivity.text("通常のブラウジング", "Normal browsing")));
-        normalSpinner = themedSpinner();
-        root.addView(normalSpinner, fieldParams());
+        normalSelector = themeSelector(true);
+        root.addView(normalSelector, selectorParams());
         root.addView(fieldLabel(MainActivity.text("プライベートブラウジング", "Private browsing")));
-        privateSpinner = themedSpinner();
-        root.addView(privateSpinner, fieldParams());
+        privateSelector = themeSelector(false);
+        root.addView(privateSelector, selectorParams());
 
         root.addView(sectionLabel(MainActivity.text("カスタムテーマ", "Custom themes")));
         root.addView(actionButton(MainActivity.text("カスタムテーマを作成", "Create custom theme"),
@@ -103,93 +100,175 @@ public class ThemeSettingsActivity extends Activity {
         customThemeList.setOrientation(LinearLayout.VERTICAL);
         root.addView(customThemeList);
 
-        refreshSelections();
+        refreshSelectors();
         renderCustomThemes();
     }
 
-    private void refreshSelections() {
-        loadingSelections = true;
-        normalChoices = choices(true);
-        privateChoices = choices(false);
-        normalSpinner.setAdapter(adapter(normalChoices));
-        privateSpinner.setAdapter(adapter(privateChoices));
-        select(normalSpinner, normalChoices, Theme.normalSelection(this));
-        select(privateSpinner, privateChoices, Theme.privateSelection(this));
-        normalSpinner.setOnItemSelectedListener(selectionListener(true));
-        privateSpinner.setOnItemSelectedListener(selectionListener(false));
-        normalSpinner.post(() -> loadingSelections = false);
+    private void refreshSelectors() {
+        renderSelector(normalSelector, selectedChoice(true));
+        renderSelector(privateSelector, selectedChoice(false));
     }
 
     private List<Choice> choices(boolean includeSystem) {
         List<Choice> result = new ArrayList<>();
-        if (includeSystem) result.add(new Choice(Theme.MODE_SYSTEM, Theme.displayName(this, Theme.MODE_SYSTEM)));
+        if (includeSystem) {
+            result.add(new Choice(Theme.MODE_SYSTEM, Theme.displayName(this, Theme.MODE_SYSTEM),
+                    Theme.previewPalette(this, Theme.MODE_SYSTEM)));
+        }
         for (Theme.Palette palette : Theme.selectablePalettes(this)) {
-            result.add(new Choice(palette.id, Theme.displayName(this, palette.id)));
+            result.add(new Choice(palette.id, Theme.displayName(this, palette.id), palette));
         }
         return result;
     }
 
-    private ArrayAdapter<String> adapter(List<Choice> choices) {
-        List<String> labels = new ArrayList<>();
-        for (Choice choice : choices) labels.add(choice.label);
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_item, labels) {
-            @Override
-            public View getView(int position, View convertView, ViewGroup parent) {
-                return styleSpinnerView(super.getView(position, convertView, parent), false);
-            }
-
-            @Override
-            public View getDropDownView(int position, View convertView, ViewGroup parent) {
-                return styleSpinnerView(super.getDropDownView(position, convertView, parent), true);
-            }
-        };
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        return adapter;
-    }
-
-    private View styleSpinnerView(View view, boolean dropdown) {
-        if (view instanceof TextView) {
-            TextView text = (TextView) view;
-            text.setTextColor(Theme.text(this));
-            text.setTextSize(15);
-            text.setPadding(dp(10), 0, dp(10), 0);
-            if (dropdown) text.setBackgroundColor(Theme.menu(this));
+    private Choice selectedChoice(boolean normal) {
+        List<Choice> choices = choices(normal);
+        String selectedId = normal ? Theme.normalSelection(this) : Theme.privateSelection(this);
+        for (Choice choice : choices) {
+            if (choice.id.equals(selectedId)) return choice;
         }
-        return view;
+        return choices.get(0);
     }
 
-    private AdapterView.OnItemSelectedListener selectionListener(boolean normal) {
-        return new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (loadingSelections) return;
-                List<Choice> choices = normal ? normalChoices : privateChoices;
-                if (position < 0 || position >= choices.size()) return;
-                String selected = choices.get(position).id;
-                String current = normal ? Theme.normalSelection(ThemeSettingsActivity.this)
-                        : Theme.privateSelection(ThemeSettingsActivity.this);
-                if (selected.equals(current)) return;
-                preferences.edit().putString(normal ? Theme.PREF_NORMAL_THEME : Theme.PREF_PRIVATE_THEME,
-                        selected).apply();
-                Theme.invalidateCache();
-                recreate();
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        };
+    private LinearLayout themeSelector(boolean normal) {
+        LinearLayout selector = new LinearLayout(this);
+        selector.setOrientation(LinearLayout.HORIZONTAL);
+        selector.setGravity(Gravity.CENTER_VERTICAL);
+        selector.setPadding(dp(12), dp(8), dp(10), dp(8));
+        selector.setBackground(fieldBackground());
+        selector.setClickable(true);
+        selector.setFocusable(true);
+        selector.setContentDescription(normal
+                ? MainActivity.text("通常のブラウジング用テーマを選択", "Choose normal browsing theme")
+                : MainActivity.text("プライベートブラウジング用テーマを選択", "Choose private browsing theme"));
+        selector.setOnClickListener(v -> showThemeDropdown(selector, normal));
+        return selector;
     }
 
-    private void select(Spinner spinner, List<Choice> choices, String id) {
-        for (int i = 0; i < choices.size(); i++) {
-            if (choices.get(i).id.equals(id)) {
-                spinner.setSelection(i);
+    private void renderSelector(LinearLayout selector, Choice choice) {
+        selector.removeAllViews();
+        selector.addView(swatchStrip(choice.palette, dp(32)),
+                new LinearLayout.LayoutParams(dp(104), dp(32)));
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        TextView title = text(choice.label, 16, Theme.text(this));
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        labels.addView(title);
+        labels.addView(text(choiceSubtitle(choice), 12, Theme.muted(this)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        labelParams.setMargins(dp(12), 0, dp(6), 0);
+        selector.addView(labels, labelParams);
+
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_arrow_down);
+        arrow.setColorFilter(Theme.muted(this));
+        selector.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22)));
+    }
+
+    private void showThemeDropdown(View anchor, boolean normal) {
+        List<Choice> choices = choices(normal);
+        String selectedId = normal ? Theme.normalSelection(this) : Theme.privateSelection(this);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(8), dp(8), dp(8), dp(8));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackground(dropdownBackground());
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        PopupWindow popup = new PopupWindow(scroll, anchor.getWidth(), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setElevation(dp(10));
+        for (Choice choice : choices) {
+            list.addView(themeChoiceRow(choice, choice.id.equals(selectedId), popup, normal), dropdownRowParams());
+        }
+        int width = Math.max(anchor.getWidth(), dp(280));
+        scroll.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(dp(420), View.MeasureSpec.AT_MOST));
+        popup.setWidth(width);
+        popup.setHeight(Math.min(scroll.getMeasuredHeight(), dp(420)));
+        popup.showAsDropDown(anchor, 0, dp(4));
+    }
+
+    private View themeChoiceRow(Choice choice, boolean selected, PopupWindow popup, boolean normal) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(12), dp(9), dp(12), dp(9));
+        row.setBackground(dropdownRowBackground(selected));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> {
+            String current = normal ? Theme.normalSelection(this) : Theme.privateSelection(this);
+            if (choice.id.equals(current)) {
+                popup.dismiss();
                 return;
             }
+            preferences.edit().putString(normal ? Theme.PREF_NORMAL_THEME : Theme.PREF_PRIVATE_THEME,
+                    choice.id).apply();
+            Theme.invalidateCache();
+            popup.dismiss();
+            recreate();
+        });
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text(choice.label, 16, Theme.text(this));
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (selected) {
+            ImageView check = new ImageView(this);
+            check.setImageResource(R.drawable.ic_check);
+            check.setColorFilter(Theme.accent(this));
+            header.addView(check, new LinearLayout.LayoutParams(dp(22), dp(22)));
         }
-        spinner.setSelection(0);
+        row.addView(header);
+        TextView subtitle = text(choiceSubtitle(choice), 12, Theme.muted(this));
+        subtitle.setPadding(0, dp(1), 0, dp(7));
+        row.addView(subtitle);
+        row.addView(swatchStrip(choice.palette, dp(24)), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(24)));
+        return row;
+    }
+
+    private String choiceSubtitle(Choice choice) {
+        if (Theme.MODE_SYSTEM.equals(choice.id)) {
+            return MainActivity.text("端末設定に合わせてライト／ダークを自動切替",
+                    "Automatically switches between Light and Dark");
+        }
+        if (choice.id.startsWith(Theme.CUSTOM_PREFIX)) {
+            return MainActivity.text("カスタムテーマ", "Custom theme");
+        }
+        if (Theme.ID_BLUE.equals(choice.id)) {
+            return MainActivity.text("組み込みサンプル・ライト系", "Built-in sample · Light");
+        }
+        return choice.palette.dark
+                ? MainActivity.text("組み込みテーマ・ダーク系", "Built-in theme · Dark")
+                : MainActivity.text("組み込みテーマ・ライト系", "Built-in theme · Light");
+    }
+
+    private LinearLayout swatchStrip(Theme.Palette palette, int height) {
+        LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        int[] colors = {palette.background, palette.surface, palette.text, palette.active, palette.accent};
+        for (int i = 0; i < colors.length; i++) {
+            View swatch = new View(this);
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(colors[i]);
+            background.setStroke(dp(1), palette.border);
+            background.setCornerRadius(dp(4));
+            swatch.setBackground(background);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, height, 1);
+            if (i > 0) params.setMargins(dp(3), 0, 0, 0);
+            strip.addView(swatch, params);
+        }
+        return strip;
     }
 
     private void renderCustomThemes() {
@@ -257,11 +336,16 @@ public class ThemeSettingsActivity extends Activity {
     }
 
     private void chooseBaseTheme() {
-        List<Theme.Palette> builtIns = Theme.selectablePalettes(this).subList(0, 3);
+        List<Theme.Palette> builtIns = new ArrayList<>();
+        builtIns.add(Theme.paletteById(this, Theme.MODE_LIGHT));
+        builtIns.add(Theme.paletteById(this, Theme.MODE_DARK));
+        builtIns.add(Theme.paletteById(this, Theme.ID_PRIVATE));
+        builtIns.add(Theme.paletteById(this, Theme.ID_BLUE));
         String[] labels = {
                 Theme.displayName(this, Theme.MODE_LIGHT),
                 Theme.displayName(this, Theme.MODE_DARK),
-                Theme.displayName(this, Theme.ID_PRIVATE)
+                Theme.displayName(this, Theme.ID_PRIVATE),
+                Theme.displayName(this, Theme.ID_BLUE)
         };
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(MainActivity.text("元にするテーマ", "Base theme"))
@@ -444,13 +528,6 @@ public class ThemeSettingsActivity extends Activity {
         }
     }
 
-    private Spinner themedSpinner() {
-        Spinner spinner = new Spinner(this);
-        spinner.setBackground(fieldBackground());
-        spinner.setPadding(dp(10), 0, dp(10), 0);
-        return spinner;
-    }
-
     private EditText editField(String value) {
         EditText input = new EditText(this);
         input.setText(value);
@@ -517,6 +594,20 @@ public class ThemeSettingsActivity extends Activity {
         return params;
     }
 
+    private LinearLayout.LayoutParams selectorParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(68));
+        params.setMargins(0, dp(2), 0, dp(9));
+        return params;
+    }
+
+    private LinearLayout.LayoutParams dropdownRowParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(6));
+        return params;
+    }
+
     private TextView text(String value, int size, int color) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -541,6 +632,23 @@ public class ThemeSettingsActivity extends Activity {
         return drawable;
     }
 
+    private GradientDrawable dropdownBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Theme.menu(this));
+        drawable.setStroke(dp(2), Theme.strongBorder(this));
+        drawable.setCornerRadius(dp(12));
+        return drawable;
+    }
+
+    private GradientDrawable dropdownRowBackground(boolean selected) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(selected ? Theme.active(this) : Theme.surface(this));
+        drawable.setStroke(dp(selected ? 2 : 1),
+                selected ? Theme.accent(this) : Theme.border(this));
+        drawable.setCornerRadius(dp(9));
+        return drawable;
+    }
+
     private String safeFileName(String value) {
         String safe = value.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
         return safe.isEmpty() ? "theme" : safe;
@@ -553,10 +661,12 @@ public class ThemeSettingsActivity extends Activity {
     private static final class Choice {
         final String id;
         final String label;
+        final Theme.Palette palette;
 
-        Choice(String id, String label) {
+        Choice(String id, String label, Theme.Palette palette) {
             this.id = id;
             this.label = label;
+            this.palette = palette;
         }
     }
 }

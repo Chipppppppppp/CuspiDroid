@@ -14,4 +14,4 @@
 - 通常画面では `Theme.background(context)` のような通常のアクセサーを使うこと。`MainActivity` のように通常・プライベートの両状態を同じ画面で描画する場合は、既存の `bgColor()`、`surfaceColor()` などのラッパーを優先し、新しい参照が必要なら `Theme.*(context, privateUiActive())` を使うこと。プライベート用の色を個別にハードコードしないこと。
 - システムバーには `Theme.applySystemBars(...)`、ダイアログには `Theme.styleDialog(...)` / `Theme.stylePopupDialog(...)`、チェックボックスとラジオボタンには `Theme.tintCompoundButton(...)` を使い、選択中のパレットと明暗設定を反映すること。
 - `accent` を塗り色として使うボタンやバッジの前景色は、任意のカスタム色でもコントラストを保つため `Theme.contrastingText(...)` で決めること。
-- 新しいセマンティック色を追加する場合は、ライト・ダーク・プライベートの全組み込みパレット、`Theme.Palette` のJSON入出力、`Theme.COLOR_KEYS`、テーマ編集画面の表示名を同時に更新し、既存のテーマファイルを読み込める互換性を維持すること。
+- 新しいセマンティック色を追加する場合は、ライト・ダーク・プライベート・ブルーの全組み込みパレット、`Theme.Palette` のJSON入出力、`Theme.COLOR_KEYS`、テーマ編集画面の表示名と色プレビューを同時に更新し、既存のテーマファイルを読み込める互換性を維持すること。
