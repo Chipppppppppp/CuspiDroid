@@ -44,11 +44,13 @@ final class Theme {
 
     static final String EXPORT_FORMAT = "cuspidroid-theme";
     static final int EXPORT_VERSION = 1;
+    private static final int LEGACY_COLOR_KEY_COUNT = 15;
 
     static final String[] COLOR_KEYS = {
             "background", "topBar", "surface", "post", "unread", "field", "menu",
             "text", "muted", "subtle", "border", "strongBorder", "active",
-            "linkHighlight", "accent"
+            "linkHighlight", "accent", "sidebar", "sidebarThumb", "sidebarUnread",
+            "myPostMarker", "replyPostMarker", "treeConnector", "metricLow", "metricHigh"
     };
 
     private static final Palette LIGHT = new Palette(MODE_LIGHT, "Teal (Light)", false,
@@ -56,70 +58,100 @@ final class Theme {
             Color.rgb(250, 251, 252), Color.rgb(232, 247, 244), Color.rgb(241, 245, 249),
             Color.WHITE, Color.rgb(31, 41, 55), Color.rgb(79, 91, 103),
             Color.rgb(100, 116, 139), Color.rgb(215, 221, 226), Color.rgb(148, 163, 184),
-            Color.rgb(224, 242, 241), Color.rgb(219, 234, 254), Color.rgb(15, 118, 110));
+            Color.rgb(224, 242, 241), Color.rgb(219, 234, 254), Color.rgb(15, 118, 110))
+            .withDetails(Color.rgb(215, 221, 226), Color.rgb(15, 118, 110), Color.rgb(20, 184, 166),
+                    Color.rgb(15, 118, 110), Color.rgb(20, 184, 166), Color.rgb(15, 118, 110),
+                    Color.rgb(100, 116, 139), Color.rgb(13, 148, 136));
 
     private static final Palette DARK = new Palette(MODE_DARK, "Teal (Dark)", true,
             Color.BLACK, Color.BLACK, Color.rgb(12, 12, 12), Color.rgb(16, 16, 16),
             Color.rgb(4, 44, 43), Color.rgb(18, 18, 18), Color.rgb(12, 12, 12),
             Color.rgb(245, 247, 250), Color.rgb(168, 176, 186), Color.rgb(116, 128, 141),
             Color.rgb(54, 62, 72), Color.rgb(86, 98, 112), Color.rgb(2, 48, 48),
-            Color.rgb(23, 37, 84), Color.rgb(20, 184, 166));
+            Color.rgb(23, 37, 84), Color.rgb(20, 184, 166))
+            .withDetails(Color.rgb(54, 62, 72), Color.rgb(20, 184, 166), Color.rgb(45, 212, 191),
+                    Color.rgb(20, 184, 166), Color.rgb(94, 234, 212), Color.rgb(20, 184, 166),
+                    Color.rgb(116, 128, 141), Color.rgb(45, 212, 191));
 
     private static final Palette GREEN_LIGHT = new Palette(ID_GREEN_LIGHT, "Green (Light)", false,
             Color.rgb(244, 251, 247), Color.rgb(231, 247, 238), Color.rgb(250, 253, 251),
             Color.rgb(247, 252, 249), Color.rgb(220, 252, 231), Color.rgb(234, 247, 239),
             Color.WHITE, Color.rgb(18, 53, 36), Color.rgb(70, 100, 81),
             Color.rgb(102, 130, 115), Color.rgb(183, 222, 197), Color.rgb(103, 185, 133),
-            Color.rgb(209, 250, 229), Color.rgb(220, 252, 231), Color.rgb(21, 128, 61));
+            Color.rgb(209, 250, 229), Color.rgb(220, 252, 231), Color.rgb(21, 128, 61))
+            .withDetails(Color.rgb(183, 222, 197), Color.rgb(21, 128, 61), Color.rgb(34, 197, 94),
+                    Color.rgb(21, 128, 61), Color.rgb(34, 197, 94), Color.rgb(21, 128, 61),
+                    Color.rgb(102, 130, 115), Color.rgb(22, 163, 74));
 
     private static final Palette PRIVATE = new Palette(ID_PRIVATE, "Green (Dark)", true,
             Color.rgb(0, 24, 17), Color.rgb(0, 24, 17), Color.rgb(1, 40, 29),
             Color.rgb(1, 40, 29), Color.rgb(4, 44, 43), Color.rgb(1, 40, 29),
             Color.rgb(1, 40, 29), Color.rgb(245, 247, 250), Color.rgb(168, 176, 186),
             Color.rgb(168, 176, 186), Color.rgb(8, 72, 52), Color.rgb(16, 104, 76),
-            Color.rgb(2, 48, 48), Color.rgb(23, 37, 84), Color.rgb(52, 211, 153));
+            Color.rgb(2, 48, 48), Color.rgb(23, 37, 84), Color.rgb(52, 211, 153))
+            .withDetails(Color.rgb(8, 72, 52), Color.rgb(52, 211, 153), Color.rgb(110, 231, 183),
+                    Color.rgb(52, 211, 153), Color.rgb(110, 231, 183), Color.rgb(52, 211, 153),
+                    Color.rgb(168, 176, 186), Color.rgb(16, 185, 129));
 
     private static final Palette BLUE = new Palette(ID_BLUE, "Blue (Light)", false,
             Color.rgb(246, 249, 255), Color.rgb(234, 242, 255), Color.WHITE,
             Color.rgb(248, 250, 255), Color.rgb(224, 242, 254), Color.rgb(237, 244, 255),
             Color.WHITE, Color.rgb(23, 37, 84), Color.rgb(71, 85, 105),
             Color.rgb(100, 116, 139), Color.rgb(191, 219, 254), Color.rgb(96, 165, 250),
-            Color.rgb(219, 234, 254), Color.rgb(191, 219, 254), Color.rgb(37, 99, 235));
+            Color.rgb(219, 234, 254), Color.rgb(191, 219, 254), Color.rgb(37, 99, 235))
+            .withDetails(Color.rgb(191, 219, 254), Color.rgb(37, 99, 235), Color.rgb(59, 130, 246),
+                    Color.rgb(37, 99, 235), Color.rgb(96, 165, 250), Color.rgb(37, 99, 235),
+                    Color.rgb(100, 116, 139), Color.rgb(29, 78, 216));
 
     private static final Palette BLUE_DARK = new Palette(ID_BLUE_DARK, "Blue (Dark)", true,
             Color.rgb(7, 20, 38), Color.rgb(10, 25, 47), Color.rgb(13, 31, 56),
             Color.rgb(16, 36, 63), Color.rgb(16, 45, 78), Color.rgb(17, 40, 68),
             Color.rgb(13, 31, 56), Color.rgb(239, 246, 255), Color.rgb(169, 188, 211),
             Color.rgb(127, 152, 181), Color.rgb(41, 74, 109), Color.rgb(59, 130, 246),
-            Color.rgb(18, 59, 104), Color.rgb(23, 37, 84), Color.rgb(96, 165, 250));
+            Color.rgb(18, 59, 104), Color.rgb(23, 37, 84), Color.rgb(96, 165, 250))
+            .withDetails(Color.rgb(41, 74, 109), Color.rgb(96, 165, 250), Color.rgb(147, 197, 253),
+                    Color.rgb(96, 165, 250), Color.rgb(147, 197, 253), Color.rgb(96, 165, 250),
+                    Color.rgb(127, 152, 181), Color.rgb(59, 130, 246));
 
     private static final Palette PURPLE_LIGHT = new Palette(ID_PURPLE_LIGHT, "Purple (Light)", false,
             Color.rgb(251, 248, 255), Color.rgb(243, 234, 255), Color.rgb(254, 252, 255),
             Color.rgb(252, 249, 255), Color.rgb(243, 232, 255), Color.rgb(246, 238, 255),
             Color.WHITE, Color.rgb(59, 29, 90), Color.rgb(107, 84, 125),
             Color.rgb(133, 109, 150), Color.rgb(222, 200, 242), Color.rgb(183, 131, 227),
-            Color.rgb(240, 225, 255), Color.rgb(237, 233, 254), Color.rgb(126, 34, 206));
+            Color.rgb(240, 225, 255), Color.rgb(237, 233, 254), Color.rgb(126, 34, 206))
+            .withDetails(Color.rgb(222, 200, 242), Color.rgb(126, 34, 206), Color.rgb(168, 85, 247),
+                    Color.rgb(126, 34, 206), Color.rgb(168, 85, 247), Color.rgb(126, 34, 206),
+                    Color.rgb(133, 109, 150), Color.rgb(126, 34, 206));
 
     private static final Palette PURPLE_DARK = new Palette(ID_PURPLE_DARK, "Purple (Dark)", true,
             Color.rgb(23, 13, 35), Color.rgb(26, 15, 40), Color.rgb(33, 19, 47),
             Color.rgb(39, 22, 56), Color.rgb(53, 32, 76), Color.rgb(43, 24, 61),
             Color.rgb(33, 19, 47), Color.rgb(250, 245, 255), Color.rgb(196, 181, 208),
             Color.rgb(157, 135, 174), Color.rgb(83, 53, 106), Color.rgb(139, 92, 246),
-            Color.rgb(64, 33, 93), Color.rgb(46, 16, 101), Color.rgb(192, 132, 252));
+            Color.rgb(64, 33, 93), Color.rgb(46, 16, 101), Color.rgb(192, 132, 252))
+            .withDetails(Color.rgb(83, 53, 106), Color.rgb(192, 132, 252), Color.rgb(216, 180, 254),
+                    Color.rgb(192, 132, 252), Color.rgb(216, 180, 254), Color.rgb(192, 132, 252),
+                    Color.rgb(157, 135, 174), Color.rgb(168, 85, 247));
 
     private static final Palette CRIMSON_LIGHT = new Palette(ID_CRIMSON_LIGHT, "Crimson (Light)", false,
             Color.rgb(255, 248, 249), Color.rgb(255, 236, 239), Color.rgb(255, 252, 252),
             Color.rgb(255, 249, 250), Color.rgb(255, 228, 230), Color.rgb(255, 240, 242),
             Color.WHITE, Color.rgb(74, 22, 32), Color.rgb(123, 75, 84),
             Color.rgb(149, 104, 115), Color.rgb(244, 194, 203), Color.rgb(232, 121, 141),
-            Color.rgb(255, 224, 229), Color.rgb(255, 228, 230), Color.rgb(190, 18, 60));
+            Color.rgb(255, 224, 229), Color.rgb(255, 228, 230), Color.rgb(190, 18, 60))
+            .withDetails(Color.rgb(244, 194, 203), Color.rgb(190, 18, 60), Color.rgb(225, 29, 72),
+                    Color.rgb(190, 18, 60), Color.rgb(225, 29, 72), Color.rgb(190, 18, 60),
+                    Color.rgb(149, 104, 115), Color.rgb(190, 18, 60));
 
     private static final Palette CRIMSON_DARK = new Palette(ID_CRIMSON_DARK, "Crimson (Dark)", true,
             Color.rgb(33, 8, 14), Color.rgb(41, 11, 19), Color.rgb(49, 15, 24),
             Color.rgb(56, 17, 28), Color.rgb(74, 21, 35), Color.rgb(64, 20, 33),
             Color.rgb(49, 15, 24), Color.rgb(255, 241, 242), Color.rgb(216, 173, 181),
             Color.rgb(184, 135, 145), Color.rgb(113, 48, 66), Color.rgb(190, 52, 85),
-            Color.rgb(88, 23, 42), Color.rgb(76, 5, 25), Color.rgb(251, 113, 133));
+            Color.rgb(88, 23, 42), Color.rgb(76, 5, 25), Color.rgb(251, 113, 133))
+            .withDetails(Color.rgb(113, 48, 66), Color.rgb(251, 113, 133), Color.rgb(253, 164, 175),
+                    Color.rgb(251, 113, 133), Color.rgb(253, 164, 175), Color.rgb(251, 113, 133),
+                    Color.rgb(184, 135, 145), Color.rgb(225, 29, 72));
 
     private static String cachedJson;
     private static String cachedNormalId;
@@ -171,6 +203,22 @@ final class Theme {
     static int linkHighlight(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).linkHighlight; }
     static int accent(Context context) { return accent(context, false); }
     static int accent(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).accent; }
+    static int sidebar(Context context) { return sidebar(context, false); }
+    static int sidebar(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).sidebar; }
+    static int sidebarThumb(Context context) { return sidebarThumb(context, false); }
+    static int sidebarThumb(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).sidebarThumb; }
+    static int sidebarUnread(Context context) { return sidebarUnread(context, false); }
+    static int sidebarUnread(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).sidebarUnread; }
+    static int myPostMarker(Context context) { return myPostMarker(context, false); }
+    static int myPostMarker(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).myPostMarker; }
+    static int replyPostMarker(Context context) { return replyPostMarker(context, false); }
+    static int replyPostMarker(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).replyPostMarker; }
+    static int treeConnector(Context context) { return treeConnector(context, false); }
+    static int treeConnector(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).treeConnector; }
+    static int metricLow(Context context) { return metricLow(context, false); }
+    static int metricLow(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).metricLow; }
+    static int metricHigh(Context context) { return metricHigh(context, false); }
+    static int metricHigh(Context context, boolean privateBrowsing) { return palette(context, privateBrowsing).metricHigh; }
 
     static int contrastingText(int background) {
         int brightness = (Color.red(background) * 299 + Color.green(background) * 587
@@ -491,6 +539,14 @@ final class Theme {
         int active;
         int linkHighlight;
         int accent;
+        int sidebar;
+        int sidebarThumb;
+        int sidebarUnread;
+        int myPostMarker;
+        int replyPostMarker;
+        int treeConnector;
+        int metricLow;
+        int metricHigh;
 
         Palette(String id, String name, boolean dark, int background, int topBar, int surface,
                 int post, int unread, int field, int menu, int text, int muted, int subtle,
@@ -513,11 +569,34 @@ final class Theme {
             this.active = active;
             this.linkHighlight = linkHighlight;
             this.accent = accent;
+            this.sidebar = border;
+            this.sidebarThumb = accent;
+            this.sidebarUnread = accent;
+            this.myPostMarker = accent;
+            this.replyPostMarker = strongBorder;
+            this.treeConnector = accent;
+            this.metricLow = subtle;
+            this.metricHigh = accent;
+        }
+
+        Palette withDetails(int sidebar, int sidebarThumb, int sidebarUnread, int myPostMarker,
+                            int replyPostMarker, int treeConnector, int metricLow, int metricHigh) {
+            this.sidebar = sidebar;
+            this.sidebarThumb = sidebarThumb;
+            this.sidebarUnread = sidebarUnread;
+            this.myPostMarker = myPostMarker;
+            this.replyPostMarker = replyPostMarker;
+            this.treeConnector = treeConnector;
+            this.metricLow = metricLow;
+            this.metricHigh = metricHigh;
+            return this;
         }
 
         Palette copy() {
             return new Palette(id, name, dark, background, topBar, surface, post, unread, field,
-                    menu, text, muted, subtle, border, strongBorder, active, linkHighlight, accent);
+                    menu, text, muted, subtle, border, strongBorder, active, linkHighlight, accent)
+                    .withDetails(sidebar, sidebarThumb, sidebarUnread, myPostMarker, replyPostMarker,
+                            treeConnector, metricLow, metricHigh);
         }
 
         int color(String key) {
@@ -537,6 +616,14 @@ final class Theme {
                 case "active": return active;
                 case "linkHighlight": return linkHighlight;
                 case "accent": return accent;
+                case "sidebar": return sidebar;
+                case "sidebarThumb": return sidebarThumb;
+                case "sidebarUnread": return sidebarUnread;
+                case "myPostMarker": return myPostMarker;
+                case "replyPostMarker": return replyPostMarker;
+                case "treeConnector": return treeConnector;
+                case "metricLow": return metricLow;
+                case "metricHigh": return metricHigh;
                 default: throw new IllegalArgumentException(key);
             }
         }
@@ -558,6 +645,14 @@ final class Theme {
                 case "active": active = color; break;
                 case "linkHighlight": linkHighlight = color; break;
                 case "accent": accent = color; break;
+                case "sidebar": sidebar = color; break;
+                case "sidebarThumb": sidebarThumb = color; break;
+                case "sidebarUnread": sidebarUnread = color; break;
+                case "myPostMarker": myPostMarker = color; break;
+                case "replyPostMarker": replyPostMarker = color; break;
+                case "treeConnector": treeConnector = color; break;
+                case "metricLow": metricLow = color; break;
+                case "metricHigh": metricHigh = color; break;
                 default: throw new IllegalArgumentException(key);
             }
         }
@@ -583,8 +678,27 @@ final class Theme {
             palette.id = id;
             palette.name = name;
             palette.dark = object.getBoolean("dark");
-            for (String key : COLOR_KEYS) palette.setColor(key, parseColor(colors.getString(key)));
+            for (int i = 0; i < COLOR_KEYS.length; i++) {
+                String key = COLOR_KEYS[i];
+                if (colors.has(key) && !colors.isNull(key)) {
+                    palette.setColor(key, parseColor(colors.getString(key)));
+                } else if (i < LEGACY_COLOR_KEY_COUNT) {
+                    throw new JSONException("Missing color: " + key);
+                }
+            }
+            if (!hasColor(colors, "sidebar")) palette.sidebar = palette.border;
+            if (!hasColor(colors, "sidebarThumb")) palette.sidebarThumb = palette.accent;
+            if (!hasColor(colors, "sidebarUnread")) palette.sidebarUnread = palette.accent;
+            if (!hasColor(colors, "myPostMarker")) palette.myPostMarker = palette.accent;
+            if (!hasColor(colors, "replyPostMarker")) palette.replyPostMarker = palette.strongBorder;
+            if (!hasColor(colors, "treeConnector")) palette.treeConnector = palette.accent;
+            if (!hasColor(colors, "metricLow")) palette.metricLow = palette.subtle;
+            if (!hasColor(colors, "metricHigh")) palette.metricHigh = palette.accent;
             return palette;
+        }
+
+        private static boolean hasColor(JSONObject colors, String key) {
+            return colors.has(key) && !colors.isNull(key);
         }
 
         private static int parseColor(String value) throws JSONException {

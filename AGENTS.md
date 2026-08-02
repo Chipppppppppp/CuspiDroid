@@ -10,7 +10,7 @@
 
 ## UIテーマの参照方法
 
-- UIの色は `Theme` を唯一の参照元とし、画面クラスへ `Color.rgb(...)` や色リテラルを追加しないこと。役割に応じて `background`（画面）、`topBar`（上下バー）、`surface`（カード・パネル）、`post`（投稿）、`unread`（未読投稿）、`field`（入力欄）、`menu`（メニュー）、`text`（本文）、`muted` / `subtle`（補助表示）、`border` / `strongBorder`（境界線）、`active` / `searchHighlight`（選択・検索強調）、`linkHighlight`（リンク強調）、`accent`（操作・アイコン）を使うこと。
+- UIの色は `Theme` を唯一の参照元とし、画面クラスへ `Color.rgb(...)` や色リテラルを追加しないこと。役割に応じて `background`（画面）、`topBar`（上下バー）、`surface`（カード・パネル）、`post`（投稿）、`unread`（未読投稿）、`field`（入力欄）、`menu`（メニュー）、`text`（本文）、`muted` / `subtle`（補助表示）、`border` / `strongBorder`（境界線）、`active` / `searchHighlight`（選択・検索強調）、`linkHighlight`（リンク強調）、`accent`（操作・アイコン）を使うこと。スクロールサイドバーには `sidebar` / `sidebarThumb` / `sidebarUnread`、投稿左バーには `myPostMarker` / `replyPostMarker`、ツリー線には `treeConnector`、順位・勢い・レス数など値の強さを補間する表示には `metricLow` / `metricHigh` を使うこと。
 - 通常画面では `Theme.background(context)` のような通常のアクセサーを使うこと。`MainActivity` のように通常・プライベートの両状態を同じ画面で描画する場合は、既存の `bgColor()`、`surfaceColor()` などのラッパーを優先し、新しい参照が必要なら `Theme.*(context, privateUiActive())` を使うこと。プライベート用の色を個別にハードコードしないこと。
 - システムバーには `Theme.applySystemBars(...)`、ダイアログには `Theme.styleDialog(...)` / `Theme.stylePopupDialog(...)`、チェックボックスとラジオボタンには `Theme.tintCompoundButton(...)` を使い、選択中のパレットと明暗設定を反映すること。
 - `accent` を塗り色として使うボタンやバッジの前景色は、任意のカスタム色でもコントラストを保つため `Theme.contrastingText(...)` で決めること。

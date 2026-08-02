@@ -344,8 +344,6 @@ public class MainActivity extends Activity {
     private static final Charset POST_CHARSET = Charset.forName("UTF-8");
     private static final Charset LEGACY_BBS_POST_CHARSET = Charset.forName("MS932");
     private static final Charset SHITARABA_POST_CHARSET = Charset.forName("EUC-JP");
-    private static final int MY_POST_MARKER = Color.rgb(37, 99, 235);
-    private static final int REPLY_TO_MY_POST_MARKER = Color.rgb(112, 88, 163);
     private static final Pattern URL_TEXT_PATTERN = Pattern.compile("(?:h?ttps?[;:]//|ttps?[;:]//|ttp[;:]//)\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST_ID_PATTERN = Pattern.compile("\\bID:([A-Za-z0-9+/._-]+)");
     private static final Pattern HISSI_DATE_PATTERN = Pattern.compile("(20\\d{2})[./\\-](\\d{1,2})[./\\-](\\d{1,2})|(20\\d{2})年(\\d{1,2})月(\\d{1,2})日");
@@ -789,6 +787,42 @@ public class MainActivity extends Activity {
 
     private int linkHighlightColor() {
         return Theme.linkHighlight(this, privateUiActive());
+    }
+
+    private int sidebarColor() {
+        return Theme.sidebar(this, privateUiActive());
+    }
+
+    private int sidebarThumbColor() {
+        return Theme.sidebarThumb(this, privateUiActive());
+    }
+
+    private int sidebarUnreadColor() {
+        return Theme.sidebarUnread(this, privateUiActive());
+    }
+
+    private int myPostMarkerColor() {
+        return Theme.myPostMarker(this, privateUiActive());
+    }
+
+    private int replyPostMarkerColor() {
+        return Theme.replyPostMarker(this, privateUiActive());
+    }
+
+    private int treeConnectorColor() {
+        return Theme.treeConnector(this, privateUiActive());
+    }
+
+    private int metricLowColor() {
+        return Theme.metricLow(this, privateUiActive());
+    }
+
+    private int metricHighColor() {
+        return Theme.metricHigh(this, privateUiActive());
+    }
+
+    private int withAlpha(int color, int alpha) {
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private int searchHighlightColor() {
@@ -3059,7 +3093,7 @@ public class MainActivity extends Activity {
         if (!myPost && !replyToMyPost) {
             return roundedFill(fill, dp(12));
         }
-        int marker = myPost ? MY_POST_MARKER : REPLY_TO_MY_POST_MARKER;
+        int marker = myPost ? myPostMarkerColor() : replyPostMarkerColor();
         return new PostMarkerBackgroundDrawable(fill, marker, dp(12), dp(5));
     }
 
@@ -8380,7 +8414,7 @@ public class MainActivity extends Activity {
                 attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
             }
             if (showTreeConnector) {
-                shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
+                shell.addView(new TreeConnectorView(this, item, dp(18), treeConnectorColor()),
                         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT));
             }
@@ -8397,7 +8431,7 @@ public class MainActivity extends Activity {
                 attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
             }
             if (showTreeConnector) {
-                shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
+                shell.addView(new TreeConnectorView(this, item, dp(18), treeConnectorColor()),
                         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT));
             }
@@ -8478,7 +8512,7 @@ public class MainActivity extends Activity {
             attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         }
         if (showTreeConnector) {
-            shell.addView(new TreeConnectorView(this, item, dp(18), TEAL),
+            shell.addView(new TreeConnectorView(this, item, dp(18), treeConnectorColor()),
                     new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT));
         }
@@ -10857,19 +10891,19 @@ public class MainActivity extends Activity {
         if (showMetaField(PREF_BOARD_SHOW_ORDER, PREF_TAB_SHOW_ORDER, tabOverview)) {
             row.addView(boardThreadMetaItem(text("\u9806\u4f4d", "Rank"),
                     result.boardOrder > 0 ? String.valueOf(result.boardOrder) : "-", Gravity.END,
-                    metaRankBlue(result.boardOrder), true),
+                    metaRankGradient(result.boardOrder), true),
                     boardThreadMetaItemParams(dp(31)));
         }
         if (showMetaField(PREF_BOARD_SHOW_VELOCITY, PREF_TAB_SHOW_VELOCITY, tabOverview)) {
             row.addView(boardThreadMetaItem(text("\u52e2\u3044", "Speed"),
                     result.velocity > 0 ? String.format(Locale.ROOT, "%.1f", result.velocity) : "-", Gravity.END,
-                    metaBlue(Math.max(0d, result.velocity), true), true),
+                    metaGradient(Math.max(0d, result.velocity), true), true),
                     boardThreadMetaItemParams(dp(42)));
         }
         if (showMetaField(PREF_BOARD_SHOW_RESPONSES, PREF_TAB_SHOW_RESPONSES, tabOverview)) {
             row.addView(boardThreadMetaItem(text("\u30ec\u30b9", "Posts"),
                     result.responses > 0 ? String.valueOf(result.responses) : "-", Gravity.END,
-                    metaBlue(Math.max(0, result.responses), false), true),
+                    metaGradient(Math.max(0, result.responses), false), true),
                     boardThreadMetaItemParams(dp(36)));
         }
         return row;
@@ -11268,25 +11302,25 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
                 continue;
             }
-            int color = rank ? metaRankBlue((int) number) : metaBlue(number, velocity);
+            int color = rank ? metaRankGradient((int) number) : metaGradient(number, velocity);
             text.setSpan(new ForegroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             text.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
     }
 
-    private int metaRankBlue(int rank) {
+    private int metaRankGradient(int rank) {
         if (rank <= 0) {
-            return metaBlue(0d, false);
+            return metaGradient(0d, false);
         }
         double ratio = Math.max(0d, (100d - rank) / 99d);
-        return metaBlue(ratio * 1000d, false);
+        return metaGradient(ratio * 1000d, false);
     }
 
-    private int metaBlue(double value, boolean velocity) {
+    private int metaGradient(double value, boolean velocity) {
         double max = velocity ? 10000d : 1000d;
         double ratio = Math.max(0d, Math.min(1d, value / max));
-        int start = Color.rgb(100, 116, 139);
-        int end = Color.rgb(29, 78, 216);
+        int start = metricLowColor();
+        int end = metricHighColor();
         return Color.rgb(
                 interpolate(Color.red(start), Color.red(end), ratio),
                 interpolate(Color.green(start), Color.green(end), ratio),
@@ -11320,7 +11354,7 @@ public class MainActivity extends Activity {
                 dp(24), ViewGroup.LayoutParams.MATCH_PARENT));
 
         View rail = new View(this);
-        rail.setBackgroundColor(Color.argb(28, 31, 41, 55));
+        rail.setBackgroundColor(withAlpha(sidebarColor(), 28));
         FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         scrubber.addView(rail, railParams);
@@ -11334,7 +11368,7 @@ public class MainActivity extends Activity {
 
         View thumb = new View(this);
         GradientDrawable thumbBackground = new GradientDrawable();
-        thumbBackground.setColor(Color.argb(170, 15, 118, 110));
+        thumbBackground.setColor(withAlpha(sidebarThumbColor(), 170));
         thumbBackground.setCornerRadius(dp(8));
         thumb.setBackground(thumbBackground);
         FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(dp(10), dp(56));
@@ -11413,7 +11447,7 @@ public class MainActivity extends Activity {
         }
         int markerTop = Math.max(0, Math.min(frameHeight - dp(2), firstUnreadTop * frameHeight / contentHeight));
         View marker = new View(this);
-        marker.setBackgroundColor(Color.argb(95, 20, 184, 166));
+        marker.setBackgroundColor(withAlpha(sidebarUnreadColor(), 95));
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(dp(2), frameHeight - markerTop));
         params.topMargin = markerTop;

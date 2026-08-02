@@ -258,7 +258,8 @@ public class ThemeSettingsActivity extends Activity {
     private LinearLayout swatchStrip(Theme.Palette palette, int height) {
         LinearLayout strip = new LinearLayout(this);
         strip.setOrientation(LinearLayout.HORIZONTAL);
-        int[] colors = {palette.background, palette.surface, palette.text, palette.active, palette.accent};
+        int[] colors = {palette.background, palette.surface, palette.text, palette.myPostMarker,
+                palette.treeConnector, palette.sidebarUnread, palette.metricLow, palette.metricHigh};
         for (int i = 0; i < colors.length; i++) {
             View swatch = new View(this);
             GradientDrawable background = new GradientDrawable();
@@ -309,7 +310,8 @@ public class ThemeSettingsActivity extends Activity {
         LinearLayout swatches = new LinearLayout(this);
         swatches.setOrientation(LinearLayout.HORIZONTAL);
         swatches.setPadding(0, dp(8), 0, dp(8));
-        int[] colors = {palette.background, palette.surface, palette.text, palette.accent, palette.active};
+        int[] colors = {palette.background, palette.surface, palette.text, palette.myPostMarker,
+                palette.treeConnector, palette.sidebarUnread, palette.metricLow, palette.metricHigh};
         for (int color : colors) {
             View swatch = new View(this);
             GradientDrawable drawable = new GradientDrawable();
@@ -443,6 +445,14 @@ public class ThemeSettingsActivity extends Activity {
             case "active": return MainActivity.text("選択・検索強調", "Selection and search highlight");
             case "linkHighlight": return MainActivity.text("リンク強調", "Link highlight");
             case "accent": return MainActivity.text("アクセント", "Accent");
+            case "sidebar": return MainActivity.text("スクロールサイドバー", "Scroll sidebar");
+            case "sidebarThumb": return MainActivity.text("サイドバーつまみ", "Sidebar thumb");
+            case "sidebarUnread": return MainActivity.text("サイドバー未読範囲", "Sidebar unread range");
+            case "myPostMarker": return MainActivity.text("自分の投稿の左バー", "My-post left bar");
+            case "replyPostMarker": return MainActivity.text("自分への返信の左バー", "Reply-to-me left bar");
+            case "treeConnector": return MainActivity.text("ツリー接続線", "Tree connector lines");
+            case "metricLow": return MainActivity.text("情報グラデーション（弱）", "Metric gradient (low)");
+            case "metricHigh": return MainActivity.text("情報グラデーション（強）", "Metric gradient (high)");
             default: return key;
         }
     }
