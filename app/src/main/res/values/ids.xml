@@ -6,4 +6,5 @@
     <item name="tag_touched_post_name" type="id" />
     <item name="tag_top_pull_refresh" type="id" />
     <item name="tag_scroll_tab" type="id" />
+    <item name="tag_theme_text_selection_listener" type="id" />
 </resources>

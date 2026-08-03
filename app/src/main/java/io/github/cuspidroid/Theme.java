@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.view.View;
@@ -532,7 +533,7 @@ final class Theme {
         if (dialog == null) return;
         stylePopupDialog(dialog, context, backgroundColor, borderColor);
         View decor = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
-        tintDialogText(decor, textColor);
+        tintDialogText(decor, context, textColor);
         if (dialog instanceof android.app.AlertDialog) {
             android.app.AlertDialog alert = (android.app.AlertDialog) dialog;
             if (alert.getButton(android.app.AlertDialog.BUTTON_POSITIVE) != null) alert.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setTextColor(accentColor);
@@ -572,16 +573,23 @@ final class Theme {
         }
     }
 
-    private static void tintDialogText(View view, int color) {
-        if (view instanceof TextView) ((TextView) view).setTextColor(color);
+    private static void tintDialogText(View view, Context context, int color) {
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            text.setTextColor(color);
+            applyTextSelection(context, text);
+        }
         if (!(view instanceof ViewGroup)) return;
         ViewGroup group = (ViewGroup) view;
-        for (int i = 0; i < group.getChildCount(); i++) tintDialogText(group.getChildAt(i), color);
+        for (int i = 0; i < group.getChildCount(); i++) {
+            tintDialogText(group.getChildAt(i), context, color);
+        }
     }
 
     static void applySystemBars(Activity activity) {
         activity.getWindow().setStatusBarColor(background(activity));
         activity.getWindow().setNavigationBarColor(topBar(activity));
+        installTextSelectionTheme(activity);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
             if (dark(activity)) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
@@ -592,6 +600,46 @@ final class Theme {
             }
             activity.getWindow().getDecorView().setSystemUiVisibility(flags);
         }
+    }
+
+    private static void installTextSelectionTheme(Activity activity) {
+        View decor = activity.getWindow().getDecorView();
+        if (!Boolean.TRUE.equals(decor.getTag(R.id.tag_theme_text_selection_listener))) {
+            decor.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
+                if (newFocus instanceof TextView) {
+                    applyTextSelection(activity, (TextView) newFocus);
+                }
+            });
+            decor.setTag(R.id.tag_theme_text_selection_listener, true);
+        }
+        View focused = decor.findFocus();
+        if (focused instanceof TextView) {
+            applyTextSelection(activity, (TextView) focused);
+        }
+    }
+
+    private static void applyTextSelection(Context context, TextView view) {
+        view.setHighlightColor(active(context));
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
+        int color = accent(context);
+        Drawable cursor = tintedCopy(context, view.getTextCursorDrawable(), color);
+        Drawable handle = tintedCopy(context, view.getTextSelectHandle(), color);
+        Drawable handleLeft = tintedCopy(context, view.getTextSelectHandleLeft(), color);
+        Drawable handleRight = tintedCopy(context, view.getTextSelectHandleRight(), color);
+        if (cursor != null) view.setTextCursorDrawable(cursor);
+        if (handle != null) view.setTextSelectHandle(handle);
+        if (handleLeft != null) view.setTextSelectHandleLeft(handleLeft);
+        if (handleRight != null) view.setTextSelectHandleRight(handleRight);
+    }
+
+    private static Drawable tintedCopy(Context context, Drawable source, int color) {
+        if (source == null) return null;
+        Drawable.ConstantState state = source.getConstantState();
+        Drawable drawable = state == null
+                ? source.mutate()
+                : state.newDrawable(context.getResources()).mutate();
+        drawable.setTint(color);
+        return drawable;
     }
 
     private static synchronized Palette palette(Context context) {
