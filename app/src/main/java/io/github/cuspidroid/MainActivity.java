@@ -13842,9 +13842,28 @@ public class MainActivity extends Activity {
         int initialCount = Math.min(indices.size(), TAB_OVERVIEW_INITIAL_SLOT_BATCH);
         appendVirtualTabOverviewSlots(list, indices, 0, initialCount);
         VirtualTabOverviewState state = setupVirtualTabOverviewRefresh(scroll, list);
+        renderInitialTabOverviewSlots(list, initialCount);
         if (initialCount < indices.size()) {
             state.appendingSlots = true;
             list.post(() -> appendDeferredVirtualTabOverviewSlots(scroll, list, indices, state, initialCount));
+        }
+    }
+
+    private void renderInitialTabOverviewSlots(LinearLayout list, int count) {
+        if (list == null || count <= 0) {
+            return;
+        }
+        int rendered = 0;
+        for (FrameLayout holder : tabOverviewSlotHolders(list)) {
+            Object tag = holder.getTag();
+            if (!(tag instanceof VirtualTabOverviewSlot)) {
+                continue;
+            }
+            renderTabOverviewSlot(holder, (VirtualTabOverviewSlot) tag);
+            rendered++;
+            if (rendered >= count) {
+                return;
+            }
         }
     }
 
