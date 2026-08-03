@@ -630,6 +630,9 @@ final class Theme {
     }
 
     static void makeTextSelectable(Context context, TextView view) {
+        // The platform's smart-selection animation may cache the highlight color when
+        // selection support is initialized, so set it before making the view selectable.
+        view.setHighlightColor(active(context));
         view.setTextIsSelectable(true);
         applyTextSelectionToText(context, view);
     }
