@@ -61,6 +61,13 @@ final class Theme {
             "myPostMarker", "replyPostMarker", "treeConnector", "metricLow", "metricHigh"
     };
 
+    /** Colors users edit directly; linked utility colors remain in JSON for file compatibility. */
+    static final String[] EDITABLE_COLOR_KEYS = {
+            "background", "topBar", "surface", "post", "unread", "field",
+            "text", "muted", "subtle", "border", "strongBorder", "active", "accent",
+            "sidebarUnread", "replyPostMarker", "metricLow", "metricHigh"
+    };
+
     private static final Palette LIGHT = new Palette(MODE_LIGHT, "Indigo (Light)", false,
             Color.rgb(247, 248, 252), Color.rgb(238, 240, 247), Color.WHITE,
             Color.rgb(251, 252, 255), Color.rgb(238, 242, 255), Color.rgb(243, 244, 248),
@@ -236,7 +243,7 @@ final class Theme {
     static int post(Context context) { return palette(context).post; }
     static int unread(Context context) { return palette(context).unread; }
     static int field(Context context) { return palette(context).field; }
-    static int menu(Context context) { return palette(context).menu; }
+    static int menu(Context context) { return surface(context); }
     static int text(Context context) { return palette(context).text; }
     static int muted(Context context) { return palette(context).muted; }
     static int subtle(Context context) { return palette(context).subtle; }
@@ -244,14 +251,14 @@ final class Theme {
     static int strongBorder(Context context) { return palette(context).strongBorder; }
     static int active(Context context) { return palette(context).active; }
     static int searchHighlight(Context context) { return active(context); }
-    static int linkHighlight(Context context) { return palette(context).linkHighlight; }
+    static int linkHighlight(Context context) { return active(context); }
     static int accent(Context context) { return palette(context).accent; }
-    static int sidebar(Context context) { return palette(context).sidebar; }
-    static int sidebarThumb(Context context) { return palette(context).sidebarThumb; }
+    static int sidebar(Context context) { return border(context); }
+    static int sidebarThumb(Context context) { return accent(context); }
     static int sidebarUnread(Context context) { return palette(context).sidebarUnread; }
-    static int myPostMarker(Context context) { return palette(context).myPostMarker; }
+    static int myPostMarker(Context context) { return accent(context); }
     static int replyPostMarker(Context context) { return palette(context).replyPostMarker; }
-    static int treeConnector(Context context) { return palette(context).treeConnector; }
+    static int treeConnector(Context context) { return strongBorder(context); }
     static int metricLow(Context context) { return palette(context).metricLow; }
     static int metricHigh(Context context) { return palette(context).metricHigh; }
 
@@ -672,6 +679,16 @@ final class Theme {
             this.treeConnector = treeConnector;
             this.metricLow = metricLow;
             this.metricHigh = metricHigh;
+            return synchronizeLinkedColors();
+        }
+
+        private Palette synchronizeLinkedColors() {
+            menu = surface;
+            linkHighlight = active;
+            sidebar = border;
+            sidebarThumb = accent;
+            myPostMarker = accent;
+            treeConnector = strongBorder;
             return this;
         }
 
@@ -777,7 +794,7 @@ final class Theme {
             if (!hasColor(colors, "treeConnector")) palette.treeConnector = palette.accent;
             if (!hasColor(colors, "metricLow")) palette.metricLow = palette.subtle;
             if (!hasColor(colors, "metricHigh")) palette.metricHigh = palette.accent;
-            return palette;
+            return palette.synchronizeLinkedColors();
         }
 
         private static boolean hasColor(JSONObject colors, String key) {

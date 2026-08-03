@@ -791,10 +791,6 @@ public class MainActivity extends Activity {
         return Theme.active(this);
     }
 
-    private int linkHighlightColor() {
-        return Theme.linkHighlight(this);
-    }
-
     private int sidebarColor() {
         return Theme.sidebar(this);
     }
@@ -5558,8 +5554,10 @@ public class MainActivity extends Activity {
         SpannableStringBuilder builder = new SpannableStringBuilder(title).append(badge);
         int start = builder.length() - badge.trim().length();
         int end = builder.length();
-        builder.setSpan(new BackgroundColorSpan(linkHighlightColor()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        builder.setSpan(new ForegroundColorSpan(Color.rgb(29, 78, 216)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int highlight = searchHighlightColor();
+        builder.setSpan(new BackgroundColorSpan(highlight), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        builder.setSpan(new ForegroundColorSpan(Theme.contrastingText(highlight)),
+                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         view.setText(builder);
     }
 
@@ -11393,7 +11391,7 @@ public class MainActivity extends Activity {
         if (start < 0 || end <= start || end > text.length()) {
             return;
         }
-        text.setSpan(new BackgroundColorSpan(linkHighlightColor()),
+        text.setSpan(new BackgroundColorSpan(searchHighlightColor()),
                 start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         text.setSpan(new StyleSpan(Typeface.BOLD),
                 start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);

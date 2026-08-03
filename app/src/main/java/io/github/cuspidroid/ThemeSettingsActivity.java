@@ -426,7 +426,7 @@ public class ThemeSettingsActivity extends Activity {
         form.addView(colorHelp);
 
         Map<String, EditText> inputs = new LinkedHashMap<>();
-        for (String key : Theme.COLOR_KEYS) {
+        for (String key : Theme.EDITABLE_COLOR_KEYS) {
             form.addView(fieldLabel(colorLabel(key)));
             EditText input = editField(Theme.Palette.colorHex(palette.color(key)));
             inputs.put(key, input);
@@ -482,7 +482,7 @@ public class ThemeSettingsActivity extends Activity {
             case "subtle": return MainActivity.text("弱い補助表示", "Subtle content");
             case "border": return MainActivity.text("境界線", "Borders");
             case "strongBorder": return MainActivity.text("強い境界線", "Strong borders");
-            case "active": return MainActivity.text("選択・検索強調", "Selection and search highlight");
+            case "active": return MainActivity.text("選択・検索・優先ワード強調", "Selection, search, and priority-word highlight");
             case "linkHighlight": return MainActivity.text("リンク強調", "Link highlight");
             case "accent": return MainActivity.text("アクセント", "Accent");
             case "sidebar": return MainActivity.text("スクロールサイドバー", "Scroll sidebar");
