@@ -587,6 +587,11 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u81ea\u5206\u306e\u66f8\u304d\u8fbc\u307f\u306b\u79fb\u52d5\u30fb\u5c65\u6b74\u304b\u3089\u524a\u9664", "Jump to your posts and delete saved post history"),
                 v -> startActivity(new Intent(this, WritePostHistoryActivity.class))));
 
+        root.addView(managementRow(R.drawable.ic_star,
+                MainActivity.text("\u304a\u6c17\u306b\u5165\u308a\u306e\u30ec\u30b9\u3092\u7ba1\u7406", "Manage favorite posts"),
+                MainActivity.text("\u30ab\u30c6\u30b4\u30ea\u306e\u4f5c\u6210\u30fb\u7de8\u96c6\u3068\u4fdd\u5b58\u3057\u305f\u30ec\u30b9\u3078\u306e\u79fb\u52d5", "Create and edit categories, and jump to saved posts"),
+                v -> startActivity(new Intent(this, FavoritePostsActivity.class))));
+
         saveWriteIdentityHistory = new CheckBox(this);
         saveWriteIdentityHistory.setText(MainActivity.text("\u540d\u524d\u30fb\u30e1\u30fc\u30eb\u5c65\u6b74\u3092\u4fdd\u5b58", "Save name/mail history"));
         saveWriteIdentityHistory.setTextColor(textColor());

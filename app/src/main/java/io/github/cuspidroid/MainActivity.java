@@ -458,6 +458,8 @@ public class MainActivity extends Activity {
     private TextView tabCountLabel;
     private View centerSpinnerOverlay;
     private SharedPreferences preferences;
+    private FavoritePostsStore.Snapshot favoritePostsSnapshot;
+    private String appliedFavoritePostsSignature = "";
     /** Current semantic accent, retained for legacy drawing code that captures an int color. */
     private int TEAL;
     private TabPayloadStore tabPayloadStore;
@@ -1005,6 +1007,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        reloadFavoritePosts();
         tabPayloadStore = new TabPayloadStore(this);
         migrateAddressMenuNavigationPreference();
         migratePopularButtonPreference();
@@ -1099,6 +1102,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        String favoriteSignature = favoritePostsSignature();
+        if (!favoriteSignature.equals(appliedFavoritePostsSignature)) {
+            reloadFavoritePosts();
+            refreshFavoritePostMarkers(currentTab());
+        }
         String currentThemeMode = themeMode();
         boolean themeChanged = appliedThemeMode != null && !appliedThemeMode.equals(currentThemeMode);
         String currentButtonLayoutSignature = buttonLayoutSignature();
@@ -3183,12 +3191,18 @@ public class MainActivity extends Activity {
     }
 
     private Drawable postBackground(boolean unread, boolean myPost, boolean replyToMyPost) {
+        return postBackground(unread, myPost, replyToMyPost, null);
+    }
+
+    private Drawable postBackground(boolean unread, boolean myPost, boolean replyToMyPost,
+                                    Integer favoriteColor) {
         int fill = unread && colorUnreadPosts() ? unreadColor() : postColor();
-        if (!myPost && !replyToMyPost) {
+        if (!myPost && !replyToMyPost && favoriteColor == null) {
             return roundedFill(fill, dp(12));
         }
-        int marker = myPost ? myPostMarkerColor() : replyPostMarkerColor();
-        return new PostMarkerBackgroundDrawable(fill, marker, dp(12), dp(5));
+        Integer leftMarker = myPost ? myPostMarkerColor()
+                : replyToMyPost ? replyPostMarkerColor() : null;
+        return new PostMarkerBackgroundDrawable(fill, leftMarker, favoriteColor, dp(12), dp(5));
     }
 
     private Drawable framedPostBackground(Drawable base) {
@@ -8499,7 +8513,7 @@ public class MainActivity extends Activity {
         boolean copyPasteOmitted = !ngOmitted && copyPasteSourcePost(page, post) != null;
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(isPostUnread(page, tab, post), isMyPost(page, post),
-                isReplyToMyPost(page, post)));
+                isReplyToMyPost(page, post), favoritePostColor(page, post)));
         card.setOnLongClickListener(v -> {
             if (!allowInteractions) {
                 return true;
@@ -9210,7 +9224,7 @@ public class MainActivity extends Activity {
                             setReadThroughPost(tab, post);
                             ThreadPage page = tab == null ? null : tab.threadPage;
                             card.setBackground(postBackground(false, isMyPost(page, post),
-                                    isReplyToMyPost(page, post)));
+                                    isReplyToMyPost(page, post), favoritePostColor(page, post)));
                         }
                     }
                     return true;
@@ -9407,6 +9421,70 @@ public class MainActivity extends Activity {
             return post.sourcePostNumber > sourceReadPostNumber(tab, post.sourceUrl);
         }
         return tab != null && post.number > tab.readPostNumber;
+    }
+
+    private String favoritePostsSignature() {
+        if (preferences == null) return "";
+        return preferences.getString(FavoritePostsStore.PREF_CATEGORIES, "[]") + "\n"
+                + preferences.getString(FavoritePostsStore.PREF_POSTS, "[]");
+    }
+
+    private void reloadFavoritePosts() {
+        if (preferences == null) return;
+        favoritePostsSnapshot = FavoritePostsStore.read(preferences);
+        appliedFavoritePostsSignature = favoritePostsSignature();
+    }
+
+    private String favoriteTargetUrl(ThreadPage page, Post post) {
+        if (hasHissiSourcePost(post)) return normalizeUrl(post.sourceUrl);
+        return page == null || page.url == null ? "" : normalizeUrl(page.url);
+    }
+
+    private int favoriteTargetNumber(Post post) {
+        if (hasHissiSourcePost(post)) return post.sourcePostNumber;
+        return post == null ? 0 : post.number;
+    }
+
+    private String favoriteTargetTitle(ThreadPage page, Post post) {
+        if (hasHissiSourcePost(post) && post.sourceTitle != null
+                && !post.sourceTitle.trim().isEmpty()) {
+            return post.sourceTitle.trim();
+        }
+        return page == null || page.title == null ? "" : page.title;
+    }
+
+    private FavoritePostsStore.FavoritePost favoritePost(ThreadPage page, Post post) {
+        if (post == null) return null;
+        if (favoritePostsSnapshot == null) reloadFavoritePosts();
+        if (favoritePostsSnapshot == null) return null;
+        String url = favoriteTargetUrl(page, post);
+        int number = favoriteTargetNumber(post);
+        FavoritePostsStore.FavoritePost exact = FavoritePostsStore.find(
+                favoritePostsSnapshot, url, number);
+        if (exact != null) return exact;
+        for (FavoritePostsStore.FavoritePost candidate : favoritePostsSnapshot.posts) {
+            if (candidate.number == number && sameThreadIdentity(candidate.url, url)) return candidate;
+        }
+        return null;
+    }
+
+    private Integer favoritePostColor(ThreadPage page, Post post) {
+        FavoritePostsStore.FavoritePost favorite = favoritePost(page, post);
+        FavoritePostsStore.Category category = favorite == null ? null
+                : FavoritePostsStore.category(favoritePostsSnapshot, favorite.categoryId);
+        return category == null ? null : category.color;
+    }
+
+    private void refreshFavoritePostMarkers(CuspTab tab) {
+        if (tab == null || tab.threadPage == null || tab.postViews == null) return;
+        for (Post post : tab.threadPage.posts) {
+            View card = tab.postViews.get(post.number);
+            if (card != null) {
+                card.setBackground(postBackground(isPostUnread(tab.threadPage, tab, post),
+                        isMyPost(tab.threadPage, post), isReplyToMyPost(tab.threadPage, post),
+                        favoritePostColor(tab.threadPage, post)));
+            }
+        }
     }
 
     private int sourceReadPostNumber(CuspTab tab, String url) {
@@ -9847,6 +9925,13 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             toggleAaMode(tab, post, anchor);
         }));
+        menu.addView(dialogAction(R.drawable.ic_star_border,
+                favoritePost(tab == null ? null : tab.threadPage, post) == null
+                        ? text("\u304a\u6c17\u306b\u5165\u308a\u306b\u8ffd\u52a0", "Add to favorites")
+                        : text("\u304a\u6c17\u306b\u5165\u308a\u3092\u5909\u66f4", "Change favorite"), () -> {
+            dialog.dismiss();
+            showFavoritePostMenu(tab, post);
+        }));
         menu.addView(dialogAction(R.drawable.ic_close, text("NG\u306b\u8ffd\u52a0", "Add to NG"), () -> {
             dialog.dismiss();
             showPostNgAddMenu(tab, post);
@@ -9862,6 +9947,151 @@ public class MainActivity extends Activity {
             }));
         }
         showUnifiedPopupDialog(dialog);
+    }
+
+    private void showFavoritePostMenu(CuspTab tab, Post post) {
+        reloadFavoritePosts();
+        if (favoritePostsSnapshot.categories.isEmpty()) {
+            showCreateFavoriteCategoryDialog(category -> saveFavoritePost(tab, post, category));
+            return;
+        }
+        ThreadPage page = tab == null ? null : tab.threadPage;
+        FavoritePostsStore.FavoritePost current = favoritePost(page, post);
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setPadding(dp(18), dp(8), dp(18), 0);
+        menu.setBackgroundColor(surfaceColor());
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u304a\u6c17\u306b\u5165\u308a\u30ab\u30c6\u30b4\u30ea", "Favorite category"))
+                .setView(menu)
+                .create();
+        for (FavoritePostsStore.Category category : favoritePostsSnapshot.categories) {
+            menu.addView(favoriteCategoryAction(category, current != null
+                    && category.id.equals(current.categoryId), () -> {
+                dialog.dismiss();
+                saveFavoritePost(tab, post, category);
+            }));
+        }
+        menu.addView(dialogAction(R.drawable.ic_add,
+                text("\u30ab\u30c6\u30b4\u30ea\u3092\u4f5c\u6210", "Create category"), () -> {
+            dialog.dismiss();
+            showCreateFavoriteCategoryDialog(category -> saveFavoritePost(tab, post, category));
+        }));
+        if (current != null) {
+            menu.addView(dialogAction(R.drawable.ic_delete,
+                    text("\u304a\u6c17\u306b\u5165\u308a\u304b\u3089\u524a\u9664", "Remove from favorites"), () -> {
+                dialog.dismiss();
+                FavoritePostsStore.removePost(preferences,
+                        current.url, current.number);
+                reloadFavoritePosts();
+                refreshFavoritePostMarkers(tab);
+                Toast.makeText(this, text("\u304a\u6c17\u306b\u5165\u308a\u304b\u3089\u524a\u9664\u3057\u307e\u3057\u305f\u3002",
+                        "Removed from favorites."), Toast.LENGTH_SHORT).show();
+            }));
+        }
+        dialog.show();
+        Theme.styleDialog(dialog, this);
+    }
+
+    private View favoriteCategoryAction(FavoritePostsStore.Category category, boolean selected,
+                                        Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), 0, dp(12), 0);
+        row.setBackground(roundedDrawable(postColor(), selected ? category.color : borderColor(),
+                dp(8), selected ? dp(2) : dp(1)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        params.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(params);
+        View swatch = new View(this);
+        swatch.setBackground(ThemeColorPicker.colorPreviewBackground(this, category.color));
+        row.addView(swatch, new LinearLayout.LayoutParams(dp(22), dp(30)));
+        TextView label = new TextView(this);
+        label.setText(category.displayName());
+        label.setTextColor(textColor());
+        label.setTextSize(16);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        if (selected) {
+            ImageView check = new ImageView(this);
+            check.setImageResource(R.drawable.ic_check);
+            check.setColorFilter(category.color);
+            row.addView(check, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        }
+        row.setOnClickListener(v -> action.run());
+        return row;
+    }
+
+    private void showCreateFavoriteCategoryDialog(FavoriteCategoryCallback callback) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18), dp(8), dp(18), dp(8));
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setHint(text("\u540d\u524d\uff08\u4efb\u610f\uff09", "Name (optional)"));
+        name.setTextColor(textColor());
+        name.setHintTextColor(hintTextColor());
+        name.setBackgroundColor(fieldColor());
+        name.setPadding(dp(10), 0, dp(10), 0);
+        form.addView(name, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        int[] color = {accentColor()};
+        TextView chooseColor = new TextView(this);
+        chooseColor.setText(text("\u8272\u3092\u9078\u629e", "Choose color"));
+        chooseColor.setTextSize(16);
+        chooseColor.setGravity(Gravity.CENTER);
+        chooseColor.setTextColor(Theme.contrastingText(color[0]));
+        chooseColor.setBackground(ThemeColorPicker.colorPreviewBackground(this, color[0]));
+        LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        colorParams.setMargins(0, dp(12), 0, 0);
+        form.addView(chooseColor, colorParams);
+        chooseColor.setOnClickListener(v -> ThemeColorPicker.show(this, color[0], selected -> {
+            color[0] = selected;
+            chooseColor.setTextColor(Theme.contrastingText(selected));
+            chooseColor.setBackground(ThemeColorPicker.colorPreviewBackground(this, selected));
+        }));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("\u30ab\u30c6\u30b4\u30ea\u3092\u4f5c\u6210", "Create category"))
+                .setView(form)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton(text("\u4fdd\u5b58", "Save"), (d, which) -> {
+                    FavoritePostsStore.Category category = FavoritePostsStore.addCategory(
+                            preferences, name.getText().toString(), color[0]);
+                    reloadFavoritePosts();
+                    callback.onCreated(category);
+                })
+                .create();
+        dialog.show();
+        Theme.styleDialog(dialog, this);
+    }
+
+    private void saveFavoritePost(CuspTab tab, Post post,
+                                  FavoritePostsStore.Category category) {
+        ThreadPage page = tab == null ? null : tab.threadPage;
+        String url = favoriteTargetUrl(page, post);
+        int number = favoriteTargetNumber(post);
+        if (url.isEmpty() || number <= 0) {
+            Toast.makeText(this, text("\u3053\u306e\u30ec\u30b9\u306f\u304a\u6c17\u306b\u5165\u308a\u306b\u8ffd\u52a0\u3067\u304d\u307e\u305b\u3093\u3002",
+                    "This post cannot be added to favorites."), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        FavoritePostsStore.FavoritePost oldFavorite = favoritePost(page, post);
+        if (oldFavorite != null) {
+            FavoritePostsStore.removePost(preferences, oldFavorite.url, oldFavorite.number);
+        }
+        FavoritePostsStore.savePost(preferences, new FavoritePostsStore.FavoritePost(
+                category.id, url, favoriteTargetTitle(page, post), number,
+                post == null ? "" : post.name, post == null ? "" : post.date,
+                post == null ? "" : post.body, System.currentTimeMillis()));
+        reloadFavoritePosts();
+        refreshFavoritePostMarkers(tab);
+        Toast.makeText(this, text("\u304a\u6c17\u306b\u5165\u308a\u306b\u8ffd\u52a0\u3057\u307e\u3057\u305f\u3002",
+                "Added to favorites."), Toast.LENGTH_SHORT).show();
     }
 
     private void showPostNgAddMenu(CuspTab tab, Post post) {
@@ -9906,7 +10136,8 @@ public class MainActivity extends Activity {
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         card.setBackground(postBackground(isPostUnread(tab == null ? null : tab.threadPage, tab, post),
                 isMyPost(tab == null ? null : tab.threadPage, post),
-                isReplyToMyPost(tab == null ? null : tab.threadPage, post)));
+                isReplyToMyPost(tab == null ? null : tab.threadPage, post),
+                favoritePostColor(tab == null ? null : tab.threadPage, post)));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(0, 0, 0, dp(10));
@@ -20414,7 +20645,7 @@ public class MainActivity extends Activity {
         card.setTag(R.id.tag_post_card, true);
         card.setPadding(dp(10), dp(8), dp(10), dp(10));
         Drawable background = postBackground(isPostUnread(page, tab, post), isMyPost(page, post),
-                isReplyToMyPost(page, post));
+                isReplyToMyPost(page, post), favoritePostColor(page, post));
         card.setBackground(showFrame ? framedPostBackground(background) : background);
         card.setOnLongClickListener(v -> {
             if (isPostSwipeBlocked(post)) {
@@ -28947,7 +29178,8 @@ public class MainActivity extends Activity {
             View card = tab.postViews.get(post.number);
             if (card != null) {
                 card.setBackground(postBackground(isPostUnread(tab.threadPage, tab, post),
-                        isMyPost(tab.threadPage, post), isReplyToMyPost(tab.threadPage, post)));
+                        isMyPost(tab.threadPage, post), isReplyToMyPost(tab.threadPage, post),
+                        favoritePostColor(tab.threadPage, post)));
             }
         }
         updateUnreadScrollMarkers(tab);
@@ -30591,6 +30823,10 @@ public class MainActivity extends Activity {
         }
     }
 
+    private interface FavoriteCategoryCallback {
+        void onCreated(FavoritePostsStore.Category category);
+    }
+
     private static class PostCardShell {
         final FrameLayout shell;
         final LinearLayout card;
@@ -30603,7 +30839,8 @@ public class MainActivity extends Activity {
 
     private static class PostMarkerBackgroundDrawable extends Drawable {
         private final int fillColor;
-        private final int markerColor;
+        private final Integer leftMarkerColor;
+        private final Integer rightMarkerColor;
         private final int radius;
         private final int markerWidth;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -30612,9 +30849,11 @@ public class MainActivity extends Activity {
         private ColorFilter colorFilter;
         private int alpha = 255;
 
-        PostMarkerBackgroundDrawable(int fillColor, int markerColor, int radius, int markerWidth) {
+        PostMarkerBackgroundDrawable(int fillColor, Integer leftMarkerColor, Integer rightMarkerColor,
+                                     int radius, int markerWidth) {
             this.fillColor = fillColor;
-            this.markerColor = markerColor;
+            this.leftMarkerColor = leftMarkerColor;
+            this.rightMarkerColor = rightMarkerColor;
             this.radius = radius;
             this.markerWidth = markerWidth;
         }
@@ -30632,10 +30871,18 @@ public class MainActivity extends Activity {
             clip.reset();
             clip.addRoundRect(bounds, radius, radius, Path.Direction.CW);
             canvas.clipPath(clip);
-            paint.setColor(markerColor);
-            paint.setAlpha(alpha);
-            canvas.drawRect(rawBounds.left, rawBounds.top,
-                    Math.min(rawBounds.right, rawBounds.left + markerWidth), rawBounds.bottom, paint);
+            if (leftMarkerColor != null) {
+                paint.setColor(leftMarkerColor);
+                paint.setAlpha(alpha);
+                canvas.drawRect(rawBounds.left, rawBounds.top,
+                        Math.min(rawBounds.right, rawBounds.left + markerWidth), rawBounds.bottom, paint);
+            }
+            if (rightMarkerColor != null) {
+                paint.setColor(rightMarkerColor);
+                paint.setAlpha(alpha);
+                canvas.drawRect(Math.max(rawBounds.left, rawBounds.right - markerWidth), rawBounds.top,
+                        rawBounds.right, rawBounds.bottom, paint);
+            }
             canvas.restoreToCount(save);
         }
 

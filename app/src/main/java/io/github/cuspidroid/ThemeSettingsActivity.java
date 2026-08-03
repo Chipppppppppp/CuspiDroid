@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -21,7 +20,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -34,7 +32,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /** Selects, edits, imports, and exports application color themes. */
@@ -641,136 +638,8 @@ public class ThemeSettingsActivity extends Activity {
         } catch (IllegalArgumentException ignored) {
             initialColor = Theme.accent(this);
         }
-
-        float[] initialHsv = new float[3];
-        Color.colorToHSV(initialColor, initialHsv);
-        int[] selectedColor = {initialColor};
-
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(18), dp(8), dp(18), dp(10));
-        form.setBackgroundColor(Theme.surface(this));
-
-        View preview = new View(this);
-        preview.setBackground(colorPreviewBackground(initialColor));
-        form.addView(preview, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(72)));
-
-        TextView hex = text(Theme.Palette.colorHex(initialColor), 17, Theme.text(this));
-        hex.setGravity(Gravity.CENTER);
-        hex.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        hex.setPadding(0, dp(6), 0, dp(4));
-        form.addView(hex);
-
-        form.addView(fieldLabel(MainActivity.text("色相プリセット", "Hue presets")));
-        LinearLayout presets = new LinearLayout(this);
-        presets.setOrientation(LinearLayout.HORIZONTAL);
-        int[] presetColors = {
-                Color.rgb(239, 68, 68), Color.rgb(249, 115, 22), Color.rgb(234, 179, 8),
-                Color.rgb(34, 197, 94), Color.rgb(20, 184, 166), Color.rgb(14, 165, 233),
-                Color.rgb(37, 99, 235), Color.rgb(126, 34, 206), Color.rgb(219, 39, 119)
-        };
-
-        TextView hueValue = text("", 13, Theme.muted(this));
-        TextView saturationValue = text("", 13, Theme.muted(this));
-        TextView brightnessValue = text("", 13, Theme.muted(this));
-        SeekBar hue = pickerSeekBar(359, Math.round(initialHsv[0]));
-        SeekBar saturation = pickerSeekBar(100, Math.round(initialHsv[1] * 100));
-        SeekBar brightness = pickerSeekBar(100, Math.round(initialHsv[2] * 100));
-
-        Runnable update = () -> {
-            float[] hsv = {hue.getProgress(), saturation.getProgress() / 100f,
-                    brightness.getProgress() / 100f};
-            int color = Color.HSVToColor(hsv);
-            selectedColor[0] = color;
-            preview.setBackground(colorPreviewBackground(color));
-            hex.setText(Theme.Palette.colorHex(color));
-            hueValue.setText(String.format(Locale.getDefault(),
-                    MainActivity.text("色相: %d°", "Hue: %d°"), hue.getProgress()));
-            saturationValue.setText(String.format(Locale.getDefault(),
-                    MainActivity.text("彩度: %d%%", "Saturation: %d%%"), saturation.getProgress()));
-            brightnessValue.setText(String.format(Locale.getDefault(),
-                    MainActivity.text("明度: %d%%", "Brightness: %d%%"), brightness.getProgress()));
-            ColorStateList tint = ColorStateList.valueOf(color);
-            hue.setThumbTintList(tint);
-            saturation.setProgressTintList(tint);
-            saturation.setThumbTintList(tint);
-            brightness.setProgressTintList(tint);
-            brightness.setThumbTintList(tint);
-        };
-
-        for (int presetColor : presetColors) {
-            View swatch = new View(this);
-            swatch.setBackground(colorPreviewBackground(presetColor));
-            swatch.setContentDescription(MainActivity.text("色相プリセット", "Hue preset"));
-            swatch.setFocusable(true);
-            swatch.setOnClickListener(v -> {
-                float[] hsv = new float[3];
-                Color.colorToHSV(presetColor, hsv);
-                hue.setProgress(Math.round(hsv[0]));
-                saturation.setProgress(Math.round(hsv[1] * 100));
-                brightness.setProgress(Math.round(hsv[2] * 100));
-                update.run();
-            });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(32), 1);
-            params.setMargins(0, 0, dp(4), 0);
-            presets.addView(swatch, params);
-        }
-        form.addView(presets, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(32)));
-
-        form.addView(hueValue);
-        form.addView(hue);
-        form.addView(saturationValue);
-        form.addView(saturation);
-        form.addView(brightnessValue);
-        form.addView(brightness);
-        bindPickerSeekBar(hue, update);
-        bindPickerSeekBar(saturation, update);
-        bindPickerSeekBar(brightness, update);
-        update.run();
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(MainActivity.text("色を選択", "Choose color"))
-                .setView(form)
-                .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
-                .setPositiveButton(MainActivity.text("適用", "Apply"), (d, which) ->
-                        target.setText(Theme.Palette.colorHex(selectedColor[0])))
-                .create();
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
-        dialog.show();
-    }
-
-    private SeekBar pickerSeekBar(int max, int progress) {
-        SeekBar seekBar = new SeekBar(this);
-        seekBar.setMax(max);
-        seekBar.setProgress(progress);
-        return seekBar;
-    }
-
-    private void bindPickerSeekBar(SeekBar seekBar, Runnable update) {
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                update.run();
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar bar) {
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar bar) {
-            }
-        });
-    }
-
-    private GradientDrawable colorPreviewBackground(int color) {
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(color);
-        background.setStroke(dp(1), Theme.strongBorder(this));
-        background.setCornerRadius(dp(8));
-        return background;
+        ThemeColorPicker.show(this, initialColor,
+                color -> target.setText(Theme.Palette.colorHex(color)));
     }
 
     private EditText editField(String value) {
