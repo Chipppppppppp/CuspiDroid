@@ -11,6 +11,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -19,9 +21,10 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 final class CuspiDroidBackup {
-    private static final int FORMAT_VERSION = 1;
+    private static final int FORMAT_VERSION = 2;
     private static final String MANIFEST = "manifest.json";
     private static final String PREFERENCES = "preferences.json";
+    private static final String THEMES_DIRECTORY = "themes/";
 
     private CuspiDroidBackup() {
     }
@@ -37,6 +40,7 @@ final class CuspiDroidBackup {
             }
             writeJson(zip, MANIFEST, manifestJson());
             writeJson(zip, PREFERENCES, prefs);
+            writeThemeFiles(zip, Theme.customPalettes(context));
             writeRawPreferenceJson(zip, "bookmarks.json", preferences, MainActivity.PREF_THREAD_BOOKMARKS, "[]");
             writeRawPreferenceJson(zip, "history.json", preferences, MainActivity.PREF_HISTORY, "[]");
             writeRawPreferenceJson(zip, "read_posts.json", preferences, MainActivity.PREF_READ_POSTS, "{}");
@@ -120,6 +124,7 @@ final class CuspiDroidBackup {
         object.put("formatVersion", FORMAT_VERSION);
         object.put("createdAt", System.currentTimeMillis());
         object.put("preferencesEntry", PREFERENCES);
+        object.put("themesDirectory", THEMES_DIRECTORY);
         return object;
     }
 
@@ -212,6 +217,20 @@ final class CuspiDroidBackup {
         zip.putNextEntry(entry);
         zip.write(array.toString(2).getBytes(StandardCharsets.UTF_8));
         zip.closeEntry();
+    }
+
+    private static void writeThemeFiles(ZipOutputStream zip, List<Theme.Palette> palettes) throws Exception {
+        for (int i = 0; i < palettes.size(); i++) {
+            Theme.Palette palette = palettes.get(i);
+            String fileName = String.format(Locale.ROOT, "%03d-%s.cuspidroid-theme.json",
+                    i + 1, safeThemeFileName(palette.name));
+            writeJson(zip, THEMES_DIRECTORY + fileName, Theme.exportJson(palette));
+        }
+    }
+
+    private static String safeThemeFileName(String value) {
+        String safe = value == null ? "" : value.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return safe.isEmpty() ? "theme" : safe;
     }
 
     private static void writeNgFiles(ZipOutputStream zip, SharedPreferences preferences) throws Exception {

@@ -212,10 +212,12 @@ public class ThemeSettingsActivity extends Activity {
 
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(8), dp(8), dp(8), dp(8));
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setPadding(dp(8), dp(8), dp(8), dp(8));
+        scroll.setClipToPadding(true);
         scroll.setBackground(dropdownBackground());
+        scroll.setClipToOutline(true);
         scroll.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 

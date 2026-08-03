@@ -22,7 +22,7 @@ CuspiDroid is an Android app for browsing and posting to 5ch and compatible BBS 
 - Posting, thread creation, BBS authentication, and name, email, and post histories
 - Reply trees, reply/link/popular-post filters, AA rendering, repeated-copy omission, and NG rules
 - Image, GIF, and video previews and zoom, media blurring, and ImgBB uploads
-- Built-in light and dark themes, custom themes, layout options, and gesture settings
+- Built-in light and dark themes, custom themes that can be created, shared, and backed up, layout options, and gesture settings
 - Switching between native and WebView displays, plus private browsing
 - Separate management of thread and media caches and histories
 - Sync2ch synchronization, backup creation and restoration, and ChMate backup import

@@ -141,7 +141,7 @@ final class Theme {
                     Color.rgb(96, 165, 250), Color.rgb(147, 197, 253), Color.rgb(96, 165, 250),
                     Color.rgb(127, 152, 181), Color.rgb(59, 130, 246));
 
-    private static final Palette LIGHT_BLUE_LIGHT = new Palette(ID_LIGHT_BLUE_LIGHT, "Light Blue (Light)", false,
+    private static final Palette LIGHT_BLUE_LIGHT = new Palette(ID_LIGHT_BLUE_LIGHT, "Sky Blue (Light)", false,
             Color.rgb(243, 250, 255), Color.rgb(229, 244, 255), Color.rgb(251, 253, 255),
             Color.rgb(248, 252, 255), Color.rgb(224, 242, 254), Color.rgb(234, 246, 253),
             Color.WHITE, Color.rgb(20, 59, 87), Color.rgb(83, 116, 139),
@@ -151,7 +151,7 @@ final class Theme {
                     Color.rgb(2, 132, 199), Color.rgb(56, 189, 248), Color.rgb(2, 132, 199),
                     Color.rgb(116, 148, 169), Color.rgb(3, 105, 161));
 
-    private static final Palette LIGHT_BLUE_DARK = new Palette(ID_LIGHT_BLUE_DARK, "Light Blue (Dark)", true,
+    private static final Palette LIGHT_BLUE_DARK = new Palette(ID_LIGHT_BLUE_DARK, "Sky Blue (Dark)", true,
             Color.rgb(7, 27, 39), Color.rgb(9, 37, 53), Color.rgb(12, 45, 62),
             Color.rgb(16, 52, 71), Color.rgb(18, 63, 87), Color.rgb(18, 57, 76),
             Color.rgb(12, 45, 62), Color.rgb(240, 249, 255), Color.rgb(170, 200, 217),
@@ -308,8 +308,6 @@ final class Theme {
 
     static List<Palette> builtInPalettes() {
         List<Palette> result = new ArrayList<>();
-        result.add(LIGHT.copy());
-        result.add(DARK.copy());
         result.add(TEAL_LIGHT.copy());
         result.add(TEAL_DARK.copy());
         result.add(GREEN_LIGHT.copy());
@@ -318,6 +316,8 @@ final class Theme {
         result.add(BLUE_DARK.copy());
         result.add(LIGHT_BLUE_LIGHT.copy());
         result.add(LIGHT_BLUE_DARK.copy());
+        result.add(LIGHT.copy());
+        result.add(DARK.copy());
         result.add(PURPLE_LIGHT.copy());
         result.add(PURPLE_DARK.copy());
         result.add(CRIMSON_LIGHT.copy());
@@ -438,8 +438,8 @@ final class Theme {
         if (ID_PRIVATE.equals(id)) return MainActivity.text("グリーン (ダーク)", "Green (Dark)");
         if (ID_BLUE.equals(id)) return MainActivity.text("ブルー (ライト)", "Blue (Light)");
         if (ID_BLUE_DARK.equals(id)) return MainActivity.text("ブルー (ダーク)", "Blue (Dark)");
-        if (ID_LIGHT_BLUE_LIGHT.equals(id)) return MainActivity.text("ライトブルー (ライト)", "Light Blue (Light)");
-        if (ID_LIGHT_BLUE_DARK.equals(id)) return MainActivity.text("ライトブルー (ダーク)", "Light Blue (Dark)");
+        if (ID_LIGHT_BLUE_LIGHT.equals(id)) return MainActivity.text("スカイブルー (ライト)", "Sky Blue (Light)");
+        if (ID_LIGHT_BLUE_DARK.equals(id)) return MainActivity.text("スカイブルー (ダーク)", "Sky Blue (Dark)");
         if (ID_PURPLE_LIGHT.equals(id)) return MainActivity.text("パープル (ライト)", "Purple (Light)");
         if (ID_PURPLE_DARK.equals(id)) return MainActivity.text("パープル (ダーク)", "Purple (Dark)");
         if (ID_CRIMSON_LIGHT.equals(id)) return MainActivity.text("クリムゾン (ライト)", "Crimson (Light)");
