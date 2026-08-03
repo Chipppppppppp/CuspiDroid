@@ -3,14 +3,14 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Pot body. The lower curve is shared verbatim by the shadow below. -->
+    <!-- Pot body. The lower curve is shared verbatim by the base band below. -->
     <path
         android:fillColor="#E6FFFA"
         android:pathData="M28,41c0,-8.5 11.5,-14 26,-14s26,5.5 26,14v8c0,4.4 -2.1,8.2 -5.8,11.2L71,76c-1.4,6.4 -7.7,10 -17,10s-15.6,-3.6 -17,-10l-3.2,-15.8C30.1,57.2 28,53.4 28,49z" />
-    <!-- Right-hand body shade uses the exact same lower-right curve as the body. -->
+    <!-- Symmetric base band keeps the two-tone treatment without tinting only one side. -->
     <path
         android:fillColor="#BFF8EE"
-        android:pathData="M54,62c7.8,0 14.8,-2.1 20.2,-5.8L71,76c-1.4,6.4 -7.7,10 -17,10z" />
+        android:pathData="M35,66c5.2,3.1 11.7,4.8 19,4.8s13.8,-1.7 19,-4.8L71,76c-1.4,6.4 -7.7,10 -17,10s-15.6,-3.6 -17,-10z" />
     <!-- Raised rim. -->
     <path
         android:fillColor="#F4FFFD"
