@@ -40,19 +40,33 @@ public class SettingsActivity extends Activity {
     static final String EXTRA_CATEGORY_SUBTITLE = "settings_category_subtitle";
     private static final int CATEGORY_APPEARANCE = 0;
     private static final int CATEGORY_READING = 1;
-    private static final int CATEGORY_CONTROLS = 2;
-    private static final int CATEGORY_FAVORITES_HISTORY = 3;
-    private static final int CATEGORY_SERVICES = 4;
-    private static final int CATEGORY_STORAGE_BACKUP = 5;
-    private static final int CATEGORY_ADVANCED = 6;
-    private static final int CATEGORY_COUNT = 7;
+    private static final int CATEGORY_FAVORITES = 2;
+    private static final int CATEGORY_LISTS = 3;
+    private static final int CATEGORY_GESTURES = 4;
+    private static final int CATEGORY_LINKS = 5;
+    private static final int CATEGORY_BBS_LINKS = 6;
+    private static final int CATEGORY_MEDIA = 7;
+    private static final int CATEGORY_UPLOADS = 8;
+    private static final int CATEGORY_STORAGE = 9;
+    private static final int CATEGORY_HISTORY = 10;
+    private static final int CATEGORY_SYNC = 11;
+    private static final int CATEGORY_BACKUP = 12;
+    private static final int CATEGORY_ADVANCED = 13;
+    private static final int CATEGORY_COUNT = 14;
     private static final int[] CATEGORY_DISPLAY_ORDER = {
             CATEGORY_APPEARANCE,
             CATEGORY_READING,
-            CATEGORY_CONTROLS,
-            CATEGORY_FAVORITES_HISTORY,
-            CATEGORY_SERVICES,
-            CATEGORY_STORAGE_BACKUP,
+            CATEGORY_FAVORITES,
+            CATEGORY_MEDIA,
+            CATEGORY_LISTS,
+            CATEGORY_GESTURES,
+            CATEGORY_LINKS,
+            CATEGORY_BBS_LINKS,
+            CATEGORY_UPLOADS,
+            CATEGORY_HISTORY,
+            CATEGORY_STORAGE,
+            CATEGORY_SYNC,
+            CATEGORY_BACKUP,
             CATEGORY_ADVANCED
     };
     private static final int REQUEST_CHMATE_DATABASE = 4201;
@@ -312,15 +326,11 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoAa);
         root.addView(autoAa);
 
-        root.addView(sectionTitle(CATEGORY_FAVORITES_HISTORY, R.drawable.ic_star,
+        root.addView(sectionTitle(CATEGORY_FAVORITES, R.drawable.ic_star,
                 MainActivity.text("\u304a\u6c17\u306b\u5165\u308a", "Favorites"),
                 MainActivity.text("\u30ab\u30c6\u30b4\u30ea\u3068\u4fdd\u5b58\u3057\u305f\u30ec\u30b9\u3092\u7ba1\u7406", "Manage categories and saved posts")));
-        root.addView(managementRow(R.drawable.ic_star,
-                MainActivity.text("\u304a\u6c17\u306b\u5165\u308a\u30ec\u30b9\u3092\u7ba1\u7406", "Manage favorite posts"),
-                MainActivity.text("\u30ab\u30c6\u30b4\u30ea\u3068\u4fdd\u5b58\u3057\u305f\u30ec\u30b9\u3092\u8868\u793a\u30fb\u7de8\u96c6", "View and edit categories and saved posts"),
-                v -> startActivity(new Intent(this, FavoritePostsActivity.class))));
 
-        root.addView(sectionTitle(CATEGORY_APPEARANCE, android.R.drawable.ic_menu_sort_by_size,
+        root.addView(sectionTitle(CATEGORY_LISTS, android.R.drawable.ic_menu_sort_by_size,
                 MainActivity.text("\u4e00\u89a7\u8868\u793a", "List Display"),
                 MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u3068\u30bf\u30d6\u4e00\u89a7\u306e\u898b\u3048\u65b9", "Thread-list and tab-list presentation")));
         root.addView(managementRow(android.R.drawable.ic_menu_sort_by_size,
@@ -334,7 +344,7 @@ public class SettingsActivity extends Activity {
                 v -> startActivity(new Intent(this, ListDisplaySettingsActivity.class)
                         .putExtra(ListDisplaySettingsActivity.EXTRA_MODE, ListDisplaySettingsActivity.MODE_TAB))));
 
-        root.addView(sectionTitle(CATEGORY_CONTROLS, android.R.drawable.ic_menu_compass,
+        root.addView(sectionTitle(CATEGORY_GESTURES, android.R.drawable.ic_menu_compass,
                 MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
                 MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066", "Swipes and action assignments")));
         root.addView(managementRow(android.R.drawable.ic_menu_compass,
@@ -342,7 +352,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066\u3092\u8a2d\u5b9a", "Set swipe gestures and actions"),
                 v -> startActivity(new Intent(this, GestureSettingsActivity.class))));
 
-        root.addView(sectionTitle(CATEGORY_CONTROLS, R.drawable.ic_search,
+        root.addView(sectionTitle(CATEGORY_LINKS, R.drawable.ic_search,
                 MainActivity.text("\u30ea\u30f3\u30af\u3068\u691c\u7d22", "Links & Search"),
                 MainActivity.text("\u30ea\u30f3\u30af\u306e\u958b\u304d\u65b9\u3068\u30b9\u30ec\u691c\u7d22", "How links open and thread search")));
         open5chInNewTab = new CheckBox(this);
@@ -383,7 +393,7 @@ public class SettingsActivity extends Activity {
         TextView hint = helperText(MainActivity.text("\u691c\u7d22\u8a9e\u3092\u5165\u308c\u308b\u5834\u6240\u306b %s \u3092\u4f7f\u3046", "Use %s where the encoded query should be inserted."));
         root.addView(hint);
 
-        root.addView(sectionTitle(CATEGORY_SERVICES, R.drawable.ic_link,
+        root.addView(sectionTitle(CATEGORY_BBS_LINKS, R.drawable.ic_link,
                 MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u7ba1\u7406", "Manage BBS Links"),
                 MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u3068\u8a8d\u8a3c", "Custom BBS sites and authentication")));
         root.addView(helperText(MainActivity.text(
@@ -394,7 +404,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u306e\u540d\u524d\u3068\u677fURL\u3092\u8ffd\u52a0\u30fb\u7de8\u96c6", "Add and edit custom BBS names and board URLs"),
                 v -> startActivity(new Intent(this, BbsLinksActivity.class))));
 
-        root.addView(sectionTitle(CATEGORY_READING, R.drawable.ic_image,
+        root.addView(sectionTitle(CATEGORY_MEDIA, R.drawable.ic_image,
                 MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u3068\u30d5\u30a3\u30eb\u30bf", "Media & Filters"),
                 MainActivity.text("\u753b\u50cf\u30fb\u52d5\u753b\u306e\u8868\u793a\u3068\u30b3\u30f3\u30c6\u30f3\u30c4\u30d5\u30a3\u30eb\u30bf", "Image and video display, plus content filters")));
         showMediaPreviews = new CheckBox(this);
@@ -465,7 +475,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("NGWord\u3001NGName\u3001NGID\u306a\u3069\u3092\u7ba1\u7406", "Manage NGWord, NGName, NGID, and related rules"),
                 v -> startActivity(new Intent(this, NgRulesActivity.class))));
 
-        root.addView(sectionTitle(CATEGORY_SERVICES, R.drawable.ic_image,
+        root.addView(sectionTitle(CATEGORY_UPLOADS, R.drawable.ic_image,
                 MainActivity.text("\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Image Uploads"),
                 MainActivity.text("ImgBB\u306e\u63a5\u7d9a\u3068\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74", "ImgBB connection and upload history")));
         imgbbApiKey = new EditText(this);
@@ -497,7 +507,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("ImgBB\u306b\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3057\u305f\u753b\u50cf\u3068URL\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete images and URLs uploaded to ImgBB"),
                 v -> startActivity(new Intent(this, UploadHistoryActivity.class))));
 
-        root.addView(sectionTitle(CATEGORY_STORAGE_BACKUP, R.drawable.ic_folder,
+        root.addView(sectionTitle(CATEGORY_STORAGE, R.drawable.ic_folder,
                 MainActivity.text("\u30b9\u30c8\u30ec\u30fc\u30b8", "Storage"),
                 MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u306e\u4f7f\u7528\u91cf\u3068\u4e0a\u9650", "Cache usage and storage limit")));
         cacheEnabled = new CheckBox(this);
@@ -552,7 +562,7 @@ public class SettingsActivity extends Activity {
         clearCacheParams.setMargins(0, dp(4), 0, dp(4));
         root.addView(clearCacheRow, clearCacheParams);
 
-        root.addView(sectionTitle(CATEGORY_FAVORITES_HISTORY, android.R.drawable.ic_menu_recent_history,
+        root.addView(sectionTitle(CATEGORY_HISTORY, android.R.drawable.ic_menu_recent_history,
                 MainActivity.text("\u30d7\u30e9\u30a4\u30d0\u30b7\u30fc\u3068\u5c65\u6b74", "Privacy & History"),
                 MainActivity.text("\u4fdd\u5b58\u3059\u308b\u884c\u52d5\u5c65\u6b74\u3068\u305d\u306e\u7ba1\u7406", "Choose and manage saved activity")));
 
@@ -604,7 +614,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u66f8\u304d\u8fbc\u307f\u306b\u4f7f\u3063\u305f\u540d\u524d\u3068\u30e1\u30fc\u30eb\u306e\u7d44\u307f\u5408\u308f\u305b\u3092\u8868\u793a\u30fb\u524a\u9664", "View and delete saved name/mail pairs"),
                 v -> startActivity(new Intent(this, WriteIdentityHistoryActivity.class))));
 
-        root.addView(sectionTitle(CATEGORY_SERVICES, android.R.drawable.ic_popup_sync, "Sync2ch",
+        root.addView(sectionTitle(CATEGORY_SYNC, android.R.drawable.ic_popup_sync, "Sync2ch",
                 MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u306e\u540c\u671f", "Sync bookmarks, tabs, and read positions")));
         sync2chEnabled = new CheckBox(this);
         sync2chEnabled.setText(MainActivity.text("Sync2ch\u3092\u4f7f\u7528", "Use Sync2ch"));
@@ -652,7 +662,7 @@ public class SettingsActivity extends Activity {
                 MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u901a\u5e38\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u3092\u30de\u30fc\u30b8", "Merge bookmarks, normal tabs, and read positions"),
                 v -> runSync2chNow()));
 
-        root.addView(sectionTitle(CATEGORY_STORAGE_BACKUP, R.drawable.ic_download,
+        root.addView(sectionTitle(CATEGORY_BACKUP, R.drawable.ic_download,
                 MainActivity.text("\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3068\u79fb\u884c", "Backup & Migration"),
                 MainActivity.text("\u30c7\u30fc\u30bf\u306e\u4fdd\u5b58\u3001\u5fa9\u5143\u3001ChMate\u304b\u3089\u306e\u79fb\u884c", "Save, restore, or migrate data from ChMate")));
         root.addView(managementRow(android.R.drawable.ic_menu_save,
@@ -1532,6 +1542,18 @@ public class SettingsActivity extends Activity {
     }
 
     private void openCategory(int category, String title, String subtitle) {
+        if (category == CATEGORY_FAVORITES) {
+            startActivity(new Intent(this, FavoritePostsActivity.class));
+            return;
+        }
+        if (category == CATEGORY_GESTURES) {
+            startActivity(new Intent(this, GestureSettingsActivity.class));
+            return;
+        }
+        if (category == CATEGORY_BBS_LINKS) {
+            startActivity(new Intent(this, BbsLinksActivity.class));
+            return;
+        }
         startActivity(new Intent(this, SettingsCategoryActivity.class)
                 .putExtra(EXTRA_CATEGORY, category)
                 .putExtra(EXTRA_CATEGORY_TITLE, title)
@@ -1542,31 +1564,58 @@ public class SettingsActivity extends Activity {
         switch (category) {
             case CATEGORY_APPEARANCE:
                 return new CategoryInfo(R.drawable.ic_settings,
-                        MainActivity.text("\u5916\u89b3\u3068\u30ec\u30a4\u30a2\u30a6\u30c8", "Appearance & Layout"),
-                        MainActivity.text("\u30c6\u30fc\u30de\u3001\u30db\u30fc\u30e0\u3001\u30e1\u30cb\u30e5\u30fc\u3001\u4e00\u89a7\u8868\u793a", "Themes, home, menus, and list display"));
+                        MainActivity.text("\u5916\u89b3\u3068\u30db\u30fc\u30e0", "Appearance & Home"),
+                        MainActivity.text("\u30c6\u30fc\u30de\u3001\u30d0\u30fc\u306e\u4f4d\u7f6e\u3001\u30db\u30fc\u30e0\u3068\u30e1\u30cb\u30e5\u30fc", "Theme, bar position, home screen, and menus"));
             case CATEGORY_READING:
                 return new CategoryInfo(R.drawable.ic_text_fields,
-                        MainActivity.text("\u95b2\u89a7\u3068\u30e1\u30c7\u30a3\u30a2", "Reading & Media"),
-                        MainActivity.text("\u672a\u8aad\u3001\u30c4\u30ea\u30fc\u3001AA\u3001\u753b\u50cf\u30fb\u52d5\u753b\u3001NG", "Unread posts, trees, AA, media, and filters"));
-            case CATEGORY_CONTROLS:
-                return new CategoryInfo(android.R.drawable.ic_menu_compass,
-                        MainActivity.text("\u64cd\u4f5c\u3068\u691c\u7d22", "Controls & Search"),
-                        MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc\u3001\u30ea\u30f3\u30af\u3001\u30b9\u30ec\u691c\u7d22", "Gestures, links, and thread search"));
-            case CATEGORY_FAVORITES_HISTORY:
+                        MainActivity.text("\u30b9\u30ec\u306e\u95b2\u89a7", "Reading Threads"),
+                        MainActivity.text("\u672a\u8aad\u3001\u30c4\u30ea\u30fc\u8868\u793a\u3001AA\u306e\u8aad\u307f\u65b9", "Unread posts, tree view, and AA rendering"));
+            case CATEGORY_FAVORITES:
                 return new CategoryInfo(R.drawable.ic_star,
-                        MainActivity.text("\u304a\u6c17\u306b\u5165\u308a\u3068\u5c65\u6b74", "Favorites & History"),
-                        MainActivity.text("\u4fdd\u5b58\u3057\u305f\u30ec\u30b9\u3068\u5404\u7a2e\u5c65\u6b74\u306e\u7ba1\u7406", "Saved posts and activity history"));
-            case CATEGORY_SERVICES:
+                        MainActivity.text("\u304a\u6c17\u306b\u5165\u308a", "Favorites"),
+                        MainActivity.text("\u30ab\u30c6\u30b4\u30ea\u3068\u4fdd\u5b58\u3057\u305f\u30ec\u30b9\u3092\u7ba1\u7406", "Manage categories and saved posts"));
+            case CATEGORY_LISTS:
+                return new CategoryInfo(android.R.drawable.ic_menu_sort_by_size,
+                        MainActivity.text("\u4e00\u89a7\u8868\u793a", "List Display"),
+                        MainActivity.text("\u30b9\u30ec\u4e00\u89a7\u3068\u30bf\u30d6\u4e00\u89a7\u306e\u898b\u3048\u65b9", "Thread-list and tab-list presentation"));
+            case CATEGORY_GESTURES:
+                return new CategoryInfo(android.R.drawable.ic_menu_compass,
+                        MainActivity.text("\u30b8\u30a7\u30b9\u30c1\u30e3\u30fc", "Gestures"),
+                        MainActivity.text("\u30b9\u30ef\u30a4\u30d7\u64cd\u4f5c\u3068\u5272\u308a\u5f53\u3066", "Swipes and action assignments"));
+            case CATEGORY_LINKS:
+                return new CategoryInfo(R.drawable.ic_search,
+                        MainActivity.text("\u30ea\u30f3\u30af\u3068\u691c\u7d22", "Links & Search"),
+                        MainActivity.text("\u30ea\u30f3\u30af\u306e\u958b\u304d\u65b9\u3068\u30b9\u30ec\u691c\u7d22", "How links open and thread search"));
+            case CATEGORY_BBS_LINKS:
                 return new CategoryInfo(R.drawable.ic_link,
-                        MainActivity.text("BBS\u3068\u5916\u90e8\u30b5\u30fc\u30d3\u30b9", "BBS & Services"),
-                        MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u3001ImgBB\u3001Sync2ch", "Custom BBS sites, ImgBB, and Sync2ch"));
-            case CATEGORY_STORAGE_BACKUP:
+                        MainActivity.text("BBS\u30ea\u30f3\u30af\u3092\u7ba1\u7406", "Manage BBS Links"),
+                        MainActivity.text("\u30ab\u30b9\u30bf\u30e0BBS\u3068\u8a8d\u8a3c", "Custom BBS sites and authentication"));
+            case CATEGORY_MEDIA:
+                return new CategoryInfo(R.drawable.ic_image,
+                        MainActivity.text("\u30e1\u30c7\u30a3\u30a2\u3068\u30d5\u30a3\u30eb\u30bf", "Media & Filters"),
+                        MainActivity.text("\u753b\u50cf\u30fb\u52d5\u753b\u306e\u8868\u793a\u3068\u30b3\u30f3\u30c6\u30f3\u30c4\u30d5\u30a3\u30eb\u30bf", "Image and video display, plus content filters"));
+            case CATEGORY_UPLOADS:
+                return new CategoryInfo(R.drawable.ic_image,
+                        MainActivity.text("\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", "Image Uploads"),
+                        MainActivity.text("ImgBB\u306e\u63a5\u7d9a\u3068\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u5c65\u6b74", "ImgBB connection and upload history"));
+            case CATEGORY_STORAGE:
                 return new CategoryInfo(R.drawable.ic_folder,
-                        MainActivity.text("\u4fdd\u5b58\u5bb9\u91cf\u3068\u30d0\u30c3\u30af\u30a2\u30c3\u30d7", "Storage & Backup"),
-                        MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u3001\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3001\u30c7\u30fc\u30bf\u79fb\u884c", "Cache, backups, and data migration"));
+                        MainActivity.text("\u30b9\u30c8\u30ec\u30fc\u30b8", "Storage"),
+                        MainActivity.text("\u30ad\u30e3\u30c3\u30b7\u30e5\u306e\u4f7f\u7528\u91cf\u3068\u4e0a\u9650", "Cache usage and storage limit"));
+            case CATEGORY_HISTORY:
+                return new CategoryInfo(android.R.drawable.ic_menu_recent_history,
+                        MainActivity.text("\u30d7\u30e9\u30a4\u30d0\u30b7\u30fc\u3068\u5c65\u6b74", "Privacy & History"),
+                        MainActivity.text("\u4fdd\u5b58\u3059\u308b\u884c\u52d5\u5c65\u6b74\u3068\u305d\u306e\u7ba1\u7406", "Choose and manage saved activity"));
+            case CATEGORY_SYNC:
+                return new CategoryInfo(android.R.drawable.ic_popup_sync, "Sync2ch",
+                        MainActivity.text("\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3001\u30bf\u30d6\u3001\u65e2\u8aad\u4f4d\u7f6e\u306e\u540c\u671f", "Sync bookmarks, tabs, and read positions"));
+            case CATEGORY_BACKUP:
+                return new CategoryInfo(R.drawable.ic_download,
+                        MainActivity.text("\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3068\u79fb\u884c", "Backup & Migration"),
+                        MainActivity.text("\u30c7\u30fc\u30bf\u306e\u4fdd\u5b58\u3001\u5fa9\u5143\u3001ChMate\u304b\u3089\u306e\u79fb\u884c", "Save, restore, or migrate data from ChMate"));
             default:
                 return new CategoryInfo(R.drawable.ic_settings,
-                        MainActivity.text("\u8a73\u7d30", "Advanced"),
+                        MainActivity.text("\u8a73\u7d30\u8a2d\u5b9a", "Advanced"),
                         MainActivity.text("\u30c7\u30d0\u30c3\u30b0\u3068\u8a2d\u5b9a\u306e\u521d\u671f\u5316", "Diagnostics and resetting preferences"));
         }
     }

@@ -57,7 +57,7 @@ To build an optimized release APK:
 
 ## Custom BBS List
 
-Add all BBS links below from **Settings → BBS & Services → Manage BBS links → Add all supported BBS links**.
+Add all BBS links below from **Settings → BBS Links → Manage BBS links → Add all supported BBS links**.
 
 | Name | URL |
 | --- | --- |
