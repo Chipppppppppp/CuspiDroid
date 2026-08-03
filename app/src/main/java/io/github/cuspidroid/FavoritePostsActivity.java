@@ -186,12 +186,15 @@ public class FavoritePostsActivity extends Activity {
                         : MainActivity.text("カテゴリを編集", "Edit category"))
                 .setView(form)
                 .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
-                .setPositiveButton(MainActivity.text("保存", "Save"), null)
+                .setPositiveButton(category == null
+                        ? MainActivity.text("追加", "Add")
+                        : MainActivity.text("保存", "Save"), null)
                 .create();
         dialog.show();
         Theme.styleDialog(dialog, this);
         Button saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-        saveButton.setEnabled(category != null && !category.name.trim().isEmpty());
+        Theme.styleDialogButtonEnabled(this, saveButton,
+                category != null && !category.name.trim().isEmpty());
         name.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -199,7 +202,8 @@ public class FavoritePostsActivity extends Activity {
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
-                saveButton.setEnabled(s != null && !s.toString().trim().isEmpty());
+                Theme.styleDialogButtonEnabled(FavoritePostsActivity.this, saveButton,
+                        s != null && !s.toString().trim().isEmpty());
             }
 
             @Override

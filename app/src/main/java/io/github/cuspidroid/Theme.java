@@ -541,6 +541,14 @@ final class Theme {
         }
     }
 
+    static void styleDialogButtonEnabled(Context context, android.widget.Button button,
+                                         boolean enabled) {
+        if (button == null) return;
+        button.setEnabled(enabled);
+        button.setTextColor(enabled ? accent(context) : muted(context));
+        button.setAlpha(enabled ? 1f : 0.55f);
+    }
+
     static void stylePopupDialog(Dialog dialog, Context context) {
         stylePopupDialog(dialog, context, border(context));
     }

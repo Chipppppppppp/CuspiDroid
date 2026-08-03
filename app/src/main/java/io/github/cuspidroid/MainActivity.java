@@ -9957,6 +9957,7 @@ public class MainActivity extends Activity {
         reloadFavoritePosts();
         ThreadPage page = tab == null ? null : tab.threadPage;
         FavoritePostsStore.FavoritePost current = favoritePost(page, post);
+        String[] selectedCategoryId = {current == null ? null : current.categoryId};
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(18), dp(8), dp(18), 0);
@@ -9964,33 +9965,46 @@ public class MainActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(text("\u304a\u6c17\u306b\u5165\u308a\u30ab\u30c6\u30b4\u30ea", "Favorite category"))
                 .setView(menu)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setPositiveButton("OK", null)
                 .create();
-        for (FavoritePostsStore.Category category : favoritePostsSnapshot.categories) {
-            menu.addView(favoriteCategoryAction(category, current != null
-                    && category.id.equals(current.categoryId), () -> {
+        Runnable[] renderCategories = new Runnable[1];
+        renderCategories[0] = () -> {
+            menu.removeAllViews();
+            for (FavoritePostsStore.Category category : favoritePostsSnapshot.categories) {
+                boolean selected = category.id.equals(selectedCategoryId[0]);
+                menu.addView(favoriteCategoryAction(category, selected, () -> {
+                    selectedCategoryId[0] = selected ? null : category.id;
+                    renderCategories[0].run();
+                }));
+            }
+            menu.addView(dialogAction(R.drawable.ic_add,
+                    text("\u30ab\u30c6\u30b4\u30ea\u3092\u4f5c\u6210", "Create category"), () -> {
                 dialog.dismiss();
-                saveFavoritePost(tab, post, category);
+                showCreateFavoriteCategoryDialog(tab, post);
             }));
-        }
-        menu.addView(dialogAction(R.drawable.ic_add,
-                text("\u30ab\u30c6\u30b4\u30ea\u3092\u4f5c\u6210", "Create category"), () -> {
-            dialog.dismiss();
-            showCreateFavoriteCategoryDialog(tab, post);
-        }));
-        if (current != null) {
-            menu.addView(dialogAction(R.drawable.ic_delete,
-                    text("\u304a\u6c17\u306b\u5165\u308a\u304b\u3089\u524a\u9664", "Remove from favorites"), () -> {
-                dialog.dismiss();
-                FavoritePostsStore.removePost(preferences,
-                        current.url, current.number);
-                reloadFavoritePosts();
-                refreshFavoritePostMarkers(tab);
-                Toast.makeText(this, text("\u304a\u6c17\u306b\u5165\u308a\u304b\u3089\u524a\u9664\u3057\u307e\u3057\u305f\u3002",
-                        "Removed from favorites."), Toast.LENGTH_SHORT).show();
-            }));
-        }
+        };
+        renderCategories[0].run();
         dialog.show();
         Theme.styleDialog(dialog, this);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (selectedCategoryId[0] == null) {
+                dialog.dismiss();
+                if (current != null) {
+                    FavoritePostsStore.removePost(preferences, current.url, current.number);
+                    reloadFavoritePosts();
+                    refreshFavoritePostMarkers(tab);
+                    Toast.makeText(this, text("\u304a\u6c17\u306b\u5165\u308a\u304b\u3089\u524a\u9664\u3057\u307e\u3057\u305f\u3002",
+                            "Removed from favorites."), Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
+            FavoritePostsStore.Category selected = FavoritePostsStore.category(
+                    favoritePostsSnapshot, selectedCategoryId[0]);
+            if (selected == null) return;
+            dialog.dismiss();
+            saveFavoritePost(tab, post, selected);
+        });
     }
 
     private View favoriteCategoryAction(FavoritePostsStore.Category category, boolean selected,
@@ -10060,13 +10074,13 @@ public class MainActivity extends Activity {
                 .setView(form)
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"),
                         (d, which) -> showFavoritePostMenu(tab, post))
-                .setPositiveButton(text("\u4fdd\u5b58", "Save"), null)
+                .setPositiveButton(text("\u8ffd\u52a0", "Add"), null)
                 .create();
         dialog.setOnCancelListener(d -> showFavoritePostMenu(tab, post));
         dialog.show();
         Theme.styleDialog(dialog, this);
         Button saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-        saveButton.setEnabled(false);
+        Theme.styleDialogButtonEnabled(this, saveButton, false);
         name.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -10074,7 +10088,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
-                saveButton.setEnabled(s != null && !s.toString().trim().isEmpty());
+                Theme.styleDialogButtonEnabled(MainActivity.this, saveButton,
+                        s != null && !s.toString().trim().isEmpty());
             }
 
             @Override
