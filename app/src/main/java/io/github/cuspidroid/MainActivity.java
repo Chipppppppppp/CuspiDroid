@@ -11225,11 +11225,8 @@ public class MainActivity extends Activity {
             }
             routeSearchResult(result);
         });
-        if (result != null && result.url != null && isThreadUrl(normalizeUrl(result.url))) {
-            row.setOnLongClickListener(v -> {
-                showValueCopyPopup(row, result.url);
-                return true;
-            });
+        if (result != null && result.url != null && !result.url.trim().isEmpty()) {
+            installValueCopyMenu(row, result.url);
         }
 
         TextView resultTitle = new TextView(this);
@@ -17852,10 +17849,7 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(10), dp(9), dp(10), dp(9));
         row.setOnClickListener(v -> routeLink(item.url, currentTab()));
-        row.setOnLongClickListener(v -> {
-            showValueCopyPopup(row, item.url);
-            return true;
-        });
+        installValueCopyMenu(row, item.url);
 
         TextView title = new TextView(this);
         title.setText(item.title);
@@ -20356,6 +20350,30 @@ public class MainActivity extends Activity {
         int[] location = new int[2];
         anchor.getLocationOnScreen(location);
         showValueCopyPopupAt(value, location[0] + dp(16), location[1] + anchor.getHeight() + dp(4), false);
+    }
+
+    private void installValueCopyMenu(View target, String value) {
+        if (target == null || value == null || value.trim().isEmpty()) {
+            return;
+        }
+        int[] touchLocation = new int[2];
+        boolean[] hasTouchLocation = {false};
+        target.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                touchLocation[0] = (int) event.getRawX();
+                touchLocation[1] = (int) event.getRawY();
+                hasTouchLocation[0] = true;
+            }
+            return false;
+        });
+        target.setOnLongClickListener(v -> {
+            if (hasTouchLocation[0]) {
+                showValueCopyPopupAt(value, touchLocation[0], touchLocation[1] + dp(18), false);
+            } else {
+                showValueCopyPopup(v, value);
+            }
+            return true;
+        });
     }
 
     private void showValueCopyPopupAt(String value, int rawX, int rawY, boolean linkMenu) {
