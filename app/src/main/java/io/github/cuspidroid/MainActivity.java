@@ -3265,6 +3265,7 @@ public class MainActivity extends Activity {
         }
         dialog.show();
         if (dialog.getWindow() != null) {
+            Theme.applyTextSelection(this, dialog.getWindow().getDecorView());
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams params = dialog.getWindow().getAttributes();

@@ -577,7 +577,7 @@ final class Theme {
         if (view instanceof TextView) {
             TextView text = (TextView) view;
             text.setTextColor(color);
-            applyTextSelection(context, text);
+            applyTextSelectionToText(context, text);
         }
         if (!(view instanceof ViewGroup)) return;
         ViewGroup group = (ViewGroup) view;
@@ -607,18 +607,29 @@ final class Theme {
         if (!Boolean.TRUE.equals(decor.getTag(R.id.tag_theme_text_selection_listener))) {
             decor.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
                 if (newFocus instanceof TextView) {
-                    applyTextSelection(activity, (TextView) newFocus);
+                    applyTextSelectionToText(activity, (TextView) newFocus);
                 }
             });
             decor.setTag(R.id.tag_theme_text_selection_listener, true);
         }
         View focused = decor.findFocus();
         if (focused instanceof TextView) {
-            applyTextSelection(activity, (TextView) focused);
+            applyTextSelectionToText(activity, (TextView) focused);
         }
     }
 
-    private static void applyTextSelection(Context context, TextView view) {
+    static void applyTextSelection(Context context, View view) {
+        if (view instanceof TextView) {
+            applyTextSelectionToText(context, (TextView) view);
+        }
+        if (!(view instanceof ViewGroup)) return;
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            applyTextSelection(context, group.getChildAt(i));
+        }
+    }
+
+    private static void applyTextSelectionToText(Context context, TextView view) {
         view.setHighlightColor(active(context));
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
         int color = accent(context);
