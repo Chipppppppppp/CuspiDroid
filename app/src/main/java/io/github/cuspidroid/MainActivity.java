@@ -11417,6 +11417,9 @@ public class MainActivity extends Activity {
             float textWidth = paint.measureText(text, start, end);
             int previousColor = paint.getColor();
             Paint.Style previousStyle = paint.getStyle();
+            drawOverlappingSearchHighlights(canvas, text, start, end, x, top, bottom, paint);
+            paint.setColor(previousColor);
+            paint.setStyle(previousStyle);
             canvas.drawText(text, start, end, x, y, paint);
 
             float underlineTop = Math.min(bottom - underlineThickness,
@@ -11428,6 +11431,30 @@ public class MainActivity extends Activity {
 
             paint.setStyle(previousStyle);
             paint.setColor(previousColor);
+        }
+
+        private void drawOverlappingSearchHighlights(Canvas canvas, CharSequence text,
+                                                     int start, int end, float x,
+                                                     int top, int bottom, Paint paint) {
+            if (!(text instanceof Spanned)) {
+                return;
+            }
+            Spanned spanned = (Spanned) text;
+            BackgroundColorSpan[] highlights = spanned.getSpans(
+                    start, end, BackgroundColorSpan.class);
+            for (BackgroundColorSpan highlight : highlights) {
+                int highlightStart = Math.max(start, spanned.getSpanStart(highlight));
+                int highlightEnd = Math.min(end, spanned.getSpanEnd(highlight));
+                if (highlightEnd <= highlightStart) {
+                    continue;
+                }
+                float highlightLeft = x + paint.measureText(text, start, highlightStart);
+                float highlightRight = highlightLeft
+                        + paint.measureText(text, highlightStart, highlightEnd);
+                paint.setColor(highlight.getBackgroundColor());
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawRect(highlightLeft, top, highlightRight, bottom, paint);
+            }
         }
     }
 

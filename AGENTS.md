@@ -10,7 +10,7 @@
 
 ## UIテーマの参照方法
 
-- UIの色は `Theme` を唯一の参照元とし、画面クラスへ `Color.rgb(...)` や色リテラルを追加しないこと。役割に応じて `background`（画面）、`topBar`（上下バー）、`surface`（カード・パネル・メニュー）、`post`（投稿）、`unread`（未読投稿）、`field`（入力欄）、`text`（本文）、`muted` / `subtle`（補助表示）、`border` / `strongBorder`（境界線）、`active` / `searchHighlight`（選択・ページ内検索強調）、`accent`（操作・アイコン）を使うこと。優先ワードには独立したテーマ色を設けず、文字色を変えずに `searchHighlight` で太めの下線を引き、ページ内検索の背景ハイライトと形状を区別すること。スクロールサイドバー本体は `border`、つまみと自分の投稿バーは `accent`、未読範囲は `sidebarUnread`、自分への返信バーは `replyPostMarker`、ツリー線は `strongBorder` を参照すること。順位・勢い・レス数など値の強さを補間する表示には `metricLow` / `metricHigh` を使うこと。
+- UIの色は `Theme` を唯一の参照元とし、画面クラスへ `Color.rgb(...)` や色リテラルを追加しないこと。役割に応じて `background`（画面）、`topBar`（上下バー）、`surface`（カード・パネル・メニュー）、`post`（投稿）、`unread`（未読投稿）、`field`（入力欄）、`text`（本文）、`muted` / `subtle`（補助表示）、`border` / `strongBorder`（境界線）、`active` / `searchHighlight`（選択・ページ内検索強調）、`accent`（操作・アイコン）を使うこと。優先ワードには独立したテーマ色を設けず、文字色を変えずに `searchHighlight` で太めの下線を引き、ページ内検索の背景ハイライトと形状を区別すること。同じ文字範囲へページ内検索が一致した場合は、下線を維持したまま検索背景も重ねて表示すること。スクロールサイドバー本体は `border`、つまみと自分の投稿バーは `accent`、未読範囲は `sidebarUnread`、自分への返信バーは `replyPostMarker`、ツリー線は `strongBorder` を参照すること。順位・勢い・レス数など値の強さを補間する表示には `metricLow` / `metricHigh` を使うこと。
 - `Theme.background(context)` のような通常のアクセサーを使うこと。`MainActivity` では既存の `bgColor()`、`surfaceColor()` などのラッパーを優先すること。通常・プライベートは常に同じパレットを使い、プライベート状態を理由に画面全体の色を分岐させないこと。プライベート状態は画面最上部の専用バーで表し、その塗り色には `accent`、文字・アイコンには `Theme.contrastingText(...)` を使うこと。
 - システムバーには `Theme.applySystemBars(...)`、ダイアログには `Theme.styleDialog(...)` / `Theme.stylePopupDialog(...)`、チェックボックスとラジオボタンには `Theme.tintCompoundButton(...)`、ローディング用の `ProgressBar` には `Theme.tintProgressBar(...)` を使い、選択中のパレットと明暗設定を反映すること。
 - `accent` を塗り色として使うボタンやバッジの前景色は、任意のカスタム色でもコントラストを保つため `Theme.contrastingText(...)` で決めること。
