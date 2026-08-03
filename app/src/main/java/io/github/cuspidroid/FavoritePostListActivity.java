@@ -99,19 +99,29 @@ public class FavoritePostListActivity extends Activity {
 
     private FrameLayout postRow(FavoritePostsStore.Category category,
                                 FavoritePostsStore.FavoritePost post) {
-        return SavedPostRowView.create(this, post.title, post.url, post.number,
+        return PostListItemView.create(this, post.title, post.url, post.number,
                 formatMeta(post), post.body, category.color,
-                () -> openPost(post), () -> {
+                () -> openThread(post), () -> openPost(post), () -> {
                     FavoritePostsStore.removePost(preferences, post.url, post.number);
                     renderPosts();
                 });
     }
 
     private void openPost(FavoritePostsStore.FavoritePost post) {
+        openTarget(post, true);
+    }
+
+    private void openThread(FavoritePostsStore.FavoritePost post) {
+        openTarget(post, false);
+    }
+
+    private void openTarget(FavoritePostsStore.FavoritePost post, boolean jumpToPost) {
         Intent intent = new Intent(this, MainActivity.class);
         intent.setAction(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(post.url));
-        intent.putExtra(MainActivity.EXTRA_JUMP_POST_NUMBER, post.number);
+        if (jumpToPost && post.number > 0) {
+            intent.putExtra(MainActivity.EXTRA_JUMP_POST_NUMBER, post.number);
+        }
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         startActivity(intent);
         finish();

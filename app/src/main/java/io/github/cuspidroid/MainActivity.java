@@ -4150,6 +4150,7 @@ public class MainActivity extends Activity {
                 post.sourceTitle = item.optString("sourceTitle", "");
                 post.sourceUrl = item.optString("sourceUrl", "");
                 post.sourcePostNumber = item.optInt("sourcePostNumber", 0);
+                normalizeHissiSourceMetadata(post);
                 post.cachedLikelyAa = likelyAaPost(post.body);
                 page.posts.add(post);
                 page.postsByNumber.put(post.number, post);
@@ -6594,24 +6595,19 @@ public class MainActivity extends Activity {
             String threadTitle = cleanText(valueOr(firstMatch(header, "<a[^>]*>(.*?)</a>"), ""));
             String sourceUrl = absolutizeUrl(url, firstHref(header));
             String plainHeader = cleanText(header);
-            if (!threadTitle.isEmpty()) {
-                plainHeader = plainHeader.replace(threadTitle, "").trim();
-            }
-            String sourceNumber = valueOr(firstMatch(plainHeader, "^(\\d+)\\s*[\\uFF1A:]"), "");
-            String name = valueOr(firstMatch(header, "<b[^>]*>(.*?)</b>"), "anonymous");
-            String meta = plainHeader.replaceFirst("^\\d+\\s*[\\uFF1A:]\\s*", "").trim();
-            if (!name.isEmpty()) {
-                meta = meta.replaceFirst(Pattern.quote(name), "").trim();
-            }
+            String rawName = cleanText(valueOr(firstMatch(header, "<b[^>]*>(.*?)</b>"), "anonymous"));
+            HissiPostHeaderParser.Result parsedHeader = HissiPostHeaderParser.parse(
+                    plainHeader, threadTitle, rawName);
             String body = cleanText(bodyHtml);
             Post post = new Post();
             post.number = page.posts.size() + 1;
-            post.name = name;
-            post.date = meta;
+            post.name = parsedHeader.name.isEmpty() ? "anonymous" : parsedHeader.name;
+            post.date = parsedHeader.meta;
             post.body = body;
             post.sourceTitle = threadTitle;
-            post.sourcePostNumber = parsePositiveInt(sourceNumber, 0);
+            post.sourcePostNumber = parsedHeader.number;
             post.sourceUrl = sourceThreadUrl(sourceUrl, post.sourcePostNumber);
+            normalizeHissiSourceMetadata(post);
             post.cachedLikelyAa = likelyAaPost(post.body);
             page.posts.add(post);
             page.postsByNumber.put(post.number, post);
@@ -8755,44 +8751,17 @@ public class MainActivity extends Activity {
     }
 
     private View hissiSourceHeaderView(CuspTab tab, Post post, Runnable longClickAction) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, 0, 0, 0);
-        row.setOnLongClickListener(v -> {
-            if (longClickAction != null) {
-                longClickAction.run();
-                return true;
-            }
-            return false;
-        });
-
-        TextView title = new TextView(this);
         String titleText = post.sourceTitle == null || post.sourceTitle.trim().isEmpty()
                 ? text("\u5143\u30b9\u30ec\u30c3\u30c9", "Source thread")
                 : post.sourceTitle.trim();
-        title.setText(titleText);
-        title.setTextColor(TEAL);
-        title.setTextSize(13);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        title.setMaxLines(2);
-        title.setIncludeFontPadding(false);
-        title.setPadding(dp(8), dp(5), dp(8), dp(5));
-        title.setBackground(roundedDrawable(menuColor(), borderColor(), dp(8)));
-        title.setOnClickListener(v -> openHissiSourceThread(tab, post));
-        title.setOnLongClickListener(v -> {
+        return PostListItemView.threadHeader(this, titleText, "",
+                () -> openHissiSourceThread(tab, post), v -> {
             if (longClickAction != null) {
                 longClickAction.run();
                 return true;
             }
             return false;
         });
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        titleParams.setMargins(0, 0, dp(6), 0);
-        row.addView(title, titleParams);
-        return row;
     }
 
     private TextView copyPasteOmittedView(ThreadPage page, Post post, View card, CuspTab tab,
@@ -9355,12 +9324,12 @@ public class MainActivity extends Activity {
     private TextView postMetaText(Post post, ThreadPage page, Runnable longClickAction) {
         TextView meta = new TextView(this);
         int displayNumber = post.sourcePostNumber > 0 ? post.sourcePostNumber : post.number;
-        String name = post.name == null ? "" : post.name;
-        String date = post.date == null ? "" : post.date;
+        final String name = post.name == null ? "" : post.name;
+        final String date = post.date == null ? "" : post.date;
         String value = displayNumber + "  " + name + "  " + date;
         SpannableString text = new SpannableString(value);
         int numberEnd = String.valueOf(displayNumber).length();
-        text.setSpan(new StyleSpan(Typeface.BOLD), 0, numberEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        PostListItemView.stylePostNumber(text, numberEnd, TEAL);
         String actionName = postActionName(name);
         int nameOffset = actionName.isEmpty() ? -1 : name.indexOf(actionName);
         int nameStart = numberEnd + 2 + Math.max(0, nameOffset);
@@ -9552,6 +9521,14 @@ public class MainActivity extends Activity {
                 && post.sourceUrl != null
                 && !post.sourceUrl.trim().isEmpty()
                 && post.sourcePostNumber > 0;
+    }
+
+    private void normalizeHissiSourceMetadata(Post post) {
+        if (post == null || post.sourcePostNumber <= 0) return;
+        post.name = HissiPostHeaderParser.stripDuplicateNumberPrefix(
+                post.name, post.sourcePostNumber);
+        post.date = HissiPostHeaderParser.stripDuplicateNumberPrefix(
+                post.date, post.sourcePostNumber);
     }
 
     private void installPostIdTouchTracking(TextView text) {
@@ -10284,7 +10261,8 @@ public class MainActivity extends Activity {
     }
 
     private String postHeaderText(Post post) {
-        return post.number + "  " + post.name + "  " + post.date;
+        int number = post.sourcePostNumber > 0 ? post.sourcePostNumber : post.number;
+        return number + "  " + post.name + "  " + post.date;
     }
 
     private String postCopyText(Post post) {

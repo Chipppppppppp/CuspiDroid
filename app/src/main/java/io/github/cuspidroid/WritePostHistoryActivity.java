@@ -104,19 +104,28 @@ public class WritePostHistoryActivity extends Activity {
         String body = item.body.trim().isEmpty()
                 ? MainActivity.text("\u672c\u6587\u306f\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "Message body was not saved.")
                 : item.body;
-        return SavedPostRowView.create(this, item.title, item.url, item.number,
+        return PostListItemView.create(this, item.title, item.url, item.number,
                 postedAtLabel(item), body, Theme.accent(this),
-                () -> openHistoryItem(item), () -> confirmDelete(item));
+                () -> openHistoryThread(item), () -> openHistoryItem(item),
+                () -> confirmDelete(item));
     }
 
     private void openHistoryItem(MainActivity.WritePostHistoryItem item) {
+        openHistoryTarget(item, true);
+    }
+
+    private void openHistoryThread(MainActivity.WritePostHistoryItem item) {
+        openHistoryTarget(item, false);
+    }
+
+    private void openHistoryTarget(MainActivity.WritePostHistoryItem item, boolean jumpToPost) {
         if (item == null || item.url == null || item.url.trim().isEmpty()) {
             return;
         }
         Intent intent = new Intent(this, MainActivity.class);
         intent.setAction(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(item.url));
-        if (item.number > 0) {
+        if (jumpToPost && item.number > 0) {
             intent.putExtra(MainActivity.EXTRA_JUMP_POST_NUMBER, item.number);
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
