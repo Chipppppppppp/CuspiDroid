@@ -1,14 +1,19 @@
 package io.github.cuspidroid;
 
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.view.DragEvent;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -23,6 +28,7 @@ public class FavoritePostListActivity extends Activity {
     private String categoryId;
     private LinearLayout list;
     private TextView title;
+    private ScrollView scrollView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,13 +51,14 @@ public class FavoritePostListActivity extends Activity {
         root.setBackgroundColor(Theme.background(this));
         setContentView(root);
 
-        ScrollView scroll = new ScrollView(this);
+        scrollView = new ScrollView(this);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(18), dp(72), dp(18), dp(24));
-        scroll.addView(list, new ScrollView.LayoutParams(
+        list.setOnDragListener((v, event) -> handleDropOnList(event));
+        scrollView.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(scroll, new FrameLayout.LayoutParams(
+        root.addView(scrollView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         LinearLayout topBar = new LinearLayout(this);
@@ -100,6 +107,11 @@ public class FavoritePostListActivity extends Activity {
                                 FavoritePostsStore.FavoritePost post) {
         FrameLayout shell = new FrameLayout(this);
         shell.setBackground(rowBackground());
+        shell.setOnLongClickListener(v -> {
+            startRowDrag(v, new DragPayload(post.url, post.number));
+            return true;
+        });
+        shell.setOnDragListener((v, event) -> handleDropOnPost(shell, event));
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -110,6 +122,10 @@ public class FavoritePostListActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setOnClickListener(v -> openPost(post));
+        content.setOnLongClickListener(v -> {
+            startRowDrag(shell, new DragPayload(post.url, post.number));
+            return true;
+        });
         row.addView(content, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView threadTitle = new TextView(this);
@@ -138,6 +154,60 @@ public class FavoritePostListActivity extends Activity {
         });
         row.addView(delete, new LinearLayout.LayoutParams(dp(40), dp(40)));
         return shell;
+    }
+
+    private boolean handleDropOnPost(View row, DragEvent event) {
+        if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+            return event.getLocalState() instanceof DragPayload;
+        }
+        autoScrollDuringDrag(row, event);
+        if (event.getAction() != DragEvent.ACTION_DROP) return true;
+        DragPayload payload = (DragPayload) event.getLocalState();
+        int targetIndex = Math.max(0, list.indexOfChild(row));
+        if (event.getY() > row.getHeight() / 2f) targetIndex++;
+        FavoritePostsStore.movePost(preferences, categoryId, payload.url, payload.number, targetIndex);
+        renderPosts();
+        return true;
+    }
+
+    private boolean handleDropOnList(DragEvent event) {
+        if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+            return event.getLocalState() instanceof DragPayload;
+        }
+        autoScrollDuringDrag(list, event);
+        if (event.getAction() != DragEvent.ACTION_DROP) return true;
+        DragPayload payload = (DragPayload) event.getLocalState();
+        FavoritePostsStore.movePost(preferences, categoryId, payload.url, payload.number,
+                list.getChildCount());
+        renderPosts();
+        return true;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void startRowDrag(View view, DragPayload payload) {
+        ClipData data = ClipData.newPlainText("favorite-post",
+                FavoritePostsStore.postKey(payload.url, payload.number));
+        View.DragShadowBuilder shadow = new View.DragShadowBuilder(view);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            view.startDragAndDrop(data, shadow, payload, 0);
+        } else {
+            view.startDrag(data, shadow, payload, 0);
+        }
+    }
+
+    private void autoScrollDuringDrag(View anchor, DragEvent event) {
+        if (event.getAction() != DragEvent.ACTION_DRAG_LOCATION || scrollView == null) return;
+        int[] location = new int[2];
+        anchor.getLocationOnScreen(location);
+        float screenY = location[1] + event.getY();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int edge = dp(72);
+        if (screenY < frame.top + edge) {
+            scrollView.scrollBy(0, -dp(18));
+        } else if (screenY > frame.bottom - edge) {
+            scrollView.scrollBy(0, dp(18));
+        }
     }
 
     private void openPost(FavoritePostsStore.FavoritePost post) {
@@ -207,5 +277,15 @@ public class FavoritePostListActivity extends Activity {
 
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static final class DragPayload {
+        final String url;
+        final int number;
+
+        DragPayload(String url, int number) {
+            this.url = url;
+            this.number = number;
+        }
     }
 }

@@ -2,16 +2,20 @@ package io.github.cuspidroid;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Build;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.DragEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -29,6 +33,7 @@ import java.util.Map;
 public class FavoritePostsActivity extends Activity {
     private SharedPreferences preferences;
     private LinearLayout list;
+    private ScrollView scrollView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,13 +55,14 @@ public class FavoritePostsActivity extends Activity {
         root.setBackgroundColor(Theme.background(this));
         setContentView(root);
 
-        ScrollView scroll = new ScrollView(this);
+        scrollView = new ScrollView(this);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(18), dp(72), dp(18), dp(24));
-        scroll.addView(list, new ScrollView.LayoutParams(
+        list.setOnDragListener((v, event) -> handleDropOnList(event));
+        scrollView.addView(list, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(scroll, new FrameLayout.LayoutParams(
+        root.addView(scrollView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         LinearLayout topBar = new LinearLayout(this);
@@ -112,6 +118,11 @@ public class FavoritePostsActivity extends Activity {
         row.setPadding(dp(10), dp(6), dp(4), dp(6));
         row.setBackground(rowBackground());
         row.setOnClickListener(v -> openCategory(category));
+        row.setOnLongClickListener(v -> {
+            startRowDrag(v, new DragPayload(category.id), "favorite-category");
+            return true;
+        });
+        row.setOnDragListener((v, event) -> handleDropOnCategory(row, event));
         View color = new View(this);
         color.setBackground(ThemeColorPicker.colorPreviewBackground(this, category.color));
         row.addView(color, new LinearLayout.LayoutParams(dp(18), dp(34)));
@@ -145,6 +156,58 @@ public class FavoritePostsActivity extends Activity {
     private void openCategory(FavoritePostsStore.Category category) {
         startActivity(new Intent(this, FavoritePostListActivity.class)
                 .putExtra(FavoritePostListActivity.EXTRA_CATEGORY_ID, category.id));
+    }
+
+    private boolean handleDropOnCategory(View row, DragEvent event) {
+        if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+            return event.getLocalState() instanceof DragPayload;
+        }
+        autoScrollDuringDrag(row, event);
+        if (event.getAction() != DragEvent.ACTION_DROP) return true;
+        DragPayload payload = (DragPayload) event.getLocalState();
+        int targetIndex = Math.max(0, list.indexOfChild(row));
+        if (event.getY() > row.getHeight() / 2f) targetIndex++;
+        FavoritePostsStore.moveCategory(preferences, payload.id, targetIndex);
+        renderFavorites();
+        return true;
+    }
+
+    private boolean handleDropOnList(DragEvent event) {
+        if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+            return event.getLocalState() instanceof DragPayload;
+        }
+        autoScrollDuringDrag(list, event);
+        if (event.getAction() != DragEvent.ACTION_DROP) return true;
+        DragPayload payload = (DragPayload) event.getLocalState();
+        FavoritePostsStore.moveCategory(preferences, payload.id, list.getChildCount());
+        renderFavorites();
+        return true;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void startRowDrag(View view, DragPayload payload, String label) {
+        ClipData data = ClipData.newPlainText(label, payload.id);
+        View.DragShadowBuilder shadow = new View.DragShadowBuilder(view);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            view.startDragAndDrop(data, shadow, payload, 0);
+        } else {
+            view.startDrag(data, shadow, payload, 0);
+        }
+    }
+
+    private void autoScrollDuringDrag(View anchor, DragEvent event) {
+        if (event.getAction() != DragEvent.ACTION_DRAG_LOCATION || scrollView == null) return;
+        int[] location = new int[2];
+        anchor.getLocationOnScreen(location);
+        float screenY = location[1] + event.getY();
+        Rect frame = new Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+        int edge = dp(72);
+        if (screenY < frame.top + edge) {
+            scrollView.scrollBy(0, -dp(18));
+        } else if (screenY > frame.bottom - edge) {
+            scrollView.scrollBy(0, dp(18));
+        }
     }
 
     private void showCategoryDialog(FavoritePostsStore.Category category) {
@@ -302,5 +365,13 @@ public class FavoritePostsActivity extends Activity {
 
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static final class DragPayload {
+        final String id;
+
+        DragPayload(String id) {
+            this.id = id;
+        }
     }
 }

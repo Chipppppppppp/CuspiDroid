@@ -35,21 +35,23 @@ public class SettingsActivity extends Activity {
     static final String EXTRA_CATEGORY_SUBTITLE = "settings_category_subtitle";
     private static final int CATEGORY_APPEARANCE = 0;
     private static final int CATEGORY_READING = 1;
-    private static final int CATEGORY_LISTS = 2;
-    private static final int CATEGORY_GESTURES = 3;
-    private static final int CATEGORY_LINKS = 4;
-    private static final int CATEGORY_BBS_LINKS = 5;
-    private static final int CATEGORY_MEDIA = 6;
-    private static final int CATEGORY_UPLOADS = 7;
-    private static final int CATEGORY_STORAGE = 8;
-    private static final int CATEGORY_HISTORY = 9;
-    private static final int CATEGORY_SYNC = 10;
-    private static final int CATEGORY_BACKUP = 11;
-    private static final int CATEGORY_ADVANCED = 12;
-    private static final int CATEGORY_COUNT = 13;
+    private static final int CATEGORY_FAVORITES = 2;
+    private static final int CATEGORY_LISTS = 3;
+    private static final int CATEGORY_GESTURES = 4;
+    private static final int CATEGORY_LINKS = 5;
+    private static final int CATEGORY_BBS_LINKS = 6;
+    private static final int CATEGORY_MEDIA = 7;
+    private static final int CATEGORY_UPLOADS = 8;
+    private static final int CATEGORY_STORAGE = 9;
+    private static final int CATEGORY_HISTORY = 10;
+    private static final int CATEGORY_SYNC = 11;
+    private static final int CATEGORY_BACKUP = 12;
+    private static final int CATEGORY_ADVANCED = 13;
+    private static final int CATEGORY_COUNT = 14;
     private static final int[] CATEGORY_DISPLAY_ORDER = {
             CATEGORY_APPEARANCE,
             CATEGORY_READING,
+            CATEGORY_FAVORITES,
             CATEGORY_MEDIA,
             CATEGORY_LISTS,
             CATEGORY_GESTURES,
@@ -315,10 +317,9 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, autoAa);
         root.addView(autoAa);
 
-        root.addView(managementRow(R.drawable.ic_star,
-                MainActivity.text("\u304a\u6c17\u306b\u5165\u308a\u306e\u30ec\u30b9\u3092\u7ba1\u7406", "Manage favorite posts"),
-                MainActivity.text("\u30ab\u30c6\u30b4\u30ea\u306e\u4f5c\u6210\u30fb\u7de8\u96c6\u3068\u4fdd\u5b58\u3057\u305f\u30ec\u30b9\u3078\u306e\u79fb\u52d5", "Create and edit categories, and jump to saved posts"),
-                v -> startActivity(new Intent(this, FavoritePostsActivity.class))));
+        root.addView(sectionTitle(R.drawable.ic_star,
+                MainActivity.text("\u304a\u6c17\u306b\u5165\u308a", "Favorites"),
+                MainActivity.text("\u30ab\u30c6\u30b4\u30ea\u3068\u4fdd\u5b58\u3057\u305f\u30ec\u30b9\u3092\u7ba1\u7406", "Manage categories and saved posts")));
 
         root.addView(sectionTitle(android.R.drawable.ic_menu_sort_by_size,
                 MainActivity.text("\u4e00\u89a7\u8868\u793a", "List Display"),
@@ -1391,6 +1392,10 @@ public class SettingsActivity extends Activity {
     }
 
     private void openCategory(int category, SectionHeaderTag header) {
+        if (category == CATEGORY_FAVORITES) {
+            startActivity(new Intent(this, FavoritePostsActivity.class));
+            return;
+        }
         if (category == CATEGORY_GESTURES) {
             startActivity(new Intent(this, GestureSettingsActivity.class));
             return;
