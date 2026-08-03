@@ -3289,6 +3289,9 @@ public class MainActivity extends Activity {
         if (popup == null || content == null) {
             return;
         }
+        // Animate the popup window itself so FLAG_DIM_BEHIND follows the same
+        // enter/exit transition as the app's dialogs instead of changing at once.
+        popup.setAnimationStyle(android.R.style.Animation_Dialog);
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setTouchInterceptor((view, event) -> {
@@ -20653,7 +20656,6 @@ public class MainActivity extends Activity {
         replyPopups.add(popup);
         popup.showAtLocation(contentFrame, Gravity.NO_GRAVITY, x, y);
         dimBehindPopup(popup);
-        animatePopupIn(popup, true);
         if (initialCount < targets.size()) {
             int popupX = x;
             int popupBottom = y + popupHeight;
@@ -20848,7 +20850,6 @@ public class MainActivity extends Activity {
 
     private void dismissThreadPopupsOnly() {
         List<PopupWindow> popups = new ArrayList<>(replyPopups);
-        replyPopups.clear();
         for (PopupWindow popup : popups) {
             dismissPopupAnimated(popup);
         }
@@ -20859,7 +20860,6 @@ public class MainActivity extends Activity {
             return;
         }
         PopupWindow popup = replyPopups.get(replyPopups.size() - 1);
-        replyPopups.remove(popup);
         dismissPopupAnimated(popup);
     }
 
@@ -20873,6 +20873,11 @@ public class MainActivity extends Activity {
 
     private void dismissPopupAnimated(PopupWindow popup) {
         if (popup == null || !popup.isShowing()) {
+            return;
+        }
+        if (replyPopups.contains(popup)) {
+            // Its dialog window animation also fades the dim layer on dismissal.
+            popup.dismiss();
             return;
         }
         View content = popup.getContentView();
