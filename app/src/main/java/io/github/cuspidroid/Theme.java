@@ -43,8 +43,8 @@ final class Theme {
     static final String ID_CRIMSON_DARK = "crimson_dark";
     static final String ID_PINK_LIGHT = "pink_light";
     static final String ID_PINK_DARK = "pink_dark";
-    static final String ID_MONET_WHITE = "monet_white";
-    static final String ID_MONET_BLACK = "monet_black";
+    static final String ID_PURE_WHITE = "pure_white";
+    static final String ID_PURE_DARK = "pure_dark";
     static final String CUSTOM_PREFIX = "custom:";
 
     static final String PREF_NORMAL_THEME = "normal_theme_id";
@@ -223,7 +223,7 @@ final class Theme {
                     Color.rgb(244, 114, 182), Color.rgb(249, 168, 212), Color.rgb(244, 114, 182),
                     Color.rgb(184, 132, 160), Color.rgb(236, 72, 153));
 
-    private static final Palette MONET_WHITE = new Palette(ID_MONET_WHITE, "Monet (White)", false,
+    private static final Palette PURE_WHITE = new Palette(ID_PURE_WHITE, "Pure White", false,
             Color.WHITE, Color.rgb(250, 250, 250), Color.WHITE,
             Color.WHITE, Color.rgb(222, 222, 222), Color.rgb(245, 245, 245),
             Color.WHITE, Color.BLACK, Color.rgb(70, 70, 70),
@@ -233,7 +233,7 @@ final class Theme {
                     Color.BLACK, Color.rgb(96, 96, 96), Color.rgb(128, 128, 128),
                     Color.rgb(160, 160, 160), Color.BLACK);
 
-    private static final Palette MONET_BLACK = new Palette(ID_MONET_BLACK, "Monet (Black)", true,
+    private static final Palette PURE_DARK = new Palette(ID_PURE_DARK, "Pure Dark", true,
             Color.BLACK, Color.BLACK, Color.rgb(6, 6, 6),
             Color.rgb(12, 12, 12), Color.rgb(56, 56, 56), Color.rgb(20, 20, 20),
             Color.rgb(6, 6, 6), Color.WHITE, Color.rgb(190, 190, 190),
@@ -293,9 +293,9 @@ final class Theme {
     static String normalSelection(Context context) {
         SharedPreferences prefs = preferences(context);
         if (prefs.contains(PREF_NORMAL_THEME)) {
-            return prefs.getString(PREF_NORMAL_THEME, MODE_SYSTEM);
+            return normalizeThemeId(prefs.getString(PREF_NORMAL_THEME, MODE_SYSTEM));
         }
-        return prefs.getString(MainActivity.PREF_THEME_MODE, MODE_SYSTEM);
+        return normalizeThemeId(prefs.getString(MainActivity.PREF_THEME_MODE, MODE_SYSTEM));
     }
 
     static String systemLightSelection(Context context) {
@@ -309,9 +309,16 @@ final class Theme {
     }
 
     private static String validSystemSelection(Context context, boolean dark, String id) {
-        Palette palette = paletteById(context, id);
-        if (palette != null && palette.dark == dark) return id;
+        String normalizedId = normalizeThemeId(id);
+        Palette palette = paletteById(context, normalizedId);
+        if (palette != null && palette.dark == dark) return normalizedId;
         return dark ? ID_TEAL_DARK : ID_TEAL_LIGHT;
+    }
+
+    private static String normalizeThemeId(String id) {
+        if ("monet_white".equals(id)) return ID_PURE_WHITE;
+        if ("monet_black".equals(id)) return ID_PURE_DARK;
+        return id;
     }
 
     static String signature(Context context) {
@@ -340,14 +347,14 @@ final class Theme {
         result.add(LIGHT_BLUE_DARK.copy());
         result.add(LIGHT.copy());
         result.add(DARK.copy());
-        result.add(MONET_WHITE.copy());
-        result.add(MONET_BLACK.copy());
         result.add(PURPLE_LIGHT.copy());
         result.add(PURPLE_DARK.copy());
         result.add(CRIMSON_LIGHT.copy());
         result.add(CRIMSON_DARK.copy());
         result.add(PINK_LIGHT.copy());
         result.add(PINK_DARK.copy());
+        result.add(PURE_WHITE.copy());
+        result.add(PURE_DARK.copy());
         return result;
     }
 
@@ -370,6 +377,7 @@ final class Theme {
     }
 
     static Palette paletteById(Context context, String id) {
+        id = normalizeThemeId(id);
         if (MODE_LIGHT.equals(id)) return LIGHT.copy();
         if (MODE_DARK.equals(id)) return DARK.copy();
         if (ID_TEAL_LIGHT.equals(id)) return TEAL_LIGHT.copy();
@@ -386,8 +394,8 @@ final class Theme {
         if (ID_CRIMSON_DARK.equals(id)) return CRIMSON_DARK.copy();
         if (ID_PINK_LIGHT.equals(id)) return PINK_LIGHT.copy();
         if (ID_PINK_DARK.equals(id)) return PINK_DARK.copy();
-        if (ID_MONET_WHITE.equals(id)) return MONET_WHITE.copy();
-        if (ID_MONET_BLACK.equals(id)) return MONET_BLACK.copy();
+        if (ID_PURE_WHITE.equals(id)) return PURE_WHITE.copy();
+        if (ID_PURE_DARK.equals(id)) return PURE_DARK.copy();
         for (Palette palette : customPalettes(context)) {
             if (palette.id.equals(id)) return palette;
         }
@@ -453,6 +461,7 @@ final class Theme {
     }
 
     static String displayName(Context context, String id) {
+        id = normalizeThemeId(id);
         if (MODE_SYSTEM.equals(id)) return MainActivity.text("端末のテーマに従う", "Follow device theme");
         Palette palette = paletteById(context, id);
         if (palette == null) return MainActivity.text("不明なテーマ", "Unknown theme");
@@ -472,8 +481,8 @@ final class Theme {
         if (ID_CRIMSON_DARK.equals(id)) return MainActivity.text("クリムゾン (ダーク)", "Crimson (Dark)");
         if (ID_PINK_LIGHT.equals(id)) return MainActivity.text("ピンク (ライト)", "Pink (Light)");
         if (ID_PINK_DARK.equals(id)) return MainActivity.text("ピンク (ダーク)", "Pink (Dark)");
-        if (ID_MONET_WHITE.equals(id)) return MainActivity.text("モネット (ホワイト)", "Monet (White)");
-        if (ID_MONET_BLACK.equals(id)) return MainActivity.text("モネット (ブラック)", "Monet (Black)");
+        if (ID_PURE_WHITE.equals(id)) return MainActivity.text("ピュアホワイト", "Pure White");
+        if (ID_PURE_DARK.equals(id)) return MainActivity.text("ピュアダーク", "Pure Dark");
         return palette.name;
     }
 
