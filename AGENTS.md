@@ -15,4 +15,4 @@
 - システムバーには `Theme.applySystemBars(...)`、ダイアログには `Theme.styleDialog(...)` / `Theme.stylePopupDialog(...)`、チェックボックスとラジオボタンには `Theme.tintCompoundButton(...)`、ローディング用の `ProgressBar` には `Theme.tintProgressBar(...)` を使い、選択中のパレットと明暗設定を反映すること。
 - `accent` を塗り色として使うボタンやバッジの前景色は、任意のカスタム色でもコントラストを保つため `Theme.contrastingText(...)` で決めること。
 - 新しいセマンティック色を追加する場合は、まず既存色へ統合できないか確認すること。独立色が必要な場合は、インディゴ・ティール・グリーン・ブルー・ライトブルー・パープル・クリムゾン・ピンクそれぞれのライト／ダーク全組み込みパレット、`Theme.Palette` のJSON入出力、`Theme.COLOR_KEYS` と `Theme.EDITABLE_COLOR_KEYS`、テーマ編集画面の表示名・GUIカラーピッカー・色プレビューを同時に更新し、既存のテーマファイルを読み込める互換性を維持すること。
-- ランチャーアイコンの壺形状を変更する場合は、`ic_launcher_foreground.xml` と `ic_launcher_monochrome.xml` の輪郭を同期し、通常・円形それぞれの旧Android用アイコン、アダプティブアイコン、Android 13以降のモノクロテーマアイコンをすべて維持すること。モノクロテーマアイコンの色はアプリ内の `Theme` ではなく端末の壁紙・システムテーマとランチャーが決めるため、アプリ内テーマ色との連動処理は追加しないこと。
+- ランチャーアイコンは `ic_launcher_foreground.xml` を多色版の正本とすること。変更時は `ic_launcher_monochrome.xml` の輪郭も同期し、通常・円形それぞれの旧Android用アイコン、アダプティブアイコン、Android 13以降のモノクロテーマアイコンをすべて維持すること。READMEが参照する `docs/icon.svg` は `syncReadmeIcon` タスクが正本と背景色から自動生成するため直接編集しないこと。モノクロテーマアイコンの色はアプリ内の `Theme` ではなく端末の壁紙・システムテーマとランチャーが決めるため、アプリ内テーマ色との連動処理は追加しないこと。

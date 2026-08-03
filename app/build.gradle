@@ -37,3 +37,54 @@ dependencies {
     implementation "org.tensorflow:tensorflow-lite:2.16.1"
     testImplementation "junit:junit:4.13.2"
 }
+
+def launcherForegroundFile = file("src/main/res/drawable/ic_launcher_foreground.xml")
+def launcherBackgroundFile = file("src/main/res/drawable/ic_launcher_background.xml")
+def readmeIconFile = rootProject.file("docs/icon.svg")
+
+tasks.register("syncReadmeIcon") {
+    description = "Generates the README SVG from the Android launcher icon resources."
+    inputs.files(launcherForegroundFile, launcherBackgroundFile)
+    outputs.file(readmeIconFile)
+
+    doLast {
+        def androidNamespace = "http://schemas.android.com/apk/res/android"
+        def toSvgColor = { String value ->
+            def normalized = value.toLowerCase(Locale.ROOT)
+            return normalized ==~ /#[0-9a-f]{8}/
+                    ? "#${normalized.substring(3)}${normalized.substring(1, 3)}"
+                    : normalized
+        }
+        def factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+        factory.setNamespaceAware(true)
+        def foreground = factory.newDocumentBuilder().parse(launcherForegroundFile)
+        def background = factory.newDocumentBuilder().parse(launcherBackgroundFile)
+        def vector = foreground.documentElement
+        def viewportWidth = vector.getAttributeNS(androidNamespace, "viewportWidth")
+        def viewportHeight = vector.getAttributeNS(androidNamespace, "viewportHeight")
+        def solid = background.getElementsByTagName("solid").item(0)
+        def backgroundColor = toSvgColor(solid.getAttributeNS(androidNamespace, "color"))
+        def svg = new StringBuilder()
+        svg.append('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 ')
+                .append(viewportWidth).append(' ').append(viewportHeight)
+                .append('" role="img" aria-label="CuspiDroid app icon">\n')
+        svg.append('  <rect width="').append(viewportWidth).append('" height="')
+                .append(viewportHeight).append('" rx="24" fill="')
+                .append(backgroundColor).append('"/>\n')
+        def paths = foreground.getElementsByTagName("path")
+        for (int index = 0; index < paths.length; index++) {
+            def path = paths.item(index)
+            svg.append('  <path fill="')
+                    .append(toSvgColor(path.getAttributeNS(androidNamespace, "fillColor")))
+                    .append('" d="').append(path.getAttributeNS(androidNamespace, "pathData"))
+                    .append('"/>\n')
+        }
+        svg.append('</svg>\n')
+        readmeIconFile.parentFile.mkdirs()
+        readmeIconFile.setText(svg.toString(), "UTF-8")
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(tasks.named("syncReadmeIcon"))
+}
