@@ -134,8 +134,10 @@ public class ThemeSettingsActivity extends Activity {
         renderSelector(normalSelector, selectedChoice(SELECT_APP_THEME));
         renderSelector(systemLightSelector, selectedChoice(SELECT_SYSTEM_LIGHT_THEME));
         renderSelector(systemDarkSelector, selectedChoice(SELECT_SYSTEM_DARK_THEME));
-        systemThemeSelectors.setVisibility(Theme.MODE_SYSTEM.equals(Theme.normalSelection(this))
-                ? View.VISIBLE : View.GONE);
+        boolean followsDeviceTheme = Theme.MODE_SYSTEM.equals(Theme.normalSelection(this));
+        systemThemeSelectors.setAlpha(followsDeviceTheme ? 1f : 0.45f);
+        systemLightSelector.setEnabled(followsDeviceTheme);
+        systemDarkSelector.setEnabled(followsDeviceTheme);
     }
 
     private List<Choice> choices(int target) {
@@ -284,10 +286,8 @@ public class ThemeSettingsActivity extends Activity {
 
     private String choiceSubtitle(Choice choice) {
         if (Theme.MODE_SYSTEM.equals(choice.id)) {
-            return String.format(Locale.getDefault(), MainActivity.text(
-                            "ライト: %1$s / ダーク: %2$s", "Light: %1$s / Dark: %2$s"),
-                    Theme.displayName(this, Theme.systemLightSelection(this)),
-                    Theme.displayName(this, Theme.systemDarkSelection(this)));
+            return Theme.displayName(this, Theme.systemLightSelection(this)) + " / "
+                    + Theme.displayName(this, Theme.systemDarkSelection(this));
         }
         if (choice.id.startsWith(Theme.CUSTOM_PREFIX)) {
             return MainActivity.text("カスタムテーマ", "Custom theme");
