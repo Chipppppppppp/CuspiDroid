@@ -8,6 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -55,7 +56,12 @@ final class FavoritePostsStore {
             }
         } catch (Exception ignored) {
         }
+        sortPostsNewestFirst(posts);
         return new Snapshot(categories, posts);
+    }
+
+    static void sortPostsNewestFirst(List<FavoritePost> posts) {
+        Collections.sort(posts, (left, right) -> Long.compare(right.savedAt, left.savedAt));
     }
 
     static Category addCategory(SharedPreferences preferences, String name, int color) {
@@ -118,35 +124,6 @@ final class FavoritePostsStore {
         Category category = snapshot.categories.remove(sourceIndex);
         if (sourceIndex < targetIndex) targetIndex--;
         snapshot.categories.add(Math.max(0, Math.min(targetIndex, snapshot.categories.size())), category);
-        write(preferences, snapshot);
-    }
-
-    static void movePost(SharedPreferences preferences, String categoryId, String url, int number,
-                         int targetIndex) {
-        Snapshot snapshot = read(preferences);
-        List<FavoritePost> categoryPosts = new ArrayList<>();
-        for (FavoritePost post : snapshot.posts) {
-            if (post.categoryId.equals(categoryId)) categoryPosts.add(post);
-        }
-        String key = postKey(url, number);
-        int sourceIndex = -1;
-        for (int i = 0; i < categoryPosts.size(); i++) {
-            FavoritePost post = categoryPosts.get(i);
-            if (postKey(post.url, post.number).equals(key)) {
-                sourceIndex = i;
-                break;
-            }
-        }
-        if (sourceIndex < 0) return;
-        FavoritePost moved = categoryPosts.remove(sourceIndex);
-        if (sourceIndex < targetIndex) targetIndex--;
-        categoryPosts.add(Math.max(0, Math.min(targetIndex, categoryPosts.size())), moved);
-        int categoryIndex = 0;
-        for (int i = 0; i < snapshot.posts.size(); i++) {
-            if (snapshot.posts.get(i).categoryId.equals(categoryId)) {
-                snapshot.posts.set(i, categoryPosts.get(categoryIndex++));
-            }
-        }
         write(preferences, snapshot);
     }
 

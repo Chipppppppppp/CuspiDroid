@@ -5,7 +5,6 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -26,10 +25,6 @@ public class WritePostHistoryActivity extends Activity {
 
     private int bgColor() {
         return Theme.background(this);
-    }
-
-    private int surfaceColor() {
-        return Theme.surface(this);
     }
 
     private int textColor() {
@@ -105,49 +100,13 @@ public class WritePostHistoryActivity extends Activity {
         }
     }
 
-    private LinearLayout historyRow(MainActivity.WritePostHistoryItem item) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10), dp(9), dp(8), dp(9));
-        row.setBackground(rowBackground());
-
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setOnClickListener(v -> openHistoryItem(item));
-        row.addView(content, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-        TextView title = new TextView(this);
-        title.setText(item.title);
-        title.setTextColor(textColor());
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        content.addView(title);
-
-        TextView meta = helperText(postNumberLabel(item) + postedAtLabel(item));
-        meta.setTextColor(Theme.accent(this));
-        content.addView(meta);
-
+    private FrameLayout historyRow(MainActivity.WritePostHistoryItem item) {
         String body = item.body.trim().isEmpty()
                 ? MainActivity.text("\u672c\u6587\u306f\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "Message body was not saved.")
-                : compact(item.body, 180);
-        TextView bodyView = helperText(body);
-        bodyView.setTextColor(textColor());
-        content.addView(bodyView);
-
-        TextView url = helperText(item.url);
-        content.addView(url);
-
-        ImageButton jump = iconButton(R.drawable.ic_arrow_forward, MainActivity.text("\u66f8\u304d\u8fbc\u307f\u306b\u79fb\u52d5", "Jump to post"));
-        jump.setOnClickListener(v -> openHistoryItem(item));
-        row.addView(jump, iconParams());
-
-        ImageButton delete = iconButton(R.drawable.ic_close, MainActivity.text("\u66f8\u304d\u8fbc\u307f\u5c65\u6b74\u3092\u524a\u9664", "Delete post history"));
-        delete.setColorFilter(mutedColor());
-        delete.setOnClickListener(v -> confirmDelete(item));
-        row.addView(delete, iconParams());
-
-        return row;
+                : item.body;
+        return SavedPostRowView.create(this, item.title, item.url, item.number,
+                postedAtLabel(item), body, Theme.accent(this),
+                () -> openHistoryItem(item), () -> confirmDelete(item));
     }
 
     private void openHistoryItem(MainActivity.WritePostHistoryItem item) {
@@ -209,15 +168,6 @@ public class WritePostHistoryActivity extends Activity {
         return value.isEmpty() ? "" : "  " + value;
     }
 
-    private String compact(String value, int max) {
-        String text = value == null ? "" : value.replace('\r', '\n').trim();
-        text = text.replaceAll("\\n{3,}", "\n\n");
-        if (text.length() <= max) {
-            return text;
-        }
-        return text.substring(0, Math.max(0, max - 1)).trim() + "\u2026";
-    }
-
     private TextView helperText(String value) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -238,12 +188,6 @@ public class WritePostHistoryActivity extends Activity {
         return button;
     }
 
-    private LinearLayout.LayoutParams iconParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(40), dp(40));
-        params.setMargins(dp(6), 0, 0, 0);
-        return params;
-    }
-
     private LinearLayout.LayoutParams rowParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -253,16 +197,8 @@ public class WritePostHistoryActivity extends Activity {
 
     private GradientDrawable topBarBackground() {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(bgColor());
+        drawable.setColor(Theme.topBar(this));
         drawable.setStroke(dp(1), borderColor());
-        return drawable;
-    }
-
-    private GradientDrawable rowBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(surfaceColor());
-        drawable.setStroke(dp(1), borderColor());
-        drawable.setCornerRadius(dp(8));
         return drawable;
     }
 
