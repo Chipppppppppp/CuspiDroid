@@ -9330,70 +9330,76 @@ public class MainActivity extends Activity {
         SpannableString text = new SpannableString(value);
         int numberEnd = String.valueOf(displayNumber).length();
         PostListItemView.stylePostNumber(text, numberEnd, TEAL);
-        String actionName = postActionName(name);
-        int nameOffset = actionName.isEmpty() ? -1 : name.indexOf(actionName);
-        int nameStart = numberEnd + 2 + Math.max(0, nameOffset);
-        int nameEnd = actionName.isEmpty() ? nameStart : Math.min(value.length(), nameStart + actionName.length());
-        if (nameEnd > nameStart) {
-            text.setSpan(new PostNameSpan(actionName) {
-                @Override
-                public void onClick(View widget) {
-                    if (suppressNextLinkClick.remove(widget)) {
-                        return;
+        boolean interactiveMetadata = !hasHissiSourcePost(post);
+        if (interactiveMetadata) {
+            String actionName = postActionName(name);
+            int nameOffset = actionName.isEmpty() ? -1 : name.indexOf(actionName);
+            int nameStart = numberEnd + 2 + Math.max(0, nameOffset);
+            int nameEnd = actionName.isEmpty() ? nameStart
+                    : Math.min(value.length(), nameStart + actionName.length());
+            if (nameEnd > nameStart) {
+                text.setSpan(new PostNameSpan(actionName) {
+                    @Override
+                    public void onClick(View widget) {
+                        if (suppressNextLinkClick.remove(widget)) {
+                            return;
+                        }
+                        if (consumePostPopupTap(widget)) {
+                            return;
+                        }
+                        showNamePopup(widget, page, name);
                     }
-                    if (consumePostPopupTap(widget)) {
-                        return;
+                }, nameStart, nameEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            Matcher matcher = POST_ID_PATTERN.matcher(value);
+            while (matcher.find()) {
+                String id = matcher.group(1);
+                text.setSpan(new ClickableSpan() {
+                    @Override
+                    public void onClick(View widget) {
+                        if (suppressNextLinkClick.remove(widget)) {
+                            return;
+                        }
+                        if (consumePostPopupTap(widget)) {
+                            return;
+                        }
+                        showIdPopup(widget, page, id);
                     }
-                    showNamePopup(widget, page, name);
-                }
-            }, nameStart, nameEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
-        Matcher matcher = POST_ID_PATTERN.matcher(value);
-        while (matcher.find()) {
-            String id = matcher.group(1);
-            text.setSpan(new ClickableSpan() {
-                @Override
-                public void onClick(View widget) {
-                    if (suppressNextLinkClick.remove(widget)) {
-                        return;
-                    }
-                    if (consumePostPopupTap(widget)) {
-                        return;
-                    }
-                    showIdPopup(widget, page, id);
-                }
 
-                @Override
-                public void updateDrawState(TextPaint ds) {
-                    super.updateDrawState(ds);
-                    ds.setColor(TEAL);
-                    ds.setUnderlineText(false);
-                }
-            }, matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    @Override
+                    public void updateDrawState(TextPaint ds) {
+                        super.updateDrawState(ds);
+                        ds.setColor(TEAL);
+                        ds.setUnderlineText(false);
+                    }
+                }, matcher.start(), matcher.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
         }
         meta.setText(text);
         meta.setTextColor(mutedColor());
-        meta.setLinkTextColor(TEAL);
         meta.setTextSize(14);
         meta.setPadding(0, dp(2), 0, dp(8));
         meta.setMinHeight(dp(32));
-        meta.setMovementMethod(LinkMovementMethod.getInstance());
-        installPostIdTouchTracking(meta);
-        meta.setOnLongClickListener(v -> {
-            suppressNextLinkClick.add(v);
-            mainHandler.postDelayed(() -> suppressNextLinkClick.remove(v), 1200);
-            if (showPostIdMenuIfAny(meta, page, post)) {
-                return true;
-            }
-            if (showPostNameMenuIfAny(meta, page, post)) {
-                return true;
-            }
-            if (longClickAction != null) {
-                longClickAction.run();
-                return true;
-            }
-            return false;
-        });
+        if (interactiveMetadata) {
+            meta.setLinkTextColor(TEAL);
+            meta.setMovementMethod(LinkMovementMethod.getInstance());
+            installPostIdTouchTracking(meta);
+            meta.setOnLongClickListener(v -> {
+                suppressNextLinkClick.add(v);
+                mainHandler.postDelayed(() -> suppressNextLinkClick.remove(v), 1200);
+                if (showPostIdMenuIfAny(meta, page, post)) {
+                    return true;
+                }
+                if (showPostNameMenuIfAny(meta, page, post)) {
+                    return true;
+                }
+                if (longClickAction != null) {
+                    longClickAction.run();
+                    return true;
+                }
+                return false;
+            });
+        }
         return meta;
     }
 

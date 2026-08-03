@@ -85,7 +85,7 @@ public class FavoritePostListActivity extends Activity {
         int count = 0;
         for (FavoritePostsStore.FavoritePost post : snapshot.posts) {
             if (!category.id.equals(post.categoryId)) continue;
-            list.addView(postRow(category, post), rowParams());
+            list.addView(postRow(post), rowParams());
             count++;
         }
         if (count == 0) {
@@ -97,10 +97,9 @@ public class FavoritePostListActivity extends Activity {
         }
     }
 
-    private FrameLayout postRow(FavoritePostsStore.Category category,
-                                FavoritePostsStore.FavoritePost post) {
+    private FrameLayout postRow(FavoritePostsStore.FavoritePost post) {
         return PostListItemView.create(this, post.title, post.url, post.number,
-                formatMeta(post), post.body, category.color,
+                formatMeta(post), post.body, Theme.accent(this),
                 () -> openThread(post), () -> openPost(post), () -> {
                     FavoritePostsStore.removePost(preferences, post.url, post.number);
                     renderPosts();
