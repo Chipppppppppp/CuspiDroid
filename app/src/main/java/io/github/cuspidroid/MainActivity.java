@@ -3200,8 +3200,12 @@ public class MainActivity extends Activity {
         if (!myPost && !replyToMyPost && favoriteColor == null) {
             return roundedFill(fill, dp(12));
         }
-        Integer leftMarker = myPost ? myPostMarkerColor()
-                : replyToMyPost ? replyPostMarkerColor() : null;
+        Integer leftMarker = null;
+        if (myPost) {
+            leftMarker = myPostMarkerColor();
+        } else if (replyToMyPost) {
+            leftMarker = replyPostMarkerColor();
+        }
         return new PostMarkerBackgroundDrawable(fill, leftMarker, favoriteColor, dp(12), dp(5));
     }
 

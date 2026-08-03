@@ -21,7 +21,7 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 final class CuspiDroidBackup {
-    private static final int FORMAT_VERSION = 2;
+    private static final int FORMAT_VERSION = 3;
     private static final String MANIFEST = "manifest.json";
     private static final String PREFERENCES = "preferences.json";
     private static final String THEMES_DIRECTORY = "themes/";
@@ -47,6 +47,10 @@ final class CuspiDroidBackup {
             writeRawPreferenceJson(zip, "tabs.json", preferences, MainActivity.PREF_TABS, "");
             writeRawPreferenceJson(zip, "upload_history.json", preferences, MainActivity.PREF_IMGBB_UPLOADS, "[]");
             writeRawPreferenceJson(zip, "write_identity_history.json", preferences, MainActivity.PREF_WRITE_IDENTITY_HISTORY, "[]");
+            writeRawPreferenceJson(zip, "favorite_post_categories.json", preferences,
+                    FavoritePostsStore.PREF_CATEGORIES, "[]");
+            writeRawPreferenceJson(zip, "favorite_posts.json", preferences,
+                    FavoritePostsStore.PREF_POSTS, "[]");
             writeJson(zip, "prefs/cuspidroid_settings.json", prefs);
             writeRawPreferenceJson(zip, "files/bookmarks.json", preferences, MainActivity.PREF_THREAD_BOOKMARKS, "[]");
             writeRawPreferenceJson(zip, "files/history.json", preferences, MainActivity.PREF_HISTORY, "[]");
@@ -55,6 +59,10 @@ final class CuspiDroidBackup {
             writeRawPreferenceJson(zip, "files/uploadHistory.json", preferences, MainActivity.PREF_IMGBB_UPLOADS, "[]");
             writeRawPreferenceJson(zip, "files/writeIdentityHistory.json", preferences, MainActivity.PREF_WRITE_IDENTITY_HISTORY, "[]");
             writeRawPreferenceJson(zip, "files/myPosts.json", preferences, MainActivity.PREF_MY_POSTS, "{}");
+            writeRawPreferenceJson(zip, "files/favoritePostCategories.json", preferences,
+                    FavoritePostsStore.PREF_CATEGORIES, "[]");
+            writeRawPreferenceJson(zip, "files/favoritePosts.json", preferences,
+                    FavoritePostsStore.PREF_POSTS, "[]");
             writePostDataList(zip, preferences);
             writeNgFiles(zip, preferences);
         }

@@ -7,6 +7,7 @@
 - GitHub リリース時には、ひとつ前のリリース時点の `README.md` と現在の `README.md` を比較し、追加された機能を GitHub リリースの説明に記載すること。
 - 機能を追加・変更した場合は、その内容に合わせて日本語版 `README.md` と英語版 `README.en.md` の両方を更新し、記載内容を同期すること。
 - `BbsLinksActivity.RECOMMENDED_CUSTOM_BBS_LINKS` の「対応BBSを一括追加」対象と、`README.md` および `README.en.md` のカスタムBBS一覧は、名前・URL・並び順を常に同期すること。
+- 設定や永続化データを追加・変更した場合は、CuspiDroidバックアップの作成・復元対象に含まれることを確認すること。SharedPreferences以外へ保存するデータはバックアップへ明示的に追加し、必要に応じてバックアップ形式のバージョンも更新すること。
 
 ## READMEの記述方針
 
