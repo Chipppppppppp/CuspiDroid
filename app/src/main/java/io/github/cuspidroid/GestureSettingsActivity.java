@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -159,7 +158,6 @@ public class GestureSettingsActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(12), dp(8), dp(12), dp(12));
-        content.setBackgroundColor(bgColor());
         content.addView(result, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
         content.addView(hint, new LinearLayout.LayoutParams(
@@ -174,11 +172,8 @@ public class GestureSettingsActivity extends Activity {
         captureParams.setMargins(0, dp(8), 0, 0);
         content.addView(captureFrame, captureParams);
 
-        TextView title = title(MainActivity.gestureActionLabel(action), 20);
-        title.setPadding(dp(22), dp(18), dp(22), dp(8));
-        title.setBackgroundColor(bgColor());
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setCustomTitle(title)
+                .setTitle(MainActivity.gestureActionLabel(action))
                 .setView(content)
                 .setNegativeButton(MainActivity.text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
                 .setNeutralButton(MainActivity.text("\u30af\u30ea\u30a2", "Clear"), null)
@@ -193,12 +188,8 @@ public class GestureSettingsActivity extends Activity {
             result.setText(MainActivity.gestureArrows(gesture));
         });
         dialog.setOnShowListener(d -> {
-            if (dialog.getWindow() != null) {
-                dialog.getWindow().setBackgroundDrawable(dialogBackground());
-            }
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(textColor());
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(mutedColor());
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(Theme.accent(this));
+            Theme.styleDialog(dialog, this);
+            hint.setTextColor(mutedColor());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 if (!pendingGesture[0].isEmpty() && !MainActivity.validGesture(pendingGesture[0])) {
                     result.setText(MainActivity.text("\u5de6\u307e\u305f\u306f\u53f3\u304b\u3089\u958b\u59cb", "Start left or right"));
@@ -237,14 +228,6 @@ public class GestureSettingsActivity extends Activity {
             }
         }
         return null;
-    }
-
-    private android.graphics.drawable.Drawable dialogBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(bgColor());
-        drawable.setStroke(dp(1), borderColor());
-        drawable.setCornerRadius(dp(14));
-        return drawable;
     }
 
     private void tintSensitivityBar() {
