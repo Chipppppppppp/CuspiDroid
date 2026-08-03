@@ -11392,30 +11392,23 @@ public class MainActivity extends Activity {
         if (start < 0 || end <= start || end > text.length()) {
             return;
         }
-        int highlight = searchHighlightColor();
-        text.setSpan(new PriorityWordSpan(highlight, Theme.contrastingText(highlight),
-                        dp(3), dp(4)),
+        text.setSpan(new PriorityWordUnderlineSpan(searchHighlightColor(), dp(2)),
                 start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
-    private static final class PriorityWordSpan extends ReplacementSpan {
-        private final int backgroundColor;
-        private final int textColor;
-        private final int horizontalPadding;
-        private final float cornerRadius;
+    private static final class PriorityWordUnderlineSpan extends ReplacementSpan {
+        private final int underlineColor;
+        private final float underlineThickness;
 
-        PriorityWordSpan(int backgroundColor, int textColor, int horizontalPadding,
-                         float cornerRadius) {
-            this.backgroundColor = backgroundColor;
-            this.textColor = textColor;
-            this.horizontalPadding = horizontalPadding;
-            this.cornerRadius = cornerRadius;
+        PriorityWordUnderlineSpan(int underlineColor, float underlineThickness) {
+            this.underlineColor = underlineColor;
+            this.underlineThickness = underlineThickness;
         }
 
         @Override
         public int getSize(Paint paint, CharSequence text, int start, int end,
                            Paint.FontMetricsInt fontMetrics) {
-            return (int) Math.ceil(paint.measureText(text, start, end) + horizontalPadding * 2f);
+            return (int) Math.ceil(paint.measureText(text, start, end));
         }
 
         @Override
@@ -11424,18 +11417,15 @@ public class MainActivity extends Activity {
             float textWidth = paint.measureText(text, start, end);
             int previousColor = paint.getColor();
             Paint.Style previousStyle = paint.getStyle();
-            boolean previousFakeBold = paint.isFakeBoldText();
+            canvas.drawText(text, start, end, x, y, paint);
 
-            paint.setColor(backgroundColor);
+            float underlineTop = Math.min(bottom - underlineThickness,
+                    y + Math.max(1f, underlineThickness * 0.5f));
+            paint.setColor(underlineColor);
             paint.setStyle(Paint.Style.FILL);
-            canvas.drawRoundRect(x, top + 1f, x + textWidth + horizontalPadding * 2f,
-                    bottom - 1f, cornerRadius, cornerRadius, paint);
+            canvas.drawRect(x, underlineTop, x + textWidth,
+                    underlineTop + underlineThickness, paint);
 
-            paint.setColor(textColor);
-            paint.setFakeBoldText(true);
-            canvas.drawText(text, start, end, x + horizontalPadding, y, paint);
-
-            paint.setFakeBoldText(previousFakeBold);
             paint.setStyle(previousStyle);
             paint.setColor(previousColor);
         }
