@@ -815,10 +815,6 @@ public class MainActivity extends Activity {
         return Theme.replyPostMarker(this);
     }
 
-    private int treeConnectorColor() {
-        return Theme.treeConnector(this);
-    }
-
     private int metricLowColor() {
         return Theme.metricLow(this);
     }
@@ -829,6 +825,12 @@ public class MainActivity extends Activity {
 
     private int withAlpha(int color, int alpha) {
         return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    private ProgressBar themedProgressBar() {
+        ProgressBar progress = new ProgressBar(this);
+        Theme.tintProgressBar(this, progress);
+        return progress;
     }
 
     private int searchHighlightColor() {
@@ -1309,6 +1311,7 @@ public class MainActivity extends Activity {
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
+        Theme.tintProgressBar(this, progressBar);
         progressBar.setVisibility(View.GONE);
         root.addView(progressBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
@@ -2960,7 +2963,7 @@ public class MainActivity extends Activity {
         hideCenterSpinner();
         FrameLayout shade = new FrameLayout(this);
         shade.setClickable(false);
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = themedProgressBar();
         spinner.setIndeterminate(true);
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER);
         shade.addView(spinner, spinnerParams);
@@ -3366,6 +3369,24 @@ public class MainActivity extends Activity {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
                 tintChromeContents(group.getChildAt(i));
+            }
+        }
+    }
+
+    private void refreshThemedIndicators(View view) {
+        if (view == null) {
+            return;
+        }
+        if (view instanceof ProgressBar) {
+            Theme.tintProgressBar(this, (ProgressBar) view);
+        }
+        if (view instanceof TreeConnectorView) {
+            view.invalidate();
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                refreshThemedIndicators(group.getChildAt(i));
             }
         }
     }
@@ -4663,6 +4684,7 @@ public class MainActivity extends Activity {
                         ? View.INVISIBLE : View.VISIBLE);
             }
             contentFrame.addView(tab.readerView);
+            refreshThemedIndicators(tab.readerView);
             if (isThreadPageNativeKind(tab.nativeKind)) {
                 visibleThreadPage = tab.threadPage;
                 visibleThreadScroll = tab.threadScroll;
@@ -4789,6 +4811,7 @@ public class MainActivity extends Activity {
         }
         contentFrame.removeAllViews();
         contentFrame.addView(tab.readerView);
+        refreshThemedIndicators(tab.readerView);
         if (delayThreadReveal) {
             restoreThreadScroll(tab);
         } else if (restoreContentScroll) {
@@ -4909,7 +4932,7 @@ public class MainActivity extends Activity {
     private View titleTabSwipeContentPreview(CuspTab tab) {
         FrameLayout box = new FrameLayout(this);
         box.setBackgroundColor(bgColor());
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = themedProgressBar();
         spinner.setIndeterminate(true);
         box.addView(spinner, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
         return box;
@@ -8313,7 +8336,7 @@ public class MainActivity extends Activity {
         box.setTag(LOADING_VIEW_TAG);
         box.setGravity(Gravity.CENTER);
         box.setOrientation(LinearLayout.VERTICAL);
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = themedProgressBar();
         spinner.setIndeterminate(true);
         box.addView(spinner, new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView text = new TextView(this);
@@ -8509,7 +8532,7 @@ public class MainActivity extends Activity {
                 attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
             }
             if (showTreeConnector) {
-                shell.addView(new TreeConnectorView(this, item, dp(18), treeConnectorColor()),
+                shell.addView(new TreeConnectorView(this, item, dp(18)),
                         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT));
             }
@@ -8526,7 +8549,7 @@ public class MainActivity extends Activity {
                 attachPostSwipeDeep(omitted, card, readAction, replyAction, tab, post);
             }
             if (showTreeConnector) {
-                shell.addView(new TreeConnectorView(this, item, dp(18), treeConnectorColor()),
+                shell.addView(new TreeConnectorView(this, item, dp(18)),
                         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT));
             }
@@ -8607,7 +8630,7 @@ public class MainActivity extends Activity {
             attachPostSwipeDeep(bodyView, card, readAction, replyAction, tab, post);
         }
         if (showTreeConnector) {
-            shell.addView(new TreeConnectorView(this, item, dp(18), treeConnectorColor()),
+            shell.addView(new TreeConnectorView(this, item, dp(18)),
                     new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT));
         }
@@ -9294,7 +9317,7 @@ public class MainActivity extends Activity {
         arrow.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loader.addView(arrow, new FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER));
 
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = themedProgressBar();
         spinner.setIndeterminate(true);
         spinner.setVisibility(View.GONE);
         loader.addView(spinner, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
@@ -10565,7 +10588,7 @@ public class MainActivity extends Activity {
         footer.removeAllViews();
         footer.setOnClickListener(null);
         if (page.fullTextLoadingMore) {
-            ProgressBar spinner = new ProgressBar(this);
+            ProgressBar spinner = themedProgressBar();
             spinner.setIndeterminate(true);
             footer.addView(spinner, new LinearLayout.LayoutParams(dp(34), dp(34)));
             return;
@@ -18730,7 +18753,7 @@ public class MainActivity extends Activity {
                 return true;
             });
         }
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = themedProgressBar();
         spinner.setIndeterminate(true);
         spinner.setAlpha(0.55f);
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(28), dp(28));
@@ -19077,7 +19100,7 @@ public class MainActivity extends Activity {
         overlay.addView(image, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = themedProgressBar();
         spinner.setIndeterminate(true);
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(44), dp(44));
         spinnerParams.gravity = Gravity.CENTER;
@@ -19174,7 +19197,7 @@ public class MainActivity extends Activity {
         controller.setAnchorView(video);
         video.setMediaController(controller);
 
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = themedProgressBar();
         spinner.setIndeterminate(true);
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(44), dp(44));
         spinnerParams.gravity = Gravity.CENTER;
@@ -31117,7 +31140,7 @@ public class MainActivity extends Activity {
         private final float connectorOffset;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        TreeConnectorView(Context context, PostRenderItem item, int indent, int color) {
+        TreeConnectorView(Context context, PostRenderItem item, int indent) {
             super(context);
             this.depth = item.depth;
             this.continuationDepths = item.continuationDepths;
@@ -31126,11 +31149,7 @@ public class MainActivity extends Activity {
             float density = context.getResources().getDisplayMetrics().density;
             this.cardBottomGap = Math.round(density * POST_OUTER_GAP_DP);
             this.connectorOffset = density * 3f;
-            int nightMode = context.getResources().getConfiguration().uiMode
-                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-            paint.setColor(nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
-                    ? Color.rgb(43, 95, 91)
-                    : Color.rgb(169, 216, 210));
+            paint.setColor(Theme.treeConnector(context));
             paint.setStrokeWidth(Math.max(2f, context.getResources().getDisplayMetrics().density * 2f));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
@@ -31141,6 +31160,7 @@ public class MainActivity extends Activity {
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
+            paint.setColor(Theme.treeConnector(getContext()));
             if (depth <= 0 && !hasReplies) {
                 return;
             }

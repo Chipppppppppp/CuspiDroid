@@ -12,6 +12,7 @@ import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CompoundButton;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -442,6 +443,15 @@ final class Theme {
         };
         int[] colors = new int[]{accent(context), subtle(context)};
         button.setButtonTintList(new ColorStateList(states, colors));
+    }
+
+    static void tintProgressBar(Context context, ProgressBar progressBar) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || progressBar == null) return;
+        ColorStateList accentTint = ColorStateList.valueOf(accent(context));
+        progressBar.setIndeterminateTintList(accentTint);
+        progressBar.setProgressTintList(accentTint);
+        progressBar.setSecondaryProgressTintList(ColorStateList.valueOf(strongBorder(context)));
+        progressBar.setProgressBackgroundTintList(ColorStateList.valueOf(border(context)));
     }
 
     static void styleDialog(Dialog dialog, Context context) {

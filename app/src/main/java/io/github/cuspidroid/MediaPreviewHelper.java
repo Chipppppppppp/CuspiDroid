@@ -101,6 +101,7 @@ final class MediaPreviewHelper {
 
         ProgressBar spinner = new ProgressBar(activity);
         spinner.setIndeterminate(true);
+        Theme.tintProgressBar(activity, spinner);
         spinner.setAlpha(0.6f);
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(activity, 28), dp(activity, 28));
         spinnerParams.gravity = Gravity.CENTER;

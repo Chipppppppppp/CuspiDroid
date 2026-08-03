@@ -447,6 +447,7 @@ public class MediaViewerActivity extends Activity {
     private ProgressBar spinner() {
         ProgressBar spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
+        Theme.tintProgressBar(this, spinner);
         root.addView(spinner, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER));
         return spinner;
     }
