@@ -2090,6 +2090,7 @@ public class MainActivity extends Activity {
         view.setMinHeight(dp(58));
         if (iconRes != 0) {
             view.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
+            view.setCompoundDrawableTintList(ColorStateList.valueOf(TEAL));
             view.setCompoundDrawablePadding(dp(10));
         }
         return view;
