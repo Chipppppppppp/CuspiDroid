@@ -59,6 +59,9 @@
             android:name=".FavoritePostsActivity"
             android:exported="false" />
         <activity
+            android:name=".FavoritePostListActivity"
+            android:exported="false" />
+        <activity
             android:name=".WriteIdentityHistoryActivity"
             android:exported="false" />
         <activity

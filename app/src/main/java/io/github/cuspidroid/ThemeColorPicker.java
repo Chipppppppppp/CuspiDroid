@@ -16,6 +16,8 @@ import android.widget.TextView;
 import java.util.Locale;
 
 final class ThemeColorPicker {
+    static final int PRESET_RED = Color.rgb(239, 68, 68);
+
     interface Callback {
         void onColorSelected(int color);
     }
@@ -48,7 +50,7 @@ final class ThemeColorPicker {
         LinearLayout presets = new LinearLayout(activity);
         presets.setOrientation(LinearLayout.HORIZONTAL);
         int[] presetColors = {
-                Color.rgb(239, 68, 68), Color.rgb(249, 115, 22), Color.rgb(234, 179, 8),
+                PRESET_RED, Color.rgb(249, 115, 22), Color.rgb(234, 179, 8),
                 Color.rgb(34, 197, 94), Color.rgb(20, 184, 166), Color.rgb(14, 165, 233),
                 Color.rgb(37, 99, 235), Color.rgb(126, 34, 206), Color.rgb(219, 39, 119)
         };

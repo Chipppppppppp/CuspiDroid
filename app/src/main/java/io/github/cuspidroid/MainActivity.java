@@ -9955,10 +9955,6 @@ public class MainActivity extends Activity {
 
     private void showFavoritePostMenu(CuspTab tab, Post post) {
         reloadFavoritePosts();
-        if (favoritePostsSnapshot.categories.isEmpty()) {
-            showCreateFavoriteCategoryDialog(tab, post);
-            return;
-        }
         ThreadPage page = tab == null ? null : tab.threadPage;
         FavoritePostsStore.FavoritePost current = favoritePost(page, post);
         LinearLayout menu = new LinearLayout(this);
@@ -10043,7 +10039,7 @@ public class MainActivity extends Activity {
         name.setPadding(dp(10), 0, dp(10), 0);
         form.addView(name, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
-        int[] color = {accentColor()};
+        int[] color = {ThemeColorPicker.PRESET_RED};
         TextView chooseColor = new TextView(this);
         chooseColor.setText(text("\u8272\u3092\u9078\u629e", "Choose color"));
         chooseColor.setTextSize(16);
@@ -10062,19 +10058,32 @@ public class MainActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(text("\u30ab\u30c6\u30b4\u30ea\u3092\u4f5c\u6210", "Create category"))
                 .setView(form)
-                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
+                .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"),
+                        (d, which) -> showFavoritePostMenu(tab, post))
                 .setPositiveButton(text("\u4fdd\u5b58", "Save"), null)
                 .create();
+        dialog.setOnCancelListener(d -> showFavoritePostMenu(tab, post));
         dialog.show();
         Theme.styleDialog(dialog, this);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String categoryName = name.getText().toString().trim();
-            if (categoryName.isEmpty()) {
-                name.setError(text("\u540d\u524d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
-                        "Enter a name."));
-                name.requestFocus();
-                return;
+        Button saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        saveButton.setEnabled(false);
+        name.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                saveButton.setEnabled(s != null && !s.toString().trim().isEmpty());
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+        saveButton.setOnClickListener(v -> {
+            String categoryName = name.getText().toString().trim();
+            if (categoryName.isEmpty()) return;
             FavoritePostsStore.addCategory(preferences, categoryName, color[0]);
             reloadFavoritePosts();
             dialog.dismiss();
