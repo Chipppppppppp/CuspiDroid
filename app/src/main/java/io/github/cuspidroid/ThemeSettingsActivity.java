@@ -482,8 +482,7 @@ public class ThemeSettingsActivity extends Activity {
             case "subtle": return MainActivity.text("弱い補助表示", "Subtle content");
             case "border": return MainActivity.text("境界線", "Borders");
             case "strongBorder": return MainActivity.text("強い境界線", "Strong borders");
-            case "active": return MainActivity.text("選択・検索・優先ワード強調", "Selection, search, and priority-word highlight");
-            case "linkHighlight": return MainActivity.text("リンク強調", "Link highlight");
+            case "active": return MainActivity.text("選択・ページ内検索強調", "Selection and in-page-search highlight");
             case "accent": return MainActivity.text("アクセント", "Accent");
             case "sidebar": return MainActivity.text("スクロールサイドバー", "Scroll sidebar");
             case "sidebarThumb": return MainActivity.text("サイドバーつまみ", "Sidebar thumb");

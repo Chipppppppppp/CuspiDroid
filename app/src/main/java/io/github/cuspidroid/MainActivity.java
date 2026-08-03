@@ -49,6 +49,7 @@ import android.text.TextWatcher;
 import android.text.TextPaint;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
+import android.text.style.ReplacementSpan;
 import android.text.style.StyleSpan;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
@@ -11391,10 +11392,53 @@ public class MainActivity extends Activity {
         if (start < 0 || end <= start || end > text.length()) {
             return;
         }
-        text.setSpan(new BackgroundColorSpan(searchHighlightColor()),
+        int highlight = searchHighlightColor();
+        text.setSpan(new PriorityWordSpan(highlight, Theme.contrastingText(highlight),
+                        dp(3), dp(4)),
                 start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        text.setSpan(new StyleSpan(Typeface.BOLD),
-                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+
+    private static final class PriorityWordSpan extends ReplacementSpan {
+        private final int backgroundColor;
+        private final int textColor;
+        private final int horizontalPadding;
+        private final float cornerRadius;
+
+        PriorityWordSpan(int backgroundColor, int textColor, int horizontalPadding,
+                         float cornerRadius) {
+            this.backgroundColor = backgroundColor;
+            this.textColor = textColor;
+            this.horizontalPadding = horizontalPadding;
+            this.cornerRadius = cornerRadius;
+        }
+
+        @Override
+        public int getSize(Paint paint, CharSequence text, int start, int end,
+                           Paint.FontMetricsInt fontMetrics) {
+            return (int) Math.ceil(paint.measureText(text, start, end) + horizontalPadding * 2f);
+        }
+
+        @Override
+        public void draw(Canvas canvas, CharSequence text, int start, int end, float x,
+                         int top, int y, int bottom, Paint paint) {
+            float textWidth = paint.measureText(text, start, end);
+            int previousColor = paint.getColor();
+            Paint.Style previousStyle = paint.getStyle();
+            boolean previousFakeBold = paint.isFakeBoldText();
+
+            paint.setColor(backgroundColor);
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawRoundRect(x, top + 1f, x + textWidth + horizontalPadding * 2f,
+                    bottom - 1f, cornerRadius, cornerRadius, paint);
+
+            paint.setColor(textColor);
+            paint.setFakeBoldText(true);
+            canvas.drawText(text, start, end, x + horizontalPadding, y, paint);
+
+            paint.setFakeBoldText(previousFakeBold);
+            paint.setStyle(previousStyle);
+            paint.setColor(previousColor);
+        }
     }
 
     private ImageButton saveToggleButtonForResult(SearchResult result) {

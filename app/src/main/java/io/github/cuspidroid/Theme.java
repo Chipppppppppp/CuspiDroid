@@ -51,29 +51,22 @@ final class Theme {
     static final String PREF_CUSTOM_THEMES = "custom_themes_json";
 
     static final String EXPORT_FORMAT = "cuspidroid-theme";
-    static final int EXPORT_VERSION = 1;
-    private static final int LEGACY_COLOR_KEY_COUNT = 15;
+    static final int EXPORT_VERSION = 2;
 
     static final String[] COLOR_KEYS = {
-            "background", "topBar", "surface", "post", "unread", "field", "menu",
-            "text", "muted", "subtle", "border", "strongBorder", "active",
-            "linkHighlight", "accent", "sidebar", "sidebarThumb", "sidebarUnread",
-            "myPostMarker", "replyPostMarker", "treeConnector", "metricLow", "metricHigh"
-    };
-
-    /** Colors users edit directly; linked utility colors remain in JSON for file compatibility. */
-    static final String[] EDITABLE_COLOR_KEYS = {
             "background", "topBar", "surface", "post", "unread", "field",
             "text", "muted", "subtle", "border", "strongBorder", "active", "accent",
             "sidebarUnread", "replyPostMarker", "metricLow", "metricHigh"
     };
+
+    static final String[] EDITABLE_COLOR_KEYS = COLOR_KEYS;
 
     private static final Palette LIGHT = new Palette(MODE_LIGHT, "Indigo (Light)", false,
             Color.rgb(247, 248, 252), Color.rgb(238, 240, 247), Color.WHITE,
             Color.rgb(251, 252, 255), Color.rgb(238, 242, 255), Color.rgb(243, 244, 248),
             Color.WHITE, Color.rgb(32, 37, 52), Color.rgb(89, 98, 117),
             Color.rgb(123, 132, 151), Color.rgb(217, 221, 231), Color.rgb(174, 182, 199),
-            Color.rgb(224, 231, 255), Color.rgb(219, 234, 254), Color.rgb(79, 70, 229))
+            Color.rgb(224, 231, 255), Color.rgb(79, 70, 229))
             .withDetails(Color.rgb(102, 112, 133), Color.rgb(79, 70, 229), Color.rgb(99, 102, 241),
                     Color.rgb(79, 70, 229), Color.rgb(124, 58, 237), Color.rgb(99, 102, 241),
                     Color.rgb(123, 132, 151), Color.rgb(67, 56, 202));
@@ -83,7 +76,7 @@ final class Theme {
             Color.rgb(29, 34, 45), Color.rgb(37, 43, 70), Color.rgb(32, 37, 49),
             Color.rgb(26, 30, 40), Color.rgb(244, 246, 250), Color.rgb(178, 184, 197),
             Color.rgb(137, 146, 164), Color.rgb(51, 58, 73), Color.rgb(85, 96, 119),
-            Color.rgb(41, 46, 82), Color.rgb(23, 37, 84), Color.rgb(129, 140, 248))
+            Color.rgb(41, 46, 82), Color.rgb(129, 140, 248))
             .withDetails(Color.rgb(85, 96, 119), Color.rgb(129, 140, 248), Color.rgb(99, 102, 241),
                     Color.rgb(129, 140, 248), Color.rgb(167, 139, 250), Color.rgb(129, 140, 248),
                     Color.rgb(137, 146, 164), Color.rgb(129, 140, 248));
@@ -93,7 +86,7 @@ final class Theme {
             Color.rgb(248, 252, 251), Color.rgb(221, 247, 242), Color.rgb(234, 246, 244),
             Color.WHITE, Color.rgb(21, 58, 58), Color.rgb(82, 111, 112),
             Color.rgb(113, 140, 140), Color.rgb(184, 221, 216), Color.rgb(111, 185, 176),
-            Color.rgb(208, 240, 236), Color.rgb(220, 239, 254), Color.rgb(15, 118, 110))
+            Color.rgb(208, 240, 236), Color.rgb(15, 118, 110))
             .withDetails(Color.rgb(184, 221, 216), Color.rgb(15, 118, 110), Color.rgb(20, 184, 166),
                     Color.rgb(15, 118, 110), Color.rgb(20, 184, 166), Color.rgb(15, 118, 110),
                     Color.rgb(113, 140, 140), Color.rgb(13, 148, 136));
@@ -103,7 +96,7 @@ final class Theme {
             Color.rgb(16, 54, 50), Color.rgb(18, 66, 61), Color.rgb(18, 59, 56),
             Color.rgb(13, 48, 45), Color.rgb(236, 253, 251), Color.rgb(170, 203, 199),
             Color.rgb(130, 168, 164), Color.rgb(40, 94, 89), Color.rgb(47, 139, 129),
-            Color.rgb(18, 75, 69), Color.rgb(23, 37, 84), Color.rgb(45, 212, 191))
+            Color.rgb(18, 75, 69), Color.rgb(45, 212, 191))
             .withDetails(Color.rgb(40, 94, 89), Color.rgb(45, 212, 191), Color.rgb(94, 234, 212),
                     Color.rgb(45, 212, 191), Color.rgb(94, 234, 212), Color.rgb(45, 212, 191),
                     Color.rgb(130, 168, 164), Color.rgb(45, 212, 191));
@@ -113,7 +106,7 @@ final class Theme {
             Color.rgb(247, 252, 249), Color.rgb(220, 252, 231), Color.rgb(234, 247, 239),
             Color.WHITE, Color.rgb(18, 53, 36), Color.rgb(70, 100, 81),
             Color.rgb(102, 130, 115), Color.rgb(183, 222, 197), Color.rgb(103, 185, 133),
-            Color.rgb(209, 250, 229), Color.rgb(220, 252, 231), Color.rgb(21, 128, 61))
+            Color.rgb(209, 250, 229), Color.rgb(21, 128, 61))
             .withDetails(Color.rgb(183, 222, 197), Color.rgb(21, 128, 61), Color.rgb(34, 197, 94),
                     Color.rgb(21, 128, 61), Color.rgb(34, 197, 94), Color.rgb(21, 128, 61),
                     Color.rgb(102, 130, 115), Color.rgb(22, 163, 74));
@@ -123,7 +116,7 @@ final class Theme {
             Color.rgb(1, 40, 29), Color.rgb(4, 44, 43), Color.rgb(1, 40, 29),
             Color.rgb(1, 40, 29), Color.rgb(245, 247, 250), Color.rgb(168, 176, 186),
             Color.rgb(168, 176, 186), Color.rgb(8, 72, 52), Color.rgb(16, 104, 76),
-            Color.rgb(2, 48, 48), Color.rgb(23, 37, 84), Color.rgb(52, 211, 153))
+            Color.rgb(2, 48, 48), Color.rgb(52, 211, 153))
             .withDetails(Color.rgb(8, 72, 52), Color.rgb(52, 211, 153), Color.rgb(110, 231, 183),
                     Color.rgb(52, 211, 153), Color.rgb(110, 231, 183), Color.rgb(52, 211, 153),
                     Color.rgb(168, 176, 186), Color.rgb(16, 185, 129));
@@ -133,7 +126,7 @@ final class Theme {
             Color.rgb(248, 250, 255), Color.rgb(224, 242, 254), Color.rgb(237, 244, 255),
             Color.WHITE, Color.rgb(23, 37, 84), Color.rgb(71, 85, 105),
             Color.rgb(100, 116, 139), Color.rgb(191, 219, 254), Color.rgb(96, 165, 250),
-            Color.rgb(219, 234, 254), Color.rgb(191, 219, 254), Color.rgb(37, 99, 235))
+            Color.rgb(219, 234, 254), Color.rgb(37, 99, 235))
             .withDetails(Color.rgb(191, 219, 254), Color.rgb(37, 99, 235), Color.rgb(59, 130, 246),
                     Color.rgb(37, 99, 235), Color.rgb(96, 165, 250), Color.rgb(37, 99, 235),
                     Color.rgb(100, 116, 139), Color.rgb(29, 78, 216));
@@ -143,7 +136,7 @@ final class Theme {
             Color.rgb(16, 36, 63), Color.rgb(16, 45, 78), Color.rgb(17, 40, 68),
             Color.rgb(13, 31, 56), Color.rgb(239, 246, 255), Color.rgb(169, 188, 211),
             Color.rgb(127, 152, 181), Color.rgb(41, 74, 109), Color.rgb(59, 130, 246),
-            Color.rgb(18, 59, 104), Color.rgb(23, 37, 84), Color.rgb(96, 165, 250))
+            Color.rgb(18, 59, 104), Color.rgb(96, 165, 250))
             .withDetails(Color.rgb(41, 74, 109), Color.rgb(96, 165, 250), Color.rgb(147, 197, 253),
                     Color.rgb(96, 165, 250), Color.rgb(147, 197, 253), Color.rgb(96, 165, 250),
                     Color.rgb(127, 152, 181), Color.rgb(59, 130, 246));
@@ -153,7 +146,7 @@ final class Theme {
             Color.rgb(248, 252, 255), Color.rgb(224, 242, 254), Color.rgb(234, 246, 253),
             Color.WHITE, Color.rgb(20, 59, 87), Color.rgb(83, 116, 139),
             Color.rgb(116, 148, 169), Color.rgb(185, 221, 239), Color.rgb(112, 184, 220),
-            Color.rgb(215, 238, 251), Color.rgb(219, 234, 254), Color.rgb(2, 132, 199))
+            Color.rgb(215, 238, 251), Color.rgb(2, 132, 199))
             .withDetails(Color.rgb(185, 221, 239), Color.rgb(2, 132, 199), Color.rgb(14, 165, 233),
                     Color.rgb(2, 132, 199), Color.rgb(56, 189, 248), Color.rgb(2, 132, 199),
                     Color.rgb(116, 148, 169), Color.rgb(3, 105, 161));
@@ -163,7 +156,7 @@ final class Theme {
             Color.rgb(16, 52, 71), Color.rgb(18, 63, 87), Color.rgb(18, 57, 76),
             Color.rgb(12, 45, 62), Color.rgb(240, 249, 255), Color.rgb(170, 200, 217),
             Color.rgb(130, 165, 184), Color.rgb(40, 90, 115), Color.rgb(45, 141, 184),
-            Color.rgb(16, 74, 101), Color.rgb(12, 74, 110), Color.rgb(56, 189, 248))
+            Color.rgb(16, 74, 101), Color.rgb(56, 189, 248))
             .withDetails(Color.rgb(40, 90, 115), Color.rgb(56, 189, 248), Color.rgb(125, 211, 252),
                     Color.rgb(56, 189, 248), Color.rgb(125, 211, 252), Color.rgb(56, 189, 248),
                     Color.rgb(130, 165, 184), Color.rgb(14, 165, 233));
@@ -173,7 +166,7 @@ final class Theme {
             Color.rgb(252, 249, 255), Color.rgb(243, 232, 255), Color.rgb(246, 238, 255),
             Color.WHITE, Color.rgb(59, 29, 90), Color.rgb(107, 84, 125),
             Color.rgb(133, 109, 150), Color.rgb(222, 200, 242), Color.rgb(183, 131, 227),
-            Color.rgb(240, 225, 255), Color.rgb(237, 233, 254), Color.rgb(126, 34, 206))
+            Color.rgb(240, 225, 255), Color.rgb(126, 34, 206))
             .withDetails(Color.rgb(222, 200, 242), Color.rgb(126, 34, 206), Color.rgb(168, 85, 247),
                     Color.rgb(126, 34, 206), Color.rgb(168, 85, 247), Color.rgb(126, 34, 206),
                     Color.rgb(133, 109, 150), Color.rgb(126, 34, 206));
@@ -183,7 +176,7 @@ final class Theme {
             Color.rgb(39, 22, 56), Color.rgb(53, 32, 76), Color.rgb(43, 24, 61),
             Color.rgb(33, 19, 47), Color.rgb(250, 245, 255), Color.rgb(196, 181, 208),
             Color.rgb(157, 135, 174), Color.rgb(83, 53, 106), Color.rgb(139, 92, 246),
-            Color.rgb(64, 33, 93), Color.rgb(46, 16, 101), Color.rgb(192, 132, 252))
+            Color.rgb(64, 33, 93), Color.rgb(192, 132, 252))
             .withDetails(Color.rgb(83, 53, 106), Color.rgb(192, 132, 252), Color.rgb(216, 180, 254),
                     Color.rgb(192, 132, 252), Color.rgb(216, 180, 254), Color.rgb(192, 132, 252),
                     Color.rgb(157, 135, 174), Color.rgb(168, 85, 247));
@@ -193,7 +186,7 @@ final class Theme {
             Color.rgb(255, 249, 250), Color.rgb(255, 228, 230), Color.rgb(255, 240, 242),
             Color.WHITE, Color.rgb(74, 22, 32), Color.rgb(123, 75, 84),
             Color.rgb(149, 104, 115), Color.rgb(244, 194, 203), Color.rgb(232, 121, 141),
-            Color.rgb(255, 224, 229), Color.rgb(255, 228, 230), Color.rgb(190, 18, 60))
+            Color.rgb(255, 224, 229), Color.rgb(190, 18, 60))
             .withDetails(Color.rgb(244, 194, 203), Color.rgb(190, 18, 60), Color.rgb(225, 29, 72),
                     Color.rgb(190, 18, 60), Color.rgb(225, 29, 72), Color.rgb(190, 18, 60),
                     Color.rgb(149, 104, 115), Color.rgb(190, 18, 60));
@@ -203,7 +196,7 @@ final class Theme {
             Color.rgb(56, 17, 28), Color.rgb(74, 21, 35), Color.rgb(64, 20, 33),
             Color.rgb(49, 15, 24), Color.rgb(255, 241, 242), Color.rgb(216, 173, 181),
             Color.rgb(184, 135, 145), Color.rgb(113, 48, 66), Color.rgb(190, 52, 85),
-            Color.rgb(88, 23, 42), Color.rgb(76, 5, 25), Color.rgb(251, 113, 133))
+            Color.rgb(88, 23, 42), Color.rgb(251, 113, 133))
             .withDetails(Color.rgb(113, 48, 66), Color.rgb(251, 113, 133), Color.rgb(253, 164, 175),
                     Color.rgb(251, 113, 133), Color.rgb(253, 164, 175), Color.rgb(251, 113, 133),
                     Color.rgb(184, 135, 145), Color.rgb(225, 29, 72));
@@ -213,7 +206,7 @@ final class Theme {
             Color.rgb(255, 249, 252), Color.rgb(252, 231, 243), Color.rgb(253, 240, 247),
             Color.WHITE, Color.rgb(85, 27, 61), Color.rgb(135, 92, 117),
             Color.rgb(164, 122, 146), Color.rgb(243, 195, 218), Color.rgb(232, 121, 176),
-            Color.rgb(252, 224, 239), Color.rgb(250, 232, 255), Color.rgb(219, 39, 119))
+            Color.rgb(252, 224, 239), Color.rgb(219, 39, 119))
             .withDetails(Color.rgb(243, 195, 218), Color.rgb(219, 39, 119), Color.rgb(236, 72, 153),
                     Color.rgb(219, 39, 119), Color.rgb(244, 114, 182), Color.rgb(219, 39, 119),
                     Color.rgb(164, 122, 146), Color.rgb(190, 24, 93));
@@ -223,7 +216,7 @@ final class Theme {
             Color.rgb(66, 24, 47), Color.rgb(85, 32, 62), Color.rgb(72, 27, 52),
             Color.rgb(58, 21, 42), Color.rgb(253, 242, 248), Color.rgb(215, 168, 194),
             Color.rgb(184, 132, 160), Color.rgb(113, 51, 82), Color.rgb(190, 73, 127),
-            Color.rgb(99, 34, 72), Color.rgb(74, 23, 64), Color.rgb(244, 114, 182))
+            Color.rgb(99, 34, 72), Color.rgb(244, 114, 182))
             .withDetails(Color.rgb(113, 51, 82), Color.rgb(244, 114, 182), Color.rgb(249, 168, 212),
                     Color.rgb(244, 114, 182), Color.rgb(249, 168, 212), Color.rgb(244, 114, 182),
                     Color.rgb(184, 132, 160), Color.rgb(236, 72, 153));
@@ -251,7 +244,6 @@ final class Theme {
     static int strongBorder(Context context) { return palette(context).strongBorder; }
     static int active(Context context) { return palette(context).active; }
     static int searchHighlight(Context context) { return active(context); }
-    static int linkHighlight(Context context) { return active(context); }
     static int accent(Context context) { return palette(context).accent; }
     static int sidebar(Context context) { return border(context); }
     static int sidebarThumb(Context context) { return accent(context); }
@@ -627,7 +619,6 @@ final class Theme {
         int border;
         int strongBorder;
         int active;
-        int linkHighlight;
         int accent;
         int sidebar;
         int sidebarThumb;
@@ -640,7 +631,7 @@ final class Theme {
 
         Palette(String id, String name, boolean dark, int background, int topBar, int surface,
                 int post, int unread, int field, int menu, int text, int muted, int subtle,
-                int border, int strongBorder, int active, int linkHighlight, int accent) {
+                int border, int strongBorder, int active, int accent) {
             this.id = id;
             this.name = name;
             this.dark = dark;
@@ -657,7 +648,6 @@ final class Theme {
             this.border = border;
             this.strongBorder = strongBorder;
             this.active = active;
-            this.linkHighlight = linkHighlight;
             this.accent = accent;
             this.sidebar = border;
             this.sidebarThumb = accent;
@@ -684,7 +674,6 @@ final class Theme {
 
         private Palette synchronizeLinkedColors() {
             menu = surface;
-            linkHighlight = active;
             sidebar = border;
             sidebarThumb = accent;
             myPostMarker = accent;
@@ -694,7 +683,7 @@ final class Theme {
 
         Palette copy() {
             return new Palette(id, name, dark, background, topBar, surface, post, unread, field,
-                    menu, text, muted, subtle, border, strongBorder, active, linkHighlight, accent)
+                    menu, text, muted, subtle, border, strongBorder, active, accent)
                     .withDetails(sidebar, sidebarThumb, sidebarUnread, myPostMarker, replyPostMarker,
                             treeConnector, metricLow, metricHigh);
         }
@@ -714,7 +703,6 @@ final class Theme {
                 case "border": return border;
                 case "strongBorder": return strongBorder;
                 case "active": return active;
-                case "linkHighlight": return linkHighlight;
                 case "accent": return accent;
                 case "sidebar": return sidebar;
                 case "sidebarThumb": return sidebarThumb;
@@ -743,7 +731,6 @@ final class Theme {
                 case "border": border = color; break;
                 case "strongBorder": strongBorder = color; break;
                 case "active": active = color; break;
-                case "linkHighlight": linkHighlight = color; break;
                 case "accent": accent = color; break;
                 case "sidebar": sidebar = color; break;
                 case "sidebarThumb": sidebarThumb = color; break;
@@ -778,27 +765,13 @@ final class Theme {
             palette.id = id;
             palette.name = name;
             palette.dark = object.getBoolean("dark");
-            for (int i = 0; i < COLOR_KEYS.length; i++) {
-                String key = COLOR_KEYS[i];
-                if (colors.has(key) && !colors.isNull(key)) {
-                    palette.setColor(key, parseColor(colors.getString(key)));
-                } else if (i < LEGACY_COLOR_KEY_COUNT) {
+            for (String key : COLOR_KEYS) {
+                if (!colors.has(key) || colors.isNull(key)) {
                     throw new JSONException("Missing color: " + key);
                 }
+                palette.setColor(key, parseColor(colors.getString(key)));
             }
-            if (!hasColor(colors, "sidebar")) palette.sidebar = palette.border;
-            if (!hasColor(colors, "sidebarThumb")) palette.sidebarThumb = palette.accent;
-            if (!hasColor(colors, "sidebarUnread")) palette.sidebarUnread = palette.accent;
-            if (!hasColor(colors, "myPostMarker")) palette.myPostMarker = palette.accent;
-            if (!hasColor(colors, "replyPostMarker")) palette.replyPostMarker = palette.strongBorder;
-            if (!hasColor(colors, "treeConnector")) palette.treeConnector = palette.accent;
-            if (!hasColor(colors, "metricLow")) palette.metricLow = palette.subtle;
-            if (!hasColor(colors, "metricHigh")) palette.metricHigh = palette.accent;
             return palette.synchronizeLinkedColors();
-        }
-
-        private static boolean hasColor(JSONObject colors, String key) {
-            return colors.has(key) && !colors.isNull(key);
         }
 
         private static int parseColor(String value) throws JSONException {
