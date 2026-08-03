@@ -9956,7 +9956,7 @@ public class MainActivity extends Activity {
     private void showFavoritePostMenu(CuspTab tab, Post post) {
         reloadFavoritePosts();
         if (favoritePostsSnapshot.categories.isEmpty()) {
-            showCreateFavoriteCategoryDialog(category -> saveFavoritePost(tab, post, category));
+            showCreateFavoriteCategoryDialog(tab, post);
             return;
         }
         ThreadPage page = tab == null ? null : tab.threadPage;
@@ -9979,7 +9979,7 @@ public class MainActivity extends Activity {
         menu.addView(dialogAction(R.drawable.ic_add,
                 text("\u30ab\u30c6\u30b4\u30ea\u3092\u4f5c\u6210", "Create category"), () -> {
             dialog.dismiss();
-            showCreateFavoriteCategoryDialog(category -> saveFavoritePost(tab, post, category));
+            showCreateFavoriteCategoryDialog(tab, post);
         }));
         if (current != null) {
             menu.addView(dialogAction(R.drawable.ic_delete,
@@ -10030,13 +10030,13 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private void showCreateFavoriteCategoryDialog(FavoriteCategoryCallback callback) {
+    private void showCreateFavoriteCategoryDialog(CuspTab tab, Post post) {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(18), dp(8), dp(18), dp(8));
         EditText name = new EditText(this);
         name.setSingleLine(true);
-        name.setHint(text("\u540d\u524d\uff08\u4efb\u610f\uff09", "Name (optional)"));
+        name.setHint(text("\u540d\u524d", "Name"));
         name.setTextColor(textColor());
         name.setHintTextColor(hintTextColor());
         name.setBackgroundColor(fieldColor());
@@ -10063,15 +10063,23 @@ public class MainActivity extends Activity {
                 .setTitle(text("\u30ab\u30c6\u30b4\u30ea\u3092\u4f5c\u6210", "Create category"))
                 .setView(form)
                 .setNegativeButton(text("\u30ad\u30e3\u30f3\u30bb\u30eb", "Cancel"), null)
-                .setPositiveButton(text("\u4fdd\u5b58", "Save"), (d, which) -> {
-                    FavoritePostsStore.Category category = FavoritePostsStore.addCategory(
-                            preferences, name.getText().toString(), color[0]);
-                    reloadFavoritePosts();
-                    callback.onCreated(category);
-                })
+                .setPositiveButton(text("\u4fdd\u5b58", "Save"), null)
                 .create();
         dialog.show();
         Theme.styleDialog(dialog, this);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String categoryName = name.getText().toString().trim();
+            if (categoryName.isEmpty()) {
+                name.setError(text("\u540d\u524d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+                        "Enter a name."));
+                name.requestFocus();
+                return;
+            }
+            FavoritePostsStore.addCategory(preferences, categoryName, color[0]);
+            reloadFavoritePosts();
+            dialog.dismiss();
+            showFavoritePostMenu(tab, post);
+        });
     }
 
     private void saveFavoritePost(CuspTab tab, Post post,
@@ -30825,10 +30833,6 @@ public class MainActivity extends Activity {
             this.page = page;
             this.cachedAt = cachedAt;
         }
-    }
-
-    private interface FavoriteCategoryCallback {
-        void onCreated(FavoritePostsStore.Category category);
     }
 
     private static class PostCardShell {

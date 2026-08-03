@@ -192,7 +192,7 @@ public class FavoritePostsActivity extends Activity {
         EditText name = new EditText(this);
         name.setSingleLine(true);
         name.setInputType(InputType.TYPE_CLASS_TEXT);
-        name.setHint(MainActivity.text("名前（任意）", "Name (optional)"));
+        name.setHint(MainActivity.text("名前", "Name"));
         name.setText(category == null ? "" : category.name);
         name.setTextColor(Theme.text(this));
         name.setHintTextColor(Theme.subtle(this));
@@ -224,18 +224,26 @@ public class FavoritePostsActivity extends Activity {
                         : MainActivity.text("カテゴリを編集", "Edit category"))
                 .setView(form)
                 .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
-                .setPositiveButton(MainActivity.text("保存", "Save"), (d, which) -> {
-                    if (category == null) {
-                        FavoritePostsStore.addCategory(preferences, name.getText().toString(), selectedColor[0]);
-                    } else {
-                        FavoritePostsStore.updateCategory(preferences, category.id,
-                                name.getText().toString(), selectedColor[0]);
-                    }
-                    renderFavorites();
-                })
+                .setPositiveButton(MainActivity.text("保存", "Save"), null)
                 .create();
         dialog.show();
         Theme.styleDialog(dialog, this);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String categoryName = name.getText().toString().trim();
+            if (categoryName.isEmpty()) {
+                name.setError(MainActivity.text("名前を入力してください。", "Enter a name."));
+                name.requestFocus();
+                return;
+            }
+            if (category == null) {
+                FavoritePostsStore.addCategory(preferences, categoryName, selectedColor[0]);
+            } else {
+                FavoritePostsStore.updateCategory(preferences, category.id,
+                        categoryName, selectedColor[0]);
+            }
+            dialog.dismiss();
+            renderFavorites();
+        });
     }
 
     private void confirmDeleteCategory(FavoritePostsStore.Category category) {
