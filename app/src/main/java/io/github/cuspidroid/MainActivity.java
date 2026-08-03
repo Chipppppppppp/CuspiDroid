@@ -509,6 +509,8 @@ public class MainActivity extends Activity {
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
     private Future<?> bookmarkOverviewLoadTask;
+    private volatile Future<?> bookmarkOverviewPreloadTask;
+    private volatile BookmarkOverviewSnapshot preloadedBookmarkOverviewSnapshot;
     private Runnable backgroundTrimTask;
     private long appliedSync2chUpdateAt;
     private long appliedLocalBackupRestoreAt;
@@ -527,6 +529,7 @@ public class MainActivity extends Activity {
     private Set<String> tabOverviewHistoryUrlCache;
     private boolean bookmarkOverviewDirty = true;
     private volatile int bookmarkOverviewRenderGeneration;
+    private volatile int bookmarkOverviewDataGeneration;
     private final List<String> restoredTabOverviewNormalOrder = new ArrayList<>();
     private String restoredTabOverviewOrderSignature = "";
     private final List<String> lastTabOverviewNormalOrder = new ArrayList<>();
@@ -1013,6 +1016,7 @@ public class MainActivity extends Activity {
         migratePopularButtonPreference();
         migrateFavoriteBoardsToBookmarks();
         ensureDefaultCustomBbsLinks();
+        preloadBookmarkOverviewSnapshot();
         appliedThemeMode = themeMode();
         appliedSync2chUpdateAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
         appliedLocalBackupRestoreAt = preferences.getLong(PREF_LOCAL_BACKUP_RESTORED_AT, 0L);
@@ -1129,6 +1133,7 @@ public class MainActivity extends Activity {
         long syncUpdatedAt = preferences.getLong(PREF_SYNC2CH_UPDATED_AT, 0L);
         if (syncUpdatedAt != appliedSync2chUpdateAt) {
             appliedSync2chUpdateAt = syncUpdatedAt;
+            restartBookmarkOverviewPreload();
             if (restoreTabs()) {
                 if (currentIndex >= 0 && currentIndex < tabs.size()) {
                     switchToTab(currentIndex);
@@ -1140,6 +1145,7 @@ public class MainActivity extends Activity {
         long backupRestoredAt = preferences.getLong(PREF_LOCAL_BACKUP_RESTORED_AT, 0L);
         if (backupRestoredAt != appliedLocalBackupRestoreAt) {
             appliedLocalBackupRestoreAt = backupRestoredAt;
+            restartBookmarkOverviewPreload();
             appliedThemeMode = themeMode();
             appliedButtonLayoutSignature = buttonLayoutSignature();
             buildLayout();
@@ -1175,6 +1181,10 @@ public class MainActivity extends Activity {
         if (bookmarkOverviewLoadTask != null) {
             bookmarkOverviewLoadTask.cancel(true);
             bookmarkOverviewLoadTask = null;
+        }
+        if (bookmarkOverviewPreloadTask != null) {
+            bookmarkOverviewPreloadTask.cancel(true);
+            bookmarkOverviewPreloadTask = null;
         }
         tabOverviewExecutor.shutdownNow();
         tabReloadExecutor.shutdownNow();
@@ -13720,18 +13730,72 @@ public class MainActivity extends Activity {
         if (bookmarkOverviewLoadTask != null) {
             bookmarkOverviewLoadTask.cancel(true);
         }
+        BookmarkOverviewSnapshot preloaded = snapshotFromBookmarkOverviewPreload(openTabs);
+        if (preloaded != null) {
+            addBookmarkOverviewSection(list, true, preloaded);
+            renderInitialBookmarkOverviewSlots(list, TAB_OVERVIEW_INITIAL_SLOT_BATCH);
+            scheduleTabOverviewSlotRefresh(list);
+            return;
+        }
         bookmarkOverviewLoadTask = tabOverviewExecutor.submit(() -> {
-            BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot(openTabs, generation);
+            BookmarkOverviewSnapshot snapshot = snapshotFromBookmarkOverviewPreload(openTabs);
+            if (snapshot == null) {
+                snapshot = bookmarkOverviewSnapshot(openTabs, generation);
+            }
+            BookmarkOverviewSnapshot readySnapshot = snapshot;
             mainHandler.post(() -> {
                 if (!tabOverviewVisible || tabOverviewPrivateMode != privateMode
                         || list.getParent() != scroll || generation != bookmarkOverviewRenderGeneration) {
                     return;
                 }
                 bookmarkOverviewLoadTask = null;
-                addBookmarkOverviewSection(list, true, snapshot);
+                addBookmarkOverviewSection(list, true, readySnapshot);
+                renderInitialBookmarkOverviewSlots(list, TAB_OVERVIEW_INITIAL_SLOT_BATCH);
                 scheduleTabOverviewSlotRefresh(list);
             });
         });
+    }
+
+    private void preloadBookmarkOverviewSnapshot() {
+        if (preferences == null || bookmarkOverviewPreloadTask != null || !showBookmarksInTabOverview()) {
+            return;
+        }
+        int renderGeneration = bookmarkOverviewRenderGeneration;
+        int dataGeneration = bookmarkOverviewDataGeneration;
+        bookmarkOverviewPreloadTask = tabOverviewExecutor.submit(() -> {
+            BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot(new LinkedHashMap<>(), renderGeneration);
+            if (dataGeneration == bookmarkOverviewDataGeneration) {
+                preloadedBookmarkOverviewSnapshot = snapshot;
+                writeBookmarkOverviewRenderCache(snapshot);
+            }
+        });
+    }
+
+    private void restartBookmarkOverviewPreload() {
+        bookmarkOverviewRenderGeneration++;
+        bookmarkOverviewDataGeneration++;
+        preloadedBookmarkOverviewSnapshot = null;
+        if (bookmarkOverviewPreloadTask != null) {
+            bookmarkOverviewPreloadTask.cancel(true);
+            bookmarkOverviewPreloadTask = null;
+        }
+        preloadBookmarkOverviewSnapshot();
+    }
+
+    private BookmarkOverviewSnapshot snapshotFromBookmarkOverviewPreload(Map<String, CuspTab> openTabs) {
+        BookmarkOverviewSnapshot snapshot = preloadedBookmarkOverviewSnapshot;
+        if (snapshot == null) {
+            return null;
+        }
+        return new BookmarkOverviewSnapshot(
+                snapshot.bookmarks,
+                snapshot.folders,
+                snapshot.orderRoot,
+                snapshot.statusRoot,
+                snapshot.readPosts,
+                snapshot.itemIndices,
+                snapshot.unreadByFolder,
+                openTabs);
     }
 
     private void setTabOverviewListPadding(LinearLayout list) {
@@ -13860,6 +13924,24 @@ public class MainActivity extends Activity {
                 continue;
             }
             renderTabOverviewSlot(holder, (VirtualTabOverviewSlot) tag);
+            rendered++;
+            if (rendered >= count) {
+                return;
+            }
+        }
+    }
+
+    private void renderInitialBookmarkOverviewSlots(LinearLayout list, int count) {
+        if (list == null || count <= 0) {
+            return;
+        }
+        int rendered = 0;
+        for (FrameLayout holder : tabOverviewSlotHolders(list)) {
+            Object tag = holder.getTag();
+            if (!(tag instanceof VirtualBookmarkOverviewSlot)) {
+                continue;
+            }
+            renderBookmarkOverviewSlot(holder, (VirtualBookmarkOverviewSlot) tag);
             rendered++;
             if (rendered >= count) {
                 return;
@@ -15691,6 +15773,8 @@ public class MainActivity extends Activity {
     private void markBookmarkOverviewDirty() {
         bookmarkOverviewDirty = true;
         bookmarkOverviewRenderGeneration++;
+        bookmarkOverviewDataGeneration++;
+        preloadedBookmarkOverviewSnapshot = null;
         if (preferences != null) {
             preferences.edit().remove(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE).apply();
         }
