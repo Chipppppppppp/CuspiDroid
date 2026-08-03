@@ -2194,6 +2194,16 @@ public class MainActivity extends Activity {
         return view;
     }
 
+    private void setMenuItemIcon(TextView view, int iconRes) {
+        view.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
+        for (Drawable drawable : view.getCompoundDrawables()) {
+            if (drawable != null) {
+                drawable.mutate().setColorFilter(accentColor(), PorterDuff.Mode.SRC_IN);
+            }
+        }
+        view.setCompoundDrawablePadding(dp(6));
+    }
+
     private void showThreadMenu(View anchor) {
         CuspTab tab = currentTab();
         LinearLayout menu = new LinearLayout(this);
@@ -9665,24 +9675,21 @@ public class MainActivity extends Activity {
         TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
         });
         copy.setGravity(Gravity.CENTER_VERTICAL);
-        copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
-        copy.setCompoundDrawablePadding(dp(6));
+        setMenuItemIcon(copy, R.drawable.ic_copy);
         menu.addView(copy, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView hissi = menuItem(text("\u5fc5\u6b7b\u30c1\u30a7\u30c3\u30ab\u30fc", "Hissi Checker"), v -> {
         });
         hissi.setGravity(Gravity.CENTER_VERTICAL);
-        hissi.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
-        hissi.setCompoundDrawablePadding(dp(6));
+        setMenuItemIcon(hissi, R.drawable.ic_search);
         menu.addView(hissi, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView ng = menuItem(text("NGID\u306b\u8ffd\u52a0", "Add to NGID"), v -> {
         });
         ng.setGravity(Gravity.CENTER_VERTICAL);
-        ng.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_close, 0, 0, 0);
-        ng.setCompoundDrawablePadding(dp(6));
+        setMenuItemIcon(ng, R.drawable.ic_close);
         menu.addView(ng, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -9721,16 +9728,14 @@ public class MainActivity extends Activity {
         TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
         });
         copy.setGravity(Gravity.CENTER_VERTICAL);
-        copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
-        copy.setCompoundDrawablePadding(dp(6));
+        setMenuItemIcon(copy, R.drawable.ic_copy);
         menu.addView(copy, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView ng = menuItem(text("NGName\u306b\u8ffd\u52a0", "Add to NGName"), v -> {
         });
         ng.setGravity(Gravity.CENTER_VERTICAL);
-        ng.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_close, 0, 0, 0);
-        ng.setCompoundDrawablePadding(dp(6));
+        setMenuItemIcon(ng, R.drawable.ic_close);
         menu.addView(ng, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -20272,8 +20277,7 @@ public class MainActivity extends Activity {
                     : text("\u65b0\u3057\u3044\u30bf\u30d6\u3067\u958b\u304f", "Open in new tab"), v -> {
             });
             open.setGravity(Gravity.CENTER_VERTICAL);
-            open.setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0);
-            open.setCompoundDrawablePadding(dp(6));
+            setMenuItemIcon(open, icon);
             menu.addView(open, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
@@ -20281,8 +20285,7 @@ public class MainActivity extends Activity {
         TextView copy = menuItem(text("\u30b3\u30d4\u30fc", "Copy"), v -> {
         });
         copy.setGravity(Gravity.CENTER_VERTICAL);
-        copy.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_copy, 0, 0, 0);
-        copy.setCompoundDrawablePadding(dp(6));
+        setMenuItemIcon(copy, R.drawable.ic_copy);
         menu.addView(copy, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -20291,8 +20294,7 @@ public class MainActivity extends Activity {
             share = menuItem(text("\u5171\u6709", "Share"), v -> {
             });
             share.setGravity(Gravity.CENTER_VERTICAL);
-            share.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_share, 0, 0, 0);
-            share.setCompoundDrawablePadding(dp(6));
+            setMenuItemIcon(share, R.drawable.ic_share);
             menu.addView(share, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
