@@ -105,7 +105,7 @@ public class WritePostHistoryActivity extends Activity {
                 ? MainActivity.text("\u672c\u6587\u306f\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093", "Message body was not saved.")
                 : item.body;
         return PostListItemView.create(this, item.title, item.url, item.number,
-                postedAtLabel(item), body, Theme.accent(this),
+                formatMeta(item), body, Theme.accent(this),
                 () -> openHistoryThread(item), () -> openHistoryItem(item),
                 () -> confirmDelete(item));
     }
@@ -175,6 +175,11 @@ public class WritePostHistoryActivity extends Activity {
     private String postedAtLabel(MainActivity.WritePostHistoryItem item) {
         String value = MainActivity.formatHistoryTime(item.postedAt);
         return value.isEmpty() ? "" : "  " + value;
+    }
+
+    private String formatMeta(MainActivity.WritePostHistoryItem item) {
+        String value = PostListItemView.formatMeta(item.name, item.date);
+        return item.date.trim().isEmpty() ? value + postedAtLabel(item) : value;
     }
 
     private TextView helperText(String value) {

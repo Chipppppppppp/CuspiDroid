@@ -22676,7 +22676,8 @@ public class MainActivity extends Activity {
                 if (posted) {
                     Toast.makeText(this, text("\u66f8\u304d\u8fbc\u307f\u5b8c\u4e86", "Posted."), Toast.LENGTH_SHORT).show();
                     refreshThreadFromBottom(tab, true, false, true,
-                            () -> recordPostedOwnPost(tab, message, lastPostNumberBeforePost, submittedAt));
+                            () -> recordPostedOwnPost(tab, name, message,
+                                    lastPostNumberBeforePost, submittedAt));
                 } else {
                     showPostFailureOrEdgeAuthentication(address, messageText,
                             () -> submitPost(tab, name, mail, message));
@@ -22685,7 +22686,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void recordPostedOwnPost(CuspTab tab, String body,
+    private void recordPostedOwnPost(CuspTab tab, String submittedName, String body,
                                      int lastPostNumberBeforePost, long submittedAt) {
         if (tab == null || tab.threadPage == null || body == null) {
             return;
@@ -22695,13 +22696,13 @@ public class MainActivity extends Activity {
         for (Post post : tab.threadPage.posts) {
             if (post != null && post.number > lastPostNumberBeforePost
                     && hash.equals(postBodyHash(post.body))) {
-                saveMyPost(tab, body, post.number, submittedAt);
+                saveMyPost(tab, body, post.number, submittedAt, post.name, post.date);
                 matchedPost = true;
             }
         }
         if (!matchedPost) {
-            // Keep a body-only entry until the server exposes the new post in a later refresh.
-            saveMyPost(tab, body, 0, submittedAt);
+            // Keep the submitted name and local time when the server metadata is not available yet.
+            saveMyPost(tab, body, 0, submittedAt, submittedName, "");
         }
         refreshUnreadColors(tab);
         renderTabs();
@@ -27510,6 +27511,8 @@ public class MainActivity extends Activity {
                             title,
                             url,
                             myPostNumber(value),
+                            myPostName(value),
+                            myPostDate(value),
                             myPostBody(value),
                             hash,
                             myPostPostedAt(value)));
@@ -28893,6 +28896,11 @@ public class MainActivity extends Activity {
     }
 
     private void saveMyPost(CuspTab tab, String body, int postNumber, long postedAt) {
+        saveMyPost(tab, body, postNumber, postedAt, "", "");
+    }
+
+    private void saveMyPost(CuspTab tab, String body, int postNumber, long postedAt,
+                            String name, String date) {
         if (isPrivateTab(tab) || !writePostHistoryEnabled()
                 || tab == null || tab.url == null || tab.url.isEmpty()) {
             return;
@@ -28911,6 +28919,8 @@ public class MainActivity extends Activity {
             entry.put("bodyHash", hash);
             entry.put("body", normalizeOwnPostBody(body));
             entry.put("number", Math.max(0, postNumber));
+            entry.put("name", name == null ? "" : name.trim());
+            entry.put("date", date == null ? "" : date.trim());
             entry.put("postedAt", savedPostedAt);
             String title = tab.threadPage == null ? tab.title : tab.threadPage.title;
             entry.put("title", title == null ? "" : title);
@@ -29063,6 +29073,14 @@ public class MainActivity extends Activity {
 
     private static String myPostBody(Object value) {
         return value instanceof JSONObject ? ((JSONObject) value).optString("body", "") : "";
+    }
+
+    private static String myPostName(Object value) {
+        return value instanceof JSONObject ? ((JSONObject) value).optString("name", "") : "";
+    }
+
+    private static String myPostDate(Object value) {
+        return value instanceof JSONObject ? ((JSONObject) value).optString("date", "") : "";
     }
 
     private static String myPostTitle(Object value) {
@@ -31110,14 +31128,19 @@ public class MainActivity extends Activity {
         final String title;
         final String url;
         final int number;
+        final String name;
+        final String date;
         final String body;
         final String hash;
         final long postedAt;
 
-        WritePostHistoryItem(String title, String url, int number, String body, String hash, long postedAt) {
+        WritePostHistoryItem(String title, String url, int number, String name, String date,
+                             String body, String hash, long postedAt) {
             this.title = title == null || title.isEmpty() ? url : title;
             this.url = url;
             this.number = number;
+            this.name = name == null ? "" : name;
+            this.date = date == null ? "" : date;
             this.body = body == null ? "" : body;
             this.hash = hash == null ? "" : hash;
             this.postedAt = postedAt;

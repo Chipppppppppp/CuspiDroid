@@ -99,7 +99,7 @@ public class FavoritePostListActivity extends Activity {
 
     private FrameLayout postRow(FavoritePostsStore.FavoritePost post) {
         return PostListItemView.create(this, post.title, post.url, post.number,
-                formatMeta(post), post.body, Theme.accent(this),
+                PostListItemView.formatMeta(post.name, post.date), post.body, Theme.accent(this),
                 () -> openThread(post), () -> openPost(post), () -> {
                     FavoritePostsStore.removePost(preferences, post.url, post.number);
                     renderPosts();
@@ -124,13 +124,6 @@ public class FavoritePostListActivity extends Activity {
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         startActivity(intent);
         finish();
-    }
-
-    private String formatMeta(FavoritePostsStore.FavoritePost post) {
-        String value = "";
-        if (!post.name.trim().isEmpty()) value += "  " + post.name;
-        if (!post.date.trim().isEmpty()) value += "  " + post.date;
-        return value;
     }
 
     private TextView helperText(String value) {

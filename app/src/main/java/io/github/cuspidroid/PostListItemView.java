@@ -103,6 +103,15 @@ final class PostListItemView {
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
+    static String formatMeta(String name, String date) {
+        StringBuilder value = new StringBuilder();
+        String cleanName = safe(name).trim();
+        String cleanDate = safe(date).trim();
+        if (!cleanName.isEmpty()) value.append("  ").append(cleanName);
+        if (!cleanDate.isEmpty()) value.append("  ").append(cleanDate);
+        return value.toString();
+    }
+
     private static TextView postMeta(Activity activity, int postNumber, String suffix,
                                      int markerColor) {
         String number = postNumber > 0 ? String.valueOf(postNumber)
