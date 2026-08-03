@@ -11225,6 +11225,12 @@ public class MainActivity extends Activity {
             }
             routeSearchResult(result);
         });
+        if (result != null && result.url != null && isThreadUrl(normalizeUrl(result.url))) {
+            row.setOnLongClickListener(v -> {
+                showValueCopyPopup(row, result.url);
+                return true;
+            });
+        }
 
         TextView resultTitle = new TextView(this);
         resultTitle.setText(styledResultTitle(result));
