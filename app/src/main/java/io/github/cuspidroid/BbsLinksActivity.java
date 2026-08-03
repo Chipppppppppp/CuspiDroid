@@ -525,7 +525,7 @@ public class BbsLinksActivity extends Activity {
 
     private TextView selectableExampleText(String value) {
         TextView view = helperText(value);
-        view.setTextIsSelectable(true);
+        Theme.makeTextSelectable(this, view);
         view.setPadding(dp(10), dp(8), dp(10), dp(8));
         view.setBackground(subtleBoxBackground());
         return view;

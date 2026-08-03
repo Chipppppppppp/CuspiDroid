@@ -629,6 +629,11 @@ final class Theme {
         }
     }
 
+    static void makeTextSelectable(Context context, TextView view) {
+        view.setTextIsSelectable(true);
+        applyTextSelectionToText(context, view);
+    }
+
     private static void applyTextSelectionToText(Context context, TextView view) {
         view.setHighlightColor(active(context));
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;

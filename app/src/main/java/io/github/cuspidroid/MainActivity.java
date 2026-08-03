@@ -8739,7 +8739,7 @@ public class MainActivity extends Activity {
         valueView.setTextColor(textColor());
         valueView.setTextSize(13);
         valueView.setLineSpacing(dp(1), 1.0f);
-        valueView.setTextIsSelectable(true);
+        Theme.makeTextSelectable(this, valueView);
         row.addView(valueView, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         return row;
@@ -10175,7 +10175,7 @@ public class MainActivity extends Activity {
         meta.setText(postHeaderText(post));
         meta.setTextColor(mutedColor());
         meta.setTextSize(12);
-        meta.setTextIsSelectable(true);
+        Theme.makeTextSelectable(this, meta);
         metaRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         ImageButton copy = iconButton(R.drawable.ic_copy, text("\u672c\u6587\u3092\u30b3\u30d4\u30fc", "Copy body"), v -> copyPost(post));
         copy.setColorFilter(TEAL);
@@ -10250,7 +10250,7 @@ public class MainActivity extends Activity {
             body.setIncludeFontPadding(true);
         }
         body.setLineSpacing(0, aa ? AA_LINE_SPACING_MULTIPLIER : 1.15f);
-        body.setTextIsSelectable(true);
+        Theme.makeTextSelectable(this, body);
         body.setPadding(0, aa ? 0 : dp(4), 0, 0);
         body.setMinHeight(0);
         body.setMinimumHeight(0);
@@ -10316,7 +10316,7 @@ public class MainActivity extends Activity {
         body.setText(postCopyText(post));
         body.setTextColor(textColor());
         body.setTextSize(15);
-        body.setTextIsSelectable(true);
+        Theme.makeTextSelectable(this, body);
         body.setPadding(dp(10), dp(10), dp(10), dp(10));
         ScrollView scroll = new ScrollView(this);
         scroll.addView(body, new ScrollView.LayoutParams(
@@ -22713,7 +22713,7 @@ public class MainActivity extends Activity {
         message.setText(messageText);
         message.setTextColor(textColor());
         message.setTextSize(14);
-        message.setTextIsSelectable(true);
+        Theme.makeTextSelectable(this, message);
         message.setPadding(dp(20), dp(12), dp(20), 0);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle(text("\u66f8\u304d\u8fbc\u307f\u5931\u6557", "Post failed"))
@@ -22745,7 +22745,7 @@ public class MainActivity extends Activity {
         message.setText(detail);
         message.setTextColor(textColor());
         message.setTextSize(15);
-        message.setTextIsSelectable(true);
+        Theme.makeTextSelectable(this, message);
         message.setPadding(dp(20), dp(12), dp(20), 0);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(text("\u30a8\u30c3\u30c2\u306e\u8a8d\u8a3c\u304c\u5fc5\u8981", "Edge authentication required"))
