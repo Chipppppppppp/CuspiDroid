@@ -1161,6 +1161,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false)
                 .putString(MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM)
                 .putString(Theme.PREF_NORMAL_THEME, Theme.MODE_SYSTEM)
+                .putString(Theme.PREF_SYSTEM_LIGHT_THEME, Theme.ID_TEAL_LIGHT)
+                .putString(Theme.PREF_SYSTEM_DARK_THEME, Theme.ID_TEAL_DARK)
                 .remove("private_theme_id")
                 .putBoolean(MainActivity.PREF_BOARD_SORT_BY_SPEED, true)
                 .putBoolean(MainActivity.PREF_BOARD_SHOW_BOARD_NAME, false)

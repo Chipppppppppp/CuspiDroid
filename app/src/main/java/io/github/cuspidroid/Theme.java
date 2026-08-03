@@ -46,6 +46,8 @@ final class Theme {
     static final String CUSTOM_PREFIX = "custom:";
 
     static final String PREF_NORMAL_THEME = "normal_theme_id";
+    static final String PREF_SYSTEM_LIGHT_THEME = "system_light_theme_id";
+    static final String PREF_SYSTEM_DARK_THEME = "system_dark_theme_id";
     static final String PREF_CUSTOM_THEMES = "custom_themes_json";
 
     static final String EXPORT_FORMAT = "cuspidroid-theme";
@@ -59,7 +61,7 @@ final class Theme {
             "myPostMarker", "replyPostMarker", "treeConnector", "metricLow", "metricHigh"
     };
 
-    private static final Palette LIGHT = new Palette(MODE_LIGHT, "Default (Light)", false,
+    private static final Palette LIGHT = new Palette(MODE_LIGHT, "Indigo (Light)", false,
             Color.rgb(247, 248, 252), Color.rgb(238, 240, 247), Color.WHITE,
             Color.rgb(251, 252, 255), Color.rgb(238, 242, 255), Color.rgb(243, 244, 248),
             Color.WHITE, Color.rgb(32, 37, 52), Color.rgb(89, 98, 117),
@@ -69,7 +71,7 @@ final class Theme {
                     Color.rgb(79, 70, 229), Color.rgb(124, 58, 237), Color.rgb(99, 102, 241),
                     Color.rgb(123, 132, 151), Color.rgb(67, 56, 202));
 
-    private static final Palette DARK = new Palette(MODE_DARK, "Default (Dark)", true,
+    private static final Palette DARK = new Palette(MODE_DARK, "Indigo (Dark)", true,
             Color.rgb(15, 17, 23), Color.rgb(21, 24, 33), Color.rgb(26, 30, 40),
             Color.rgb(29, 34, 45), Color.rgb(37, 43, 70), Color.rgb(32, 37, 49),
             Color.rgb(26, 30, 40), Color.rgb(244, 246, 250), Color.rgb(178, 184, 197),
@@ -275,10 +277,27 @@ final class Theme {
         return prefs.getString(MainActivity.PREF_THEME_MODE, MODE_SYSTEM);
     }
 
+    static String systemLightSelection(Context context) {
+        return validSystemSelection(context, false,
+                preferences(context).getString(PREF_SYSTEM_LIGHT_THEME, ID_TEAL_LIGHT));
+    }
+
+    static String systemDarkSelection(Context context) {
+        return validSystemSelection(context, true,
+                preferences(context).getString(PREF_SYSTEM_DARK_THEME, ID_TEAL_DARK));
+    }
+
+    private static String validSystemSelection(Context context, boolean dark, String id) {
+        Palette palette = paletteById(context, id);
+        if (palette != null && palette.dark == dark) return id;
+        return dark ? ID_TEAL_DARK : ID_TEAL_LIGHT;
+    }
+
     static String signature(Context context) {
         SharedPreferences prefs = preferences(context);
         int night = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        return normalSelection(context) + "|" + night + "|"
+        return normalSelection(context) + "|" + systemLightSelection(context) + "|"
+                + systemDarkSelection(context) + "|" + night + "|"
                 + prefs.getString(PREF_CUSTOM_THEMES, "[]");
     }
 
@@ -380,6 +399,12 @@ final class Theme {
         SharedPreferences prefs = preferences(context);
         SharedPreferences.Editor editor = prefs.edit();
         if (id.equals(normalSelection(context))) editor.putString(PREF_NORMAL_THEME, MODE_SYSTEM);
+        if (id.equals(systemLightSelection(context))) {
+            editor.putString(PREF_SYSTEM_LIGHT_THEME, ID_TEAL_LIGHT);
+        }
+        if (id.equals(systemDarkSelection(context))) {
+            editor.putString(PREF_SYSTEM_DARK_THEME, ID_TEAL_DARK);
+        }
         JSONArray array = paletteArray(palettes);
         editor.putString(PREF_CUSTOM_THEMES, array.toString()).apply();
         invalidateCache();
@@ -406,8 +431,8 @@ final class Theme {
         if (MODE_SYSTEM.equals(id)) return MainActivity.text("端末のテーマに従う", "Follow device theme");
         Palette palette = paletteById(context, id);
         if (palette == null) return MainActivity.text("不明なテーマ", "Unknown theme");
-        if (MODE_LIGHT.equals(id)) return MainActivity.text("デフォルト (ライト)", "Default (Light)");
-        if (MODE_DARK.equals(id)) return MainActivity.text("デフォルト (ダーク)", "Default (Dark)");
+        if (MODE_LIGHT.equals(id)) return MainActivity.text("インディゴ (ライト)", "Indigo (Light)");
+        if (MODE_DARK.equals(id)) return MainActivity.text("インディゴ (ダーク)", "Indigo (Dark)");
         if (ID_TEAL_LIGHT.equals(id)) return MainActivity.text("ティール (ライト)", "Teal (Light)");
         if (ID_TEAL_DARK.equals(id)) return MainActivity.text("ティール (ダーク)", "Teal (Dark)");
         if (ID_GREEN_LIGHT.equals(id)) return MainActivity.text("グリーン (ライト)", "Green (Light)");
@@ -429,7 +454,11 @@ final class Theme {
         if (MODE_SYSTEM.equals(id)) {
             int night = context.getResources().getConfiguration().uiMode
                     & Configuration.UI_MODE_NIGHT_MASK;
-            return (night == Configuration.UI_MODE_NIGHT_YES ? DARK : LIGHT).copy();
+            String selected = night == Configuration.UI_MODE_NIGHT_YES
+                    ? systemDarkSelection(context) : systemLightSelection(context);
+            Palette palette = paletteById(context, selected);
+            return (palette == null ? (night == Configuration.UI_MODE_NIGHT_YES ? TEAL_DARK : TEAL_LIGHT)
+                    : palette).copy();
         }
         Palette palette = paletteById(context, id);
         return palette == null ? LIGHT.copy() : palette;
@@ -537,7 +566,12 @@ final class Theme {
 
     private static Palette resolve(Context context, String id, int night) {
         if (MODE_SYSTEM.equals(id)) {
-            return night == Configuration.UI_MODE_NIGHT_YES ? DARK : LIGHT;
+            String selected = night == Configuration.UI_MODE_NIGHT_YES
+                    ? systemDarkSelection(context) : systemLightSelection(context);
+            Palette palette = paletteById(context, selected);
+            return palette == null
+                    ? (night == Configuration.UI_MODE_NIGHT_YES ? TEAL_DARK : TEAL_LIGHT)
+                    : palette;
         }
         Palette palette = paletteById(context, id);
         return palette == null ? LIGHT : palette;

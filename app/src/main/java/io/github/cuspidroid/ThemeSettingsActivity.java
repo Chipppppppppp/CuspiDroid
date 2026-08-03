@@ -42,10 +42,16 @@ public class ThemeSettingsActivity extends Activity {
     private static final int REQUEST_IMPORT = 4301;
     private static final int REQUEST_EXPORT = 4302;
     private static final int MAX_THEME_FILE_BYTES = 128 * 1024;
+    private static final int SELECT_APP_THEME = 0;
+    private static final int SELECT_SYSTEM_LIGHT_THEME = 1;
+    private static final int SELECT_SYSTEM_DARK_THEME = 2;
 
     private SharedPreferences preferences;
     private LinearLayout customThemeList;
     private LinearLayout normalSelector;
+    private LinearLayout systemThemeSelectors;
+    private LinearLayout systemLightSelector;
+    private LinearLayout systemDarkSelector;
     private Theme.Palette pendingExport;
 
     @Override
@@ -87,8 +93,28 @@ public class ThemeSettingsActivity extends Activity {
         root.addView(intro);
 
         root.addView(sectionLabel(MainActivity.text("使用するテーマ", "App theme")));
-        normalSelector = themeSelector();
+        normalSelector = themeSelector(SELECT_APP_THEME);
         root.addView(normalSelector, selectorParams());
+
+        systemThemeSelectors = new LinearLayout(this);
+        systemThemeSelectors.setOrientation(LinearLayout.VERTICAL);
+        systemThemeSelectors.addView(sectionLabel(MainActivity.text(
+                "端末テーマごとの配色", "Themes for each device mode")));
+        TextView systemHelp = text(MainActivity.text(
+                "「端末のテーマに従う」場合に、ライトモード時とダークモード時に使うテーマを指定します。",
+                "Choose the themes used in light and dark device modes when following the device theme."),
+                13, Theme.muted(this));
+        systemHelp.setPadding(0, 0, 0, dp(5));
+        systemThemeSelectors.addView(systemHelp);
+        systemThemeSelectors.addView(fieldLabel(MainActivity.text(
+                "ライトモード時", "In light mode")));
+        systemLightSelector = themeSelector(SELECT_SYSTEM_LIGHT_THEME);
+        systemThemeSelectors.addView(systemLightSelector, selectorParams());
+        systemThemeSelectors.addView(fieldLabel(MainActivity.text(
+                "ダークモード時", "In dark mode")));
+        systemDarkSelector = themeSelector(SELECT_SYSTEM_DARK_THEME);
+        systemThemeSelectors.addView(systemDarkSelector, selectorParams());
+        root.addView(systemThemeSelectors);
 
         root.addView(sectionLabel(MainActivity.text("カスタムテーマ", "Custom themes")));
         root.addView(actionButton(MainActivity.text("カスタムテーマを作成", "Create custom theme"),
@@ -105,29 +131,43 @@ public class ThemeSettingsActivity extends Activity {
     }
 
     private void refreshSelectors() {
-        renderSelector(normalSelector, selectedChoice());
+        renderSelector(normalSelector, selectedChoice(SELECT_APP_THEME));
+        renderSelector(systemLightSelector, selectedChoice(SELECT_SYSTEM_LIGHT_THEME));
+        renderSelector(systemDarkSelector, selectedChoice(SELECT_SYSTEM_DARK_THEME));
+        systemThemeSelectors.setVisibility(Theme.MODE_SYSTEM.equals(Theme.normalSelection(this))
+                ? View.VISIBLE : View.GONE);
     }
 
-    private List<Choice> choices() {
+    private List<Choice> choices(int target) {
         List<Choice> result = new ArrayList<>();
-        result.add(new Choice(Theme.MODE_SYSTEM, Theme.displayName(this, Theme.MODE_SYSTEM),
-                Theme.previewPalette(this, Theme.MODE_SYSTEM)));
+        if (target == SELECT_APP_THEME) {
+            result.add(new Choice(Theme.MODE_SYSTEM, Theme.displayName(this, Theme.MODE_SYSTEM),
+                    Theme.previewPalette(this, Theme.MODE_SYSTEM)));
+        }
         for (Theme.Palette palette : Theme.selectablePalettes(this)) {
+            if (target == SELECT_SYSTEM_LIGHT_THEME && palette.dark) continue;
+            if (target == SELECT_SYSTEM_DARK_THEME && !palette.dark) continue;
             result.add(new Choice(palette.id, Theme.displayName(this, palette.id), palette));
         }
         return result;
     }
 
-    private Choice selectedChoice() {
-        List<Choice> choices = choices();
-        String selectedId = Theme.normalSelection(this);
+    private Choice selectedChoice(int target) {
+        List<Choice> choices = choices(target);
+        String selectedId = selectedId(target);
         for (Choice choice : choices) {
             if (choice.id.equals(selectedId)) return choice;
         }
         return choices.get(0);
     }
 
-    private LinearLayout themeSelector() {
+    private String selectedId(int target) {
+        if (target == SELECT_SYSTEM_LIGHT_THEME) return Theme.systemLightSelection(this);
+        if (target == SELECT_SYSTEM_DARK_THEME) return Theme.systemDarkSelection(this);
+        return Theme.normalSelection(this);
+    }
+
+    private LinearLayout themeSelector(int target) {
         LinearLayout selector = new LinearLayout(this);
         selector.setOrientation(LinearLayout.HORIZONTAL);
         selector.setGravity(Gravity.CENTER_VERTICAL);
@@ -135,8 +175,12 @@ public class ThemeSettingsActivity extends Activity {
         selector.setBackground(fieldBackground());
         selector.setClickable(true);
         selector.setFocusable(true);
-        selector.setContentDescription(MainActivity.text("アプリのテーマを選択", "Choose app theme"));
-        selector.setOnClickListener(v -> showThemeDropdown(selector));
+        selector.setContentDescription(target == SELECT_APP_THEME
+                ? MainActivity.text("アプリのテーマを選択", "Choose app theme")
+                : target == SELECT_SYSTEM_LIGHT_THEME
+                ? MainActivity.text("ライトモード時のテーマを選択", "Choose light-mode theme")
+                : MainActivity.text("ダークモード時のテーマを選択", "Choose dark-mode theme"));
+        selector.setOnClickListener(v -> showThemeDropdown(selector, target));
         return selector;
     }
 
@@ -162,9 +206,9 @@ public class ThemeSettingsActivity extends Activity {
         selector.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22)));
     }
 
-    private void showThemeDropdown(View anchor) {
-        List<Choice> choices = choices();
-        String selectedId = Theme.normalSelection(this);
+    private void showThemeDropdown(View anchor, int target) {
+        List<Choice> choices = choices(target);
+        String selectedId = selectedId(target);
 
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -180,7 +224,8 @@ public class ThemeSettingsActivity extends Activity {
         popup.setOutsideTouchable(true);
         popup.setElevation(dp(10));
         for (Choice choice : choices) {
-            list.addView(themeChoiceRow(choice, choice.id.equals(selectedId), popup), dropdownRowParams());
+            list.addView(themeChoiceRow(choice, choice.id.equals(selectedId), popup, target),
+                    dropdownRowParams());
         }
         int width = Math.max(anchor.getWidth(), dp(280));
         scroll.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -190,7 +235,7 @@ public class ThemeSettingsActivity extends Activity {
         popup.showAsDropDown(anchor, 0, dp(4));
     }
 
-    private View themeChoiceRow(Choice choice, boolean selected, PopupWindow popup) {
+    private View themeChoiceRow(Choice choice, boolean selected, PopupWindow popup, int target) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(12), dp(9), dp(12), dp(9));
@@ -198,12 +243,16 @@ public class ThemeSettingsActivity extends Activity {
         row.setClickable(true);
         row.setFocusable(true);
         row.setOnClickListener(v -> {
-            String current = Theme.normalSelection(this);
+            String current = selectedId(target);
             if (choice.id.equals(current)) {
                 popup.dismiss();
                 return;
             }
-            preferences.edit().putString(Theme.PREF_NORMAL_THEME, choice.id).apply();
+            String preferenceKey = target == SELECT_SYSTEM_LIGHT_THEME
+                    ? Theme.PREF_SYSTEM_LIGHT_THEME
+                    : target == SELECT_SYSTEM_DARK_THEME
+                    ? Theme.PREF_SYSTEM_DARK_THEME : Theme.PREF_NORMAL_THEME;
+            preferences.edit().putString(preferenceKey, choice.id).apply();
             Theme.invalidateCache();
             popup.dismiss();
             recreate();
@@ -233,8 +282,10 @@ public class ThemeSettingsActivity extends Activity {
 
     private String choiceSubtitle(Choice choice) {
         if (Theme.MODE_SYSTEM.equals(choice.id)) {
-            return MainActivity.text("端末設定に合わせてティールのライト／ダークを自動切替",
-                    "Automatically switches between Teal (Light) and Teal (Dark)");
+            return String.format(Locale.getDefault(), MainActivity.text(
+                            "ライト: %1$s / ダーク: %2$s", "Light: %1$s / Dark: %2$s"),
+                    Theme.displayName(this, Theme.systemLightSelection(this)),
+                    Theme.displayName(this, Theme.systemDarkSelection(this)));
         }
         if (choice.id.startsWith(Theme.CUSTOM_PREFIX)) {
             return MainActivity.text("カスタムテーマ", "Custom theme");
