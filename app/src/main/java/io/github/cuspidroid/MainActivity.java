@@ -509,13 +509,15 @@ public class MainActivity extends Activity {
     private int inlineWebViewFindCount;
     private Runnable saveTabsTask;
     private Runnable unloadTabsTask;
-    private Future<?> bookmarkOverviewLoadTask;
     private final Object bookmarkOverviewPreloadLock = new Object();
     private FutureTask<Void> bookmarkOverviewPreloadTask;
     private boolean bookmarkOverviewPreloadRequested;
     private boolean bookmarkOverviewPreloadForceRefresh;
     private boolean bookmarkOverviewPreloadStopped;
     private volatile BookmarkOverviewSnapshot preloadedBookmarkOverviewSnapshot;
+    private volatile int preloadedBookmarkOverviewDataGeneration = -1;
+    private volatile int preloadedBookmarkOverviewCacheGeneration = -1;
+    private Runnable bookmarkOverviewPreloadRefreshTask;
     private Runnable backgroundTrimTask;
     private long appliedSync2chUpdateAt;
     private long appliedLocalBackupRestoreAt;
@@ -1106,6 +1108,7 @@ public class MainActivity extends Activity {
             unloadTabsTask = null;
         }
         saveTabs(true);
+        persistBookmarkOverviewRenderCacheSynchronously();
         super.onPause();
     }
 
@@ -1181,13 +1184,14 @@ public class MainActivity extends Activity {
             unloadTabsTask = null;
         }
         saveTabs(true);
+        persistBookmarkOverviewRenderCacheSynchronously();
+        if (bookmarkOverviewPreloadRefreshTask != null) {
+            mainHandler.removeCallbacks(bookmarkOverviewPreloadRefreshTask);
+            bookmarkOverviewPreloadRefreshTask = null;
+        }
         ioExecutor.shutdownNow();
         boardLoadExecutor.shutdownNow();
         tabPayloadExecutor.shutdownNow();
-        if (bookmarkOverviewLoadTask != null) {
-            bookmarkOverviewLoadTask.cancel(true);
-            bookmarkOverviewLoadTask = null;
-        }
         FutureTask<Void> preloadTask;
         synchronized (bookmarkOverviewPreloadLock) {
             bookmarkOverviewPreloadStopped = true;
@@ -13744,47 +13748,23 @@ public class MainActivity extends Activity {
         if (scroll == null || list == null) {
             return;
         }
-        boolean privateMode = tabOverviewPrivateMode;
-        int generation = ++bookmarkOverviewRenderGeneration;
         Map<String, CuspTab> openTabs = bookmarkOverviewOpenThreadTabs();
-        if (bookmarkOverviewLoadTask != null) {
-            bookmarkOverviewLoadTask.cancel(true);
+        BookmarkOverviewSnapshot memorySnapshot = snapshotFromBookmarkOverviewPreload(openTabs);
+        BookmarkOverviewSnapshot source = BookmarkOverviewStartupPolicy.immediate(
+                memorySnapshot,
+                () -> readBookmarkOverviewRenderCache(openTabs, false),
+                () -> bookmarkOverviewRenderSeed(openTabs, null));
+        BookmarkOverviewSnapshot initial = asBookmarkOverviewRenderSeed(source, openTabs);
+        addBookmarkOverviewSection(list, true, initial);
+        renderInitialBookmarkOverviewSlots(list, TAB_OVERVIEW_INITIAL_SLOT_BATCH);
+        scheduleTabOverviewSlotRefresh(list);
+        if (memorySnapshot != null
+                && preloadedBookmarkOverviewDataGeneration == bookmarkOverviewDataGeneration
+                && preloadedBookmarkOverviewCacheGeneration == bookmarkOverviewCacheGeneration) {
+            scheduleBookmarkOverviewRefreshAfterPreload(
+                    preloadedBookmarkOverviewDataGeneration,
+                    preloadedBookmarkOverviewCacheGeneration);
         }
-        BookmarkOverviewSnapshot preloaded = snapshotFromBookmarkOverviewPreload(openTabs);
-        if (preloaded == null) {
-            int dataGeneration = bookmarkOverviewDataGeneration;
-            int cacheGeneration = bookmarkOverviewCacheGeneration;
-            BookmarkOverviewSnapshot cached = readBookmarkOverviewRenderCache(openTabs, false);
-            if (cached != null
-                    && dataGeneration == bookmarkOverviewDataGeneration
-                    && cacheGeneration == bookmarkOverviewCacheGeneration) {
-                BookmarkOverviewSnapshot ready = snapshotFromBookmarkOverviewPreload(openTabs);
-                preloaded = ready == null ? cached : ready;
-            }
-        }
-        if (preloaded != null) {
-            addBookmarkOverviewSection(list, true, preloaded);
-            renderInitialBookmarkOverviewSlots(list, TAB_OVERVIEW_INITIAL_SLOT_BATCH);
-            scheduleTabOverviewSlotRefresh(list);
-            return;
-        }
-        bookmarkOverviewLoadTask = tabOverviewExecutor.submit(() -> {
-            BookmarkOverviewSnapshot snapshot = snapshotFromBookmarkOverviewPreload(openTabs);
-            if (snapshot == null) {
-                snapshot = bookmarkOverviewSnapshot(openTabs, generation);
-            }
-            BookmarkOverviewSnapshot readySnapshot = snapshot;
-            mainHandler.post(() -> {
-                if (!tabOverviewVisible || tabOverviewPrivateMode != privateMode
-                        || list.getParent() != scroll || generation != bookmarkOverviewRenderGeneration) {
-                    return;
-                }
-                bookmarkOverviewLoadTask = null;
-                addBookmarkOverviewSection(list, true, readySnapshot);
-                renderInitialBookmarkOverviewSlots(list, TAB_OVERVIEW_INITIAL_SLOT_BATCH);
-                scheduleTabOverviewSlotRefresh(list);
-            });
-        });
     }
 
     private void preloadBookmarkOverviewSnapshot() {
@@ -13855,7 +13835,7 @@ public class MainActivity extends Activity {
         }
         BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot(
                 new LinkedHashMap<>(), renderGeneration, false, !forceRefresh);
-        writeBookmarkOverviewRenderCache(snapshot, dataGeneration, cacheGeneration);
+        writeBookmarkOverviewRenderCache(snapshot, dataGeneration, cacheGeneration, true);
         boolean publish;
         synchronized (bookmarkOverviewPreloadLock) {
             publish = !bookmarkOverviewPreloadStopped
@@ -13863,14 +13843,43 @@ public class MainActivity extends Activity {
                     && cacheGeneration == bookmarkOverviewCacheGeneration;
             if (publish) {
                 preloadedBookmarkOverviewSnapshot = snapshot;
+                preloadedBookmarkOverviewDataGeneration = dataGeneration;
+                preloadedBookmarkOverviewCacheGeneration = cacheGeneration;
             } else if (!bookmarkOverviewPreloadStopped) {
                 requestBookmarkOverviewPreloadLocked(true);
             }
         }
         if (publish) {
-            mainHandler.post(() -> refreshVisibleBookmarkOverviewAfterPreload(
+            mainHandler.post(() -> scheduleBookmarkOverviewRefreshAfterPreload(
                     dataGeneration, cacheGeneration));
         }
+    }
+
+    private void scheduleBookmarkOverviewRefreshAfterPreload(
+            int dataGeneration,
+            int cacheGeneration) {
+        synchronized (bookmarkOverviewPreloadLock) {
+            if (bookmarkOverviewPreloadStopped
+                    || dataGeneration != bookmarkOverviewDataGeneration
+                    || cacheGeneration != bookmarkOverviewCacheGeneration) {
+                return;
+            }
+        }
+        if (bookmarkOverviewPreloadRefreshTask != null) {
+            mainHandler.removeCallbacks(bookmarkOverviewPreloadRefreshTask);
+        }
+        Runnable task = new Runnable() {
+            @Override
+            public void run() {
+                if (bookmarkOverviewPreloadRefreshTask != this) {
+                    return;
+                }
+                bookmarkOverviewPreloadRefreshTask = null;
+                refreshVisibleBookmarkOverviewAfterPreload(dataGeneration, cacheGeneration);
+            }
+        };
+        bookmarkOverviewPreloadRefreshTask = task;
+        mainHandler.postDelayed(task, TAB_OVERVIEW_DEFERRED_SORT_DELAY_MS);
     }
 
     private void refreshVisibleBookmarkOverviewAfterPreload(
@@ -13900,9 +13909,8 @@ public class MainActivity extends Activity {
             bookmarkOverviewDataGeneration++;
             bookmarkOverviewCacheGeneration++;
             preloadedBookmarkOverviewSnapshot = null;
-            if (preferences != null) {
-                preferences.edit().remove(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE).apply();
-            }
+            preloadedBookmarkOverviewDataGeneration = -1;
+            preloadedBookmarkOverviewCacheGeneration = -1;
             bookmarkOverviewPreloadRequested = false;
             bookmarkOverviewPreloadForceRefresh = false;
             requestBookmarkOverviewPreloadLocked(true);
@@ -15865,6 +15873,48 @@ public class MainActivity extends Activity {
         return snapshot;
     }
 
+    private BookmarkOverviewSnapshot bookmarkOverviewRenderSeed(
+            Map<String, CuspTab> openThreadTabs,
+            Map<String, Integer> cachedUnreadByFolder) {
+        List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+        List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS, bookmarks);
+        Map<String, Integer> itemIndices = new LinkedHashMap<>();
+        for (int i = 0; i < bookmarks.size(); i++) {
+            SavedItem bookmark = bookmarks.get(i);
+            itemIndices.put(savedItemIdentity(bookmark.url, bookmark.folder), i);
+        }
+        Map<String, Integer> unreadByFolder = cachedUnreadByFolder == null
+                ? new LinkedHashMap<>() : new LinkedHashMap<>(cachedUnreadByFolder);
+        return new BookmarkOverviewSnapshot(
+                bookmarks,
+                folders,
+                preferenceJsonObject(PREF_BOOKMARK_ORDER),
+                new JSONObject(),
+                new JSONObject(),
+                itemIndices,
+                unreadByFolder,
+                openThreadTabs,
+                true);
+    }
+
+    private BookmarkOverviewSnapshot asBookmarkOverviewRenderSeed(
+            BookmarkOverviewSnapshot snapshot,
+            Map<String, CuspTab> openThreadTabs) {
+        if (snapshot == null) {
+            return bookmarkOverviewRenderSeed(openThreadTabs, null);
+        }
+        return new BookmarkOverviewSnapshot(
+                snapshot.bookmarks,
+                snapshot.folders,
+                snapshot.orderRoot,
+                snapshot.statusRoot,
+                snapshot.readPosts,
+                snapshot.itemIndices,
+                snapshot.unreadByFolder,
+                openThreadTabs,
+                true);
+    }
+
     private Map<String, Integer> bookmarkOverviewUnreadByFolder(
             List<SavedItem> bookmarks,
             JSONObject statusRoot,
@@ -15996,8 +16046,7 @@ public class MainActivity extends Activity {
             if (bookmarkArray == null || folderArray == null || unreadObject == null) {
                 return null;
             }
-            List<SavedItem> bookmarks = new ArrayList<>();
-            Map<String, Integer> itemIndices = new LinkedHashMap<>();
+            List<SavedItem> cachedBookmarks = new ArrayList<>();
             Set<String> seen = new LinkedHashSet<>();
             for (int i = 0; i < bookmarkArray.length(); i++) {
                 JSONObject item = bookmarkArray.optJSONObject(i);
@@ -16011,25 +16060,38 @@ public class MainActivity extends Activity {
                 if (title.isEmpty() || url.isEmpty() || seen.contains(identity)) {
                     continue;
                 }
-                itemIndices.put(identity, bookmarks.size());
-                bookmarks.add(new SavedItem(title, url, folder));
+                cachedBookmarks.add(new SavedItem(title, url, folder));
                 seen.add(identity);
             }
-            List<String> folders = new ArrayList<>();
+            List<String> cachedFolders = new ArrayList<>();
             for (int i = 0; i < folderArray.length(); i++) {
                 String folder = normalizeSavedFolder(folderArray.optString(i, ""));
-                if (!folder.isEmpty() && !folders.contains(folder)) {
-                    folders.add(folder);
+                if (!folder.isEmpty() && !cachedFolders.contains(folder)) {
+                    cachedFolders.add(folder);
                 }
             }
+            List<SavedItem> bookmarks = readSavedItems(PREF_THREAD_BOOKMARKS);
+            List<String> folders = readSavedFolders(PREF_THREAD_BOOKMARKS, bookmarks);
+            boolean structureMatches = sameBookmarkOverviewStructure(
+                    cachedBookmarks, cachedFolders, bookmarks, folders);
+            if (!structureMatches && includeDynamicState) {
+                return null;
+            }
             Map<String, Integer> unreadByFolder = new LinkedHashMap<>();
-            Iterator<String> unreadKeys = unreadObject.keys();
-            while (unreadKeys.hasNext()) {
-                String folder = normalizeSavedFolder(unreadKeys.next());
-                int unread = unreadObject.optInt(folder, 0);
-                if (unread > 0) {
-                    unreadByFolder.put(folder, unread);
+            if (structureMatches) {
+                Iterator<String> unreadKeys = unreadObject.keys();
+                while (unreadKeys.hasNext()) {
+                    String folder = normalizeSavedFolder(unreadKeys.next());
+                    int unread = unreadObject.optInt(folder, 0);
+                    if (unread > 0) {
+                        unreadByFolder.put(folder, unread);
+                    }
                 }
+            }
+            Map<String, Integer> itemIndices = new LinkedHashMap<>();
+            for (int i = 0; i < bookmarks.size(); i++) {
+                SavedItem bookmark = bookmarks.get(i);
+                itemIndices.put(savedItemIdentity(bookmark.url, bookmark.folder), i);
             }
             JSONObject statusRoot = includeDynamicState
                     ? preferenceJsonObject(PREF_BOOKMARK_OVERVIEW_STATUS) : new JSONObject();
@@ -16050,10 +16112,48 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean sameBookmarkOverviewStructure(
+            List<SavedItem> cachedBookmarks,
+            List<String> cachedFolders,
+            List<SavedItem> currentBookmarks,
+            List<String> currentFolders) {
+        if (cachedBookmarks == null || currentBookmarks == null
+                || cachedBookmarks.size() != currentBookmarks.size()
+                || cachedFolders == null || currentFolders == null
+                || !cachedFolders.equals(currentFolders)) {
+            return false;
+        }
+        for (int i = 0; i < cachedBookmarks.size(); i++) {
+            SavedItem cached = cachedBookmarks.get(i);
+            SavedItem current = currentBookmarks.get(i);
+            String cachedTitle = cached == null || cached.title == null ? "" : cached.title;
+            String currentTitle = current == null || current.title == null ? "" : current.title;
+            String cachedUrl = cached == null || cached.url == null ? "" : cached.url;
+            String currentUrl = current == null || current.url == null ? "" : current.url;
+            if (cached == null || current == null
+                    || !cachedTitle.equals(currentTitle)
+                    || !cachedUrl.equals(currentUrl)
+                    || !normalizeSavedFolder(cached.folder).equals(
+                            normalizeSavedFolder(current.folder))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void writeBookmarkOverviewRenderCache(
             BookmarkOverviewSnapshot snapshot,
             int expectedDataGeneration,
             int expectedCacheGeneration) {
+        writeBookmarkOverviewRenderCache(
+                snapshot, expectedDataGeneration, expectedCacheGeneration, false);
+    }
+
+    private void writeBookmarkOverviewRenderCache(
+            BookmarkOverviewSnapshot snapshot,
+            int expectedDataGeneration,
+            int expectedCacheGeneration,
+            boolean synchronous) {
         if (preferences == null || snapshot == null) {
             return;
         }
@@ -16091,10 +16191,38 @@ public class MainActivity extends Activity {
                         || expectedCacheGeneration != bookmarkOverviewCacheGeneration) {
                     return;
                 }
-                preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE, raw).apply();
+                SharedPreferences.Editor editor = preferences.edit()
+                        .putString(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE, raw);
+                if (synchronous) {
+                    editor.commit();
+                } else {
+                    editor.apply();
+                }
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private void persistBookmarkOverviewRenderCacheSynchronously() {
+        if (preferences == null) {
+            return;
+        }
+        Map<String, CuspTab> noOpenTabs = new LinkedHashMap<>();
+        BookmarkOverviewSnapshot snapshot = BookmarkOverviewStartupPolicy.immediate(
+                snapshotFromBookmarkOverviewPreload(noOpenTabs),
+                () -> readBookmarkOverviewRenderCache(noOpenTabs, false),
+                () -> bookmarkOverviewRenderSeed(noOpenTabs, null));
+        int dataGeneration;
+        int cacheGeneration;
+        synchronized (bookmarkOverviewPreloadLock) {
+            if (bookmarkOverviewPreloadStopped) {
+                return;
+            }
+            dataGeneration = bookmarkOverviewDataGeneration;
+            cacheGeneration = bookmarkOverviewCacheGeneration;
+        }
+        writeBookmarkOverviewRenderCache(
+                snapshot, dataGeneration, cacheGeneration, true);
     }
 
     private void populateHomeBookmarkSection(LinearLayout section) {
