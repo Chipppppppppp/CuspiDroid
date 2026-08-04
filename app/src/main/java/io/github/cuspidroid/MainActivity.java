@@ -384,11 +384,11 @@ public class MainActivity extends Activity {
     private static final int POPUP_RENDER_CHUNK_SIZE = 1;
     private static final int DEFERRED_TEXT_DECORATION_BUDGET = 4;
     private static final int SEARCH_INITIAL_SLOT_BATCH = 12;
-    private static final int SEARCH_DEFERRED_SLOT_BATCH = 20;
+    private static final int SEARCH_DEFERRED_SLOT_BATCH = 8;
     private static final int CUSTOM_BOARD_INITIAL_SLOT_BATCH = 8;
-    private static final int CUSTOM_BOARD_DEFERRED_SLOT_BATCH = 12;
+    private static final int CUSTOM_BOARD_DEFERRED_SLOT_BATCH = 4;
     private static final int SEARCH_VISIBLE_RENDER_BUDGET = 12;
-    private static final int SEARCH_SCROLL_RENDER_BUDGET = 8;
+    private static final int SEARCH_SCROLL_RENDER_BUDGET = 4;
     private static final int SEARCH_IDLE_RENDER_BUDGET = 16;
     private static final int EXTRACT_VISIBLE_RENDER_BUDGET = 8;
     private static final int EXTRACT_SCROLL_RENDER_BUDGET = 12;
@@ -10948,7 +10948,7 @@ public class MainActivity extends Activity {
     private void maybeAppendVirtualSearchSlots(ScrollView scroll, LinearLayout list,
                                                VirtualSearchState state) {
         if (scroll == null || list == null || state == null || list.getTag() != state
-                || state.appendedSlotCount >= state.slots.size()) {
+                || state.appendPending || state.appendedSlotCount >= state.slots.size()) {
             return;
         }
         int viewportHeight = scroll.getHeight();
@@ -10956,18 +10956,27 @@ public class MainActivity extends Activity {
             list.post(() -> maybeAppendVirtualSearchSlots(scroll, list, state));
             return;
         }
-        int prefetchEdge = scroll.getScrollY() + viewportHeight + viewportHeight / 2;
+        int prefetchEdge = scroll.getScrollY() + viewportHeight * 3;
         if (list.getHeight() > prefetchEdge) {
             return;
         }
-        int start = state.appendedSlotCount;
-        int end = Math.min(state.slots.size(), start + state.appendBatchSize);
-        state.appendedSlotCount = end;
-        appendVirtualSearchSlots(list, state.slots, start, end);
-        list.post(() -> {
-            if (list.getTag() == state) {
-                scheduleSearchSlotRefresh(list);
+        state.appendPending = true;
+        list.postOnAnimation(() -> {
+            state.appendPending = false;
+            if (list.getTag() != state) {
+                return;
             }
+            int start = state.appendedSlotCount;
+            int end = Math.min(state.slots.size(), start + state.appendBatchSize);
+            state.appendedSlotCount = end;
+            appendVirtualSearchSlots(list, state.slots, start, end);
+            list.postOnAnimation(() -> {
+                if (list.getTag() != state) {
+                    return;
+                }
+                scheduleSearchSlotRefresh(list);
+                maybeAppendVirtualSearchSlots(scroll, list, state);
+            });
         });
     }
 
@@ -25832,8 +25841,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (tab.readerMode && NATIVE_THREAD.equals(tab.nativeKind)) {
-            clearAddressFocus();
-            refreshThreadFromBottom(tab, false, true);
+            refreshTabFromTop(tab);
         } else {
             reload();
         }
@@ -31465,6 +31473,7 @@ public class MainActivity extends Activity {
         boolean refreshPending;
         int appendedSlotCount;
         int appendBatchSize = 1;
+        boolean appendPending;
         long lastScrollAt;
     }
 
