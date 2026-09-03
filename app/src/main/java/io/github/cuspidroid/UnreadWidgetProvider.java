@@ -18,7 +18,10 @@ import android.widget.RemoteViews;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Home-screen widget showing the total known unread posts in bookmarked threads. */
+import java.util.HashMap;
+import java.util.Map;
+
+/** Home-screen widget showing total unread posts across normal and bookmark tabs. */
 public final class UnreadWidgetProvider extends AppWidgetProvider {
     private static final int DEFAULT_SIZE_DP = 72;
 
@@ -132,21 +135,45 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
         return value > 0 ? value : defaultValue;
     }
 
-    private static String displayCount(int unread) {
-        return unread > 9999 ? "9999+" : String.valueOf(unread);
+    static String displayCount(int unread) {
+        return unread > 99999 ? "99K+" : String.valueOf(unread);
     }
 
     private static int totalUnread(SharedPreferences preferences) {
         long total = 0;
         try {
-            JSONArray bookmarks = new JSONArray(preferences.getString(
+            JSONArray tabs = savedTabs(preferences.getString(MainActivity.PREF_TABS, ""));
+            Map<String, Integer> normalTabResponses = new HashMap<>();
+            for (int index = 0; index < tabs.length(); index++) {
+                JSONObject tab = tabs.optJSONObject(index);
+                if (tab == null || tab.optBoolean("privateBrowsing", false) || isBookmarkTab(tab)) {
+                    continue;
+                }
+                if (tab.optBoolean("hasThreadStats", false)) {
+                    total += Math.max(0, tab.optInt("cachedUnreadCount", 0));
+                    if (total >= Integer.MAX_VALUE) {
+                        return Integer.MAX_VALUE;
+                    }
+                }
+                if ("thread".equals(tab.optString("nativeKind", ""))) {
+                    String identity = threadIdentity(tab.optString("url", ""));
+                    int responses = Math.max(tab.optInt("knownMaxPostNumber", 0),
+                            tab.optInt("knownPostCount", 0));
+                    if (!identity.isEmpty() && responses > 0) {
+                        normalTabResponses.put(identity,
+                                Math.max(responses, normalTabResponses.getOrDefault(identity, 0)));
+                    }
+                }
+            }
+
+            JSONArray bookmarks = jsonArray(preferences.getString(
                     MainActivity.PREF_THREAD_BOOKMARKS, "[]"));
-            JSONObject statuses = new JSONObject(preferences.getString(
+            JSONObject statuses = jsonObject(preferences.getString(
                     MainActivity.PREF_BOOKMARK_OVERVIEW_STATUS, "{}"));
             boolean readHistoryEnabled = !preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false)
                     && preferences.getBoolean(MainActivity.PREF_SAVE_READ_HISTORY, true);
             JSONObject readPosts = readHistoryEnabled
-                    ? new JSONObject(preferences.getString(MainActivity.PREF_READ_POSTS, "{}"))
+                    ? jsonObject(preferences.getString(MainActivity.PREF_READ_POSTS, "{}"))
                     : new JSONObject();
             for (int index = 0; index < bookmarks.length(); index++) {
                 JSONObject bookmark = bookmarks.optJSONObject(index);
@@ -163,6 +190,8 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
                     status = statuses.optJSONObject(url);
                 }
                 int responseCount = status == null ? 0 : Math.max(0, status.optInt("responseCount", 0));
+                responseCount = Math.max(responseCount,
+                        normalTabResponses.getOrDefault(threadIdentity(url), 0));
                 int read = Math.max(0, readPosts.optInt(url, 0));
                 total += Math.max(0, responseCount - read);
                 if (total >= Integer.MAX_VALUE) {
@@ -172,7 +201,51 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
         } catch (Exception ignored) {
             return 0;
         }
-        return (int) total;
+        return total >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
+    }
+
+    private static JSONArray savedTabs(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return new JSONArray();
+        }
+        try {
+            if (raw.trim().startsWith("{")) {
+                JSONArray legacy = new JSONObject(raw).optJSONArray("tabs");
+                return legacy == null ? new JSONArray() : legacy;
+            }
+            return new JSONArray(raw);
+        } catch (Exception ignored) {
+            return new JSONArray();
+        }
+    }
+
+    private static JSONArray jsonArray(String raw) {
+        try {
+            return new JSONArray(raw == null ? "[]" : raw);
+        } catch (Exception ignored) {
+            return new JSONArray();
+        }
+    }
+
+    private static JSONObject jsonObject(String raw) {
+        try {
+            return new JSONObject(raw == null ? "{}" : raw);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private static boolean isBookmarkTab(JSONObject tab) {
+        String scope = tab.optString("tabScope", "");
+        return "BOOKMARK".equals(scope)
+                || (scope.isEmpty() && tab.optBoolean("bookmarkOverviewTab", false));
+    }
+
+    private static String threadIdentity(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return "";
+        }
+        return trimTrailingSlashes(normalizeUrl(url));
     }
 
     private static String normalizeUrl(String value) {

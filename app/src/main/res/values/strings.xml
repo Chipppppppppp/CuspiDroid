@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">CuspiDroid</string>
-    <string name="widget_description">Shows the total unread posts in bookmarked threads</string>
+    <string name="widget_description">Shows total unread posts across normal and bookmark tabs</string>
     <string name="widget_icon_description">CuspiDroid icon</string>
-    <string name="widget_unread_description">CuspiDroid, %1$d unread posts in bookmarked threads</string>
+    <string name="widget_unread_description">CuspiDroid, %1$d unread posts across normal and bookmark tabs</string>
 </resources>
