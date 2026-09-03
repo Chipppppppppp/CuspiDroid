@@ -2,14 +2,13 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="2dp">
+    android:layout_height="match_parent">
 
     <ImageView
         android:id="@+id/widget_icon"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:contentDescription="@string/widget_icon_description"
-        android:scaleType="centerInside"
-        android:src="@mipmap/ic_launcher" />
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_launcher_foreground" />
 </FrameLayout>

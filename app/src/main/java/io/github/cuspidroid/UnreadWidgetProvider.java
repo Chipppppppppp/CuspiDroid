@@ -84,17 +84,17 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
         int size = Math.max(1, Math.min(512, Math.round(Math.min(widthDp, heightDp) * density)));
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        int inset = Math.max(1, Math.round(2f * density));
-        Drawable icon = context.getDrawable(R.mipmap.ic_launcher);
+        Drawable icon = context.getDrawable(R.drawable.ic_launcher_foreground);
         if (icon != null) {
-            icon.setBounds(inset, inset, size - inset, size - inset);
+            int overscan = Math.round(size * 0.30f);
+            icon.setBounds(-overscan, -overscan, size + overscan, size + overscan);
             icon.draw(canvas);
         }
 
-        float badgeWidth = size * 0.38f;
-        float badgeHeight = size * 0.20f;
+        float badgeWidth = size * 0.48f;
+        float badgeHeight = size * 0.25f;
         float centerX = size * 0.50f;
-        float centerY = size * 0.66f;
+        float centerY = size * 0.75f;
         RectF badge = new RectF(centerX - badgeWidth / 2f, centerY - badgeHeight / 2f,
                 centerX + badgeWidth / 2f, centerY + badgeHeight / 2f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
