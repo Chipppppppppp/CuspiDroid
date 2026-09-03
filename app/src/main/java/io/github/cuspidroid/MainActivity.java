@@ -12681,7 +12681,7 @@ public class MainActivity extends Activity {
                     }
                     if (edge > 0) {
                         refreshingBottom[0] = true;
-                        markReadTo(tab, maxPostNumber(tab.threadPage));
+                        markReadToPreservingTreeOrder(tab, maxPostNumber(tab.threadPage));
                         bottomLoader.setVisibility(View.VISIBLE);
                         bottomLoader.setRotation(0f);
                         setBottomRefreshSpinning(bottomLoader, true);
@@ -29478,6 +29478,15 @@ public class MainActivity extends Activity {
     }
 
     private void markReadTo(CuspTab tab, int number) {
+        markReadTo(tab, number, true);
+    }
+
+    private void markReadToPreservingTreeOrder(CuspTab tab, int number) {
+        if (tab != null && treeViewEnabled() && tab.treeRenderReadPostNumber >= 0) {
+            // A bottom-edge refresh changes the read state of existing posts, but their
+            // established tree order must remain stable while new posts are appended.
+            tab.treeRenderReadPostNumber = Math.max(tab.readPostNumber, number);
+        }
         markReadTo(tab, number, true);
     }
 
