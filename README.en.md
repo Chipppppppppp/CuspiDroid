@@ -16,7 +16,7 @@ CuspiDroid is an Android app for browsing and posting to 5ch and compatible BBS 
 
 ## Features
 
-- Multiple tabs, bookmarks, histories, unread tracking, and saved reading positions
+- Multiple tabs, bookmarks, histories, unread tracking, saved reading positions, and a home-screen widget showing total unread posts in bookmarked threads
 - Native board and thread views for 5ch and custom BBS sites, long-press thread URL copying, pull-to-refresh, and list sorting
 - URL entry, thread search, find-in-page, next-thread search, and Hissi Checker
 - Posting, thread creation, BBS authentication, name and email histories, and newest-first post history with thread titles, post numbers, names, and IDs

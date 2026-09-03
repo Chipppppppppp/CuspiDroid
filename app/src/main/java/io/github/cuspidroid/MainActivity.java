@@ -303,7 +303,7 @@ public class MainActivity extends Activity {
     static final String PREF_SYNC2CH_UPDATED_AT = "sync2ch_updated_at";
     static final String PREF_LOCAL_BACKUP_RESTORED_AT = "local_backup_restored_at";
     private static final String PREF_BOOKMARK_OVERVIEW_EXPANDED = "bookmark_overview_expanded";
-    private static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
+    static final String PREF_BOOKMARK_OVERVIEW_STATUS = "bookmark_overview_status";
     private static final String PREF_BOOKMARK_OVERVIEW_RENDER_CACHE = "bookmark_overview_render_cache";
     private static final String PREF_BOOKMARK_ORDER = "bookmark_order";
     private static final String PREF_FIVE_CH_BBSMENU_CACHE = "five_ch_bbsmenu_cache";
@@ -1109,12 +1109,14 @@ public class MainActivity extends Activity {
         }
         saveTabs(true);
         persistBookmarkOverviewRenderCacheSynchronously();
+        UnreadWidgetProvider.updateAll(this);
         super.onPause();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        UnreadWidgetProvider.updateAll(this);
         String favoriteSignature = favoritePostsSignature();
         if (!favoriteSignature.equals(appliedFavoritePostsSignature)) {
             reloadFavoritePosts();
