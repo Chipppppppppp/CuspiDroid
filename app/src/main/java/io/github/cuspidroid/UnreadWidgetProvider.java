@@ -11,8 +11,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.RemoteViews;
 
 import org.json.JSONArray;
@@ -20,8 +20,7 @@ import org.json.JSONObject;
 
 /** Home-screen widget showing the total known unread posts in bookmarked threads. */
 public final class UnreadWidgetProvider extends AppWidgetProvider {
-    private static final int DEFAULT_WIDTH_DP = 220;
-    private static final int DEFAULT_HEIGHT_DP = 96;
+    private static final int DEFAULT_SIZE_DP = 72;
 
     @Override
     public void onUpdate(Context context, AppWidgetManager manager, int[] appWidgetIds) {
@@ -55,14 +54,8 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
         int unread = totalUnread(preferences);
 
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_unread);
-        views.setImageViewBitmap(R.id.widget_background,
-                cardBackground(context, manager.getAppWidgetOptions(appWidgetId)));
-        views.setTextViewText(R.id.widget_unread_count, displayCount(unread));
-        views.setTextColor(R.id.widget_unread_count, Theme.text(context));
-        views.setTextColor(R.id.widget_unread_label, Theme.muted(context));
-        views.setViewVisibility(R.id.widget_unread_label, unread == 0 ? View.GONE : View.VISIBLE);
-        views.setViewVisibility(R.id.widget_unread_zero, unread == 0 ? View.VISIBLE : View.GONE);
-        views.setTextColor(R.id.widget_unread_zero, Theme.accent(context));
+        views.setImageViewBitmap(R.id.widget_icon,
+                widgetIcon(context, manager.getAppWidgetOptions(appWidgetId), displayCount(unread)));
 
         String description = context.getString(R.string.widget_unread_description, unread);
         views.setContentDescription(R.id.widget_root, description);
@@ -79,32 +72,52 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    private static Bitmap cardBackground(Context context, Bundle options) {
+    private static Bitmap widgetIcon(Context context, Bundle options, String count) {
         float density = context.getResources().getDisplayMetrics().density;
         int widthDp = option(options, AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH,
-                AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, DEFAULT_WIDTH_DP);
+                AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, DEFAULT_SIZE_DP);
         int heightDp = option(options, AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT,
-                AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, DEFAULT_HEIGHT_DP);
-        int width = Math.max(1, Math.min(1200, Math.round(widthDp * density)));
-        int height = Math.max(1, Math.min(600, Math.round(heightDp * density)));
-        float radius = Math.min(height / 2f, 22f * density);
-
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, DEFAULT_SIZE_DP);
+        int size = Math.max(1, Math.min(512, Math.round(Math.min(widthDp, heightDp) * density)));
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        RectF bounds = new RectF(density, density, width - density, height - density);
+        int inset = Math.max(1, Math.round(2f * density));
+        Drawable icon = context.getDrawable(R.mipmap.ic_launcher);
+        if (icon != null) {
+            icon.setBounds(inset, inset, size - inset, size - inset);
+            icon.draw(canvas);
+        }
+
+        float badgeWidth = size * 0.38f;
+        float badgeHeight = size * 0.20f;
+        float centerX = size * 0.50f;
+        float centerY = size * 0.66f;
+        RectF badge = new RectF(centerX - badgeWidth / 2f, centerY - badgeHeight / 2f,
+                centerX + badgeWidth / 2f, centerY + badgeHeight / 2f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paint.setColor(Theme.surface(context));
-        canvas.drawRoundRect(bounds, radius, radius, paint);
+        paint.setColor(Theme.accent(context));
+        canvas.drawRoundRect(badge, badgeHeight / 2f, badgeHeight / 2f, paint);
 
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(Math.max(1f, density));
-        paint.setColor(Theme.border(context));
-        canvas.drawRoundRect(bounds, radius, radius, paint);
+        paint.setStrokeWidth(Math.max(1f, density * 0.75f));
+        paint.setColor(Theme.surface(context));
+        canvas.drawRoundRect(badge, badgeHeight / 2f, badgeHeight / 2f, paint);
 
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Theme.accent(context));
-        RectF accent = new RectF(density, radius, 7f * density, height - radius);
-        canvas.drawRoundRect(accent, 3f * density, 3f * density, paint);
+        paint.setColor(Theme.contrastingText(Theme.accent(context)));
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTypeface(android.graphics.Typeface.create(
+                android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD));
+        float textSize = size * 0.15f;
+        paint.setTextSize(textSize);
+        float availableWidth = badgeWidth * 0.82f;
+        while (paint.measureText(count) > availableWidth && textSize > size * 0.075f) {
+            textSize -= size * 0.01f;
+            paint.setTextSize(textSize);
+        }
+        Paint.FontMetrics metrics = paint.getFontMetrics();
+        float baseline = centerY - (metrics.ascent + metrics.descent) / 2f;
+        canvas.drawText(count, centerX, baseline, paint);
         return bitmap;
     }
 

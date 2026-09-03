@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_unread_label">ブックマークの未読</string>
-    <string name="widget_all_read">すべて既読</string>
     <string name="widget_description">ブックマークしたスレッドの未読数を表示します</string>
     <string name="widget_icon_description">CuspiDroidのアイコン</string>
     <string name="widget_unread_description">CuspiDroid、ブックマークしたスレッドの未読%1$d件</string>
