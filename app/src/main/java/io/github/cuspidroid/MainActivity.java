@@ -3764,6 +3764,11 @@ public class MainActivity extends Activity {
                     tab.sessionId = UUID.randomUUID().toString();
                 }
                 activeSessionIds.add(tab.sessionId);
+                boolean currentTabForSave = tab == current;
+                if (isThreadPageNativeKind(tab.nativeKind)
+                        && tab.threadPage != null && tab.threadPage.error == null) {
+                    updateTabThreadStats(tab, tab.threadPage);
+                }
                 JSONObject item = new JSONObject();
                 item.put("sessionId", tab.sessionId);
                 item.put("url", tab.url == null ? "" : tab.url);
@@ -3796,10 +3801,6 @@ public class MainActivity extends Activity {
                     history.put(historyUrl);
                 }
                 item.put("navigationHistory", history);
-                boolean currentTabForSave = tab == current;
-                if (isThreadPageNativeKind(tab.nativeKind) && tab.threadPage != null && tab.threadPage.error == null) {
-                    updateTabThreadStats(tab, tab.threadPage);
-                }
                 if (currentTabForSave) {
                     persistCurrentTabPayload(tab, synchronous);
                 }
