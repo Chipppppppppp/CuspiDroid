@@ -18,6 +18,7 @@ import android.widget.RemoteViews;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -149,13 +150,14 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
                 if (tab == null || tab.optBoolean("privateBrowsing", false) || isBookmarkTab(tab)) {
                     continue;
                 }
-                if (tab.optBoolean("hasThreadStats", false)) {
+                boolean threadTab = "thread".equals(tab.optString("nativeKind", ""));
+                if (threadTab && tab.optBoolean("hasThreadStats", false)) {
                     total += Math.max(0, tab.optInt("cachedUnreadCount", 0));
                     if (total >= Integer.MAX_VALUE) {
                         return Integer.MAX_VALUE;
                     }
                 }
-                if ("thread".equals(tab.optString("nativeKind", ""))) {
+                if (threadTab) {
                     String identity = threadIdentity(tab.optString("url", ""));
                     int responses = Math.max(tab.optInt("knownMaxPostNumber", 0),
                             tab.optInt("knownPostCount", 0));
@@ -181,7 +183,7 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
                     continue;
                 }
                 String url = bookmark.optString("url", "").trim();
-                if (url.isEmpty()) {
+                if (!isThreadUrl(url)) {
                     continue;
                 }
                 String statusKey = trimTrailingSlashes(normalizeUrl(url));
@@ -246,6 +248,40 @@ public final class UnreadWidgetProvider extends AppWidgetProvider {
             return "";
         }
         return trimTrailingSlashes(normalizeUrl(url));
+    }
+
+    static boolean isThreadUrl(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            URI uri = new URI(normalizeUrl(url));
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.ROOT);
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            String lowerPath = path.toLowerCase(java.util.Locale.ROOT);
+            if (lowerPath.contains("/test/read.cgi/") || lowerPath.contains("/bbs/read.cgi/")) {
+                return true;
+            }
+            if ((host.equals("2chan.net") || host.endsWith(".2chan.net"))
+                    && lowerPath.matches("/[^/]+/res/\\d+\\.htm(?:/.*)?")) {
+                return true;
+            }
+            String[] rawParts = path.split("/");
+            int partCount = 0;
+            String secondPart = "";
+            for (String part : rawParts) {
+                if (part.isEmpty()) {
+                    continue;
+                }
+                if (partCount == 1) {
+                    secondPart = part;
+                }
+                partCount++;
+            }
+            return partCount >= 2 && secondPart.matches("\\d{9,13}");
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private static String normalizeUrl(String value) {
