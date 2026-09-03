@@ -8854,6 +8854,7 @@ public class MainActivity extends Activity {
         List<PostRenderItem> items = treeViewEnabled()
                 ? treePostRenderItemsForReadBoundary(page, tab.readPostNumber)
                 : flatPostRenderItems(page);
+        tab.treeRenderReadPostNumber = treeViewEnabled() ? tab.readPostNumber : -1;
         int generation = ++tab.threadRenderGeneration;
         tab.threadRendering = true;
         renderPostSlots(list, page, tab, items, list.getChildCount(), generation, null);
@@ -8867,12 +8868,57 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        if (treeViewEnabled() && tab.treeRenderReadPostNumber != tab.readPostNumber) {
+            rerenderThreadPostSlotsForReadBoundary(tab, onComplete);
+            return;
+        }
         List<PostRenderItem> items = treeViewEnabled()
                 ? treePostRenderItems(page, Math.max(0, fromPostIndex), tab.readPostNumber)
                 : flatPostRenderItems(page, Math.max(0, fromPostIndex));
         int generation = ++tab.threadRenderGeneration;
         tab.threadRendering = true;
         renderPostSlots(list, page, tab, items, list.getChildCount(), generation, onComplete);
+    }
+
+    private void rerenderThreadPostSlotsForReadBoundary(CuspTab tab, Runnable onComplete) {
+        if (tab == null || tab.threadPage == null || tab.threadList == null || tab.threadScroll == null) {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+            return;
+        }
+        LinearLayout list = tab.threadList;
+        tab.hasPendingThreadRefreshScroll = true;
+        tab.pendingThreadRefreshScrollY = tab.threadScroll.getScrollY();
+        int insertIndex = list.getChildCount();
+        for (int i = list.getChildCount() - 1; i >= 0; i--) {
+            View child = list.getChildAt(i);
+            if (child instanceof FrameLayout && child.getTag() instanceof VirtualPostSlot) {
+                insertIndex = i;
+                list.removeViewAt(i);
+            }
+        }
+        if (tab.postViews == null) {
+            tab.postViews = new LinkedHashMap<>();
+        } else {
+            tab.postViews.clear();
+        }
+        if (tab.postSlots == null) {
+            tab.postSlots = new LinkedHashMap<>();
+        } else {
+            tab.postSlots.clear();
+        }
+        if (tab.renderedPostSlots == null) {
+            tab.renderedPostSlots = new LinkedHashSet<>();
+        } else {
+            tab.renderedPostSlots.clear();
+        }
+        List<PostRenderItem> items = treePostRenderItemsForReadBoundary(
+                tab.threadPage, tab.readPostNumber);
+        tab.treeRenderReadPostNumber = tab.readPostNumber;
+        int generation = ++tab.threadRenderGeneration;
+        tab.threadRendering = true;
+        renderPostSlots(list, tab.threadPage, tab, items, insertIndex, generation, onComplete);
     }
 
     private void renderPostSlots(LinearLayout list, ThreadPage page, CuspTab tab, List<PostRenderItem> items,
@@ -9021,12 +9067,17 @@ public class MainActivity extends Activity {
         }
         List<PostRenderItem> items = new ArrayList<>();
         Set<Integer> rendered = new LinkedHashSet<>();
-        for (Post post : roots) {
-            collectTreePostRenderItems(post, children, rendered, 0, new LinkedHashSet<>(), items);
-        }
-        for (Post post : visible) {
-            if (!rendered.contains(post.number)) {
-                collectTreePostRenderItems(post, children, rendered, 0, new LinkedHashSet<>(), items);
+        for (boolean unread : new boolean[]{false, true}) {
+            for (Post post : roots) {
+                if (ThreadReadBoundary.isUnread(post.number, readPostNumber) == unread) {
+                    collectTreePostRenderItems(post, children, rendered, 0, new LinkedHashSet<>(), items);
+                }
+            }
+            for (Post post : visible) {
+                if (!rendered.contains(post.number)
+                        && ThreadReadBoundary.isUnread(post.number, readPostNumber) == unread) {
+                    collectTreePostRenderItems(post, children, rendered, 0, new LinkedHashSet<>(), items);
+                }
             }
         }
         return items;
@@ -9080,12 +9131,18 @@ public class MainActivity extends Activity {
             }
         }
         Set<Integer> rendered = new LinkedHashSet<>();
-        for (Post post : roots) {
-            addTreePostCard(list, page, tab, post, children, rendered, 0);
-        }
-        for (Post post : visible) {
-            if (!rendered.contains(post.number)) {
-                addTreePostCard(list, page, tab, post, children, rendered, 0);
+        int readPostNumber = tab == null ? 0 : tab.readPostNumber;
+        for (boolean unread : new boolean[]{false, true}) {
+            for (Post post : roots) {
+                if (ThreadReadBoundary.isUnread(post.number, readPostNumber) == unread) {
+                    addTreePostCard(list, page, tab, post, children, rendered, 0);
+                }
+            }
+            for (Post post : visible) {
+                if (!rendered.contains(post.number)
+                        && ThreadReadBoundary.isUnread(post.number, readPostNumber) == unread) {
+                    addTreePostCard(list, page, tab, post, children, rendered, 0);
+                }
             }
         }
     }
@@ -9113,7 +9170,6 @@ public class MainActivity extends Activity {
         if (post == null || post.body == null) {
             return 0;
         }
-        boolean unreadPost = post.number > readPostNumber;
         Matcher matcher = REPLY_PATTERN.matcher(post.body);
         while (matcher.find()) {
             int from = parsePositiveInt(matcher.group(1), -1);
@@ -9124,7 +9180,7 @@ public class MainActivity extends Activity {
                 if (number == 1 && skipFirstReplyInTree()) {
                     continue;
                 }
-                if (unreadPost && number <= readPostNumber) {
+                if (!ThreadReadBoundary.canAttachToParent(post.number, number, readPostNumber)) {
                     continue;
                 }
                 if (number > 0 && number < post.number && visibleNumbers.contains(number)) {
@@ -11911,16 +11967,12 @@ public class MainActivity extends Activity {
         View content = tab.threadScroll.getChildAt(0);
         int contentHeight = Math.max(1, content.getHeight());
         int frameHeight = Math.max(1, tab.scrollScrubber.getHeight());
-        int firstUnreadIndex = firstPostIndexAfter(tab.threadPage.posts, tab.readPostNumber);
-        if (firstUnreadIndex < 0) {
-            return;
-        }
-        View markerSource = postAnchorView(tab, tab.threadPage.posts.get(firstUnreadIndex).number);
+        View markerSource = firstUnreadPostSlot(tab);
         if (markerSource == null) {
             return;
         }
         int firstUnreadTop = Math.max(0, descendantTopWithin(markerSource, content));
-        if (firstUnreadTop == 0 && firstUnreadIndex > 0 && !markerSource.isLaidOut()) {
+        if (firstUnreadTop == 0 && !markerSource.isLaidOut()) {
             scheduleThreadScrollChromeRefresh(tab, 2);
             return;
         }
@@ -11933,25 +11985,21 @@ public class MainActivity extends Activity {
         markers.addView(marker, params);
     }
 
-    private int firstPostIndexAfter(List<Post> posts, int number) {
-        if (posts == null || posts.isEmpty()) {
-            return -1;
+    private View firstUnreadPostSlot(CuspTab tab) {
+        if (tab == null || tab.threadList == null) {
+            return null;
         }
-        int low = 0;
-        int high = posts.size() - 1;
-        int answer = -1;
-        while (low <= high) {
-            int mid = (low + high) >>> 1;
-            Post post = posts.get(mid);
-            int postNumber = post == null ? 0 : post.number;
-            if (postNumber > number) {
-                answer = mid;
-                high = mid - 1;
-            } else {
-                low = mid + 1;
+        for (int i = 0; i < tab.threadList.getChildCount(); i++) {
+            View child = tab.threadList.getChildAt(i);
+            Object tag = child.getTag();
+            if (tag instanceof VirtualPostSlot) {
+                Post post = ((VirtualPostSlot) tag).item.post;
+                if (post != null && ThreadReadBoundary.isUnread(post.number, tab.readPostNumber)) {
+                    return child;
+                }
             }
         }
-        return answer;
+        return null;
     }
 
     private void scheduleThreadPostVisibilityRefresh(CuspTab tab) {
@@ -29700,6 +29748,11 @@ public class MainActivity extends Activity {
         if (tab == null || tab.threadPage == null || tab.postViews == null) {
             return;
         }
+        if (treeViewEnabled() && tab.treeRenderReadPostNumber != tab.readPostNumber
+                && tab.threadList != null && tab.threadScroll != null) {
+            rerenderThreadPostSlotsForReadBoundary(tab, null);
+            return;
+        }
         for (Post post : tab.threadPage.posts) {
             View card = tab.postViews.get(post.number);
             if (card != null) {
@@ -31255,6 +31308,7 @@ public class MainActivity extends Activity {
         int contentScrollY;
         String contentScrollUrl = "";
         int readPostNumber;
+        int treeRenderReadPostNumber = -1;
         int knownMaxPostNumber;
         int knownPostCount;
         int knownBoardOrder;
