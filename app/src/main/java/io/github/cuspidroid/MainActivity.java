@@ -382,7 +382,6 @@ public class MainActivity extends Activity {
     private static final int THREAD_MEDIA_RENDER_COST = 2;
     private static final int POPUP_INITIAL_RENDER_COUNT = 1;
     private static final int POPUP_RENDER_CHUNK_SIZE = 1;
-    private static final int DEFERRED_TEXT_DECORATION_BUDGET = 4;
     private static final int SEARCH_INITIAL_SLOT_BATCH = 12;
     private static final int SEARCH_DEFERRED_SLOT_BATCH = 8;
     private static final int CUSTOM_BOARD_INITIAL_SLOT_BATCH = 8;
@@ -574,11 +573,9 @@ public class MainActivity extends Activity {
     private int newTabNavigationIndex = -1;
     private final List<LazyImgurPreview> lazyImgurPreviews = new ArrayList<>();
     private final List<DeferredMediaPreview> deferredMediaPreviews = new ArrayList<>();
-    private final List<DeferredTextDecoration> deferredTextDecorations = new ArrayList<>();
     private boolean imgurLoadInFlight;
     private Runnable lazyImgurTask;
     private Runnable deferredMediaTask;
-    private Runnable deferredTextTask;
     private CuspTab pendingScrollToBottomTab;
     private String appliedThemeMode;
     private String appliedButtonLayoutSignature;
@@ -18441,13 +18438,7 @@ public class MainActivity extends Activity {
 
     private TextView postBodyText(String value, ThreadPage page, String highlight) {
         TextView text = plainPostText(value);
-        boolean immediate = highlight != null && !highlight.trim().isEmpty();
-        if (immediate) {
-            decoratePostTextNow(text, value, page, highlight);
-        } else {
-            decoratePostUrlsNow(text, value);
-            deferPostTextDecoration(text, value, page, highlight);
-        }
+        decoratePostTextNow(text, value, page, highlight);
         return text;
     }
 
@@ -18466,36 +18457,6 @@ public class MainActivity extends Activity {
         text.setText(decoratedPostText(value, page, highlight));
         text.setMovementMethod(LinkMovementMethod.getInstance());
         installLinkTouchTracking(text);
-    }
-
-    private void decoratePostUrlsNow(TextView text, String value) {
-        SpannableString linkedText = new SpannableString(value == null ? "" : value);
-        addLooseUrlSpans(linkedText);
-        text.setText(linkedText);
-        text.setMovementMethod(LinkMovementMethod.getInstance());
-        installLinkTouchTracking(text);
-    }
-
-    private void deferPostTextDecoration(TextView text, String value, ThreadPage page, String highlight) {
-        DeferredTextDecoration decoration = new DeferredTextDecoration(text, value, page, highlight);
-        text.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-            @Override
-            public void onViewAttachedToWindow(View view) {
-                if (!deferredTextDecorations.contains(decoration)) {
-                    deferredTextDecorations.add(decoration);
-                }
-                scheduleDeferredTextDecorations();
-            }
-
-            @Override
-            public void onViewDetachedFromWindow(View view) {
-                deferredTextDecorations.remove(decoration);
-            }
-        });
-        if (text.isAttachedToWindow()) {
-            deferredTextDecorations.add(decoration);
-            scheduleDeferredTextDecorations();
-        }
     }
 
     private List<ImgurLink> imgurLinks(String value) {
@@ -19174,11 +19135,7 @@ public class MainActivity extends Activity {
             longClick.run();
             return true;
         });
-        if (tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
-            decoratePostTextNow(body, aaBody, page, tab.threadSearchQuery);
-        } else {
-            deferPostTextDecoration(body, aaBody, page, null);
-        }
+        decoratePostTextNow(body, aaBody, page, tab.threadSearchQuery);
         int[] lastAaWidth = new int[]{0};
         int estimatedWidth = estimatePostTextWidth(depth);
         if (estimatedWidth > 0) {
@@ -19611,69 +19568,8 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleThreadMediaLoads() {
-        scheduleDeferredTextDecorations();
         scheduleDeferredMediaLoads();
         scheduleLazyImgurLoads();
-    }
-
-    private void scheduleDeferredTextDecorations() {
-        if (deferredTextTask != null) {
-            return;
-        }
-        deferredTextTask = () -> {
-            deferredTextTask = null;
-            runDeferredTextDecorations();
-        };
-        mainHandler.postDelayed(deferredTextTask, 80);
-    }
-
-    private void runDeferredTextDecorations() {
-        CuspTab current = currentTab();
-        if (recentlyScrolled(current)) {
-            scheduleDeferredTextDecorations();
-            return;
-        }
-        for (int i = deferredTextDecorations.size() - 1; i >= 0; i--) {
-            DeferredTextDecoration decoration = deferredTextDecorations.get(i);
-            if (!decoration.text.isAttachedToWindow()) {
-                deferredTextDecorations.remove(i);
-            }
-        }
-        int usedBudget = 0;
-        for (DeferredTextDecoration decoration : new ArrayList<>(deferredTextDecorations)) {
-            if (decoration.decorated || !isNearViewport(decoration.text)) {
-                continue;
-            }
-            int cost = deferredTextDecorationCost(decoration.value);
-            if (usedBudget > 0 && usedBudget + cost > DEFERRED_TEXT_DECORATION_BUDGET) {
-                break;
-            }
-            decoration.decorated = true;
-            decoratePostTextNow(decoration.text, decoration.value, decoration.page, decoration.highlight);
-            deferredTextDecorations.remove(decoration);
-            usedBudget += cost;
-            if (usedBudget >= DEFERRED_TEXT_DECORATION_BUDGET) {
-                break;
-            }
-        }
-        if (usedBudget > 0 && !deferredTextDecorations.isEmpty()) {
-            scheduleDeferredTextDecorations();
-        }
-    }
-
-    private int deferredTextDecorationCost(String value) {
-        if (value == null || value.isEmpty()) {
-            return 1;
-        }
-        int cost = 1;
-        int lines = bodyLineCount(value);
-        if (maybeHeavyAaBody(value) || value.length() > 1000 || lines > 16) {
-            cost += 2;
-        }
-        if (value.length() > 3000 || lines > 45) {
-            cost += 2;
-        }
-        return Math.min(DEFERRED_TEXT_DECORATION_BUDGET, cost);
     }
 
     private void scheduleDeferredMediaLoads() {
@@ -31150,21 +31046,6 @@ public class MainActivity extends Activity {
             this.longClickAction = longClickAction;
             this.cellSize = cellSize;
             this.forceSensitive = forceSensitive;
-        }
-    }
-
-    private static class DeferredTextDecoration {
-        final TextView text;
-        final String value;
-        final ThreadPage page;
-        final String highlight;
-        boolean decorated;
-
-        DeferredTextDecoration(TextView text, String value, ThreadPage page, String highlight) {
-            this.text = text;
-            this.value = value;
-            this.page = page;
-            this.highlight = highlight;
         }
     }
 
