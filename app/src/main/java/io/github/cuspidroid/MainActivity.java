@@ -6424,6 +6424,10 @@ public class MainActivity extends Activity {
         }
         ThreadPage cached = readCachedThreadPage(loadUrl);
         if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
+            if (tab.deferredThreadUpdatePostNumber > maxPostNumber(cached)
+                    && isSavedThreadScrollAtBottom(tab)) {
+                tab.pendingNewPostPeekAfterNumber = maxPostNumber(cached);
+            }
             tab.title = cached.title;
             tab.threadPage = cached;
             tab.readPostNumber = readPostNumberForTab(tab, cached.url);
@@ -8989,7 +8993,7 @@ public class MainActivity extends Activity {
                     && !tab.threadSearchQuery.trim().isEmpty()) {
                 updateThreadSearch(tab.threadSearchQuery, false);
             }
-            if (!restoreThreadRefreshScroll(tab)) {
+            if (!restoreNewPostPeek(tab) && !restoreThreadRefreshScroll(tab)) {
                 restoreThreadScroll(tab);
             }
             runPendingScrollToBottom(tab);
@@ -24123,9 +24127,7 @@ public class MainActivity extends Activity {
             View content = tab.threadScroll.getChildAt(0);
             int oldBottom = Math.max(0, content.getHeight() - tab.threadScroll.getHeight());
             if (tab.pendingThreadRefreshScrollY >= oldBottom - dp(4)) {
-                // Keep the former last post in view while exposing the start of new posts.
-                tab.pendingThreadRefreshScrollY = Math.max(0,
-                        oldBottom + dp(32));
+                tab.pendingNewPostPeekAfterNumber = maxPostNumber(tab.threadPage);
             }
         }
     }
@@ -24136,6 +24138,69 @@ public class MainActivity extends Activity {
         }
         tab.hasPendingThreadRefreshScroll = false;
         tab.pendingThreadRefreshScrollY = 0;
+        tab.pendingNewPostPeekAfterNumber = 0;
+        tab.newPostPeekScheduled = false;
+    }
+
+    private boolean restoreNewPostPeek(CuspTab tab) {
+        if (tab == null || tab.pendingNewPostPeekAfterNumber <= 0 || tab.threadPage == null
+                || maxPostNumber(tab.threadPage) <= tab.pendingNewPostPeekAfterNumber) {
+            return false;
+        }
+        if (!tab.newPostPeekScheduled) {
+            tab.newPostPeekScheduled = true;
+            scrollToNewPostPeekWhenReady(tab, tab.pendingNewPostPeekAfterNumber, 0);
+        }
+        return true;
+    }
+
+    private void scrollToNewPostPeekWhenReady(CuspTab tab, int previousLastPostNumber, int attempt) {
+        if (tab == null || tab.threadScroll == null || tab.threadList == null
+                || tab.pendingNewPostPeekAfterNumber != previousLastPostNumber) {
+            return;
+        }
+        View target = firstPostSlotAfter(tab, previousLastPostNumber);
+        View content = tab.threadScroll.getChildCount() == 0 ? null : tab.threadScroll.getChildAt(0);
+        if (target == null || content == null || !target.isLaidOut()
+                || content.getHeight() <= tab.threadScroll.getHeight()) {
+            if (attempt < 12) {
+                tab.threadScroll.postDelayed(
+                        () -> scrollToNewPostPeekWhenReady(tab, previousLastPostNumber, attempt + 1), 50);
+            } else {
+                tab.newPostPeekScheduled = false;
+            }
+            return;
+        }
+        int targetTop = Math.max(0, descendantTopWithin(target, content));
+        int maxY = Math.max(0, content.getHeight() - tab.threadScroll.getHeight());
+        int y = ThreadScrollPosition.newPostPeek(
+                targetTop, tab.threadScroll.getHeight(), dp(40), maxY);
+        tab.threadScroll.scrollTo(0, y);
+        tab.pendingNewPostPeekAfterNumber = 0;
+        tab.newPostPeekScheduled = false;
+        tab.hasPendingThreadRefreshScroll = false;
+        tab.pendingThreadRefreshScrollY = 0;
+        rememberThreadScroll(tab);
+        requestSaveTabsSoon();
+        scheduleThreadPostVisibilityRefresh(tab);
+        scheduleThreadScrollChromeRefresh(tab, 6);
+    }
+
+    private View firstPostSlotAfter(CuspTab tab, int postNumber) {
+        if (tab == null || tab.threadList == null) {
+            return null;
+        }
+        for (int i = 0; i < tab.threadList.getChildCount(); i++) {
+            View child = tab.threadList.getChildAt(i);
+            Object tag = child.getTag();
+            if (tag instanceof VirtualPostSlot) {
+                Post post = ((VirtualPostSlot) tag).item.post;
+                if (post != null && post.number > postNumber) {
+                    return child;
+                }
+            }
+        }
+        return null;
     }
 
     private boolean restoreThreadRefreshScroll(CuspTab tab) {
@@ -24146,12 +24211,22 @@ public class MainActivity extends Activity {
         View content = tab.threadScroll.getChildAt(0);
         int range = Math.max(0, content.getHeight() - tab.threadScroll.getHeight());
         tab.threadScroll.scrollTo(0, Math.min(tab.pendingThreadRefreshScrollY, range));
+        int pendingNewPostPeekAfterNumber = tab.pendingNewPostPeekAfterNumber;
         clearThreadRefreshScroll(tab);
+        if (pendingNewPostPeekAfterNumber > 0
+                && maxPostNumber(tab.threadPage) <= pendingNewPostPeekAfterNumber) {
+            // A read-boundary rerender may finish while the network refresh is still running.
+            tab.pendingNewPostPeekAfterNumber = pendingNewPostPeekAfterNumber;
+        }
         scheduleThreadScrollChromeRefresh(tab, 6);
         return true;
     }
 
     private void restoreThreadScroll(CuspTab tab) {
+        if (restoreNewPostPeek(tab)) {
+            revealThreadAfterScrollRestore(tab, 0);
+            return;
+        }
         restoreThreadScroll(tab, 0);
     }
 
@@ -24388,24 +24463,17 @@ public class MainActivity extends Activity {
         if (tab == null || tab.threadScroll == null || tab.threadPage == null) {
             return false;
         }
-        View target = null;
-        for (Post post : tab.threadPage.posts) {
-            if (post.number > tab.readPostNumber) {
-                target = renderPostForJump(tab, post.number);
-                if (target != null) {
-                    break;
-                }
-            }
-        }
-        if (target == null && !tab.threadPage.posts.isEmpty()) {
-            for (int i = tab.threadPage.posts.size() - 1; i >= 0; i--) {
-                target = renderPostForJump(tab, tab.threadPage.posts.get(i).number);
-                if (target != null) {
-                    break;
-                }
-            }
-        }
+        View target = firstUnreadPostSlot(tab);
         if (target == null) {
+            if (tab.threadRendering) {
+                return false;
+            }
+            View scrollChild = tab.threadScroll.getChildAt(0);
+            int maxY = Math.max(0, scrollChild.getHeight() - tab.threadScroll.getHeight());
+            tab.threadScroll.scrollTo(0, maxY);
+            return true;
+        }
+        if (!target.isLaidOut()) {
             return false;
         }
         View scrollChild = tab.threadScroll.getChildAt(0);
@@ -24420,7 +24488,8 @@ public class MainActivity extends Activity {
             current = parent instanceof View ? (View) parent : null;
         }
         int maxY = Math.max(0, scrollChild.getHeight() - tab.threadScroll.getHeight());
-        tab.threadScroll.scrollTo(0, Math.max(0, Math.min(y - dp(8), maxY)));
+        tab.threadScroll.scrollTo(0, ThreadScrollPosition.centeredBoundary(
+                y, tab.threadScroll.getHeight(), maxY));
         return true;
     }
 
@@ -26143,6 +26212,9 @@ public class MainActivity extends Activity {
             loadedPostNumber = Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
         }
         if (status.responseCount > loadedPostNumber) {
+            if (isSavedThreadScrollAtBottom(tab)) {
+                tab.pendingNewPostPeekAfterNumber = loadedPostNumber;
+            }
             tab.deferredThreadUpdatePostNumber = Math.max(
                     tab.deferredThreadUpdatePostNumber, status.responseCount);
         }
@@ -31324,10 +31396,12 @@ public class MainActivity extends Activity {
         long lastScrollAt;
         long lastThreadScrollSaveAt;
         int pendingThreadRefreshScrollY;
+        int pendingNewPostPeekAfterNumber;
         int threadScrollChromeFrames;
         boolean hasSavedThreadScroll;
         boolean hasSavedContentScroll;
         boolean hasPendingThreadRefreshScroll;
+        boolean newPostPeekScheduled;
         boolean restoringScroll;
         boolean restoreFromBottom;
         boolean threadSearchOpen;
