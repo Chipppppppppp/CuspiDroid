@@ -375,6 +375,7 @@ public class MainActivity extends Activity {
     private static final int THREAD_INITIAL_SLOT_BATCH = 80;
     private static final int THREAD_DEFERRED_SLOT_BATCH = 160;
     private static final long THREAD_DEFERRED_SLOT_DELAY_MS = 4L;
+    private static final int DAT_STREAM_LINE_BATCH = 40;
     private static final int THREAD_VISIBLE_RENDER_BUDGET = 5;
     private static final int THREAD_IDLE_RENDER_BUDGET = 10;
     private static final int THREAD_SCROLL_RENDER_BUDGET = 3;
@@ -6421,6 +6422,8 @@ public class MainActivity extends Activity {
             return;
         }
         ThreadPage cached = readCachedThreadPage(loadUrl);
+        tab.streamingThreadUrl = cached == null ? loadUrl : "";
+        tab.pendingStreamingThreadPage = null;
         if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
             if (tab.deferredThreadUpdatePostNumber > maxPostNumber(cached)
                     && isSavedThreadScrollAtBottom(tab)) {
@@ -6451,13 +6454,18 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (page == null) {
-                    page = downloadThreadPage(loadUrl);
+                    page = cached == null
+                            ? downloadThreadPage(loadUrl, partial -> runOnUiThread(
+                                    () -> applyStreamingThreadProgress(tab, loadUrl, partial)))
+                            : downloadThreadPage(loadUrl);
                 }
             } catch (Exception error) {
                 page = ThreadPage.error(loadUrl, error.getMessage());
             }
                 ThreadPage result = page;
             runOnUiThread(() -> {
+                tab.streamingThreadUrl = "";
+                tab.pendingStreamingThreadPage = null;
                 resetTopRefreshLoader(tab.boardTopLoader);
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
                     tab.deferredThreadUpdateLoading = false;
@@ -7896,7 +7904,11 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage downloadThreadPage(String url) throws Exception {
-        ThreadPage datPage = downloadDatThread(url);
+        return downloadThreadPage(url, null);
+    }
+
+    private ThreadPage downloadThreadPage(String url, DatProgressListener progressListener) throws Exception {
+        ThreadPage datPage = downloadDatThread(url, progressListener);
         if (datPage != null && !datPage.posts.isEmpty()) {
             return datPage;
         }
@@ -7905,7 +7917,7 @@ public class MainActivity extends Activity {
             redirectedUrl = resolveRedirectedUrl(
                     url,
                     "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
-            datPage = downloadDatThread(redirectedUrl);
+            datPage = downloadDatThread(redirectedUrl, progressListener);
             if (datPage != null && !datPage.posts.isEmpty()) {
                 return datPage;
             }
@@ -8009,6 +8021,51 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> finishBoardLoad(
                     tab, loadUrl, result, loadGeneration));
         });
+    }
+
+    private void applyStreamingThreadProgress(CuspTab tab, String loadUrl, ThreadPage partial) {
+        if (tab == null || partial == null || partial.posts.isEmpty()
+                || !tabs.contains(tab) || !loadUrl.equals(tab.url)
+                || !loadUrl.equals(tab.streamingThreadUrl)) {
+            return;
+        }
+        if (tab.threadPage == null || tab.threadPage.posts.isEmpty()
+                || tab.readerView == null || isLoadingReaderView(tab.readerView)) {
+            tab.title = partial.title;
+            tab.threadPage = partial;
+            tab.readPostNumber = readPostNumberForTab(tab, partial.url);
+            updateTabThreadStats(tab, partial);
+            refreshTabOverviewValuesForTab(tab);
+            tab.postViews = new LinkedHashMap<>();
+            tab.readerView = buildThreadView(partial, tab);
+            if (tab == currentTab() && !tabOverviewVisible) {
+                switchToTab(currentIndex);
+            }
+            renderTabs();
+            return;
+        }
+        tab.pendingStreamingThreadPage = partial;
+        flushStreamingThreadProgress(tab);
+    }
+
+    private void flushStreamingThreadProgress(CuspTab tab) {
+        if (tab == null || tab.threadRendering || tab.pendingStreamingThreadPage == null) {
+            return;
+        }
+        ThreadPage partial = tab.pendingStreamingThreadPage;
+        tab.pendingStreamingThreadPage = null;
+        int oldCount = tab.threadPage == null ? 0 : tab.threadPage.posts.size();
+        if (partial.posts.size() <= oldCount || tab.threadList == null
+                || tab.postViews == null || tab.postSlots == null) {
+            return;
+        }
+        tab.title = partial.title;
+        tab.threadPage = partial;
+        updateThreadTitleHeader(tab, partial);
+        updateTabThreadStats(tab, partial);
+        refreshTabOverviewValuesForTab(tab);
+        renderAdditionalPostCardsIncrementally(tab.threadList, partial, tab, oldCount,
+                () -> flushStreamingThreadProgress(tab));
     }
 
     private void finishBoardLoad(CuspTab tab, String loadUrl, SearchPage result, int loadGeneration) {
@@ -9003,6 +9060,7 @@ public class MainActivity extends Activity {
         if (onComplete != null) {
             onComplete.run();
         }
+        flushStreamingThreadProgress(tab);
     }
 
     private void finishThreadRender(CuspTab tab) {
@@ -26541,6 +26599,10 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage downloadDatThread(String threadUrl) throws Exception {
+        return downloadDatThread(threadUrl, null);
+    }
+
+    private ThreadPage downloadDatThread(String threadUrl, DatProgressListener progressListener) throws Exception {
         String pageUrl = threadUrl;
         DatAddress address = datAddress(threadUrl);
         if (address == null) {
@@ -26557,10 +26619,24 @@ public class MainActivity extends Activity {
         if (address == null) {
             return null;
         }
+        final String streamThreadUrl = pageUrl;
         List<String> candidates = datCandidates(address);
         for (String candidate : candidates) {
             try {
-                DatDownload download = downloadDatBytes(candidate, 0);
+                ThreadPage streamed = new ThreadPage();
+                streamed.url = streamThreadUrl;
+                streamed.title = hostTitle(streamThreadUrl);
+                String effectiveCandidate = candidate;
+                DatDownload download = downloadDatBytes(candidate, 0,
+                        progressListener == null ? null : (lines, bytesRead) -> {
+                            appendDatLines(streamed, streamThreadUrl, lines);
+                            if (!streamed.posts.isEmpty()) {
+                                streamed.datUrl = effectiveCandidate;
+                                streamed.datByteLength = bytesRead;
+                                streamed.archived = isArchiveDatUrl(effectiveCandidate);
+                                progressListener.onProgress(cloneThreadPage(streamed));
+                            }
+                        });
                 ThreadPage page = parseDatThread(pageUrl, download.body);
                 page.datUrl = download.url;
                 page.datByteLength = download.totalByteLength;
@@ -26623,6 +26699,11 @@ public class MainActivity extends Activity {
     }
 
     private DatDownload downloadDatBytes(String url, long rangeStart) throws Exception {
+        return downloadDatBytes(url, rangeStart, null);
+    }
+
+    private DatDownload downloadDatBytes(String url, long rangeStart,
+                                         DatStreamReader.LineBatchListener lineListener) throws Exception {
         Map<String, String> headers = new LinkedHashMap<>();
         if (rangeStart > 0) {
             headers.put("Range", "bytes=" + rangeStart + "-");
@@ -26631,31 +26712,61 @@ public class MainActivity extends Activity {
                 url,
                 "Monazilla/1.00 CuspiDroid/0.1",
                 headers);
-        int code = connection.getResponseCode();
-        if (rangeStart > 0 && code == 416) {
-            long totalLength = totalLengthFromContentRange(connection.getHeaderField("Content-Range"));
-            if (totalLength <= 0) {
-                totalLength = rangeStart;
+        try {
+            int code = connection.getResponseCode();
+            if (rangeStart > 0 && code == 416) {
+                long totalLength = totalLengthFromContentRange(connection.getHeaderField("Content-Range"));
+                if (totalLength <= 0) {
+                    totalLength = rangeStart;
+                }
+                return new DatDownload(connection.getURL().toString(), "", totalLength, true, true);
             }
-            return new DatDownload(connection.getURL().toString(), "", totalLength, true, true);
+            InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (stream == null) {
+                throw new IllegalStateException("HTTP " + code);
+            }
+            String host = Uri.parse(url).getHost();
+            Charset charset = isShitarabaHost(host) ? Charset.forName("EUC-JP") : Charset.forName("MS932");
+            byte[] bytes;
+            try (InputStream input = stream) {
+                bytes = code >= 400 || lineListener == null
+                        ? readBytes(input)
+                        : DatStreamReader.read(input, charset, DAT_STREAM_LINE_BATCH, lineListener);
+            }
+            String body = new String(bytes, charset);
+            if (code >= 400) {
+                throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
+            }
+            boolean partial = rangeStart > 0 && code == HttpURLConnection.HTTP_PARTIAL;
+            long totalLength = partial ? totalLengthFromContentRange(connection.getHeaderField("Content-Range")) : bytes.length;
+            if (totalLength <= 0) {
+                totalLength = rangeStart + bytes.length;
+            }
+            return new DatDownload(connection.getURL().toString(), body, totalLength, partial, false);
+        } finally {
+            connection.disconnect();
         }
-        InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        if (stream == null) {
-            throw new IllegalStateException("HTTP " + code);
+    }
+
+    private void appendDatLines(ThreadPage target, String threadUrl, List<String> lines) {
+        if (target == null || lines == null || lines.isEmpty()) {
+            return;
         }
-        byte[] bytes = readBytes(stream);
-        String host = Uri.parse(url).getHost();
-        Charset charset = isShitarabaHost(host) ? Charset.forName("EUC-JP") : Charset.forName("MS932");
-        String body = new String(bytes, charset);
-        if (code >= 400) {
-            throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
+        StringBuilder dat = new StringBuilder();
+        for (String line : lines) {
+            dat.append(line == null ? "" : line).append('\n');
         }
-        boolean partial = rangeStart > 0 && code == HttpURLConnection.HTTP_PARTIAL;
-        long totalLength = partial ? totalLengthFromContentRange(connection.getHeaderField("Content-Range")) : bytes.length;
-        if (totalLength <= 0) {
-            totalLength = rangeStart + bytes.length;
+        int firstNumber = target.posts.isEmpty()
+                ? 1
+                : target.posts.get(target.posts.size() - 1).number + 1;
+        ThreadPage additional = parseDatThread(threadUrl, dat.toString(), firstNumber);
+        if (target.posts.isEmpty() && additional.title != null && !additional.title.trim().isEmpty()) {
+            target.title = additional.title;
         }
-        return new DatDownload(connection.getURL().toString(), body, totalLength, partial, false);
+        for (Post post : additional.posts) {
+            target.posts.add(post);
+            target.postsByNumber.put(post.number, post);
+        }
     }
 
     private long totalLengthFromContentRange(String value) {
@@ -31317,6 +31428,8 @@ public class MainActivity extends Activity {
         int threadRenderGeneration;
         boolean fastRenderToBottom;
         boolean threadRendering;
+        String streamingThreadUrl = "";
+        ThreadPage pendingStreamingThreadPage;
         boolean boardRefreshing;
         Runnable threadScrollChromeTask;
         Runnable threadPostVisibilityTask;
@@ -31824,6 +31937,10 @@ public class MainActivity extends Activity {
             this.partial = partial;
             this.unchanged = unchanged;
         }
+    }
+
+    private interface DatProgressListener {
+        void onProgress(ThreadPage page);
     }
 
     private static class SearchPage {
