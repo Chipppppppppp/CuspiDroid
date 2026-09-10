@@ -4878,8 +4878,8 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleDeferredThreadUpdate(CuspTab tab) {
-        if (tab == null || tab.deferredThreadUpdateLoading
-                || tab.deferredThreadUpdatePostNumber <= 0
+        if (tab == null || tab.deferredThreadUpdateLoading || tab.threadUpdateLoading || tab.threadRendering
+                || tab.deferredThreadUpdatePostNumber <= maxPostNumber(tab.threadPage)
                 || !NATIVE_THREAD.equals(tab.nativeKind)) {
             return;
         }
@@ -5752,24 +5752,7 @@ public class MainActivity extends Activity {
     }
 
     private void reloadFromTabBar(boolean privateScope) {
-        CuspTab openedTab = pendingNewTab ? null : currentTab();
-        String openedUrl = openedTab == null ? null : openedTab.url;
-        reloadAllTabs(true, () -> {
-            renderTabBar();
-            if (tabOverviewVisible || inlineWebViewMode) {
-                return;
-            }
-            if (openedTab != null && !pendingNewTab && currentTab() == openedTab
-                    && TextUtils.equals(openedUrl, openedTab.url)) {
-                if (NATIVE_THREAD.equals(openedTab.nativeKind)) {
-                    refreshThreadFromBottom(openedTab, false, true, false, null);
-                } else {
-                    refreshTabFromTop(openedTab);
-                }
-            } else if (openedTab == null && pendingNewTab && pendingPrivateNewTab == privateScope) {
-                renderCurrentNewTabPage();
-            }
-        }, privateScope);
+        reloadAllTabs(true, null, privateScope);
     }
 
     private void addBookmarkTabBarItems(List<BookmarkNode> nodes, BookmarkOverviewSnapshot snapshot) {
@@ -6642,6 +6625,19 @@ public class MainActivity extends Activity {
 
     private void loadThread(CuspTab tab, String url, boolean showFullLoading) {
         final String loadUrl = url;
+        if (tab.threadPage != null && tab.threadPage.error == null
+                && !tab.threadPage.posts.isEmpty() && sameSavedUrl(tab.threadPage.url, loadUrl)) {
+            tab.url = loadUrl;
+            tab.readerMode = true;
+            tab.nativeKind = NATIVE_THREAD;
+            if (tab.readerView == null || isLoadingReaderView(tab.readerView)) {
+                tab.postViews = new LinkedHashMap<>();
+                tab.readerView = buildThreadView(tab.threadPage, tab);
+                if (tab == currentTab() && !tabOverviewVisible) showCurrentReaderView(tab);
+            }
+            updateThreadWhenRendered(tab, loadUrl);
+            return;
+        }
         if (tab.url != null && !tab.url.isEmpty() && !sameSavedUrl(tab.url, loadUrl)) {
             tab.deferredThreadUpdatePostNumber = 0;
             tab.deferredThreadUpdateLoading = false;
@@ -6667,6 +6663,22 @@ public class MainActivity extends Activity {
         }
         progressBar.setVisibility(View.VISIBLE);
         mainHandler.post(() -> loadThreadAfterLoading(tab, loadUrl, keepExistingScroll, showFullLoading));
+    }
+
+    private void updateThreadWhenRendered(CuspTab tab, String loadUrl) {
+        whenThreadRendered(tab, loadUrl, () -> refreshThreadFromBottom(tab, false, false, false, null));
+    }
+
+    private void whenThreadRendered(CuspTab tab, String loadUrl, Runnable action) {
+        if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
+            finishDeferredThreadUpdate(tab, null);
+            return;
+        }
+        if (tab.threadRendering) {
+            mainHandler.postDelayed(() -> whenThreadRendered(tab, loadUrl, action), 32);
+            return;
+        }
+        action.run();
     }
 
     private void loadThreadAfterLoading(CuspTab tab, String loadUrl, boolean keepExistingScroll,
@@ -6697,29 +6709,20 @@ public class MainActivity extends Activity {
                 restoreThreadScroll(tab);
                 runPendingPostJump(tab);
             }
+            updateThreadWhenRendered(tab, loadUrl);
+            return;
         }
 
         ioExecutor.execute(() -> {
             ThreadPage page;
             try {
-                page = null;
-                if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
-                    try {
-                        page = downloadNewDatPosts(loadUrl, cached);
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (page == null) {
-                    page = cached == null
-                            ? downloadThreadPage(loadUrl, partial -> runOnUiThread(
-                                    () -> applyStreamingThreadProgress(tab, loadUrl, partial)))
-                            : downloadThreadPage(loadUrl);
-                }
+                page = downloadThreadPage(loadUrl, partial -> runOnUiThread(
+                        () -> applyStreamingThreadProgress(tab, loadUrl, partial)));
             } catch (Exception error) {
                 page = ThreadPage.error(loadUrl, error.getMessage());
             }
                 ThreadPage result = page;
-            runOnUiThread(() -> {
+            runOnUiThread(() -> whenThreadRendered(tab, loadUrl, () -> {
                 tab.streamingThreadUrl = "";
                 tab.pendingStreamingThreadPage = null;
                 resetTopRefreshLoader(tab.boardTopLoader);
@@ -6735,65 +6738,8 @@ public class MainActivity extends Activity {
                     replaceCurrentNavigationUrl(tab, loadUrl, result.url);
                     tab.url = result.url;
                 }
-                if (cached != null && cached.error == null && result.error == null
-                        && sameRenderedThread(cached, result)
-                        && tab.readerView != null && tab.threadPage == cached) {
-                    tab.title = result.title;
-                    applyThreadPageMetadata(cached, result);
-                    cached.url = result.url;
-                    tab.threadPage = cached;
-                    tab.readPostNumber = readPostNumberForTab(tab, result.url);
-                    updateTabThreadStats(tab, cached);
-                    refreshTabOverviewValuesForTab(tab);
-                    cacheThreadPage(result);
-                    addThreadHistory(tab, result.url, result.title);
-                    if (!tab.threadRendering) {
-                        progressBar.setVisibility(View.GONE);
-                    }
-                    if (tab == currentTab()) {
-                        restoreThreadScroll(tab);
-                        runPendingPostJump(tab);
-                    }
-                    renderTabs();
-                    return;
-                }
-                if (cached != null && cached.error == null && result.error == null
-                        && result.newPostCount > 0
-                        && tab.readerView != null && tab.threadPage == cached
-                        && tab.threadList != null && tab.postViews != null && tab.postSlots != null
-                        && !tab.threadRendering) {
-                    int oldCount = Math.max(0, result.posts.size() - result.newPostCount);
-                    tab.title = result.title;
-                    tab.threadPage = result;
-                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
-                    updateThreadTitleHeader(tab, result);
-                    updateTabThreadStats(tab, result);
-                    refreshTabOverviewValuesForTab(tab);
-                    cacheThreadPage(result);
-                    addThreadHistory(tab, result.url, result.title);
-                    renderAdditionalPostCardsIncrementally(tab.threadList, result, tab, oldCount, () -> {
-                        if (tab == currentTab()) {
-                            progressBar.setVisibility(View.GONE);
-                            restoreThreadScroll(tab);
-                            runPendingPostJump(tab);
-                        }
-                        renderTabs();
-                    });
-                    return;
-                }
                 if (result.error != null) {
                     Toast.makeText(this, friendlyThreadLoadError(result.error), Toast.LENGTH_SHORT).show();
-                    if (cached != null && cached.error == null && !cached.posts.isEmpty()) {
-                        tab.title = cached.title;
-                        tab.threadPage = cached;
-                        updateTabThreadStats(tab, cached);
-                        refreshTabOverviewValuesForTab(tab);
-                        if (!tab.threadRendering) {
-                            progressBar.setVisibility(View.GONE);
-                        }
-                        renderTabs();
-                        return;
-                    }
                     if (tab.threadPage != null && tab.threadPage.error == null && !tab.threadPage.posts.isEmpty()) {
                         if (!tab.threadRendering) {
                             progressBar.setVisibility(View.GONE);
@@ -6802,6 +6748,34 @@ public class MainActivity extends Activity {
                         return;
                     }
                     result.error = text("\u30ad\u30e3\u30c3\u30b7\u30e5\u304c\u306a\u304f\u3001\u30b9\u30ec\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002", "Could not load the thread and no cache is available.");
+                }
+                if (result.error == null && tab.threadPage != null
+                        && sameSavedUrl(tab.threadPage.url, loadUrl)
+                        && !tab.threadPage.posts.isEmpty() && tab.threadList != null
+                        && tab.postSlots != null && result.posts.size() >= tab.threadPage.posts.size()) {
+                    // Streaming may already have displayed most or all of this initial download.
+                    ThreadPage displayed = tab.threadPage;
+                    int oldCount = displayed.posts.size();
+                    applyThreadPageMetadata(displayed, result);
+                    IncrementalPosts.append(displayed.posts, displayed.postsByNumber,
+                            result.posts.subList(oldCount, result.posts.size()), post -> post.number);
+                    displayed.copyPasteIndexBuilt = false;
+                    displayed.sensitiveMediaReplyTargets = null;
+                    tab.title = displayed.title;
+                    updateTabThreadStats(tab, displayed);
+                    cacheThreadPage(displayed);
+                    addThreadHistory(tab, result.url, displayed.title);
+                    Runnable done = () -> {
+                        if (tab == currentTab()) progressBar.setVisibility(View.GONE);
+                        refreshTabOverviewValuesForTab(tab);
+                        renderTabs();
+                    };
+                    if (displayed.posts.size() > oldCount) {
+                        renderAdditionalPostCardsIncrementally(tab.threadList, displayed, tab, oldCount, done);
+                    } else {
+                        done.run();
+                    }
+                    return;
                 }
                 tab.title = result.title;
                 tab.threadPage = result;
@@ -6826,7 +6800,7 @@ public class MainActivity extends Activity {
                     restoreThreadScroll(tab);
                 }
                 renderTabs();
-            });
+            }));
         });
     }
 
@@ -7094,27 +7068,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean sameRenderedThread(ThreadPage a, ThreadPage b) {
-        if (a == null || b == null || a.posts.size() != b.posts.size()) {
-            return false;
-        }
-        if (!TextUtils.equals(a.title, b.title)) {
-            return false;
-        }
-        if (a.archived != b.archived) {
-            return false;
-        }
-        if (a.posts.isEmpty()) {
-            return true;
-        }
-        Post lastA = a.posts.get(a.posts.size() - 1);
-        Post lastB = b.posts.get(b.posts.size() - 1);
-        return lastA.number == lastB.number
-                && TextUtils.equals(lastA.body, lastB.body)
-                && TextUtils.equals(lastA.date, lastB.date)
-                && TextUtils.equals(lastA.id(), lastB.id());
-    }
-
     private void updateThreadTitleHeader(CuspTab tab, ThreadPage page) {
         if (tab == null || page == null || tab.threadList == null || tab.threadList.getChildCount() == 0) {
             return;
@@ -7140,147 +7093,96 @@ public class MainActivity extends Activity {
     private void refreshThreadFromBottom(CuspTab tab, boolean forceScrollToBottom, boolean centerSpinner,
                                          boolean markReadWhenNoNewPosts, Runnable onComplete) {
         if (tab == null || tab.url == null || tab.url.isEmpty()) {
-            if (centerSpinner) {
-                hideCenterSpinner();
-            }
-            if (onComplete != null) {
-                onComplete.run();
-            }
+            if (onComplete != null) onComplete.run();
             return;
         }
-        if (!forceScrollToBottom) {
-            rememberThreadRefreshScroll(tab);
+        if (tab.threadUpdateLoading || tab.threadRendering) {
+            if (tab == currentTab()) progressBar.setVisibility(View.GONE);
+            resetTopRefreshLoader(tab.boardTopLoader);
+            resetBottomRefreshLoader(tab.threadBottomLoader);
+            if (onComplete != null) onComplete.run();
+            return;
         }
-        if (centerSpinner) {
-            showCenterSpinner();
+        if (tab.threadPage == null || tab.threadPage.posts.isEmpty()) {
+            loadThread(tab, tab.url, false);
+            if (onComplete != null) onComplete.run();
+            return;
         }
+        final String loadUrl = tab.url;
+        final ThreadPage existing = tab.threadPage;
+        final int oldCount = existing.posts.size();
+        final ThreadPage snapshot = cloneThreadPage(existing);
+        tab.threadUpdateLoading = true;
+        if (!forceScrollToBottom) rememberThreadRefreshScroll(tab);
+        if (centerSpinner) showCenterSpinner();
+        Runnable complete = () -> {
+            tab.threadUpdateLoading = false;
+            if (centerSpinner) hideCenterSpinner();
+            resetTopRefreshLoader(tab.boardTopLoader);
+            resetBottomRefreshLoader(tab.threadBottomLoader);
+            if (tab == currentTab()) progressBar.setVisibility(View.GONE);
+            if (onComplete != null) onComplete.run();
+        };
         ioExecutor.execute(() -> {
             ThreadPage page;
-            boolean partialUpdate = false;
             try {
-                ThreadPage partialPage = null;
-                try {
-                    partialPage = downloadNewDatPosts(tab);
-                } catch (Exception ignored) {
-                }
-                if (partialPage != null) {
-                    page = partialPage;
-                    partialUpdate = true;
-                } else {
-                    page = downloadDatThread(tab.url);
-                    if (page == null) {
-                        String html = download(tab.url);
-                        page = parseThread(tab.url, html);
-                    }
-                }
+                page = downloadNewDatPosts(loadUrl, snapshot);
             } catch (Exception error) {
-                page = ThreadPage.error(tab.url, error.getMessage());
+                page = ThreadPage.error(loadUrl, error.getMessage());
             }
             ThreadPage result = page;
-            boolean wasPartialUpdate = partialUpdate;
             runOnUiThread(() -> {
-                if (centerSpinner) {
-                    hideCenterSpinner();
+                if (!tabs.contains(tab) || !loadUrl.equals(tab.url) || tab.threadPage != existing) {
+                    finishDeferredThreadUpdate(tab, null);
+                    complete.run();
+                    return;
                 }
-                if ((tab.threadPage != null && tab.threadPage.archived) || tab.knownThreadArchived) {
-                    result.archived = true;
-                }
-                if (tab.threadBottomLoader != null) {
-                    resetBottomRefreshLoader(tab.threadBottomLoader);
-                }
+                finishDeferredThreadUpdate(tab, result);
                 if (result.error != null) {
                     clearThreadRefreshScroll(tab);
                     Toast.makeText(this, friendlyThreadLoadError(result.error), Toast.LENGTH_SHORT).show();
-                    if (onComplete != null) {
-                        onComplete.run();
-                    }
+                    complete.run();
                     return;
                 }
-                int oldCount = wasPartialUpdate
-                        ? Math.max(0, result.posts.size() - result.newPostCount)
-                        : (tab.threadPage == null ? 0 : tab.threadPage.posts.size());
-                if (oldCount <= 0 || tab.threadList == null || tab.postViews == null
-                        || tab.postSlots == null || tab.threadRendering) {
-                    tab.title = result.title;
-                    tab.threadPage = result;
-                    updateThreadTitleHeader(tab, result);
-                    tab.readPostNumber = readPostNumberForTab(tab, result.url);
-                    updateTabThreadStats(tab, result);
-                    tab.postViews = new LinkedHashMap<>();
-                    tab.readerView = buildThreadView(result, tab);
-                    clearThreadRefreshScroll(tab);
-                    cacheThreadPage(result);
-                    if (tab == currentTab()) {
-                        switchToTab(currentIndex);
-                        if (tab.threadSearchOpen && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
+                result.archived |= existing.archived || tab.knownThreadArchived;
+                // Reuse loaded Post instances and all existing view/slot objects.
+                applyThreadPageMetadata(existing, result);
+                IncrementalPosts.append(existing.posts, existing.postsByNumber,
+                        result.posts.subList(oldCount, result.posts.size()), post -> post.number);
+                existing.newPostCount = result.newPostCount;
+                if (result.newPostCount > 0) {
+                    existing.copyPasteIndexBuilt = false;
+                    existing.sensitiveMediaReplyTargets = null;
+                }
+                tab.title = existing.title;
+                tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, loadUrl));
+                updateTabThreadStats(tab, existing);
+                cacheThreadPage(existing);
+                if (result.newPostCount > 0) addThreadHistory(tab, loadUrl, existing.title);
+                if (result.newPostCount > 0 && markExistingReadOnThreadUpdate()) {
+                    markReadToPreservingTreeOrder(tab, lastExistingPostNumber(existing, oldCount));
+                } else if (result.newPostCount == 0 && markExistingReadOnThreadUpdate()
+                        && markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
+                    markReadToPreservingTreeOrder(tab, maxPostNumber(existing));
+                }
+                Runnable rendered = () -> {
+                    if (tab == currentTab() && !tabOverviewVisible && !pendingNewTab) {
+                        if (tab.threadSearchOpen && tab.threadSearchQuery != null
+                                && !tab.threadSearchQuery.trim().isEmpty()) {
                             updateThreadSearch(tab.threadSearchQuery, false);
                         }
-                        if (forceScrollToBottom) {
-                            scrollCurrentThreadToBottom();
-                        }
+                        if (forceScrollToBottom) scrollCurrentThreadToBottom();
                     }
                     renderTabs();
                     refreshTabOverviewValuesForTab(tab);
-                    if (onComplete != null) {
-                        onComplete.run();
-                    }
-                    return;
-                }
-                if (result.posts.size() <= oldCount) {
+                    complete.run();
+                };
+                if (result.newPostCount > 0 && tab.threadList != null && tab.postSlots != null) {
+                    renderAdditionalPostCardsIncrementally(tab.threadList, existing, tab, oldCount, rendered);
+                } else {
                     clearThreadRefreshScroll(tab);
-                    tab.title = result.title;
-                    tab.threadPage = result;
-                    updateThreadTitleHeader(tab, result);
-                    cacheThreadPage(result);
-                    tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
-                    updateTabThreadStats(tab, result);
-                    if (markExistingReadOnThreadUpdate()
-                            && markReadWhenNoNewPosts && !centerSpinner && !forceScrollToBottom) {
-                        markReadTo(tab, maxPostNumber(result), false);
-                    }
-                    renderTabs();
-                    if (tab == currentTab()) {
-                        updateBottomThreadBar(tab);
-                    }
-                    refreshTabOverviewValuesForTab(tab);
-                    if (tab == currentTab() && tab.threadSearchOpen
-                            && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
-                        updateThreadSearch(tab.threadSearchQuery, false);
-                    }
-                    if (forceScrollToBottom) {
-                        scrollCurrentThreadToBottom();
-                    }
-                    if (onComplete != null) {
-                        onComplete.run();
-                    }
-                    return;
+                    rendered.run();
                 }
-                tab.threadPage = result;
-                updateThreadTitleHeader(tab, result);
-                tab.readPostNumber = Math.max(tab.readPostNumber, readPostNumberForTab(tab, result.url));
-                updateTabThreadStats(tab, result);
-                if (markExistingReadOnThreadUpdate()) {
-                    markReadTo(tab, lastExistingPostNumber(result, oldCount), false);
-                }
-                tab.title = result.title;
-                if (result.error == null && !result.posts.isEmpty()) {
-                    cacheThreadPage(result);
-                    addThreadHistory(tab, result.url, result.title);
-                }
-                renderAdditionalPostCardsIncrementally(tab.threadList, result, tab, oldCount, () -> {
-                    if (tab == currentTab() && tab.threadSearchOpen
-                            && tab.threadSearchQuery != null && !tab.threadSearchQuery.trim().isEmpty()) {
-                        updateThreadSearch(tab.threadSearchQuery, false);
-                    }
-                    if (tab == currentTab() && forceScrollToBottom) {
-                        scrollCurrentThreadToBottom();
-                    }
-                    renderTabs();
-                    refreshTabOverviewValuesForTab(tab);
-                    if (onComplete != null) {
-                        onComplete.run();
-                    }
-                });
             });
         });
     }
@@ -8144,6 +8046,10 @@ public class MainActivity extends Activity {
     private String friendlyThreadLoadError(String detail) {
         String raw = detail == null ? "" : detail.trim();
         String lower = raw.toLowerCase(Locale.ROOT);
+        if (lower.contains("incremental") || lower.contains("content-range")) {
+            return text("新着の差分を取得できませんでした。読み込み済みの投稿は保持しています。",
+                    "Could not fetch new posts incrementally. Loaded posts have been kept.");
+        }
         if (lower.contains("unable to resolve host")
                 || lower.contains("no address associated with hostname")
                 || lower.contains("failed to connect")
@@ -9183,10 +9089,6 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        if (treeViewEnabled() && tab.treeRenderReadPostNumber != tab.readPostNumber) {
-            rerenderThreadPostSlotsForReadBoundary(tab, onComplete);
-            return;
-        }
         List<PostRenderItem> items = treeViewEnabled()
                 ? treePostRenderItems(page, Math.max(0, fromPostIndex), tab.readPostNumber)
                 : flatPostRenderItems(page, Math.max(0, fromPostIndex));
@@ -9317,6 +9219,9 @@ public class MainActivity extends Activity {
             onComplete.run();
         }
         flushStreamingThreadProgress(tab);
+        if (tab == currentTab() && !pendingNewTab && !tabOverviewVisible) {
+            scheduleDeferredThreadUpdate(tab);
+        }
     }
 
     private void finishThreadRender(CuspTab tab) {
@@ -26270,6 +26175,10 @@ public class MainActivity extends Activity {
                         syncClosedTabUndoBar();
                     }
                 }
+                renderTabs();
+                if (!tabOverviewVisible && !pendingNewTab && !inlineWebViewMode) {
+                    scheduleDeferredThreadUpdate(currentTab());
+                }
                 if (onComplete != null) {
                     onComplete.run();
                 }
@@ -26473,9 +26382,6 @@ public class MainActivity extends Activity {
             loadedPostNumber = Math.max(tab.knownMaxPostNumber, tab.knownPostCount);
         }
         if (status.responseCount > loadedPostNumber) {
-            if (isSavedThreadScrollAtBottom(tab)) {
-                tab.pendingNewPostPeekAfterNumber = loadedPostNumber;
-            }
             tab.deferredThreadUpdatePostNumber = Math.max(
                     tab.deferredThreadUpdatePostNumber, status.responseCount);
         }
@@ -26516,7 +26422,7 @@ public class MainActivity extends Activity {
     }
 
     private void finishDeferredThreadUpdate(CuspTab tab, ThreadPage result) {
-        if (tab == null || !tab.deferredThreadUpdateLoading) {
+        if (tab == null) {
             return;
         }
         tab.deferredThreadUpdateLoading = false;
@@ -26956,52 +26862,29 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private ThreadPage downloadNewDatPosts(CuspTab tab) throws Exception {
-        if (tab == null || tab.threadPage == null || tab.threadPage.posts.isEmpty()
-                || tab.threadPage.datUrl == null || tab.threadPage.datUrl.isEmpty()
-                || tab.threadPage.datByteLength <= 0) {
-            return null;
-        }
-        return downloadNewDatPosts(tab.url, tab.threadPage);
-    }
-
     private ThreadPage downloadNewDatPosts(String threadUrl, ThreadPage existing) throws Exception {
-        if (existing == null || existing.posts == null || existing.posts.isEmpty()
-                || existing.datUrl == null || existing.datUrl.isEmpty()
-                || existing.datByteLength <= 0) {
-            return null;
+        if (existing == null || existing.posts.isEmpty() || existing.datUrl == null
+                || existing.datUrl.isEmpty() || existing.datByteLength <= 0) {
+            throw new IllegalStateException("Incremental update unavailable");
         }
         DatDownload download = downloadDatBytes(existing.datUrl, existing.datByteLength);
-        if (download.unchanged || (download.partial && download.body.trim().isEmpty())) {
-            ThreadPage unchanged = cloneThreadPage(existing);
-            unchanged.url = threadUrl;
-            unchanged.datUrl = download.url;
-            unchanged.datByteLength = Math.max(existing.datByteLength, download.totalByteLength);
-            unchanged.archived = existing.archived || isArchiveDatUrl(download.url);
-            unchanged.newPostCount = 0;
-            return unchanged;
-        }
-        if (!download.partial) {
-            ThreadPage full = parseDatThread(threadUrl, download.body);
-            full.datUrl = download.url;
-            full.datByteLength = download.totalByteLength;
-            full.archived = existing.archived || isArchiveDatUrl(download.url);
-            full.newPostCount = Math.max(0, full.posts.size() - existing.posts.size());
-            return full;
+        ThreadPage merged = cloneThreadPage(existing);
+        merged.url = threadUrl;
+        merged.datUrl = download.url;
+        merged.archived |= isArchiveDatUrl(download.url);
+        merged.newPostCount = 0;
+        if (download.unchanged || download.body.isEmpty()) return merged;
+        // A trailing incomplete line is retried on the next update, never cached as a full post.
+        if (!download.body.endsWith("\n")) {
+            throw new IllegalStateException("Incomplete incremental DAT response");
         }
         ThreadPage additional = parseDatThread(threadUrl, download.body,
-                existing.posts.get(existing.posts.size() - 1).number + 1);
+                maxPostNumber(existing) + 1);
         if (additional.posts.isEmpty()) {
-            return null;
+            throw new IllegalStateException("Invalid incremental DAT response");
         }
-        ThreadPage merged = cloneThreadPage(existing);
-        merged.datUrl = download.url;
+        IncrementalPosts.append(merged.posts, merged.postsByNumber, additional.posts, post -> post.number);
         merged.datByteLength = download.totalByteLength;
-        merged.archived = existing.archived || isArchiveDatUrl(download.url);
-        for (Post post : additional.posts) {
-            merged.posts.add(post);
-            merged.postsByNumber.put(post.number, post);
-        }
         merged.newPostCount = additional.posts.size();
         return merged;
     }
@@ -27015,6 +26898,7 @@ public class MainActivity extends Activity {
         Map<String, String> headers = new LinkedHashMap<>();
         if (rangeStart > 0) {
             headers.put("Range", "bytes=" + rangeStart + "-");
+            headers.put("Accept-Encoding", "identity");
         }
         HttpURLConnection connection = openConnectionFollowingRedirects(
                 url,
@@ -27022,12 +26906,15 @@ public class MainActivity extends Activity {
                 headers);
         try {
             int code = connection.getResponseCode();
-            if (rangeStart > 0 && code == 416) {
-                long totalLength = totalLengthFromContentRange(connection.getHeaderField("Content-Range"));
-                if (totalLength <= 0) {
-                    totalLength = rangeStart;
+            if (rangeStart > 0) {
+                DatRangePolicy.validate(code, connection.getHeaderField("Content-Range"), rangeStart);
+                String encoding = connection.getContentEncoding();
+                if (encoding != null && !encoding.isEmpty() && !"identity".equalsIgnoreCase(encoding)) {
+                    throw new IllegalStateException("Invalid incremental response encoding");
                 }
-                return new DatDownload(connection.getURL().toString(), "", totalLength, true, true);
+                if (code == 416) {
+                    return new DatDownload(connection.getURL().toString(), "", rangeStart, true, true);
+                }
             }
             InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
             if (stream == null) {
@@ -27051,7 +26938,9 @@ public class MainActivity extends Activity {
                 throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
             }
             boolean partial = rangeStart > 0 && code == HttpURLConnection.HTTP_PARTIAL;
-            long totalLength = partial ? totalLengthFromContentRange(connection.getHeaderField("Content-Range")) : bytesRead;
+            long totalLength = partial
+                    ? DatRangePolicy.nextOffset(connection.getHeaderField("Content-Range"), bytesRead)
+                    : bytesRead;
             if (totalLength <= 0) {
                 totalLength = rangeStart + bytesRead;
             }
@@ -27079,21 +26968,6 @@ public class MainActivity extends Activity {
         for (Post post : additional.posts) {
             target.posts.add(post);
             target.postsByNumber.put(post.number, post);
-        }
-    }
-
-    private long totalLengthFromContentRange(String value) {
-        if (value == null) {
-            return 0;
-        }
-        Matcher matcher = Pattern.compile("/(\\d+)\\s*$").matcher(value);
-        if (!matcher.find()) {
-            return 0;
-        }
-        try {
-            return Long.parseLong(matcher.group(1));
-        } catch (Exception error) {
-            return 0;
         }
     }
 
@@ -31704,6 +31578,7 @@ public class MainActivity extends Activity {
         boolean knownThreadArchived;
         int deferredThreadUpdatePostNumber;
         boolean deferredThreadUpdateLoading;
+        boolean threadUpdateLoading;
         String overviewBoardName = "";
         String overviewTitle = "";
         long bottomScrollLockUntil;
