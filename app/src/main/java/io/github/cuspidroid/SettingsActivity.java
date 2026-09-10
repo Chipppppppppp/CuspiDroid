@@ -52,14 +52,17 @@ public class SettingsActivity extends Activity {
     private static final int CATEGORY_SYNC = 11;
     private static final int CATEGORY_BACKUP = 12;
     private static final int CATEGORY_ADVANCED = 13;
-    private static final int CATEGORY_COUNT = 14;
+    private static final int CATEGORY_BARS = 14;
+    private static final int CATEGORY_HOME = 15;
     private static final int[] CATEGORY_DISPLAY_ORDER = {
             CATEGORY_APPEARANCE,
+            CATEGORY_BARS,
+            CATEGORY_HOME,
+            CATEGORY_LISTS,
+            CATEGORY_GESTURES,
             CATEGORY_READING,
             CATEGORY_FAVORITES,
             CATEGORY_MEDIA,
-            CATEGORY_LISTS,
-            CATEGORY_GESTURES,
             CATEGORY_LINKS,
             CATEGORY_BBS_LINKS,
             CATEGORY_UPLOADS,
@@ -92,7 +95,8 @@ public class SettingsActivity extends Activity {
     private RadioGroup normalMediaDisplay;
     private RadioGroup aiMediaDisplay;
     private RadioGroup replyMediaDisplay;
-    private CheckBox showTabBar;
+    private boolean loadingSettings;
+    private final List<Runnable> choiceSummaries = new ArrayList<>();
     private CheckBox hideBarsOnScroll;
     private CheckBox titleBarTabSwipe;
     private CheckBox treeView;
@@ -217,55 +221,33 @@ public class SettingsActivity extends Activity {
             root.addOverviewControls();
         }
 
-        root.addView(sectionTitle(CATEGORY_APPEARANCE, R.drawable.ic_settings,
-                MainActivity.text("\u5916\u89b3\u3068\u30db\u30fc\u30e0", "Appearance & Home"),
-                MainActivity.text("\u30c6\u30fc\u30de\u3001\u30d0\u30fc\u306e\u4f4d\u7f6e\u3001\u30db\u30fc\u30e0\u3068\u30e1\u30cb\u30e5\u30fc", "Theme, bar position, home screen, and menus")));
+        root.addView(categoryHeader(CATEGORY_APPEARANCE));
         root.addView(managementRow(R.drawable.ic_edit,
                 MainActivity.text("テーマを選択・カスタマイズ", "Select and customize themes"),
-                MainActivity.text("通常・プライベートの割り当て、色編集、インポート・エクスポート",
-                        "Normal/private assignments, color editing, import, and export"),
+                MainActivity.text("配色、明暗、色編集、インポート・エクスポート",
+                        "Palette, light and dark mode, color editing, import, and export"),
                 v -> startActivity(new Intent(this, ThemeSettingsActivity.class))));
 
-        root.addView(fieldLabel(MainActivity.text("バーの位置", "Bar positions")));
+        root.addView(categoryHeader(CATEGORY_BARS));
+        root.addView(fieldLabel(MainActivity.text("バーの表示と位置", "Bar visibility and position")));
         addressBarPosition = choiceGroup(
                 new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
                 new String[]{"bottom", "top"});
         addressBarBottom = (RadioButton) addressBarPosition.getChildAt(0);
         addressBarTop = (RadioButton) addressBarPosition.getChildAt(1);
-        root.addView(barPositionRow(MainActivity.text("検索バー", "Search bar"), addressBarPosition));
+        root.addView(choiceRow(MainActivity.text("検索バー", "Search bar"), addressBarPosition));
 
         titleBarPosition = choiceGroup(
                 new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
                 new String[]{"bottom", "top"});
-        root.addView(barPositionRow(MainActivity.text("タイトルバー", "Title bar"), titleBarPosition));
-
-        showTabBar = new CheckBox(this);
-        showTabBar.setText(MainActivity.text("タブバーを表示", "Show tab bar"));
-        showTabBar.setTextColor(textColor());
-        showTabBar.setTextSize(16);
-        Theme.tintCompoundButton(this, showTabBar);
-        root.addView(showTabBar);
+        root.addView(choiceRow(MainActivity.text("タイトルバー", "Title bar"), titleBarPosition));
 
         tabBarPosition = choiceGroup(
-                new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
-                new String[]{"bottom", "top"});
-        root.addView(barPositionRow(MainActivity.text("タブバー", "Tab bar"), tabBarPosition));
-
-        root.addView(fieldLabel(MainActivity.text("起動画面", "Startup page")));
-        startupPage = choiceGroup(new String[]{
-                        MainActivity.text("最後のページ", "Last page"),
-                        MainActivity.text("タブ一覧", "Tab overview"),
-                        MainActivity.text("新規タブ", "New tab")},
-                new String[]{MainActivity.STARTUP_LAST_PAGE,
-                        MainActivity.STARTUP_TAB_OVERVIEW, MainActivity.STARTUP_NEW_TAB});
-        startupPage.setOrientation(RadioGroup.VERTICAL);
-        for (int i = 0; i < startupPage.getChildCount(); i++) {
-            View option = startupPage.getChildAt(i);
-            option.setMinimumHeight(dp(44));
-            option.setLayoutParams(new RadioGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        root.addView(startupPage);
+                new String[]{MainActivity.text("非表示", "Hidden"),
+                        MainActivity.text("上", "Top"), MainActivity.text("下", "Bottom")},
+                new String[]{"hidden", "top", "bottom"});
+        root.addView(choiceRow(MainActivity.text("タブバー", "Tab bar"), tabBarPosition));
+        root.addView(fieldLabel(MainActivity.text("バーの操作", "Bar behavior")));
 
         hideBarsOnScroll = new CheckBox(this);
         hideBarsOnScroll.setText(MainActivity.text("\u30b9\u30af\u30ed\u30fc\u30eb\u6642\u306b\u30d0\u30fc\u3092\u81ea\u52d5\u3067\u96a0\u3059", "Hide bars while scrolling"));
@@ -281,6 +263,26 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, titleBarTabSwipe);
         root.addView(titleBarTabSwipe);
 
+        root.addView(managementRow(R.drawable.ic_more_vert,
+                MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Search bar menu layout"),
+                MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u306e\u8868\u793a\u3068\u9806\u756a\u3092\u8a2d\u5b9a", "Configure visibility and order for the search bar menu"),
+                v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
+                        .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_ADDRESS))));
+        root.addView(managementRow(R.drawable.ic_more_vert,
+                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Title bar menu layout"),
+                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u5e38\u99d0\u30fb\u30e1\u30cb\u30e5\u30fc\u5185\u30fb\u975e\u8868\u793a\u3092\u8a2d\u5b9a", "Configure pinned, menu, and hidden title actions"),
+                v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
+                        .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_TITLE))));
+
+        root.addView(categoryHeader(CATEGORY_HOME));
+        startupPage = choiceGroup(new String[]{
+                        MainActivity.text("最後のページ", "Last page"),
+                        MainActivity.text("タブ一覧", "Tab overview"),
+                        MainActivity.text("新規タブ", "New tab")},
+                new String[]{MainActivity.STARTUP_LAST_PAGE,
+                        MainActivity.STARTUP_TAB_OVERVIEW, MainActivity.STARTUP_NEW_TAB});
+        root.addView(choiceRow(MainActivity.text("起動画面", "Startup page"), startupPage));
+        root.addView(fieldLabel(MainActivity.text("表示する内容", "Visible content")));
         showBookmarksInTabOverview = new CheckBox(this);
         showBookmarksInTabOverview.setText(MainActivity.text("\u30bf\u30d6\u4e00\u89a7\u306b\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u8868\u793a", "Show bookmarks in the tab overview"));
         showBookmarksInTabOverview.setTextColor(textColor());
@@ -301,17 +303,6 @@ public class SettingsActivity extends Activity {
         showHomeBookmarkUnreadBadges.setTextSize(16);
         Theme.tintCompoundButton(this, showHomeBookmarkUnreadBadges);
         root.addView(showHomeBookmarkUnreadBadges);
-
-        root.addView(managementRow(R.drawable.ic_more_vert,
-                MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Search bar menu layout"),
-                MainActivity.text("\u691c\u7d22\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u306e\u8868\u793a\u3068\u9806\u756a\u3092\u8a2d\u5b9a", "Configure visibility and order for the search bar menu"),
-                v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
-                        .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_ADDRESS))));
-        root.addView(managementRow(R.drawable.ic_more_vert,
-                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u30e1\u30cb\u30e5\u30fc\u914d\u7f6e", "Title bar menu layout"),
-                MainActivity.text("\u30bf\u30a4\u30c8\u30eb\u30d0\u30fc\u5e38\u99d0\u30fb\u30e1\u30cb\u30e5\u30fc\u5185\u30fb\u975e\u8868\u793a\u3092\u8a2d\u5b9a", "Configure pinned, menu, and hidden title actions"),
-                v -> startActivity(new Intent(this, ButtonLayoutSettingsActivity.class)
-                        .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_TITLE))));
 
         root.addView(sectionTitle(CATEGORY_READING, R.drawable.ic_text_fields,
                 MainActivity.text("\u30b9\u30ec\u306e\u95b2\u89a7", "Reading Threads"),
@@ -755,76 +746,80 @@ public class SettingsActivity extends Activity {
     }
 
     private void loadSettings() {
-        open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
-        externalLinkInApp.setChecked(preferences.getBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false));
-        showMediaPreviews.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_MEDIA, true));
-        blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
-        blurSensitiveWordPosts.setChecked(preferences.getBoolean(
-                MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true));
-        blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
-        blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
-        autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false));
-        imgbbApiKey.setText(preferences.getString(MainActivity.PREF_IMGBB_API_KEY, ""));
-        saveUploadHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, true));
-        updateMediaDependentSettings();
-        if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
-            addressBarTop.setChecked(true);
-        } else {
-            addressBarBottom.setChecked(true);
-        }
-        selectChoice(titleBarPosition, preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
-                ? "top" : "bottom");
-        showTabBar.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_TAB_BAR, false));
-        selectChoice(tabBarPosition, preferences.getBoolean(MainActivity.PREF_TAB_BAR_TOP, false)
-                ? "top" : "bottom");
-        setGroupEnabled(tabBarPosition, showTabBar.isChecked());
-        selectChoice(startupPage, preferences.getString(
-                MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE));
-        selectChoice(normalMediaDisplay, preferences.getString(
-                MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW));
-        selectChoice(aiMediaDisplay, preferences.getString(MainActivity.PREF_AI_MEDIA_DISPLAY,
-                preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true)
-                        ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW));
-        selectChoice(replyMediaDisplay, preferences.getString(MainActivity.PREF_REPLY_MEDIA_DISPLAY,
-                preferences.getBoolean(MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true)
-                        ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW));
-        hideBarsOnScroll.setChecked(preferences.getBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, false));
-        titleBarTabSwipe.setChecked(preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true));
-        treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
-        treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
-        autoScrollUnread.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true));
-        markExistingReadOnThreadUpdate.setChecked(preferences.getBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true));
-        colorUnreadPosts.setChecked(preferences.getBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true));
-        omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
-        autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
-        popularReplyThreshold.setText(String.valueOf(preferences.getInt(MainActivity.PREF_POPULAR_REPLY_THRESHOLD, 3)));
-        updateTreeDependentSettings();
-        cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
-        showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
-        showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
-        showHomeBookmarkUnreadBadges.setChecked(preferences.getBoolean(MainActivity.PREF_HOME_BOOKMARK_UNREAD_BADGES, true));
-        boolean legacyDisabled = preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false);
-        saveBrowsingHistory.setChecked(!legacyDisabled
-                && preferences.getBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, true));
-        saveReadHistory.setChecked(!legacyDisabled
-                && preferences.getBoolean(MainActivity.PREF_SAVE_READ_HISTORY, true));
-        saveWritePostHistory.setChecked(!legacyDisabled
-                && preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, true));
-        saveWriteIdentityHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true));
-        sync2chEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false));
-        sync2chId.setText(preferences.getString(MainActivity.PREF_SYNC2CH_ID, ""));
-        sync2chApiPassword.setText(preferences.getString(MainActivity.PREF_SYNC2CH_API_PASSWORD, ""));
-        cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
-        updateCacheDependentSettings();
-        updateCacheUsage();
-        String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
-        customTemplate.setText(template);
-        if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template)
-                || MainActivity.LEGACY_FIND_IO_TEMPLATE.equals(template)
-                || MainActivity.FIND_NET_TEMPLATE.equals(template)) {
-            searchFind5chIo.setChecked(true);
-        } else {
-            searchCustom.setChecked(true);
+        loadingSettings = true;
+        try {
+            open5chInNewTab.setChecked(preferences.getBoolean(MainActivity.PREF_5CH_NEW_TAB, true));
+            externalLinkInApp.setChecked(preferences.getBoolean(MainActivity.PREF_EXTERNAL_LINK_IN_APP, false));
+            showMediaPreviews.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_MEDIA, true));
+            blurImgurImages.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true));
+            blurSensitiveWordPosts.setChecked(preferences.getBoolean(
+                    MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true));
+            blurVideoThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true));
+            blurGifThumbnails.setChecked(preferences.getBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true));
+            autoplayGifs.setChecked(preferences.getBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false));
+            imgbbApiKey.setText(preferences.getString(MainActivity.PREF_IMGBB_API_KEY, ""));
+            saveUploadHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, true));
+            updateMediaDependentSettings();
+            if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
+                addressBarTop.setChecked(true);
+            } else {
+                addressBarBottom.setChecked(true);
+            }
+            selectChoice(titleBarPosition, preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
+                    ? "top" : "bottom");
+            selectChoice(tabBarPosition, !preferences.getBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
+                    ? "hidden" : preferences.getBoolean(MainActivity.PREF_TAB_BAR_TOP, false) ? "top" : "bottom");
+            selectChoice(startupPage, preferences.getString(
+                    MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE));
+            selectChoice(normalMediaDisplay, preferences.getString(
+                    MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW));
+            selectChoice(aiMediaDisplay, preferences.getString(MainActivity.PREF_AI_MEDIA_DISPLAY,
+                    preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true)
+                            ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW));
+            selectChoice(replyMediaDisplay, preferences.getString(MainActivity.PREF_REPLY_MEDIA_DISPLAY,
+                    preferences.getBoolean(MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true)
+                            ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW));
+            hideBarsOnScroll.setChecked(preferences.getBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, false));
+            titleBarTabSwipe.setChecked(preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true));
+            treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
+            treeSkipFirstReply.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false));
+            autoScrollUnread.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_SCROLL_UNREAD, true));
+            markExistingReadOnThreadUpdate.setChecked(preferences.getBoolean(MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true));
+            colorUnreadPosts.setChecked(preferences.getBoolean(MainActivity.PREF_COLOR_UNREAD_POSTS, true));
+            omitCopyPaste.setChecked(preferences.getBoolean(MainActivity.PREF_OMIT_COPYPASTE, false));
+            autoAa.setChecked(preferences.getBoolean(MainActivity.PREF_AUTO_AA, true));
+            popularReplyThreshold.setText(String.valueOf(preferences.getInt(MainActivity.PREF_POPULAR_REPLY_THRESHOLD, 3)));
+            updateTreeDependentSettings();
+            cacheEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_CACHE_ENABLED, true));
+            showBookmarksInTabOverview.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true));
+            showHistoryOnHome.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_HISTORY_ON_HOME, true));
+            showHomeBookmarkUnreadBadges.setChecked(preferences.getBoolean(MainActivity.PREF_HOME_BOOKMARK_UNREAD_BADGES, true));
+            boolean legacyDisabled = preferences.getBoolean(MainActivity.PREF_DISABLE_HISTORY, false);
+            saveBrowsingHistory.setChecked(!legacyDisabled
+                    && preferences.getBoolean(MainActivity.PREF_SAVE_BROWSING_HISTORY, true));
+            saveReadHistory.setChecked(!legacyDisabled
+                    && preferences.getBoolean(MainActivity.PREF_SAVE_READ_HISTORY, true));
+            saveWritePostHistory.setChecked(!legacyDisabled
+                    && preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_POST_HISTORY, true));
+            saveWriteIdentityHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true));
+            sync2chEnabled.setChecked(preferences.getBoolean(MainActivity.PREF_SYNC2CH_ENABLED, false));
+            sync2chId.setText(preferences.getString(MainActivity.PREF_SYNC2CH_ID, ""));
+            sync2chApiPassword.setText(preferences.getString(MainActivity.PREF_SYNC2CH_API_PASSWORD, ""));
+            cacheMaxMb.setText(String.valueOf(preferences.getInt(MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB)));
+            updateCacheDependentSettings();
+            updateCacheUsage();
+            String template = preferences.getString(MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
+            customTemplate.setText(template);
+            if (MainActivity.DEFAULT_SEARCH_TEMPLATE.equals(template)
+                    || MainActivity.LEGACY_FIND_IO_TEMPLATE.equals(template)
+                    || MainActivity.FIND_NET_TEMPLATE.equals(template)) {
+                searchFind5chIo.setChecked(true);
+            } else {
+                searchCustom.setChecked(true);
+            }
+        } finally {
+            loadingSettings = false;
+            refreshChoiceSummaries();
         }
     }
 
@@ -871,13 +866,8 @@ public class SettingsActivity extends Activity {
                 saveSettings(false);
             }
         });
-        addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
-        addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        addressBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         titleBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
-        showTabBar.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            setGroupEnabled(tabBarPosition, isChecked);
-            saveSettings(false);
-        });
         tabBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         startupPage.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         normalMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
@@ -970,6 +960,8 @@ public class SettingsActivity extends Activity {
     }
 
     private void saveSettings(boolean showError) {
+        if (loadingSettings) return;
+        refreshChoiceSummaries();
         String template;
         if (searchFind5chIo.isChecked()) {
             template = MainActivity.DEFAULT_SEARCH_TEMPLATE;
@@ -999,9 +991,11 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TOP,
                         "top".equals(selectedChoice(titleBarPosition, "bottom")))
-                .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, showTabBar.isChecked())
+                .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, !"hidden".equals(selectedChoice(tabBarPosition, "hidden")))
                 .putBoolean(MainActivity.PREF_TAB_BAR_TOP,
-                        "top".equals(selectedChoice(tabBarPosition, "bottom")))
+                        "hidden".equals(selectedChoice(tabBarPosition, "hidden"))
+                                ? preferences.getBoolean(MainActivity.PREF_TAB_BAR_TOP, false)
+                                : "top".equals(selectedChoice(tabBarPosition, "bottom")))
                 .putString(MainActivity.PREF_STARTUP_PAGE,
                         selectedChoice(startupPage, MainActivity.STARTUP_LAST_PAGE))
                 .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY,
@@ -1496,12 +1490,14 @@ public class SettingsActivity extends Activity {
                 SectionHeaderTag header = (SectionHeaderTag) tag;
                 currentSection = header;
                 includeCurrentCategory = categoryScreen && header.category == targetCategory;
-                if (includeCurrentCategory) {
-                    super.addView(child, index, params);
-                }
+                // The page heading already identifies the category.
                 return;
             }
             if (currentSection == null || includeCurrentCategory) {
+                if (child instanceof CheckBox) {
+                    child.setMinimumHeight(dp(52));
+                    child.setPadding(dp(4), dp(8), dp(8), dp(8));
+                }
                 super.addView(child, index, params);
             } else if (!categoryScreen) {
                 indexSearchEntry(child, currentSection);
@@ -1552,6 +1548,13 @@ public class SettingsActivity extends Activity {
                         "\u30ab\u30c6\u30b4\u30ea\u307e\u305f\u306f\u8a2d\u5b9a\u540d\u3067\u691c\u7d22\u3067\u304d\u307e\u3059\u3002",
                         "Search by category or setting name."));
                 for (int category : CATEGORY_DISPLAY_ORDER) {
+                    if (category == CATEGORY_APPEARANCE) {
+                        navigationContainer.addView(fieldLabel(MainActivity.text("画面と操作", "Appearance & Controls")));
+                    } else if (category == CATEGORY_READING) {
+                        navigationContainer.addView(fieldLabel(MainActivity.text("閲覧と投稿", "Reading & Posting")));
+                    } else if (category == CATEGORY_HISTORY) {
+                        navigationContainer.addView(fieldLabel(MainActivity.text("データ管理", "Data Management")));
+                    }
                     addCategoryCard(category);
                 }
                 return;
@@ -1628,6 +1631,11 @@ public class SettingsActivity extends Activity {
         }
     }
 
+    private View categoryHeader(int category) {
+        CategoryInfo info = categoryInfo(category);
+        return sectionTitle(category, info.iconRes, info.title, info.subtitle);
+    }
+
     private View sectionTitle(int category, int iconRes, String title, String subtitle) {
         LinearLayout section = new LinearLayout(this);
         section.setOrientation(LinearLayout.VERTICAL);
@@ -1645,6 +1653,10 @@ public class SettingsActivity extends Activity {
     }
 
     private void openCategory(int category, String title, String subtitle) {
+        if (category == CATEGORY_APPEARANCE) {
+            startActivity(new Intent(this, ThemeSettingsActivity.class));
+            return;
+        }
         if (category == CATEGORY_FAVORITES) {
             startActivity(new Intent(this, FavoritePostsActivity.class));
             return;
@@ -1667,8 +1679,16 @@ public class SettingsActivity extends Activity {
         switch (category) {
             case CATEGORY_APPEARANCE:
                 return new CategoryInfo(R.drawable.ic_settings,
-                        MainActivity.text("\u5916\u89b3\u3068\u30db\u30fc\u30e0", "Appearance & Home"),
-                        MainActivity.text("\u30c6\u30fc\u30de\u3001\u30d0\u30fc\u306e\u4f4d\u7f6e\u3001\u30db\u30fc\u30e0\u3068\u30e1\u30cb\u30e5\u30fc", "Theme, bar position, home screen, and menus"));
+                        MainActivity.text("テーマと配色", "Theme & Colors"),
+                        MainActivity.text("テーマの選択、明暗、カスタム配色", "Theme selection, light and dark mode, and custom colors"));
+            case CATEGORY_BARS:
+                return new CategoryInfo(R.drawable.ic_more_vert,
+                        MainActivity.text("バーと操作", "Bars & Controls"),
+                        MainActivity.text("検索・タイトル・タブバーの配置とメニュー", "Search, title, and tab bar placement and menus"));
+            case CATEGORY_HOME:
+                return new CategoryInfo(R.drawable.ic_settings,
+                        MainActivity.text("ホームと起動", "Home & Startup"),
+                        MainActivity.text("起動画面、ブックマーク、履歴の表示", "Startup page, bookmarks, and history display"));
             case CATEGORY_READING:
                 return new CategoryInfo(R.drawable.ic_text_fields,
                         MainActivity.text("\u30b9\u30ec\u306e\u95b2\u89a7", "Reading Threads"),
@@ -1852,16 +1872,14 @@ public class SettingsActivity extends Activity {
         titleView.setText(title);
         titleView.setTextColor(textColor());
         titleView.setTextSize(16);
-        titleView.setSingleLine(true);
-        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titleView.setSingleLine(false);
         texts.addView(titleView);
 
         TextView subtitleView = new TextView(this);
         subtitleView.setText(subtitle);
         subtitleView.setTextColor(mutedColor());
         subtitleView.setTextSize(12);
-        subtitleView.setSingleLine(true);
-        subtitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        subtitleView.setSingleLine(false);
         texts.addView(subtitleView);
 
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0,
@@ -1875,7 +1893,8 @@ public class SettingsActivity extends Activity {
         row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(68));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        row.setMinimumHeight(dp(72));
         params.setMargins(0, dp(4), 0, dp(8));
         row.setLayoutParams(params);
         return row;
@@ -1912,17 +1931,64 @@ public class SettingsActivity extends Activity {
         return group;
     }
 
-    private LinearLayout barPositionRow(String label, RadioGroup group) {
+    private void refreshChoiceSummaries() {
+        for (Runnable update : choiceSummaries) update.run();
+    }
+
+    private LinearLayout choiceRow(String label, RadioGroup group) {
         LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setMinimumHeight(dp(64));
+        row.setBackground(roundedManagementCard());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(4), 0, dp(4));
+        row.setLayoutParams(params);
         TextView name = new TextView(this);
         name.setText(label);
         name.setTextColor(textColor());
-        name.setTextSize(15);
-        name.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        row.addView(name, new LinearLayout.LayoutParams(dp(96), dp(44)));
-        row.addView(group, new LinearLayout.LayoutParams(0, dp(44), 1));
+        name.setTextSize(16);
+        Drawable arrow = getDrawable(R.drawable.ic_arrow_forward).mutate();
+        arrow.setColorFilter(mutedColor(), android.graphics.PorterDuff.Mode.SRC_IN);
+        arrow.setBounds(0, 0, dp(20), dp(20));
+        name.setCompoundDrawablesRelative(null, null, arrow, null);
+        name.setCompoundDrawablePadding(dp(8));
+        row.addView(name);
+        TextView summary = new TextView(this);
+        summary.setTextColor(mutedColor());
+        summary.setTextSize(14);
+        row.addView(summary);
+        // Keep all options in the search index and use the same selection model for saving.
+        group.setVisibility(View.GONE);
+        row.addView(group);
+        Runnable update = () -> {
+            RadioButton selected = group.findViewById(group.getCheckedRadioButtonId());
+            summary.setText(selected == null ? "" : selected.getText());
+            row.setContentDescription(label + ", " + summary.getText());
+        };
+        choiceSummaries.add(update);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> {
+            CharSequence[] labels = new CharSequence[group.getChildCount()];
+            int selected = -1;
+            for (int i = 0; i < labels.length; i++) {
+                RadioButton option = (RadioButton) group.getChildAt(i);
+                labels[i] = option.getText();
+                if (option.isChecked()) selected = i;
+            }
+            AlertDialog dialog = new AlertDialog.Builder(this)
+                    .setTitle(label)
+                    .setSingleChoiceItems(labels, selected, (d, which) -> {
+                        group.check(group.getChildAt(which).getId());
+                        update.run();
+                        d.dismiss();
+                    })
+                    .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
+                    .create();
+            dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+            dialog.show();
+        });
         return row;
     }
 
