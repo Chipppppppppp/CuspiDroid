@@ -5732,18 +5732,40 @@ public class MainActivity extends Activity {
             focusPendingNewTabSearch();
         });
         addTabBarAction(R.drawable.ic_refresh, text("すべて更新", "Reload all"),
-                () -> reloadAllTabs(true, this::renderTabBar, privateScope));
+                () -> reloadFromTabBar(privateScope));
         syncChromeBarSlots(false);
     }
 
     private void addTabBarAction(int icon, String label, Runnable action) {
         ImageButton button = iconButton(icon, label, v -> action.run());
-        button.setColorFilter(accentColor());
+        styleTabActionButton(button, icon == R.drawable.ic_add, dp(14));
         button.setPadding(dp(5), dp(5), dp(5), dp(5));
-        button.setBackground(roundedDrawable(surfaceColor(), borderColor(), dp(8)));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(40), dp(34));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(34));
         params.setMargins(0, 0, dp(5), 0);
         tabBarItems.addView(button, params);
+    }
+
+    private void styleTabActionButton(ImageButton button, boolean add, int radius) {
+        int fill = add ? accentColor() : menuColor();
+        button.setBackground(roundedDrawable(fill, add ? accentColor() : borderColor(), radius));
+        button.setColorFilter(add ? Theme.contrastingText(fill) : textColor());
+    }
+
+    private void reloadFromTabBar(boolean privateScope) {
+        CuspTab openedTab = pendingNewTab ? null : currentTab();
+        String openedUrl = openedTab == null ? null : openedTab.url;
+        reloadAllTabs(true, () -> {
+            renderTabBar();
+            if (tabOverviewVisible || inlineWebViewMode) {
+                return;
+            }
+            if (openedTab != null && !pendingNewTab && currentTab() == openedTab
+                    && TextUtils.equals(openedUrl, openedTab.url)) {
+                refreshTabFromTop(openedTab);
+            } else if (openedTab == null && pendingNewTab && pendingPrivateNewTab == privateScope) {
+                renderCurrentNewTabPage();
+            }
+        }, privateScope);
     }
 
     private void addBookmarkTabBarItems(List<BookmarkNode> nodes, BookmarkOverviewSnapshot snapshot) {
@@ -5775,24 +5797,19 @@ public class MainActivity extends Activity {
         item.setEllipsize(TextUtils.TruncateAt.END);
         item.setText(displayTitleForTab(tab));
         item.setTextSize(12);
-        item.setTextColor(selected ? Theme.contrastingText(accentColor()) : textColor());
+        item.setTextColor(textColor());
         item.setGravity(Gravity.CENTER);
         container.addView(item, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.MATCH_PARENT, 1));
         if (preferences.getBoolean(PREF_TAB_BAR_UNREAD, true)) {
-            TextView unread = new TextView(this);
+            TextView unread = threadUnreadBadge(0);
             unread.setTag(tab);
-            unread.setSingleLine(true);
-            unread.setTextSize(12);
-            unread.setTypeface(null, Typeface.BOLD);
-            unread.setTextColor(selected ? Theme.contrastingText(accentColor()) : accentColor());
-            unread.setPadding(dp(6), 0, 0, 0);
             setTabBarUnread(unread, tab);
-            container.addView(unread, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(dp(28), dp(18));
+            unreadParams.setMargins(dp(6), 0, 0, 0);
+            container.addView(unread, unreadParams);
         }
-        container.setBackground(roundedDrawable(selected ? accentColor() : surfaceColor(),
-                selected ? accentColor() : borderColor(), dp(8)));
+        container.setBackground(tabItemBackground(selected));
         container.setOnClickListener(v -> open.run());
         container.setOnLongClickListener(v -> {
             showTabBarItemMenu(v, closeLabel, close);
@@ -5804,6 +5821,10 @@ public class MainActivity extends Activity {
         if (selected) {
             container.post(() -> tabBar.smoothScrollTo(Math.max(0, container.getLeft() - dp(12)), 0));
         }
+    }
+
+    private GradientDrawable tabItemBackground(boolean selected) {
+        return roundedDrawable(postColor(), selected ? accentColor() : borderColor(), dp(8));
     }
 
     private void setTabBarUnread(TextView view, CuspTab tab) {
@@ -11773,6 +11794,14 @@ public class MainActivity extends Activity {
             return column;
         }
 
+        TextView badge = threadUnreadBadge(unread);
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(28), dp(18));
+        badgeParams.gravity = Gravity.END;
+        column.addView(badge, badgeParams);
+        return column;
+    }
+
+    private TextView threadUnreadBadge(int unread) {
         TextView badge = new TextView(this);
         badge.setText(String.valueOf(unread));
         badge.setTextColor(Theme.contrastingText(accentColor()));
@@ -11781,10 +11810,7 @@ public class MainActivity extends Activity {
         badge.setGravity(Gravity.CENTER);
         badge.setIncludeFontPadding(false);
         badge.setBackground(roundedDrawable(accentColor(), accentColor(), dp(10)));
-        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(28), dp(18));
-        badgeParams.gravity = Gravity.END;
-        column.addView(badge, badgeParams);
-        return column;
+        return badge;
     }
 
     private View buildBbsCategoryIndexView(SearchPage page) {
@@ -14054,7 +14080,7 @@ public class MainActivity extends Activity {
         settingsParams.setMargins(dp(18), 0, 0, dp(18));
         root.addView(settings, settingsParams);
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
-        reloadAll.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
+        styleTabActionButton(reloadAll, false, dp(22));
         FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
         reloadParams.setMargins(0, 0, dp(84), dp(18));
         root.addView(reloadAll, reloadParams);
@@ -14063,8 +14089,7 @@ public class MainActivity extends Activity {
             showPendingNewTab(tabOverviewPrivateMode);
             focusPendingNewTabSearch();
         });
-        add.setBackground(roundedDrawable(TEAL, TEAL, dp(22)));
-        add.setColorFilter(Color.WHITE);
+        styleTabActionButton(add, true, dp(22));
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
         addParams.setMargins(0, 0, dp(18), dp(18));
         root.addView(add, addParams);
@@ -15091,7 +15116,7 @@ public class MainActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(7), dp(8), dp(7));
         row.setMinimumHeight(dp(86));
-        row.setBackground(roundedDrawable(postColor(), selected ? TEAL : borderColor(), dp(8)));
+        row.setBackground(tabItemBackground(selected));
         row.setOnClickListener(clickListener);
         row.setOnDragListener(dragListener);
         if (longClickListener != null) {
