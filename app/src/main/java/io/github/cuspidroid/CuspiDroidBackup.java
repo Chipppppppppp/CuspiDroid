@@ -21,16 +21,18 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 final class CuspiDroidBackup {
-    private static final int FORMAT_VERSION = 3;
+    private static final int FORMAT_VERSION = 4;
     private static final String MANIFEST = "manifest.json";
     private static final String PREFERENCES = "preferences.json";
+    private static final String SETTINGS = "settings.json";
     private static final String THEMES_DIRECTORY = "themes/";
 
     private CuspiDroidBackup() {
     }
 
     static void exportBackup(Context context, SharedPreferences preferences, Uri uri) throws Exception {
-        JSONObject prefs = preferencesJson(preferences);
+        JSONObject prefs = preferencesJson(preferences, false);
+        JSONObject settings = preferencesJson(preferences, true);
         try (OutputStream raw = context.getContentResolver().openOutputStream(uri);
              ZipOutputStream zip = raw == null ? null : new ZipOutputStream(raw)) {
             if (zip == null) {
@@ -39,6 +41,7 @@ final class CuspiDroidBackup {
                         "Could not open the backup file."));
             }
             writeJson(zip, MANIFEST, manifestJson());
+            writeJson(zip, SETTINGS, settings);
             writeJson(zip, PREFERENCES, prefs);
             writeThemeFiles(zip, Theme.customPalettes(context));
             writeRawPreferenceJson(zip, "bookmarks.json", preferences, MainActivity.PREF_THREAD_BOOKMARKS, "[]");
@@ -52,6 +55,7 @@ final class CuspiDroidBackup {
             writeRawPreferenceJson(zip, "favorite_posts.json", preferences,
                     FavoritePostsStore.PREF_POSTS, "[]");
             writeJson(zip, "prefs/cuspidroid_settings.json", prefs);
+            writeJson(zip, "prefs/settings.json", settings);
             writeRawPreferenceJson(zip, "files/bookmarks.json", preferences, MainActivity.PREF_THREAD_BOOKMARKS, "[]");
             writeRawPreferenceJson(zip, "files/history.json", preferences, MainActivity.PREF_HISTORY, "[]");
             writeRawPreferenceJson(zip, "files/readPosts.json", preferences, MainActivity.PREF_READ_POSTS, "{}");
@@ -72,8 +76,8 @@ final class CuspiDroidBackup {
         JSONObject prefs = readPreferences(context, uri);
         if (prefs == null) {
             throw new IllegalStateException(MainActivity.text(
-                    "preferences.json \u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002CuspiDroid \u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
-                    "preferences.json was not found. Select a CuspiDroid backup zip."));
+                    "\u8a2d\u5b9a\u30c7\u30fc\u30bf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002CuspiDroid \u306e\u30d0\u30c3\u30af\u30a2\u30c3\u30d7zip\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+                    "Settings data was not found. Select a CuspiDroid backup zip."));
         }
         SharedPreferences.Editor editor = preferences.edit().clear();
         int restored = 0;
@@ -132,16 +136,21 @@ final class CuspiDroidBackup {
         object.put("formatVersion", FORMAT_VERSION);
         object.put("createdAt", System.currentTimeMillis());
         object.put("preferencesEntry", PREFERENCES);
+        object.put("settingsEntry", SETTINGS);
         object.put("themesDirectory", THEMES_DIRECTORY);
         return object;
     }
 
-    private static JSONObject preferencesJson(SharedPreferences preferences) throws Exception {
+    private static JSONObject preferencesJson(SharedPreferences preferences, boolean includeSettingDefaults) throws Exception {
         JSONObject root = new JSONObject();
         root.put("format", "cuspidroid-preferences");
         root.put("formatVersion", FORMAT_VERSION);
         JSONArray entries = new JSONArray();
-        Map<String, ?> sorted = new TreeMap<>(preferences.getAll());
+        Map<String, Object> sorted = new TreeMap<>();
+        sorted.putAll(preferences.getAll());
+        if (includeSettingDefaults) {
+            addSettingDefaults(sorted);
+        }
         for (Map.Entry<String, ?> item : sorted.entrySet()) {
             JSONObject entry = new JSONObject();
             entry.put("key", item.getKey());
@@ -173,6 +182,97 @@ final class CuspiDroidBackup {
         }
         root.put("entries", entries);
         return root;
+    }
+
+    private static void addSettingDefaults(Map<String, Object> values) {
+        putDefault(values, MainActivity.PREF_5CH_NEW_TAB, true);
+        putDefault(values, MainActivity.PREF_SEARCH_TEMPLATE, MainActivity.DEFAULT_SEARCH_TEMPLATE);
+        putDefault(values, MainActivity.PREF_ADDRESS_BAR_BUTTONS, MainActivity.DEFAULT_ADDRESS_BAR_BUTTONS);
+        putDefault(values, MainActivity.PREF_ADDRESS_MENU_BUTTONS, MainActivity.DEFAULT_ADDRESS_MENU_BUTTONS);
+        putDefault(values, MainActivity.PREF_ADDRESS_NAV_BUTTONS, MainActivity.DEFAULT_ADDRESS_NAV_BUTTONS);
+        putDefault(values, MainActivity.PREF_THREAD_TITLE_BAR_BUTTONS, MainActivity.DEFAULT_THREAD_TITLE_BAR_BUTTONS);
+        putDefault(values, MainActivity.PREF_THREAD_TITLE_MENU_BUTTONS, MainActivity.DEFAULT_THREAD_TITLE_MENU_BUTTONS);
+        putDefault(values, MainActivity.PREF_POPULAR_REPLY_THRESHOLD, 3);
+        putDefault(values, MainActivity.PREF_POPULAR_BUTTON_MIGRATED, true);
+        putDefault(values, MainActivity.PREF_SHOW_MEDIA, true);
+        putDefault(values, MainActivity.PREF_BLUR_IMGUR, true);
+        putDefault(values, MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true);
+        putDefault(values, MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW);
+        putDefault(values, MainActivity.PREF_AI_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_BLUR);
+        putDefault(values, MainActivity.PREF_REPLY_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_BLUR);
+        putDefault(values, MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true);
+        putDefault(values, MainActivity.PREF_BLUR_GIF_THUMBNAILS, true);
+        putDefault(values, MainActivity.PREF_AUTOPLAY_GIFS, false);
+        putDefault(values, MainActivity.PREF_IMGBB_API_KEY, "");
+        putDefault(values, MainActivity.PREF_ADDRESS_BAR_TOP, false);
+        putDefault(values, MainActivity.PREF_TITLE_BAR_TOP, false);
+        putDefault(values, MainActivity.PREF_SHOW_TAB_BAR, false);
+        putDefault(values, MainActivity.PREF_TAB_BAR_TOP, false);
+        putDefault(values, MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE);
+        putDefault(values, MainActivity.PREF_CONFIRM_EXIT, false);
+        putDefault(values, MainActivity.PREF_HIDE_BARS_ON_SCROLL, false);
+        putDefault(values, MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true);
+        putDefault(values, MainActivity.PREF_TREE_VIEW, true);
+        putDefault(values, MainActivity.PREF_TREE_SKIP_FIRST_REPLY, false);
+        putDefault(values, MainActivity.PREF_AUTO_SCROLL_UNREAD, true);
+        putDefault(values, MainActivity.PREF_MARK_EXISTING_READ_ON_THREAD_UPDATE, true);
+        putDefault(values, MainActivity.PREF_COLOR_UNREAD_POSTS, true);
+        putDefault(values, MainActivity.PREF_OMIT_COPYPASTE, false);
+        putDefault(values, MainActivity.PREF_AUTO_AA, true);
+        putDefault(values, MainActivity.PREF_AA_DEBUG, false);
+        putDefault(values, MainActivity.PREF_EXTERNAL_LINK_IN_APP, false);
+        putDefault(values, MainActivity.PREF_THEME_MODE, Theme.MODE_SYSTEM);
+        putDefault(values, MainActivity.PREF_CACHE_ENABLED, true);
+        putDefault(values, MainActivity.PREF_CACHE_MAX_MB, AppCache.DEFAULT_MAX_MB);
+        putDefault(values, MainActivity.PREF_SHOW_BOOKMARKS_IN_TAB_OVERVIEW, true);
+        putDefault(values, MainActivity.PREF_SHOW_HISTORY_ON_HOME, true);
+        putDefault(values, MainActivity.PREF_HOME_BOOKMARK_UNREAD_BADGES, true);
+        putDefault(values, MainActivity.PREF_BOARD_SORT_BY_SPEED, true);
+        putDefault(values, MainActivity.PREF_BOARD_SHOW_BOARD_NAME, false);
+        putDefault(values, MainActivity.PREF_BOARD_SHOW_RESPONSES, true);
+        putDefault(values, MainActivity.PREF_BOARD_SHOW_VELOCITY, true);
+        putDefault(values, MainActivity.PREF_BOARD_SHOW_ORDER, true);
+        putDefault(values, MainActivity.PREF_BOARD_SHOW_CREATED, true);
+        putDefault(values, MainActivity.PREF_BOARD_SHOW_UNREAD, true);
+        putDefault(values, MainActivity.PREF_BOARD_THREAD_SORT_KEY, MainActivity.BOARD_SORT_VELOCITY);
+        putDefault(values, MainActivity.PREF_BOARD_THREAD_SORT_DESC, true);
+        putDefault(values, MainActivity.PREF_BOARD_PRIORITY_WORDS, "[]");
+        putDefault(values, MainActivity.PREF_TAB_SHOW_BOARD_NAME, true);
+        putDefault(values, MainActivity.PREF_TAB_SHOW_RESPONSES, true);
+        putDefault(values, MainActivity.PREF_TAB_SHOW_VELOCITY, true);
+        putDefault(values, MainActivity.PREF_TAB_SHOW_ORDER, false);
+        putDefault(values, MainActivity.PREF_TAB_SHOW_CREATED, false);
+        putDefault(values, MainActivity.PREF_TAB_SHOW_UNREAD, true);
+        putDefault(values, MainActivity.PREF_TAB_SORT_ENABLED, false);
+        putDefault(values, MainActivity.PREF_BOOKMARK_SORT_ENABLED, false);
+        putDefault(values, MainActivity.PREF_TAB_SORT_KEY, MainActivity.BOARD_SORT_VELOCITY);
+        putDefault(values, MainActivity.PREF_TAB_SORT_DESC, true);
+        putDefault(values, MainActivity.PREF_TAB_NON_THREAD_TOP, true);
+        putDefault(values, MainActivity.PREF_SAVE_BROWSING_HISTORY, true);
+        putDefault(values, MainActivity.PREF_SAVE_READ_HISTORY, true);
+        putDefault(values, MainActivity.PREF_SAVE_WRITE_POST_HISTORY, true);
+        putDefault(values, MainActivity.PREF_SAVE_WRITE_IDENTITY_HISTORY, true);
+        putDefault(values, MainActivity.PREF_SAVE_UPLOAD_HISTORY, true);
+        putDefault(values, MainActivity.PREF_DISABLE_HISTORY, false);
+        putDefault(values, MainActivity.PREF_SYNC2CH_ENABLED, false);
+        putDefault(values, MainActivity.PREF_SYNC2CH_ID, "");
+        putDefault(values, MainActivity.PREF_SYNC2CH_API_PASSWORD, "");
+        putDefault(values, MainActivity.PREF_GESTURES_ENABLED, false);
+        putDefault(values, MainActivity.PREF_GESTURE_SENSITIVITY, 2);
+        putDefault(values, Theme.PREF_NORMAL_THEME, Theme.MODE_SYSTEM);
+        putDefault(values, Theme.PREF_SYSTEM_LIGHT_THEME, Theme.ID_TEAL_LIGHT);
+        putDefault(values, Theme.PREF_SYSTEM_DARK_THEME, Theme.ID_TEAL_DARK);
+        putDefault(values, Theme.PREF_CUSTOM_THEMES, "[]");
+        for (String action : MainActivity.GESTURE_ACTIONS) {
+            putDefault(values, MainActivity.PREF_GESTURE_PREFIX + action,
+                    MainActivity.defaultGestureForAction(action));
+        }
+    }
+
+    private static void putDefault(Map<String, Object> values, String key, Object value) {
+        if (!values.containsKey(key)) {
+            values.put(key, value);
+        }
     }
 
     private static void writeRawPreferenceJson(ZipOutputStream zip, String name,
@@ -335,7 +435,8 @@ final class CuspiDroidBackup {
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName();
                 if (!entry.isDirectory() && name != null
-                        && (PREFERENCES.equals(name) || name.endsWith("/" + PREFERENCES))) {
+                        && (PREFERENCES.equals(name) || name.endsWith("/" + PREFERENCES)
+                        || SETTINGS.equals(name) || name.endsWith("/" + SETTINGS))) {
                     return new JSONObject(new String(readEntry(zip), StandardCharsets.UTF_8));
                 }
                 zip.closeEntry();

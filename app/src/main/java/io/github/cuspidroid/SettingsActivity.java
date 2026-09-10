@@ -85,6 +85,7 @@ public class SettingsActivity extends Activity {
     private EditText imgbbApiKey;
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
+    private RadioGroup addressBarPosition;
     private RadioGroup titleBarPosition;
     private RadioGroup tabBarPosition;
     private RadioGroup startupPage;
@@ -226,21 +227,18 @@ public class SettingsActivity extends Activity {
                         "Normal/private assignments, color editing, import, and export"),
                 v -> startActivity(new Intent(this, ThemeSettingsActivity.class))));
 
-        RadioGroup addressBarPosition = new RadioGroup(this);
-        addressBarPosition.setOrientation(RadioGroup.HORIZONTAL);
-        addressBarBottom = radio(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0b\u306b\u8868\u793a", "Address bar at bottom"));
-        addressBarTop = radio(MainActivity.text("\u691c\u7d22\u30d0\u30fc\u3092\u4e0a\u306b\u8868\u793a", "Address bar at top"));
-        addressBarBottom.setId(View.generateViewId());
-        addressBarTop.setId(View.generateViewId());
-        addressBarPosition.addView(addressBarBottom, new RadioGroup.LayoutParams(0, dp(44), 1));
-        addressBarPosition.addView(addressBarTop, new RadioGroup.LayoutParams(0, dp(44), 1));
-        root.addView(addressBarPosition);
+        root.addView(fieldLabel(MainActivity.text("バーの位置", "Bar positions")));
+        addressBarPosition = choiceGroup(
+                new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
+                new String[]{"bottom", "top"});
+        addressBarBottom = (RadioButton) addressBarPosition.getChildAt(0);
+        addressBarTop = (RadioButton) addressBarPosition.getChildAt(1);
+        root.addView(barPositionRow(MainActivity.text("検索バー", "Search bar"), addressBarPosition));
 
-        root.addView(fieldLabel(MainActivity.text("タイトルバーの位置", "Title bar position")));
         titleBarPosition = choiceGroup(
                 new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
                 new String[]{"bottom", "top"});
-        root.addView(titleBarPosition);
+        root.addView(barPositionRow(MainActivity.text("タイトルバー", "Title bar"), titleBarPosition));
 
         showTabBar = new CheckBox(this);
         showTabBar.setText(MainActivity.text("タブバーを表示", "Show tab bar"));
@@ -249,11 +247,10 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, showTabBar);
         root.addView(showTabBar);
 
-        root.addView(fieldLabel(MainActivity.text("タブバーの位置", "Tab bar position")));
         tabBarPosition = choiceGroup(
                 new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
                 new String[]{"bottom", "top"});
-        root.addView(tabBarPosition);
+        root.addView(barPositionRow(MainActivity.text("タブバー", "Tab bar"), tabBarPosition));
 
         root.addView(fieldLabel(MainActivity.text("起動画面", "Startup page")));
         startupPage = choiceGroup(new String[]{
@@ -484,10 +481,6 @@ public class SettingsActivity extends Activity {
         root.addView(fieldLabel(MainActivity.text("リプでグロ画像とされた画像", "Images flagged as graphic by replies")));
         replyMediaDisplay = mediaDisplayGroup(MainActivity.text("リプでグロ画像とされた画像", "Images flagged as graphic by replies"));
         root.addView(replyMediaDisplay);
-        root.addView(helperText(MainActivity.text(
-                "非表示にした画像はスレとメディア拡大表示の両方から除外されます。",
-                "Hidden images are excluded from both threads and the media viewer.")));
-
         blurVideoThumbnails = new CheckBox(this);
         blurVideoThumbnails.setText(MainActivity.text("\u52d5\u753b\u30b5\u30e0\u30cd\u30a4\u30eb\u3082\u5224\u5b9a\u3057\u3066\u307c\u304b\u3059", "Also check and blur video thumbnails"));
         blurVideoThumbnails.setTextColor(textColor());
@@ -1923,6 +1916,20 @@ public class SettingsActivity extends Activity {
             group.addView(button, new RadioGroup.LayoutParams(0, dp(44), 1));
         }
         return group;
+    }
+
+    private LinearLayout barPositionRow(String label, RadioGroup group) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextColor(textColor());
+        name.setTextSize(15);
+        name.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        row.addView(name, new LinearLayout.LayoutParams(dp(96), dp(44)));
+        row.addView(group, new LinearLayout.LayoutParams(0, dp(44), 1));
+        return row;
     }
 
     private RadioGroup mediaDisplayGroup(String title) {

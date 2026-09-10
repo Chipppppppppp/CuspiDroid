@@ -5733,18 +5733,15 @@ public class MainActivity extends Activity {
             return;
         }
         boolean privateScope = pendingNewTab ? pendingPrivateNewTab : currentTabIsPrivate();
-        for (int i = 0; i < tabs.size(); i++) {
-            CuspTab tab = tabs.get(i);
-            if (tab.privateBrowsing != privateScope) {
-                continue;
-            }
-            final int index = i;
+        for (int tabIndex : tabOverviewIndices(privateScope)) {
+            CuspTab tab = tabs.get(tabIndex);
+            final int index = tabIndex;
             TextView item = new TextView(this);
             item.setSingleLine(true);
             item.setEllipsize(TextUtils.TruncateAt.END);
             item.setText(displayTitleForTab(tab));
             item.setTextSize(12);
-            boolean selected = !pendingNewTab && currentIndex == i;
+            boolean selected = !pendingNewTab && currentIndex == index;
             item.setTextColor(selected ? Theme.contrastingText(accentColor()) : textColor());
             item.setGravity(Gravity.CENTER);
             item.setPadding(dp(12), 0, dp(12), 0);
@@ -5772,20 +5769,38 @@ public class MainActivity extends Activity {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setBackground(menuBackground());
-        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
-        PopupWindow popup = new PopupWindow(menu, dp(200),
+        menu.setPadding(0, dp(2), 0, dp(2));
+        int popupWidth = dp(160);
+        PopupWindow popup = new PopupWindow(menu, popupWidth,
                 ViewGroup.LayoutParams.WRAP_CONTENT, false);
         TextView close = menuItem(text("タブを削除", "Close tab"), v -> {
             popup.dismiss();
             closeTab(tabs.indexOf(tab));
         });
+        close.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        close.setMinWidth(0);
+        close.setPadding(dp(12), dp(7), dp(12), dp(7));
         setMenuItemIcon(close, R.drawable.ic_delete);
         menu.addView(close, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         popup.setOutsideTouchable(true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         prepareAnimatedPopupDismiss(popup, menu);
-        showPopupAttachedToAnchor(popup, menu, anchor);
+        menu.measure(View.MeasureSpec.makeMeasureSpec(popupWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        Rect frame = new Rect();
+        anchor.getWindowVisibleDisplayFrame(frame);
+        int[] location = new int[2];
+        anchor.getLocationOnScreen(location);
+        int x = Math.max(frame.left, Math.min(location[0] + (anchor.getWidth() - popupWidth) / 2,
+                frame.right - popupWidth));
+        boolean above = !tabBarOnTop();
+        int y = above ? location[1] - menu.getMeasuredHeight()
+                : location[1] + anchor.getHeight();
+        popup.setClippingEnabled(true);
+        popup.showAtLocation(getWindow().getDecorView(), Gravity.NO_GRAVITY, x,
+                Math.max(frame.top, Math.min(y, frame.bottom - menu.getMeasuredHeight())));
+        animatePopupIn(popup, above);
     }
 
     private void updateAddressBarDisplay(boolean focusText) {
@@ -14010,7 +14025,7 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = sectionTitleView(tabOverviewPrivateMode
                 ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tabs")
-                : text("\u901a\u5e38\u30bf\u30d6", "Normal tabs"));
+                : text("\u30bf\u30d6", "Tabs"));
         header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
@@ -14269,7 +14284,7 @@ public class MainActivity extends Activity {
         if (indices.isEmpty()) {
             TextView empty = helperLine(privateSection
                     ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
-                    : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs."));
+                    : text("\u30bf\u30d6\u306a\u3057", "No tabs."));
             empty.setTag(TAB_OVERVIEW_EMPTY_TAG);
             empty.setOnDragListener((v, event) -> {
                 autoScrollDuringDrag(v, event);
@@ -14706,7 +14721,7 @@ public class MainActivity extends Activity {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
-            if (tab.privateBrowsing == privateSection && isNormalTabScope(tab)) {
+            if (tab.privateBrowsing == privateSection) {
                 indices.add(i);
             }
         }
@@ -14807,7 +14822,7 @@ public class MainActivity extends Activity {
         Map<String, Integer> counts = new LinkedHashMap<>();
         int currentCount = 0;
         for (CuspTab tab : tabs) {
-            if (tab == null || tab.privateBrowsing != privateSection || !isNormalTabScope(tab)) {
+            if (tab == null || tab.privateBrowsing != privateSection) {
                 continue;
             }
             String key = tabOverviewIdentity(tab);
