@@ -85,6 +85,13 @@ public class SettingsActivity extends Activity {
     private EditText imgbbApiKey;
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
+    private RadioGroup titleBarPosition;
+    private RadioGroup startupPage;
+    private RadioGroup normalMediaDisplay;
+    private RadioGroup aiMediaDisplay;
+    private RadioGroup replyMediaDisplay;
+    private CheckBox showTabBar;
+    private CheckBox confirmExit;
     private CheckBox hideBarsOnScroll;
     private CheckBox titleBarTabSwipe;
     private CheckBox treeView;
@@ -227,6 +234,36 @@ public class SettingsActivity extends Activity {
         addressBarPosition.addView(addressBarBottom, new RadioGroup.LayoutParams(0, dp(44), 1));
         addressBarPosition.addView(addressBarTop, new RadioGroup.LayoutParams(0, dp(44), 1));
         root.addView(addressBarPosition);
+
+        root.addView(fieldLabel(MainActivity.text("タイトルバーの位置", "Title bar position")));
+        titleBarPosition = choiceGroup(
+                new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
+                new String[]{"bottom", "top"});
+        root.addView(titleBarPosition);
+
+        showTabBar = new CheckBox(this);
+        showTabBar.setText(MainActivity.text("タブバーを表示", "Show tab bar"));
+        showTabBar.setTextColor(textColor());
+        showTabBar.setTextSize(16);
+        Theme.tintCompoundButton(this, showTabBar);
+        root.addView(showTabBar);
+
+        root.addView(fieldLabel(MainActivity.text("起動画面", "Startup page")));
+        startupPage = choiceGroup(new String[]{
+                        MainActivity.text("最後のページ", "Last page"),
+                        MainActivity.text("タブ一覧", "Tab overview"),
+                        MainActivity.text("新規タブ", "New tab")},
+                new String[]{MainActivity.STARTUP_LAST_PAGE,
+                        MainActivity.STARTUP_TAB_OVERVIEW, MainActivity.STARTUP_NEW_TAB});
+        root.addView(startupPage);
+
+        confirmExit = new CheckBox(this);
+        confirmExit.setText(MainActivity.text(
+                "終了前に一度確認する", "Confirm once before exiting"));
+        confirmExit.setTextColor(textColor());
+        confirmExit.setTextSize(16);
+        Theme.tintCompoundButton(this, confirmExit);
+        root.addView(confirmExit);
 
         hideBarsOnScroll = new CheckBox(this);
         hideBarsOnScroll.setText(MainActivity.text("\u30b9\u30af\u30ed\u30fc\u30eb\u6642\u306b\u30d0\u30fc\u3092\u81ea\u52d5\u3067\u96a0\u3059", "Hide bars while scrolling"));
@@ -419,6 +456,7 @@ public class SettingsActivity extends Activity {
         blurImgurImages.setTextColor(textColor());
         blurImgurImages.setTextSize(16);
         Theme.tintCompoundButton(this, blurImgurImages);
+        blurImgurImages.setVisibility(View.GONE);
         root.addView(blurImgurImages);
 
         blurSensitiveWordPosts = new CheckBox(this);
@@ -428,10 +466,20 @@ public class SettingsActivity extends Activity {
         blurSensitiveWordPosts.setTextColor(textColor());
         blurSensitiveWordPosts.setTextSize(16);
         Theme.tintCompoundButton(this, blurSensitiveWordPosts);
+        blurSensitiveWordPosts.setVisibility(View.GONE);
         root.addView(blurSensitiveWordPosts);
+        root.addView(fieldLabel(MainActivity.text("通常の画像", "Regular images")));
+        normalMediaDisplay = mediaDisplayGroup(MainActivity.text("通常の画像", "Regular images"));
+        root.addView(normalMediaDisplay);
+        root.addView(fieldLabel(MainActivity.text("AIでグロ画像と判定された画像", "Images flagged as graphic by AI")));
+        aiMediaDisplay = mediaDisplayGroup(MainActivity.text("AIでグロ画像と判定された画像", "Images flagged as graphic by AI"));
+        root.addView(aiMediaDisplay);
+        root.addView(fieldLabel(MainActivity.text("リプでグロ画像とされた画像", "Images flagged as graphic by replies")));
+        replyMediaDisplay = mediaDisplayGroup(MainActivity.text("リプでグロ画像とされた画像", "Images flagged as graphic by replies"));
+        root.addView(replyMediaDisplay);
         root.addView(helperText(MainActivity.text(
-                "\u300c\u30b0\u30ed\u300d\u300c\u6b7b\u306d\u300d\u300c\u95b2\u89a7\u6ce8\u610f\u300d\u306a\u3069\u3092\u542b\u3080\u66f8\u304d\u8fbc\u307f\u3068\u3001\u305d\u306e\u8fd4\u4fe1\u5148\u306e\u753b\u50cf\u30fbGIF\u30fb\u52d5\u753b\u304c\u5bfe\u8c61\u3067\u3059\u3002",
-                "Applies to images, GIFs, and videos in posts containing warning terms and in posts targeted by those replies.")));
+                "非表示にした画像はスレとメディア拡大表示の両方から除外されます。",
+                "Hidden images are excluded from both threads and the media viewer.")));
 
         blurVideoThumbnails = new CheckBox(this);
         blurVideoThumbnails.setText(MainActivity.text("\u52d5\u753b\u30b5\u30e0\u30cd\u30a4\u30eb\u3082\u5224\u5b9a\u3057\u3066\u307c\u304b\u3059", "Also check and blur video thumbnails"));
@@ -726,6 +774,20 @@ public class SettingsActivity extends Activity {
         } else {
             addressBarBottom.setChecked(true);
         }
+        selectChoice(titleBarPosition, preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
+                ? "top" : "bottom");
+        showTabBar.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_TAB_BAR, false));
+        selectChoice(startupPage, preferences.getString(
+                MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE));
+        confirmExit.setChecked(preferences.getBoolean(MainActivity.PREF_CONFIRM_EXIT, false));
+        selectChoice(normalMediaDisplay, preferences.getString(
+                MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW));
+        selectChoice(aiMediaDisplay, preferences.getString(MainActivity.PREF_AI_MEDIA_DISPLAY,
+                preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true)
+                        ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW));
+        selectChoice(replyMediaDisplay, preferences.getString(MainActivity.PREF_REPLY_MEDIA_DISPLAY,
+                preferences.getBoolean(MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true)
+                        ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW));
         hideBarsOnScroll.setChecked(preferences.getBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, false));
         titleBarTabSwipe.setChecked(preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true));
         treeView.setChecked(preferences.getBoolean(MainActivity.PREF_TREE_VIEW, true));
@@ -811,6 +873,13 @@ public class SettingsActivity extends Activity {
         });
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        titleBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        showTabBar.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        startupPage.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        confirmExit.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        normalMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        aiMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        replyMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         hideBarsOnScroll.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         titleBarTabSwipe.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         treeView.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -925,6 +994,18 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, autoplayGifs.isChecked())
                 .putString(MainActivity.PREF_IMGBB_API_KEY, imgbbApiKey.getText().toString().trim())
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
+                .putBoolean(MainActivity.PREF_TITLE_BAR_TOP,
+                        "top".equals(selectedChoice(titleBarPosition, "bottom")))
+                .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, showTabBar.isChecked())
+                .putString(MainActivity.PREF_STARTUP_PAGE,
+                        selectedChoice(startupPage, MainActivity.STARTUP_LAST_PAGE))
+                .putBoolean(MainActivity.PREF_CONFIRM_EXIT, confirmExit.isChecked())
+                .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY,
+                        selectedChoice(normalMediaDisplay, MainActivity.MEDIA_DISPLAY_SHOW))
+                .putString(MainActivity.PREF_AI_MEDIA_DISPLAY,
+                        selectedChoice(aiMediaDisplay, MainActivity.MEDIA_DISPLAY_BLUR))
+                .putString(MainActivity.PREF_REPLY_MEDIA_DISPLAY,
+                        selectedChoice(replyMediaDisplay, MainActivity.MEDIA_DISPLAY_BLUR))
                 .putBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, hideBarsOnScroll.isChecked())
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, titleBarTabSwipe.isChecked())
                 .putBoolean(MainActivity.PREF_TREE_VIEW, treeView.isChecked())
@@ -1156,6 +1237,13 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false)
                 .putString(MainActivity.PREF_IMGBB_API_KEY, "")
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
+                .putBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
+                .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
+                .putString(MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE)
+                .putBoolean(MainActivity.PREF_CONFIRM_EXIT, false)
+                .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW)
+                .putString(MainActivity.PREF_AI_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_BLUR)
+                .putString(MainActivity.PREF_REPLY_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_BLUR)
                 .putBoolean(MainActivity.PREF_HIDE_BARS_ON_SCROLL, false)
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true)
                 .putString(MainActivity.PREF_ADDRESS_BAR_BUTTONS, MainActivity.DEFAULT_ADDRESS_BAR_BUTTONS)
@@ -1232,6 +1320,9 @@ public class SettingsActivity extends Activity {
 
     private void updateMediaDependentSettings() {
         boolean mediaEnabled = showMediaPreviews.isChecked();
+        setGroupEnabled(normalMediaDisplay, mediaEnabled);
+        setGroupEnabled(aiMediaDisplay, mediaEnabled);
+        setGroupEnabled(replyMediaDisplay, mediaEnabled);
         blurImgurImages.setEnabled(mediaEnabled);
         blurImgurImages.setAlpha(mediaEnabled ? 1f : 0.45f);
         blurSensitiveWordPosts.setEnabled(mediaEnabled);
@@ -1243,6 +1334,14 @@ public class SettingsActivity extends Activity {
         blurGifThumbnails.setAlpha(videoBlurEnabled ? 1f : 0.45f);
         autoplayGifs.setEnabled(mediaEnabled);
         autoplayGifs.setAlpha(mediaEnabled ? 1f : 0.45f);
+    }
+
+    private void setGroupEnabled(RadioGroup group, boolean enabled) {
+        if (group == null) return;
+        group.setAlpha(enabled ? 1f : 0.45f);
+        for (int i = 0; i < group.getChildCount(); i++) {
+            group.getChildAt(i).setEnabled(enabled);
+        }
     }
 
     private void updateCacheDependentSettings() {
@@ -1795,6 +1894,47 @@ public class SettingsActivity extends Activity {
         background.setCornerRadius(dp(10));
         button.setBackground(background);
         return button;
+    }
+
+    private RadioGroup choiceGroup(String[] labels, String[] values) {
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.HORIZONTAL);
+        for (int i = 0; i < labels.length; i++) {
+            RadioButton button = radio(labels[i]);
+            button.setId(View.generateViewId());
+            button.setTag(values[i]);
+            group.addView(button, new RadioGroup.LayoutParams(0, dp(44), 1));
+        }
+        return group;
+    }
+
+    private RadioGroup mediaDisplayGroup(String title) {
+        RadioGroup group = choiceGroup(new String[]{
+                        MainActivity.text("そのまま", "Show"),
+                        MainActivity.text("ぼかす", "Blur"),
+                        MainActivity.text("非表示", "Hide")},
+                new String[]{MainActivity.MEDIA_DISPLAY_SHOW,
+                        MainActivity.MEDIA_DISPLAY_BLUR, MainActivity.MEDIA_DISPLAY_HIDE});
+        group.setContentDescription(title);
+        return group;
+    }
+
+    private void selectChoice(RadioGroup group, String value) {
+        if (group == null) return;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (value.equals(child.getTag())) {
+                ((RadioButton) child).setChecked(true);
+                return;
+            }
+        }
+    }
+
+    private String selectedChoice(RadioGroup group, String fallback) {
+        if (group == null) return fallback;
+        View selected = group.findViewById(group.getCheckedRadioButtonId());
+        return selected == null || selected.getTag() == null
+                ? fallback : selected.getTag().toString();
     }
 
     private GradientDrawable roundedManagementCard() {

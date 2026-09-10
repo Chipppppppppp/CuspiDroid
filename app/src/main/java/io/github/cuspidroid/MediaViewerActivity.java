@@ -45,20 +45,20 @@ public class MediaViewerActivity extends Activity {
     private static final String EXTRA_ORIGINAL_URLS = "original_urls";
     private static final String EXTRA_MEDIA_URLS = "media_urls";
     private static final String EXTRA_VIDEOS = "videos";
-    private static final String EXTRA_SENSITIVE = "sensitive";
+    private static final String EXTRA_MEDIA_KINDS = "media_kinds";
     private static final String EXTRA_INDEX = "index";
 
     static final class MediaItem {
         final String originalUrl;
         final String mediaUrl;
         final boolean video;
-        final boolean sensitive;
+        final int mediaKind;
 
-        MediaItem(String originalUrl, String mediaUrl, boolean video, boolean sensitive) {
+        MediaItem(String originalUrl, String mediaUrl, boolean video, int mediaKind) {
             this.originalUrl = originalUrl;
             this.mediaUrl = mediaUrl;
             this.video = video;
-            this.sensitive = sensitive;
+            this.mediaKind = mediaKind;
         }
     }
 
@@ -78,7 +78,7 @@ public class MediaViewerActivity extends Activity {
 
     static void open(Context context, String originalUrl, String mediaUrl, boolean video) {
         List<MediaItem> items = new ArrayList<>();
-        items.add(new MediaItem(originalUrl, mediaUrl, video, false));
+        items.add(new MediaItem(originalUrl, mediaUrl, video, MediaPreviewHelper.MEDIA_NORMAL));
         open(context, items, 0);
     }
 
@@ -89,19 +89,19 @@ public class MediaViewerActivity extends Activity {
         ArrayList<String> originals = new ArrayList<>();
         ArrayList<String> media = new ArrayList<>();
         boolean[] videos = new boolean[mediaItems.size()];
-        boolean[] sensitive = new boolean[mediaItems.size()];
+        int[] mediaKinds = new int[mediaItems.size()];
         for (int i = 0; i < mediaItems.size(); i++) {
             MediaItem item = mediaItems.get(i);
             originals.add(item.originalUrl);
             media.add(item.mediaUrl);
             videos[i] = item.video;
-            sensitive[i] = item.sensitive;
+            mediaKinds[i] = item.mediaKind;
         }
         Intent intent = new Intent(context, MediaViewerActivity.class);
         intent.putStringArrayListExtra(EXTRA_ORIGINAL_URLS, originals);
         intent.putStringArrayListExtra(EXTRA_MEDIA_URLS, media);
         intent.putExtra(EXTRA_VIDEOS, videos);
-        intent.putExtra(EXTRA_SENSITIVE, sensitive);
+        intent.putExtra(EXTRA_MEDIA_KINDS, mediaKinds);
         intent.putExtra(EXTRA_INDEX, Math.max(0, Math.min(selectedIndex, mediaItems.size() - 1)));
         context.startActivity(intent);
     }
@@ -130,7 +130,7 @@ public class MediaViewerActivity extends Activity {
         ArrayList<String> originals = getIntent().getStringArrayListExtra(EXTRA_ORIGINAL_URLS);
         ArrayList<String> media = getIntent().getStringArrayListExtra(EXTRA_MEDIA_URLS);
         boolean[] videos = getIntent().getBooleanArrayExtra(EXTRA_VIDEOS);
-        boolean[] sensitive = getIntent().getBooleanArrayExtra(EXTRA_SENSITIVE);
+        int[] mediaKinds = getIntent().getIntArrayExtra(EXTRA_MEDIA_KINDS);
         if (media == null) {
             return;
         }
@@ -143,7 +143,8 @@ public class MediaViewerActivity extends Activity {
                     ? originals.get(i) : mediaUrl;
             items.add(new MediaItem(originalUrl, mediaUrl,
                     videos != null && i < videos.length && videos[i],
-                    sensitive != null && i < sensitive.length && sensitive[i]));
+                    mediaKinds != null && i < mediaKinds.length
+                            ? mediaKinds[i] : MediaPreviewHelper.MEDIA_NORMAL));
         }
     }
 
@@ -190,7 +191,7 @@ public class MediaViewerActivity extends Activity {
             } catch (Exception ignored) {
             }
             MediaPreviewHelper.ViewerMedia result = loaded;
-            boolean sensitive = item.sensitive;
+            int mediaKind = item.mediaKind;
             if (result != null && result.bitmap != null
                     && shouldCheckWithModel(item)) {
                 Boolean cached = MediaPreviewHelper.readSensitive(
@@ -204,9 +205,11 @@ public class MediaViewerActivity extends Activity {
                             getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
                             item.mediaUrl, modelSensitive);
                 }
-                sensitive = sensitive || modelSensitive;
+                if (modelSensitive && mediaKind == MediaPreviewHelper.MEDIA_NORMAL) {
+                    mediaKind = MediaPreviewHelper.MEDIA_AI_SENSITIVE;
+                }
             }
-            boolean finalSensitive = sensitive;
+            int finalMediaKind = mediaKind;
             runOnUiThread(() -> {
                 if (!isCurrent(generation)) {
                     return;
@@ -217,7 +220,11 @@ public class MediaViewerActivity extends Activity {
                             "Image failed to load."));
                     return;
                 }
-                if (finalSensitive && result.bitmap != null
+                String action = MediaPreviewHelper.mediaDisplayAction(
+                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE), finalMediaKind);
+                if (MainActivity.MEDIA_DISPLAY_HIDE.equals(action)) {
+                    removeHiddenCurrent(generation);
+                } else if (MainActivity.MEDIA_DISPLAY_BLUR.equals(action) && result.bitmap != null
                         && !revealed.contains(index)) {
                     image.setImageBitmap(
                             MediaPreviewHelper.viewerBlurredBitmap(result.bitmap));
@@ -265,7 +272,7 @@ public class MediaViewerActivity extends Activity {
                 bitmap = MediaPreviewHelper.videoPosterBitmap(item.mediaUrl);
             } catch (Exception ignored) {
             }
-            boolean sensitive = item.sensitive;
+            int mediaKind = item.mediaKind;
             if (bitmap != null && shouldCheckWithModel(item)) {
                 Boolean cached = MediaPreviewHelper.readSensitive(
                         getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
@@ -277,16 +284,22 @@ public class MediaViewerActivity extends Activity {
                             getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE),
                             item.mediaUrl, modelSensitive);
                 }
-                sensitive = sensitive || modelSensitive;
+                if (modelSensitive && mediaKind == MediaPreviewHelper.MEDIA_NORMAL) {
+                    mediaKind = MediaPreviewHelper.MEDIA_AI_SENSITIVE;
+                }
             }
             Bitmap finalBitmap = bitmap;
-            boolean finalSensitive = sensitive;
+            int finalMediaKind = mediaKind;
             runOnUiThread(() -> {
                 if (!isCurrent(generation)) {
                     return;
                 }
                 spinner.setVisibility(View.GONE);
-                if (finalSensitive && !revealed.contains(index)) {
+                String action = MediaPreviewHelper.mediaDisplayAction(
+                        getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE), finalMediaKind);
+                if (MainActivity.MEDIA_DISPLAY_HIDE.equals(action)) {
+                    removeHiddenCurrent(generation);
+                } else if (MainActivity.MEDIA_DISPLAY_BLUR.equals(action) && !revealed.contains(index)) {
                     if (finalBitmap != null) {
                         poster.setImageBitmap(
                                 MediaPreviewHelper.viewerBlurredBitmap(finalBitmap));
@@ -345,10 +358,25 @@ public class MediaViewerActivity extends Activity {
         reveal.bringToFront();
     }
 
+    private void removeHiddenCurrent(int generation) {
+        if (!isCurrent(generation) || items.isEmpty()) {
+            return;
+        }
+        items.remove(index);
+        if (items.isEmpty()) {
+            finish();
+            return;
+        }
+        index = Math.min(index, items.size() - 1);
+        showCurrent();
+    }
+
     private boolean shouldCheckWithModel(MediaItem item) {
         android.content.SharedPreferences preferences = getSharedPreferences(
                 MainActivity.PREFS_NAME, MODE_PRIVATE);
-        if (!preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true)) {
+        if (MediaPreviewHelper.mediaDisplayAction(preferences, MediaPreviewHelper.MEDIA_NORMAL)
+                .equals(MediaPreviewHelper.mediaDisplayAction(
+                        preferences, MediaPreviewHelper.MEDIA_AI_SENSITIVE))) {
             return false;
         }
         if (item.video && !preferences.getBoolean(

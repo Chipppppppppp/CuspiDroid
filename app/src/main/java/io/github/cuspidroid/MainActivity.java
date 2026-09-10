@@ -192,12 +192,25 @@ public class MainActivity extends Activity {
             THREAD_BUTTON_POPULAR, THREAD_BUTTON_COPY
     };
     static final String PREF_SHOW_MEDIA = "show_media";
+    static final String PREF_NORMAL_MEDIA_DISPLAY = "normal_media_display";
+    static final String PREF_AI_MEDIA_DISPLAY = "ai_media_display";
+    static final String PREF_REPLY_MEDIA_DISPLAY = "reply_media_display";
+    static final String MEDIA_DISPLAY_SHOW = "show";
+    static final String MEDIA_DISPLAY_BLUR = "blur";
+    static final String MEDIA_DISPLAY_HIDE = "hide";
     static final String PREF_BLUR_IMGUR = "blur_imgur_images";
     static final String PREF_BLUR_VIDEO_THUMBNAILS = "blur_video_thumbnails";
     static final String PREF_BLUR_GIF_THUMBNAILS = "blur_gif_thumbnails";
     static final String PREF_BLUR_SENSITIVE_WORD_POSTS = "blur_sensitive_word_posts";
     static final String PREF_AUTOPLAY_GIFS = "autoplay_gifs";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
+    static final String PREF_TITLE_BAR_TOP = "title_bar_top";
+    static final String PREF_SHOW_TAB_BAR = "show_tab_bar";
+    static final String PREF_STARTUP_PAGE = "startup_page";
+    static final String PREF_CONFIRM_EXIT = "confirm_exit";
+    static final String STARTUP_LAST_PAGE = "last_page";
+    static final String STARTUP_TAB_OVERVIEW = "tab_overview";
+    static final String STARTUP_NEW_TAB = "new_tab";
     static final String PREF_HIDE_BARS_ON_SCROLL = "hide_bars_on_scroll";
     static final String PREF_TITLE_BAR_TAB_SWIPE = "title_bar_tab_swipe";
     static final String PREF_TREE_VIEW = "tree_view";
@@ -449,6 +462,9 @@ public class MainActivity extends Activity {
     private TextView threadSearchCount;
     private LinearLayout bottomToolbar;
     private FrameLayout bottomToolbarSlot;
+    private HorizontalScrollView tabBar;
+    private LinearLayout tabBarItems;
+    private FrameLayout tabBarSlot;
     private TextView bottomThreadTitle;
     private ImageButton bottomWriteButton;
     private ImageButton bottomJumpButton;
@@ -492,6 +508,7 @@ public class MainActivity extends Activity {
     private boolean pendingPrivateNewTab;
     private boolean pendingHistoryAll;
     private boolean tabOverviewVisible;
+    private boolean exitConfirmationShown;
     private boolean tabOverviewPrivateMode;
     private ClosedTab recentlyClosedTab;
     private Runnable clearClosedTabUndoTask;
@@ -858,7 +875,9 @@ public class MainActivity extends Activity {
                 + "|" + preferences.getString(PREF_ADDRESS_NAV_BUTTONS, DEFAULT_ADDRESS_NAV_BUTTONS)
                 + "|" + preferences.getString(PREF_THREAD_TITLE_BAR_BUTTONS, DEFAULT_THREAD_TITLE_BAR_BUTTONS)
                 + "|" + preferences.getString(PREF_THREAD_TITLE_MENU_BUTTONS, DEFAULT_THREAD_TITLE_MENU_BUTTONS)
-                + "|" + preferences.getBoolean(PREF_HIDE_BARS_ON_SCROLL, false);
+                + "|" + preferences.getBoolean(PREF_HIDE_BARS_ON_SCROLL, false)
+                + "|" + preferences.getBoolean(PREF_TITLE_BAR_TOP, false)
+                + "|" + preferences.getBoolean(PREF_SHOW_TAB_BAR, false);
     }
 
     private void migrateAddressMenuNavigationPreference() {
@@ -1039,7 +1058,12 @@ public class MainActivity extends Activity {
         if (handleViewIntent(getIntent())) {
             return;
         }
-        if (!restored) {
+        String startup = preferences.getString(PREF_STARTUP_PAGE, STARTUP_LAST_PAGE);
+        if (STARTUP_NEW_TAB.equals(startup)) {
+            showPendingNewTab(false);
+        } else if (STARTUP_TAB_OVERVIEW.equals(startup) && restored) {
+            showTabOverview();
+        } else if (!restored) {
             createBlankTab();
         }
     }
@@ -1224,8 +1248,12 @@ public class MainActivity extends Activity {
                 navigateNewTabHistory(-1);
                 return;
             }
-            cancelPendingNewTab();
-            return;
+            if (!tabs.isEmpty()) {
+                cancelPendingNewTab();
+                return;
+            }
+            pendingNewTab = false;
+            pendingPrivateNewTab = false;
         }
         if (addressBar != null && addressBar.hasFocus()) {
             clearAddressFocus();
@@ -1265,7 +1293,31 @@ public class MainActivity extends Activity {
             closeCurrentTab();
             return;
         }
+        if (preferences.getBoolean(PREF_CONFIRM_EXIT, false) && !exitConfirmationShown) {
+            showExitConfirmation();
+            return;
+        }
         super.onBackPressed();
+    }
+
+    private void showExitConfirmation() {
+        exitConfirmationShown = true;
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("アプリを終了しますか？", "Exit the app?"))
+                .setMessage(text("もう一度戻る操作をすると終了します。", "Press Back once more to exit."))
+                .setNegativeButton(text("続ける", "Stay"), null)
+                .setPositiveButton(text("終了", "Exit"), (d, which) -> MainActivity.super.onBackPressed())
+                .create();
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+                dialog.dismiss();
+                MainActivity.super.onBackPressed();
+                return true;
+            }
+            return false;
+        });
+        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
+        dialog.show();
     }
 
     @Override
@@ -1632,27 +1684,51 @@ public class MainActivity extends Activity {
         bottomToolbarSlot = chromeBarSlot(bottomToolbar, dp(54));
         threadSearchBarSlot = chromeBarSlot(threadSearchBar, dp(50));
         bottomThreadBarSlot = chromeBarSlot(bottomThreadBar, dp(50));
+        tabBar = buildTabBar();
+        tabBarSlot = chromeBarSlot(tabBar, dp(42));
 
         if (addressBarTop) {
             root.addView(bottomToolbarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
-            root.addView(overlayFrame, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-            root.addView(threadSearchBarSlot, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        }
+        if (titleBarOnTop()) {
             root.addView(bottomThreadBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+            root.addView(threadSearchBarSlot, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+            root.addView(tabBarSlot, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, showTabBar() ? dp(42) : 0));
+            root.addView(overlayFrame, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         } else {
             root.addView(overlayFrame, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            root.addView(tabBarSlot, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, showTabBar() ? dp(42) : 0));
             root.addView(threadSearchBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
             root.addView(bottomThreadBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        }
+        if (!addressBarTop) {
             root.addView(bottomToolbarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
         }
         syncChromeBarSlots(false);
+    }
+
+    private HorizontalScrollView buildTabBar() {
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(barColor());
+        tabBarItems = new LinearLayout(this);
+        tabBarItems.setOrientation(LinearLayout.HORIZONTAL);
+        tabBarItems.setGravity(Gravity.CENTER_VERTICAL);
+        tabBarItems.setPadding(dp(6), dp(3), dp(6), dp(3));
+        scroll.addView(tabBarItems, new HorizontalScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return scroll;
     }
 
     private LinearLayout buildPrivateBrowsingBar() {
@@ -1907,6 +1983,7 @@ public class MainActivity extends Activity {
         syncChromeBarSlot(threadSearchBarSlot, threadSearchBar, dp(50), animated,
                 addressBar != null && addressBar.hasFocus());
         syncChromeBarSlot(bottomThreadBarSlot, bottomThreadBar, dp(50), animated);
+        syncChromeBarSlot(tabBarSlot, tabBar, showTabBar() ? dp(42) : 0, animated);
     }
 
     private void syncChromeBarSlot(FrameLayout slot, View bar, int fullHeight, boolean animated) {
@@ -5091,7 +5168,8 @@ public class MainActivity extends Activity {
             boolean canWrite = isThread && tab.threadPage != null && tab.threadPage.error == null;
             boolean canManageBoard = NATIVE_BOARD.equals(tab.nativeKind) && tab.url != null
                     && isBoardUrl(tab.url) && !isBbsDirectoryUrl(tab.url);
-            bottomThreadTitle.setOnClickListener(canWrite ? v -> scrollCurrentThreadToBottom() : null);
+            bottomThreadTitle.setOnClickListener(canWrite && !titleBarOnTop()
+                    ? v -> scrollCurrentThreadToBottom() : null);
             bottomThreadTitle.setOnLongClickListener(v -> {
                 if (canWrite) {
                     showThreadTitleMenu(v);
@@ -5102,7 +5180,7 @@ public class MainActivity extends Activity {
                 }
                 return true;
             });
-            bottomThreadTitle.setClickable(canWrite || canManageBoard);
+            bottomThreadTitle.setClickable((canWrite && !titleBarOnTop()) || canManageBoard);
             setBottomThreadActionButtonsVisible(canWrite || threadLoading);
             setBottomThreadActionButtonsEnabled(canWrite);
             if (bottomBookmarkButton != null) {
@@ -5636,6 +5714,47 @@ public class MainActivity extends Activity {
         CuspTab tab = pendingNewTab ? null : currentTab();
         updateAddressBarButtons(tab);
         updateBottomThreadBar(tab);
+        renderTabBar();
+    }
+
+    private void renderTabBar() {
+        if (tabBar == null || tabBarItems == null) {
+            return;
+        }
+        boolean visible = showTabBar() && !tabOverviewVisible && !inlineWebViewMode;
+        tabBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        tabBarItems.removeAllViews();
+        if (!visible) {
+            syncChromeBarSlots(false);
+            return;
+        }
+        boolean privateScope = pendingNewTab ? pendingPrivateNewTab : currentTabIsPrivate();
+        for (int i = 0; i < tabs.size(); i++) {
+            CuspTab tab = tabs.get(i);
+            if (tab.privateBrowsing != privateScope) {
+                continue;
+            }
+            final int index = i;
+            TextView item = new TextView(this);
+            item.setSingleLine(true);
+            item.setEllipsize(TextUtils.TruncateAt.END);
+            item.setText(displayTitleForTab(tab));
+            item.setTextSize(12);
+            boolean selected = !pendingNewTab && currentIndex == i;
+            item.setTextColor(selected ? Theme.contrastingText(accentColor()) : textColor());
+            item.setGravity(Gravity.CENTER);
+            item.setPadding(dp(12), 0, dp(12), 0);
+            item.setBackground(roundedDrawable(selected ? accentColor() : surfaceColor(),
+                    selected ? accentColor() : borderColor(), dp(8)));
+            item.setOnClickListener(v -> switchToTab(index));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(138), dp(34));
+            params.setMargins(0, 0, dp(5), 0);
+            tabBarItems.addView(item, params);
+            if (selected) {
+                item.post(() -> tabBar.smoothScrollTo(Math.max(0, item.getLeft() - dp(12)), 0));
+            }
+        }
+        syncChromeBarSlots(false);
     }
 
     private void updateAddressBarDisplay(boolean focusText) {
@@ -13815,6 +13934,13 @@ public class MainActivity extends Activity {
         enableTopPullRefresh(scroll, loader, () -> refreshTabOverviewFromTop(loader));
 
         addPrivateModeOverlay(root, tabOverviewPrivateMode, v -> toggleTabOverviewPrivateMode());
+        ImageButton settings = iconButton(R.drawable.ic_settings, text("設定", "Settings"),
+                v -> startActivity(new Intent(this, SettingsActivity.class)));
+        settings.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
+        FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(
+                dp(54), dp(54), Gravity.BOTTOM | Gravity.LEFT);
+        settingsParams.setMargins(dp(18), 0, 0, dp(18));
+        root.addView(settings, settingsParams);
         ImageButton reloadAll = iconButton(R.drawable.ic_refresh, text("\u3059\u3079\u3066\u66f4\u65b0", "Reload all"), v -> reloadAllTabs(true));
         reloadAll.setBackground(roundedDrawable(menuColor(), borderColor(), dp(22)));
         FrameLayout.LayoutParams reloadParams = new FrameLayout.LayoutParams(dp(54), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
@@ -19139,15 +19265,15 @@ public class MainActivity extends Activity {
         MediaPreviewHelper.Callback base = mediaPreviewCallbacks();
         return new MediaPreviewHelper.Callback() {
             @Override
-            public void openImage(String originalUrl, String mediaUrl, boolean sensitive) {
+            public void openImage(String originalUrl, String mediaUrl, int mediaKind) {
                 popup.dismiss();
-                base.openImage(originalUrl, mediaUrl, sensitive);
+                base.openImage(originalUrl, mediaUrl, mediaKind);
             }
 
             @Override
-            public void openVideo(String originalUrl, String mediaUrl, boolean sensitive) {
+            public void openVideo(String originalUrl, String mediaUrl, int mediaKind) {
                 popup.dismiss();
-                base.openVideo(originalUrl, mediaUrl, sensitive);
+                base.openVideo(originalUrl, mediaUrl, mediaKind);
             }
 
             @Override
@@ -19530,13 +19656,13 @@ public class MainActivity extends Activity {
     private MediaPreviewHelper.Callback mediaPreviewCallbacks() {
         return new MediaPreviewHelper.Callback() {
             @Override
-            public void openImage(String originalUrl, String mediaUrl, boolean sensitive) {
-                showThreadMediaViewer(originalUrl, mediaUrl, false, sensitive);
+            public void openImage(String originalUrl, String mediaUrl, int mediaKind) {
+                showThreadMediaViewer(originalUrl, mediaUrl, false, mediaKind);
             }
 
             @Override
-            public void openVideo(String originalUrl, String mediaUrl, boolean sensitive) {
-                showThreadMediaViewer(originalUrl, mediaUrl, true, sensitive);
+            public void openVideo(String originalUrl, String mediaUrl, int mediaKind) {
+                showThreadMediaViewer(originalUrl, mediaUrl, true, mediaKind);
             }
 
             @Override
@@ -19547,7 +19673,7 @@ public class MainActivity extends Activity {
     }
 
     private void showThreadMediaViewer(String originalUrl, String mediaUrl,
-                                       boolean video, boolean sensitive) {
+                                       boolean video, int selectedMediaKind) {
         List<MediaViewerActivity.MediaItem> items = new ArrayList<>();
         int selected = -1;
         CuspTab tab = currentTab();
@@ -19563,24 +19689,28 @@ public class MainActivity extends Activity {
                     }
                     Boolean cached = MediaPreviewHelper.readSensitive(
                             preferences, link.imageUrl);
-                    boolean itemSensitive = wordSensitive
-                            || (cached != null && cached);
+                    int itemKind = wordSensitive ? MediaPreviewHelper.MEDIA_REPLY_SENSITIVE
+                            : cached != null && cached ? MediaPreviewHelper.MEDIA_AI_SENSITIVE
+                            : MediaPreviewHelper.MEDIA_NORMAL;
+                    if (MEDIA_DISPLAY_HIDE.equals(MediaPreviewHelper.mediaDisplayAction(preferences, itemKind))) {
+                        continue;
+                    }
                     boolean matches = link.imageUrl.equals(mediaUrl)
                             || link.originalUrl.equals(originalUrl);
                     if (matches) {
-                        itemSensitive = itemSensitive || sensitive;
+                        itemKind = Math.max(itemKind, selectedMediaKind);
                         selected = items.size();
                     }
                     items.add(new MediaViewerActivity.MediaItem(
                             link.originalUrl, link.imageUrl,
-                            link.video, itemSensitive));
+                            link.video, itemKind));
                 }
             }
         }
         if (selected < 0) {
             selected = items.size();
             items.add(new MediaViewerActivity.MediaItem(
-                    originalUrl, mediaUrl, video, sensitive));
+                    originalUrl, mediaUrl, video, selectedMediaKind));
         }
         MediaViewerActivity.open(this, items, selected);
     }
@@ -24705,6 +24835,14 @@ public class MainActivity extends Activity {
 
     private boolean addressBarOnTop() {
         return preferences.getBoolean(PREF_ADDRESS_BAR_TOP, false);
+    }
+
+    private boolean titleBarOnTop() {
+        return preferences.getBoolean(PREF_TITLE_BAR_TOP, false);
+    }
+
+    private boolean showTabBar() {
+        return preferences.getBoolean(PREF_SHOW_TAB_BAR, false);
     }
 
     private boolean treeViewEnabled() {

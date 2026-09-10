@@ -39,14 +39,17 @@ import java.util.regex.Pattern;
 
 final class MediaPreviewHelper {
     static final int SENSITIVE_MODEL_VERSION = 5;
+    static final int MEDIA_NORMAL = 0;
+    static final int MEDIA_AI_SENSITIVE = 1;
+    static final int MEDIA_REPLY_SENSITIVE = 2;
 
     interface ImageClassifier {
         boolean isSensitive(Bitmap bitmap);
     }
 
     interface Callback {
-        void openImage(String originalUrl, String mediaUrl, boolean sensitive);
-        void openVideo(String originalUrl, String mediaUrl, boolean sensitive);
+        void openImage(String originalUrl, String mediaUrl, int mediaKind);
+        void openVideo(String originalUrl, String mediaUrl, int mediaKind);
         void openExternal(String url);
     }
 
@@ -66,7 +69,7 @@ final class MediaPreviewHelper {
                        ImageClassifier classifier, Callback callback) {
         FrameLayout frame = new SquareMediaFrame(activity, cellSize);
         final String[] activeMediaUrl = {mediaUrl};
-        final boolean[] activeSensitive = {forceSensitive};
+        final int[] activeMediaKind = {forceSensitive ? MEDIA_REPLY_SENSITIVE : MEDIA_NORMAL};
         frame.setClickable(true);
         frame.setClipChildren(true);
         frame.setClipToPadding(true);
@@ -85,9 +88,9 @@ final class MediaPreviewHelper {
         image.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
             if (video || isVideoUrl(openUrl)) {
-                callback.openVideo(originalUrl, openUrl, activeSensitive[0]);
+                callback.openVideo(originalUrl, openUrl, activeMediaKind[0]);
             } else {
-                callback.openImage(originalUrl, openUrl, activeSensitive[0]);
+                callback.openImage(originalUrl, openUrl, activeMediaKind[0]);
             }
         });
         if (longClickAction != null) {
@@ -120,9 +123,9 @@ final class MediaPreviewHelper {
         play.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
             if (video || isVideoUrl(openUrl)) {
-                callback.openVideo(originalUrl, openUrl, activeSensitive[0]);
+                callback.openVideo(originalUrl, openUrl, activeMediaKind[0]);
             } else {
-                callback.openImage(originalUrl, openUrl, activeSensitive[0]);
+                callback.openImage(originalUrl, openUrl, activeMediaKind[0]);
             }
         });
         frame.addView(play, new FrameLayout.LayoutParams(
@@ -140,9 +143,9 @@ final class MediaPreviewHelper {
         frame.setOnClickListener(v -> {
             String openUrl = activeMediaUrl[0];
             if (video || isVideoUrl(openUrl)) {
-                callback.openVideo(originalUrl, openUrl, activeSensitive[0]);
+                callback.openVideo(originalUrl, openUrl, activeMediaKind[0]);
             } else {
-                callback.openImage(originalUrl, openUrl, activeSensitive[0]);
+                callback.openImage(originalUrl, openUrl, activeMediaKind[0]);
             }
         });
 
@@ -198,8 +201,9 @@ final class MediaPreviewHelper {
                     bitmap = decodePreviewBitmap(bytes, cellSize);
                 }
                 boolean activeGif = isGifUrl(activeMediaUrl[0]);
-                boolean checkSensitive = classifier != null && preferences.getBoolean(
-                        MainActivity.PREF_BLUR_IMGUR, true)
+                boolean checkSensitive = classifier != null
+                        && !mediaDisplayAction(preferences, MEDIA_NORMAL).equals(
+                                mediaDisplayAction(preferences, MEDIA_AI_SENSITIVE))
                         && (!video || preferences.getBoolean(
                                 MainActivity.PREF_BLUR_VIDEO_THUMBNAILS, true))
                         && (!activeGif || preferences.getBoolean(
@@ -218,14 +222,19 @@ final class MediaPreviewHelper {
             Bitmap finalBitmap = bitmap;
             Drawable finalDrawable = drawable;
             boolean finalSensitive = sensitive;
+            int finalMediaKind = forceSensitive ? MEDIA_REPLY_SENSITIVE
+                    : finalSensitive ? MEDIA_AI_SENSITIVE : MEDIA_NORMAL;
             boolean gif = isGifUrl(activeMediaUrl[0]);
             mainHandler.post(() -> runWhenAttached(frame, () -> {
                 if (activity.isFinishing() || activity.isDestroyed()) {
                     return;
                 }
-                activeSensitive[0] = finalSensitive;
+                activeMediaKind[0] = finalMediaKind;
                 spinner.setVisibility(View.GONE);
-                if (finalSensitive) {
+                String action = mediaDisplayAction(preferences, finalMediaKind);
+                if (MainActivity.MEDIA_DISPLAY_HIDE.equals(action)) {
+                    frame.setVisibility(View.GONE);
+                } else if (MainActivity.MEDIA_DISPLAY_BLUR.equals(action)) {
                     if (finalBitmap != null) {
                         image.setImageBitmap(blurredBitmap(finalBitmap));
                         image.setVisibility(View.VISIBLE);
@@ -288,6 +297,21 @@ final class MediaPreviewHelper {
             }));
         });
         return frame;
+    }
+
+    static String mediaDisplayAction(SharedPreferences preferences, int mediaKind) {
+        if (mediaKind == MEDIA_REPLY_SENSITIVE) {
+            return preferences.getString(MainActivity.PREF_REPLY_MEDIA_DISPLAY,
+                    preferences.getBoolean(MainActivity.PREF_BLUR_SENSITIVE_WORD_POSTS, true)
+                            ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW);
+        }
+        if (mediaKind == MEDIA_AI_SENSITIVE) {
+            return preferences.getString(MainActivity.PREF_AI_MEDIA_DISPLAY,
+                    preferences.getBoolean(MainActivity.PREF_BLUR_IMGUR, true)
+                            ? MainActivity.MEDIA_DISPLAY_BLUR : MainActivity.MEDIA_DISPLAY_SHOW);
+        }
+        return preferences.getString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY,
+                MainActivity.MEDIA_DISPLAY_SHOW);
     }
 
     static Boolean readSensitive(SharedPreferences preferences, String url) {
