@@ -5709,37 +5709,65 @@ public class MainActivity extends Activity {
             return;
         }
         boolean privateScope = pendingNewTab ? pendingPrivateNewTab : currentTabIsPrivate();
-        for (int tabIndex : tabBarIndices(privateScope)) {
+        if (!privateScope && showBookmarksInTabOverview()) {
+            BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
+            addBookmarkTabBarItems(bookmarkChildren("", snapshot), snapshot);
+        }
+        for (int tabIndex : tabOverviewIndices(privateScope)) {
             CuspTab tab = tabs.get(tabIndex);
-            final int index = tabIndex;
-            TextView item = new TextView(this);
-            item.setSingleLine(true);
-            item.setEllipsize(TextUtils.TruncateAt.END);
-            item.setText(displayTitleForTab(tab));
-            item.setTextSize(12);
-            boolean selected = !pendingNewTab && currentIndex == index;
-            item.setTextColor(selected ? Theme.contrastingText(accentColor()) : textColor());
-            item.setGravity(Gravity.CENTER);
-            item.setPadding(dp(12), 0, dp(12), 0);
-            item.setBackground(roundedDrawable(selected ? accentColor() : surfaceColor(),
-                    selected ? accentColor() : borderColor(), dp(8)));
-            item.setOnClickListener(v -> switchToTab(index));
-            item.setOnLongClickListener(v -> {
-                showTabBarItemMenu(v, tab);
-                return true;
-            });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(138), dp(34));
-            params.setMargins(0, 0, dp(5), 0);
-            tabBarItems.addView(item, params);
-            if (selected) {
-                item.post(() -> tabBar.smoothScrollTo(Math.max(0, item.getLeft() - dp(12)), 0));
-            }
+            addTabBarItem(displayTitleForTab(tab), !pendingNewTab && currentIndex == tabIndex,
+                    () -> switchToTab(tabs.indexOf(tab)), text("タブを削除", "Close tab"),
+                    () -> closeTab(tabs.indexOf(tab)));
         }
         syncChromeBarSlots(false);
     }
 
-    private void showTabBarItemMenu(View anchor, CuspTab tab) {
-        if (anchor == null || tab == null || !tabs.contains(tab)) {
+    private void addBookmarkTabBarItems(List<BookmarkNode> nodes, BookmarkOverviewSnapshot snapshot) {
+        for (BookmarkNode node : nodes) {
+            if (node.folderNode) {
+                // Keep the overview's folder order while making collapsed items accessible too.
+                addBookmarkTabBarItems(bookmarkChildren(node.folder, snapshot), snapshot);
+                continue;
+            }
+            SavedItem bookmark = node.item;
+            int index = bookmarkOverviewTabIndex(bookmark);
+            CuspTab tab = index >= 0 ? tabs.get(index) : bookmarkOverviewTab(bookmark, snapshot);
+            addTabBarItem(displayTitleForTab(tab), !pendingNewTab && index >= 0 && currentIndex == index,
+                    () -> openBookmarkOverviewItem(bookmark),
+                    text("ブックマークを削除", "Delete bookmark"), () -> {
+                        deleteBookmarkFromOverview(bookmark);
+                        renderTabs();
+                    });
+        }
+    }
+
+    private void addTabBarItem(String title, boolean selected, Runnable open,
+                               String closeLabel, Runnable close) {
+        TextView item = new TextView(this);
+        item.setSingleLine(true);
+        item.setEllipsize(TextUtils.TruncateAt.END);
+        item.setText(title);
+        item.setTextSize(12);
+        item.setTextColor(selected ? Theme.contrastingText(accentColor()) : textColor());
+        item.setGravity(Gravity.CENTER);
+        item.setPadding(dp(12), 0, dp(12), 0);
+        item.setBackground(roundedDrawable(selected ? accentColor() : surfaceColor(),
+                selected ? accentColor() : borderColor(), dp(8)));
+        item.setOnClickListener(v -> open.run());
+        item.setOnLongClickListener(v -> {
+            showTabBarItemMenu(v, closeLabel, close);
+            return true;
+        });
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(138), dp(34));
+        params.setMargins(0, 0, dp(5), 0);
+        tabBarItems.addView(item, params);
+        if (selected) {
+            item.post(() -> tabBar.smoothScrollTo(Math.max(0, item.getLeft() - dp(12)), 0));
+        }
+    }
+
+    private void showTabBarItemMenu(View anchor, String closeLabel, Runnable closeAction) {
+        if (anchor == null) {
             return;
         }
         LinearLayout menu = new LinearLayout(this);
@@ -5749,9 +5777,9 @@ public class MainActivity extends Activity {
         int popupWidth = dp(160);
         PopupWindow popup = new PopupWindow(menu, popupWidth,
                 ViewGroup.LayoutParams.WRAP_CONTENT, false);
-        TextView close = menuItem(text("タブを削除", "Close tab"), v -> {
+        TextView close = menuItem(closeLabel, v -> {
             popup.dismiss();
-            closeTab(tabs.indexOf(tab));
+            closeAction.run();
         });
         close.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         close.setMinWidth(0);
@@ -14691,18 +14719,6 @@ public class MainActivity extends Activity {
 
     private List<Integer> tabOverviewIndices(boolean privateSection) {
         return tabOverviewIndices(privateSection, true);
-    }
-
-    private List<Integer> tabBarIndices(boolean privateSection) {
-        List<Integer> indices = new ArrayList<>();
-        for (int i = 0; i < tabs.size(); i++) {
-            CuspTab tab = tabs.get(i);
-            if (tab != null && tab.privateBrowsing == privateSection && isBookmarkTabScope(tab)) {
-                indices.add(i);
-            }
-        }
-        indices.addAll(tabOverviewIndices(privateSection));
-        return indices;
     }
 
     private List<Integer> tabOverviewIndices(boolean privateSection, boolean allowSort) {
