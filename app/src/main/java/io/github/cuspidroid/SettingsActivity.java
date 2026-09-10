@@ -89,6 +89,7 @@ public class SettingsActivity extends Activity {
     private RadioGroup addressBarPosition;
     private RadioGroup titleBarPosition;
     private RadioGroup tabBarPosition;
+    private CheckBox tabBarUnread;
     private RadioGroup startupPage;
     private RadioGroup normalMediaDisplay;
     private RadioGroup aiMediaDisplay;
@@ -236,6 +237,12 @@ public class SettingsActivity extends Activity {
         root.addView(fieldLabel(MainActivity.text("タブバー", "Tab bar")));
         tabBarPosition = barPositionGroup(MainActivity.text("タブバー", "Tab bar"));
         root.addView(tabBarPosition);
+        tabBarUnread = new CheckBox(this);
+        tabBarUnread.setText(MainActivity.text("タブバーに未読数を表示", "Show unread counts in the tab bar"));
+        tabBarUnread.setTextColor(textColor());
+        tabBarUnread.setTextSize(16);
+        Theme.tintCompoundButton(this, tabBarUnread);
+        root.addView(tabBarUnread);
         root.addView(fieldLabel(MainActivity.text("バーの操作", "Bar behavior")));
 
         hideBarsOnScroll = new CheckBox(this);
@@ -768,6 +775,7 @@ public class SettingsActivity extends Activity {
                     ? "hidden" : preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TOP, false) ? "top" : "bottom");
             selectChoice(tabBarPosition, !preferences.getBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
                     ? "hidden" : preferences.getBoolean(MainActivity.PREF_TAB_BAR_TOP, false) ? "top" : "bottom");
+            tabBarUnread.setChecked(preferences.getBoolean(MainActivity.PREF_TAB_BAR_UNREAD, true));
             selectChoice(startupPage, preferences.getString(
                     MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE));
             selectChoice(normalMediaDisplay, preferences.getString(
@@ -867,6 +875,7 @@ public class SettingsActivity extends Activity {
         addressBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         titleBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         tabBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
+        tabBarUnread.setOnCheckedChangeListener((button, checked) -> saveSettings(false));
         startupPage.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         normalMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         aiMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
@@ -994,6 +1003,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TOP,
                         selectedBarOnTop(titleBarPosition, MainActivity.PREF_TITLE_BAR_TOP))
                 .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, !"hidden".equals(selectedChoice(tabBarPosition, "hidden")))
+                .putBoolean(MainActivity.PREF_TAB_BAR_UNREAD, tabBarUnread.isChecked())
                 .putBoolean(MainActivity.PREF_TAB_BAR_TOP,
                         selectedBarOnTop(tabBarPosition, MainActivity.PREF_TAB_BAR_TOP))
                 .putString(MainActivity.PREF_STARTUP_PAGE,
@@ -1239,6 +1249,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
+                .putBoolean(MainActivity.PREF_TAB_BAR_UNREAD, true)
                 .putBoolean(MainActivity.PREF_TAB_BAR_TOP, false)
                 .putString(MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE)
                 .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW)

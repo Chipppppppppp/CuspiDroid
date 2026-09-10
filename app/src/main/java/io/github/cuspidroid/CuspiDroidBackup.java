@@ -215,6 +215,7 @@ final class CuspiDroidBackup {
         putDefault(values, MainActivity.PREF_TITLE_BAR_TOP, false);
         putDefault(values, MainActivity.PREF_SHOW_TAB_BAR, false);
         putDefault(values, MainActivity.PREF_TAB_BAR_TOP, false);
+        putDefault(values, MainActivity.PREF_TAB_BAR_UNREAD, true);
         putDefault(values, MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE);
         putDefault(values, MainActivity.PREF_HIDE_BARS_ON_SCROLL, false);
         putDefault(values, MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true);

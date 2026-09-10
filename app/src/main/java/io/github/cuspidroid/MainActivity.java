@@ -208,6 +208,7 @@ public class MainActivity extends Activity {
     static final String PREF_SHOW_ADDRESS_BAR = "show_address_bar";
     static final String PREF_SHOW_TITLE_BAR = "show_title_bar";
     static final String PREF_SHOW_TAB_BAR = "show_tab_bar";
+    static final String PREF_TAB_BAR_UNREAD = "tab_bar_unread";
     static final String PREF_TAB_BAR_TOP = "tab_bar_top";
     static final String PREF_STARTUP_PAGE = "startup_page";
     static final String STARTUP_LAST_PAGE = "last_page";
@@ -881,7 +882,8 @@ public class MainActivity extends Activity {
                 + "|" + preferences.getBoolean(PREF_SHOW_ADDRESS_BAR, true)
                 + "|" + preferences.getBoolean(PREF_SHOW_TITLE_BAR, true)
                 + "|" + preferences.getBoolean(PREF_SHOW_TAB_BAR, false)
-                + "|" + preferences.getBoolean(PREF_TAB_BAR_TOP, false);
+                + "|" + preferences.getBoolean(PREF_TAB_BAR_TOP, false)
+                + "|" + preferences.getBoolean(PREF_TAB_BAR_UNREAD, true);
     }
 
     private void migrateAddressMenuNavigationPreference() {
@@ -5721,11 +5723,27 @@ public class MainActivity extends Activity {
         }
         for (int tabIndex : tabOverviewIndices(privateScope)) {
             CuspTab tab = tabs.get(tabIndex);
-            addTabBarItem(displayTitleForTab(tab), !pendingNewTab && currentIndex == tabIndex,
+            addTabBarItem(tab, !pendingNewTab && currentIndex == tabIndex,
                     () -> switchToTab(tabs.indexOf(tab)), text("タブを削除", "Close tab"),
                     () -> closeTab(tabs.indexOf(tab)));
         }
+        addTabBarAction(R.drawable.ic_add, text("新規タブ", "New tab"), () -> {
+            showPendingNewTab(privateScope);
+            focusPendingNewTabSearch();
+        });
+        addTabBarAction(R.drawable.ic_refresh, text("すべて更新", "Reload all"),
+                () -> reloadAllTabs(true, this::renderTabBar, privateScope));
         syncChromeBarSlots(false);
+    }
+
+    private void addTabBarAction(int icon, String label, Runnable action) {
+        ImageButton button = iconButton(icon, label, v -> action.run());
+        button.setColorFilter(accentColor());
+        button.setPadding(dp(5), dp(5), dp(5), dp(5));
+        button.setBackground(roundedDrawable(surfaceColor(), borderColor(), dp(8)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(40), dp(34));
+        params.setMargins(0, 0, dp(5), 0);
+        tabBarItems.addView(button, params);
     }
 
     private void addBookmarkTabBarItems(List<BookmarkNode> nodes, BookmarkOverviewSnapshot snapshot) {
@@ -5738,7 +5756,7 @@ public class MainActivity extends Activity {
             SavedItem bookmark = node.item;
             int index = bookmarkOverviewTabIndex(bookmark);
             CuspTab tab = index >= 0 ? tabs.get(index) : bookmarkOverviewTab(bookmark, snapshot);
-            addTabBarItem(displayTitleForTab(tab), !pendingNewTab && index >= 0 && currentIndex == index,
+            addTabBarItem(tab, !pendingNewTab && index >= 0 && currentIndex == index,
                     () -> openBookmarkOverviewItem(bookmark),
                     text("ブックマークを削除", "Delete bookmark"), () -> {
                         deleteBookmarkFromOverview(bookmark);
@@ -5747,28 +5765,66 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void addTabBarItem(String title, boolean selected, Runnable open,
+    private void addTabBarItem(CuspTab tab, boolean selected, Runnable open,
                                String closeLabel, Runnable close) {
+        LinearLayout container = new LinearLayout(this);
+        container.setGravity(Gravity.CENTER_VERTICAL);
+        container.setPadding(dp(12), 0, dp(12), 0);
         TextView item = new TextView(this);
         item.setSingleLine(true);
         item.setEllipsize(TextUtils.TruncateAt.END);
-        item.setText(title);
+        item.setText(displayTitleForTab(tab));
         item.setTextSize(12);
         item.setTextColor(selected ? Theme.contrastingText(accentColor()) : textColor());
         item.setGravity(Gravity.CENTER);
-        item.setPadding(dp(12), 0, dp(12), 0);
-        item.setBackground(roundedDrawable(selected ? accentColor() : surfaceColor(),
+        container.addView(item, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        if (preferences.getBoolean(PREF_TAB_BAR_UNREAD, true)) {
+            TextView unread = new TextView(this);
+            unread.setTag(tab);
+            unread.setSingleLine(true);
+            unread.setTextSize(12);
+            unread.setTypeface(null, Typeface.BOLD);
+            unread.setTextColor(selected ? Theme.contrastingText(accentColor()) : accentColor());
+            unread.setPadding(dp(6), 0, 0, 0);
+            setTabBarUnread(unread, tab);
+            container.addView(unread, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        container.setBackground(roundedDrawable(selected ? accentColor() : surfaceColor(),
                 selected ? accentColor() : borderColor(), dp(8)));
-        item.setOnClickListener(v -> open.run());
-        item.setOnLongClickListener(v -> {
+        container.setOnClickListener(v -> open.run());
+        container.setOnLongClickListener(v -> {
             showTabBarItemMenu(v, closeLabel, close);
             return true;
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(138), dp(34));
         params.setMargins(0, 0, dp(5), 0);
-        tabBarItems.addView(item, params);
+        tabBarItems.addView(container, params);
         if (selected) {
-            item.post(() -> tabBar.smoothScrollTo(Math.max(0, item.getLeft() - dp(12)), 0));
+            container.post(() -> tabBar.smoothScrollTo(Math.max(0, container.getLeft() - dp(12)), 0));
+        }
+    }
+
+    private void setTabBarUnread(TextView view, CuspTab tab) {
+        int count = unreadCount(tab);
+        view.setText(String.valueOf(count));
+        view.setContentDescription(text("未読数: ", "Unread count: ") + count);
+        view.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    private void refreshTabBarUnread(CuspTab tab) {
+        if (tabBarItems == null) return;
+        for (int i = 0; i < tabBarItems.getChildCount(); i++) {
+            View child = tabBarItems.getChildAt(i);
+            if (!(child instanceof LinearLayout)) continue;
+            LinearLayout item = (LinearLayout) child;
+            for (int j = 0; j < item.getChildCount(); j++) {
+                View value = item.getChildAt(j);
+                if (value instanceof TextView && value.getTag() == tab) {
+                    setTabBarUnread((TextView) value, tab);
+                }
+            }
         }
     }
 
@@ -14685,6 +14741,7 @@ public class MainActivity extends Activity {
         if (tab == null) {
             return;
         }
+        refreshTabBarUnread(tab);
         tabOverviewResultCache.remove(tab);
         tabOverviewValueDirtyTabs.add(tab);
         refreshBookmarkOverviewValuesForTab(tab);
@@ -26146,27 +26203,31 @@ public class MainActivity extends Activity {
     }
 
     private void reloadAllTabs(boolean centerSpinner, Runnable onComplete) {
+        reloadAllTabs(centerSpinner, onComplete, tabOverviewVisible ? tabOverviewPrivateMode : null);
+    }
+
+    private void reloadAllTabs(boolean centerSpinner, Runnable onComplete, Boolean privateScope) {
         boolean wasOverview = tabOverviewVisible;
         List<CuspTab> targets = new ArrayList<>();
         for (CuspTab tab : new ArrayList<>(tabs)) {
             if (tab == null || tab.url == null || tab.url.isEmpty()
                     || !tab.readerMode || !NATIVE_THREAD.equals(tab.nativeKind)
-                    || (wasOverview && tab.privateBrowsing != tabOverviewPrivateMode)) {
+                    || (privateScope != null && tab.privateBrowsing != privateScope)) {
                 continue;
             }
             targets.add(tab);
         }
-        List<SavedItem> bookmarkTargets = wasOverview && !tabOverviewPrivateMode && showBookmarksInTabOverview()
+        List<SavedItem> bookmarkTargets = Boolean.FALSE.equals(privateScope) && showBookmarksInTabOverview()
                 ? readSavedItems(PREF_THREAD_BOOKMARKS)
                 : new ArrayList<>();
         int totalTargets = targets.size() + bookmarkTargets.size();
-        if (wasOverview && centerSpinner && totalTargets > 0) {
+        if (privateScope != null && centerSpinner && totalTargets > 0) {
             showCenterSpinner();
         }
         AtomicInteger remaining = new AtomicInteger(totalTargets);
         Runnable done = () -> {
             if (remaining.decrementAndGet() <= 0) {
-                if (wasOverview && centerSpinner) {
+                if (privateScope != null && centerSpinner) {
                     hideCenterSpinner();
                 }
                 trimBackgroundTabViews();
