@@ -5761,7 +5761,11 @@ public class MainActivity extends Activity {
             }
             if (openedTab != null && !pendingNewTab && currentTab() == openedTab
                     && TextUtils.equals(openedUrl, openedTab.url)) {
-                refreshTabFromTop(openedTab);
+                if (NATIVE_THREAD.equals(openedTab.nativeKind)) {
+                    refreshThreadFromBottom(openedTab, false, true, false, null);
+                } else {
+                    refreshTabFromTop(openedTab);
+                }
             } else if (openedTab == null && pendingNewTab && pendingPrivateNewTab == privateScope) {
                 renderCurrentNewTabPage();
             }
