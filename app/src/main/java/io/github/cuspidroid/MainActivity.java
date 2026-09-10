@@ -5733,7 +5733,7 @@ public class MainActivity extends Activity {
             return;
         }
         boolean privateScope = pendingNewTab ? pendingPrivateNewTab : currentTabIsPrivate();
-        for (int tabIndex : tabOverviewIndices(privateScope)) {
+        for (int tabIndex : tabBarIndices(privateScope)) {
             CuspTab tab = tabs.get(tabIndex);
             final int index = tabIndex;
             TextView item = new TextView(this);
@@ -14025,7 +14025,7 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = sectionTitleView(tabOverviewPrivateMode
                 ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6", "Private tabs")
-                : text("\u30bf\u30d6", "Tabs"));
+                : text("\u901a\u5e38\u30bf\u30d6", "Normal tabs"));
         header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(38), dp(38)));
         list.addView(header);
@@ -14284,7 +14284,7 @@ public class MainActivity extends Activity {
         if (indices.isEmpty()) {
             TextView empty = helperLine(privateSection
                     ? text("\u30d7\u30e9\u30a4\u30d9\u30fc\u30c8\u30bf\u30d6\u306a\u3057", "No private tabs.")
-                    : text("\u30bf\u30d6\u306a\u3057", "No tabs."));
+                    : text("\u901a\u5e38\u30bf\u30d6\u306a\u3057", "No normal tabs."));
             empty.setTag(TAB_OVERVIEW_EMPTY_TAG);
             empty.setOnDragListener((v, event) -> {
                 autoScrollDuringDrag(v, event);
@@ -14717,11 +14717,23 @@ public class MainActivity extends Activity {
         return tabOverviewIndices(privateSection, true);
     }
 
+    private List<Integer> tabBarIndices(boolean privateSection) {
+        List<Integer> indices = new ArrayList<>();
+        for (int i = 0; i < tabs.size(); i++) {
+            CuspTab tab = tabs.get(i);
+            if (tab != null && tab.privateBrowsing == privateSection && isBookmarkTabScope(tab)) {
+                indices.add(i);
+            }
+        }
+        indices.addAll(tabOverviewIndices(privateSection));
+        return indices;
+    }
+
     private List<Integer> tabOverviewIndices(boolean privateSection, boolean allowSort) {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < tabs.size(); i++) {
             CuspTab tab = tabs.get(i);
-            if (tab.privateBrowsing == privateSection) {
+            if (tab.privateBrowsing == privateSection && isNormalTabScope(tab)) {
                 indices.add(i);
             }
         }
@@ -14822,7 +14834,7 @@ public class MainActivity extends Activity {
         Map<String, Integer> counts = new LinkedHashMap<>();
         int currentCount = 0;
         for (CuspTab tab : tabs) {
-            if (tab == null || tab.privateBrowsing != privateSection) {
+            if (tab == null || tab.privateBrowsing != privateSection || !isNormalTabScope(tab)) {
                 continue;
             }
             String key = tabOverviewIdentity(tab);
