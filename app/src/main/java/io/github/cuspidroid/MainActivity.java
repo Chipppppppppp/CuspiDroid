@@ -14051,11 +14051,14 @@ public class MainActivity extends Activity {
         }
         Map<String, CuspTab> openTabs = bookmarkOverviewOpenThreadTabs();
         BookmarkOverviewSnapshot memorySnapshot = snapshotFromBookmarkOverviewPreload(openTabs);
-        BookmarkOverviewSnapshot source = BookmarkOverviewStartupPolicy.immediate(
-                memorySnapshot,
-                () -> readBookmarkOverviewRenderCache(openTabs, false),
-                () -> bookmarkOverviewRenderSeed(openTabs, null));
-        BookmarkOverviewSnapshot initial = asBookmarkOverviewRenderSeed(source, openTabs);
+        // A cold process has no parsed snapshot yet. Never race the preload by
+        // parsing the same persisted JSON on the UI thread; its completion adds
+        // the bookmark section through refreshVisibleBookmarkOverviewAfterPreload.
+        if (memorySnapshot == null) {
+            preloadBookmarkOverviewSnapshot();
+            return;
+        }
+        BookmarkOverviewSnapshot initial = asBookmarkOverviewRenderSeed(memorySnapshot, openTabs);
         addBookmarkOverviewSection(list, true, initial);
         renderInitialBookmarkOverviewSlots(list, TAB_OVERVIEW_INITIAL_SLOT_BATCH);
         scheduleTabOverviewSlotRefresh(list);
@@ -14197,6 +14200,16 @@ public class MainActivity extends Activity {
             return;
         }
         bookmarkOverviewDirty = true;
+        ScrollView scroll = findScrollView(contentFrame);
+        if (scroll != null && scroll.getChildCount() > 0
+                && scroll.getChildAt(0) instanceof LinearLayout) {
+            LinearLayout list = (LinearLayout) scroll.getChildAt(0);
+            if (tabOverviewTabSectionStart(list) == 1) {
+                scheduleInitialBookmarkOverviewSection(scroll, list);
+                restoreCachedTabOverviewScroll(cachedTabOverviewView());
+                return;
+            }
+        }
         refreshTabOverviewBookmarkSectionOnly(contentFrame);
     }
 
@@ -16492,13 +16505,13 @@ public class MainActivity extends Activity {
                         || expectedCacheGeneration != bookmarkOverviewCacheGeneration) {
                     return;
                 }
-                SharedPreferences.Editor editor = preferences.edit()
-                        .putString(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE, raw);
-                if (synchronous) {
-                    editor.commit();
-                } else {
-                    editor.apply();
-                }
+                preferences.edit().putString(PREF_BOOKMARK_OVERVIEW_RENDER_CACHE, raw).apply();
+            }
+            if (synchronous) {
+                // commit waits for pending apply writes. Do not hold the preload
+                // lock during disk I/O: overview startup also needs that lock.
+                // Publish under the lock above so invalidations retain their order.
+                preferences.edit().commit();
             }
         } catch (Exception ignored) {
         }
@@ -17751,7 +17764,11 @@ public class MainActivity extends Activity {
         }
         VirtualTabOverviewState state = list.getTag() instanceof VirtualTabOverviewState
                 ? (VirtualTabOverviewState) list.getTag() : null;
-        BookmarkOverviewSnapshot snapshot = bookmarkOverviewSnapshot();
+        BookmarkOverviewSnapshot snapshot = snapshotFromBookmarkOverviewPreload(bookmarkOverviewOpenThreadTabs());
+        if (snapshot == null) {
+            preloadBookmarkOverviewSnapshot();
+            return false;
+        }
         String selectedFolder = selectedBookmarkOverviewFolder(snapshot.bookmarks);
         boolean changed = false;
         for (int i = sectionStart; i < tabSectionStart && i < list.getChildCount(); i++) {
@@ -17813,7 +17830,8 @@ public class MainActivity extends Activity {
             BookmarkOverviewSnapshot snapshot = snapshotFromBookmarkOverviewPreload(
                     bookmarkOverviewOpenThreadTabs());
             if (snapshot == null) {
-                snapshot = bookmarkOverviewSnapshot();
+                preloadBookmarkOverviewSnapshot();
+                return false;
             }
             addBookmarkOverviewSection(temp, false, snapshot);
         }
@@ -26825,17 +26843,19 @@ public class MainActivity extends Activity {
                 streamed.url = streamThreadUrl;
                 streamed.title = hostTitle(streamThreadUrl);
                 String effectiveCandidate = candidate;
+                DatProgressPolicy progress = new DatProgressPolicy();
                 DatDownload download = downloadDatBytes(candidate, 0,
                         progressListener == null ? null : (lines, bytesRead) -> {
                             appendDatLines(streamed, streamThreadUrl, lines);
-                            if (!streamed.posts.isEmpty()) {
+                            if (progress.shouldPublish(streamed.posts.size(), android.os.SystemClock.uptimeMillis())) {
                                 streamed.datUrl = effectiveCandidate;
                                 streamed.datByteLength = bytesRead;
                                 streamed.archived = isArchiveDatUrl(effectiveCandidate);
                                 progressListener.onProgress(cloneThreadPage(streamed));
                             }
                         });
-                ThreadPage page = parseDatThread(pageUrl, download.body);
+                // The streaming parser already owns the complete page at EOF.
+                ThreadPage page = progressListener == null ? parseDatThread(pageUrl, download.body) : streamed;
                 page.datUrl = download.url;
                 page.datByteLength = download.totalByteLength;
                 page.archived = isArchiveDatUrl(download.url);
@@ -26925,20 +26945,25 @@ public class MainActivity extends Activity {
             }
             String host = Uri.parse(url).getHost();
             Charset charset = isShitarabaHost(host) ? Charset.forName("EUC-JP") : Charset.forName("MS932");
-            byte[] bytes;
+            String body;
+            long bytesRead;
             try (InputStream input = stream) {
-                bytes = code >= 400 || lineListener == null
-                        ? readBytes(input)
-                        : DatStreamReader.read(input, charset, DAT_STREAM_LINE_BATCH, lineListener);
+                if (code < 400 && lineListener != null) {
+                    bytesRead = DatStreamReader.readLines(input, charset, DAT_STREAM_LINE_BATCH, lineListener);
+                    body = "";
+                } else {
+                    byte[] bytes = readBytes(input);
+                    bytesRead = bytes.length;
+                    body = new String(bytes, charset);
+                }
             }
-            String body = new String(bytes, charset);
             if (code >= 400) {
                 throw new IllegalStateException("DAT HTTP " + code + "\n" + body.trim());
             }
             boolean partial = rangeStart > 0 && code == HttpURLConnection.HTTP_PARTIAL;
-            long totalLength = partial ? totalLengthFromContentRange(connection.getHeaderField("Content-Range")) : bytes.length;
+            long totalLength = partial ? totalLengthFromContentRange(connection.getHeaderField("Content-Range")) : bytesRead;
             if (totalLength <= 0) {
-                totalLength = rangeStart + bytes.length;
+                totalLength = rangeStart + bytesRead;
             }
             return new DatDownload(connection.getURL().toString(), body, totalLength, partial, false);
         } finally {

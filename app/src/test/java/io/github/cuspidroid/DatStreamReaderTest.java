@@ -34,6 +34,36 @@ public class DatStreamReaderTest {
     }
 
     @Test
+    public void streamingOnlyReturnsByteLengthAndFlushesPartialBatch() throws Exception {
+        Charset charset = Charset.forName("EUC-JP");
+        byte[] source = "名前<>本文\r\n末尾<>本文".getBytes(charset);
+        List<String> received = new ArrayList<>();
+        long length = DatStreamReader.readLines(oneByteAtATime(source), charset, 40,
+                (lines, bytesRead) -> received.addAll(lines));
+        assertEquals(source.length, length);
+        assertEquals(Arrays.asList("名前<>本文", "末尾<>本文"), received);
+    }
+
+    @Test
+    public void emitsBeforeEofAndPreservesLongLinesAcrossBuffers() throws Exception {
+        Charset charset = Charset.forName("MS932");
+        String longLine = new String(new char[9000]).replace("\0", "本文");
+        byte[] source = (longLine + "\r\nnext\n").getBytes(charset);
+        List<String> received = new ArrayList<>();
+        InputStream input = new ByteArrayInputStream(source) {
+            @Override
+            public synchronized int read(byte[] buffer, int offset, int length) {
+                if (available() == 0) {
+                    assertEquals(Arrays.asList(longLine, "next"), received);
+                }
+                return super.read(buffer, offset, length);
+            }
+        };
+        assertArrayEquals(source, DatStreamReader.read(input, charset, 1,
+                (lines, bytesRead) -> received.addAll(lines)));
+    }
+
+    @Test
     public void reportsBytesConsumedAtEachCompleteBatch() throws Exception {
         byte[] source = "one\ntwo\nthree\n".getBytes(Charset.forName("UTF-8"));
         List<Long> positions = new ArrayList<>();

@@ -17,26 +17,40 @@ final class DatStreamReader {
     static byte[] read(InputStream input, Charset charset, int batchSize,
                        LineBatchListener listener) throws Exception {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
+        read(input, charset, batchSize, listener, body);
+        return body.toByteArray();
+    }
+
+    static long readLines(InputStream input, Charset charset, int batchSize,
+                          LineBatchListener listener) throws Exception {
+        return read(input, charset, batchSize, listener, null);
+    }
+
+    private static long read(InputStream input, Charset charset, int batchSize,
+                             LineBatchListener listener, ByteArrayOutputStream body) throws Exception {
         ByteArrayOutputStream line = new ByteArrayOutputStream();
         List<String> lines = new ArrayList<>(Math.max(1, batchSize));
         byte[] buffer = new byte[8192];
         long bytesRead = 0;
         int read;
         while ((read = input.read(buffer)) != -1) {
-            body.write(buffer, 0, read);
+            if (body != null) {
+                body.write(buffer, 0, read);
+            }
+            int start = 0;
             for (int i = 0; i < read; i++) {
-                byte value = buffer[i];
-                bytesRead++;
-                if (value == '\n') {
+                if (buffer[i] == '\n') {
+                    line.write(buffer, start, i - start);
                     addLine(lines, line, charset);
                     if (listener != null && lines.size() >= batchSize) {
-                        listener.onLines(new ArrayList<>(lines), bytesRead);
+                        listener.onLines(new ArrayList<>(lines), bytesRead + i + 1);
                         lines.clear();
                     }
-                } else {
-                    line.write(value);
+                    start = i + 1;
                 }
             }
+            line.write(buffer, start, read - start);
+            bytesRead += read;
         }
         if (line.size() > 0) {
             addLine(lines, line, charset);
@@ -44,7 +58,7 @@ final class DatStreamReader {
         if (listener != null && !lines.isEmpty()) {
             listener.onLines(new ArrayList<>(lines), bytesRead);
         }
-        return body.toByteArray();
+        return bytesRead;
     }
 
     private static void addLine(List<String> lines, ByteArrayOutputStream line, Charset charset) {
