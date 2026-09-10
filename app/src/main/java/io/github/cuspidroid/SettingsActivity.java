@@ -86,8 +86,6 @@ public class SettingsActivity extends Activity {
     private CheckBox blurSensitiveWordPosts;
     private CheckBox autoplayGifs;
     private EditText imgbbApiKey;
-    private RadioButton addressBarTop;
-    private RadioButton addressBarBottom;
     private RadioGroup addressBarPosition;
     private RadioGroup titleBarPosition;
     private RadioGroup tabBarPosition;
@@ -230,23 +228,15 @@ public class SettingsActivity extends Activity {
 
         root.addView(categoryHeader(CATEGORY_BARS));
         root.addView(fieldLabel(MainActivity.text("バーの表示と位置", "Bar visibility and position")));
-        addressBarPosition = choiceGroup(
-                new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
-                new String[]{"bottom", "top"});
-        addressBarBottom = (RadioButton) addressBarPosition.getChildAt(0);
-        addressBarTop = (RadioButton) addressBarPosition.getChildAt(1);
-        root.addView(choiceRow(MainActivity.text("検索バー", "Search bar"), addressBarPosition));
-
-        titleBarPosition = choiceGroup(
-                new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
-                new String[]{"bottom", "top"});
-        root.addView(choiceRow(MainActivity.text("タイトルバー", "Title bar"), titleBarPosition));
-
-        tabBarPosition = choiceGroup(
-                new String[]{MainActivity.text("非表示", "Hidden"),
-                        MainActivity.text("上", "Top"), MainActivity.text("下", "Bottom")},
-                new String[]{"hidden", "top", "bottom"});
-        root.addView(choiceRow(MainActivity.text("タブバー", "Tab bar"), tabBarPosition));
+        root.addView(fieldLabel(MainActivity.text("検索バー", "Search bar")));
+        addressBarPosition = barPositionGroup(MainActivity.text("検索バー", "Search bar"));
+        root.addView(addressBarPosition);
+        root.addView(fieldLabel(MainActivity.text("タイトルバー", "Title bar")));
+        titleBarPosition = barPositionGroup(MainActivity.text("タイトルバー", "Title bar"));
+        root.addView(titleBarPosition);
+        root.addView(fieldLabel(MainActivity.text("タブバー", "Tab bar")));
+        tabBarPosition = barPositionGroup(MainActivity.text("タブバー", "Tab bar"));
+        root.addView(tabBarPosition);
         root.addView(fieldLabel(MainActivity.text("バーの操作", "Bar behavior")));
 
         hideBarsOnScroll = new CheckBox(this);
@@ -461,15 +451,18 @@ public class SettingsActivity extends Activity {
         Theme.tintCompoundButton(this, blurSensitiveWordPosts);
         blurSensitiveWordPosts.setVisibility(View.GONE);
         root.addView(blurSensitiveWordPosts);
-        root.addView(fieldLabel(MainActivity.text("通常の画像", "Regular images")));
-        normalMediaDisplay = mediaDisplayGroup(MainActivity.text("通常の画像", "Regular images"));
+        root.addView(fieldLabel(MainActivity.text("標準の画像", "Default images")));
+        normalMediaDisplay = mediaDisplayGroup(MainActivity.text("標準の画像", "Default images"));
         root.addView(normalMediaDisplay);
-        root.addView(fieldLabel(MainActivity.text("AIでグロ画像と判定された画像", "Images flagged as graphic by AI")));
-        aiMediaDisplay = mediaDisplayGroup(MainActivity.text("AIでグロ画像と判定された画像", "Images flagged as graphic by AI"));
+        root.addView(fieldLabel(MainActivity.text("AIが検出した閲覧注意画像", "Images flagged by AI")));
+        aiMediaDisplay = mediaDisplayGroup(MainActivity.text("AIが検出した閲覧注意画像", "Images flagged by AI"));
         root.addView(aiMediaDisplay);
-        root.addView(fieldLabel(MainActivity.text("リプでグロ画像とされた画像", "Images flagged as graphic by replies")));
-        replyMediaDisplay = mediaDisplayGroup(MainActivity.text("リプでグロ画像とされた画像", "Images flagged as graphic by replies"));
+        root.addView(fieldLabel(MainActivity.text("注意語を含む投稿・返信先の画像", "Images in warning posts and referenced posts")));
+        replyMediaDisplay = mediaDisplayGroup(MainActivity.text("注意語を含む投稿・返信先の画像", "Images in warning posts and referenced posts"));
         root.addView(replyMediaDisplay);
+        root.addView(helperText(MainActivity.text(
+                "読み込み済みの同じスレッド内で、「グロ」「閲覧注意」「死ね」「死体」「遺体」「惨殺」「流血」を含む投稿と、その投稿が >>番号（範囲指定を含む）で参照している投稿の画像が対象です。",
+                "Applies to images in loaded posts in the same thread containing any of the Japanese terms グロ, 閲覧注意, 死ね, 死体, 遺体, 惨殺, or 流血, and in posts they reference with >>post numbers (including ranges).")));
         blurVideoThumbnails = new CheckBox(this);
         blurVideoThumbnails.setText(MainActivity.text("\u52d5\u753b\u30b5\u30e0\u30cd\u30a4\u30eb\u3082\u5224\u5b9a\u3057\u3066\u307c\u304b\u3059", "Also check and blur video thumbnails"));
         blurVideoThumbnails.setTextColor(textColor());
@@ -760,13 +753,10 @@ public class SettingsActivity extends Activity {
             imgbbApiKey.setText(preferences.getString(MainActivity.PREF_IMGBB_API_KEY, ""));
             saveUploadHistory.setChecked(preferences.getBoolean(MainActivity.PREF_SAVE_UPLOAD_HISTORY, true));
             updateMediaDependentSettings();
-            if (preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)) {
-                addressBarTop.setChecked(true);
-            } else {
-                addressBarBottom.setChecked(true);
-            }
-            selectChoice(titleBarPosition, preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
-                    ? "top" : "bottom");
+            selectChoice(addressBarPosition, !preferences.getBoolean(MainActivity.PREF_SHOW_ADDRESS_BAR, true)
+                    ? "hidden" : preferences.getBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false) ? "top" : "bottom");
+            selectChoice(titleBarPosition, !preferences.getBoolean(MainActivity.PREF_SHOW_TITLE_BAR, true)
+                    ? "hidden" : preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TOP, false) ? "top" : "bottom");
             selectChoice(tabBarPosition, !preferences.getBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
                     ? "hidden" : preferences.getBoolean(MainActivity.PREF_TAB_BAR_TOP, false) ? "top" : "bottom");
             selectChoice(startupPage, preferences.getString(
@@ -988,14 +978,17 @@ public class SettingsActivity extends Activity {
                         blurImgurImages.isChecked() && blurGifThumbnails.isChecked())
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, autoplayGifs.isChecked())
                 .putString(MainActivity.PREF_IMGBB_API_KEY, imgbbApiKey.getText().toString().trim())
-                .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, addressBarTop.isChecked())
+                .putBoolean(MainActivity.PREF_SHOW_ADDRESS_BAR,
+                        !"hidden".equals(selectedChoice(addressBarPosition, "bottom")))
+                .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP,
+                        selectedBarOnTop(addressBarPosition, MainActivity.PREF_ADDRESS_BAR_TOP))
+                .putBoolean(MainActivity.PREF_SHOW_TITLE_BAR,
+                        !"hidden".equals(selectedChoice(titleBarPosition, "bottom")))
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TOP,
-                        "top".equals(selectedChoice(titleBarPosition, "bottom")))
+                        selectedBarOnTop(titleBarPosition, MainActivity.PREF_TITLE_BAR_TOP))
                 .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, !"hidden".equals(selectedChoice(tabBarPosition, "hidden")))
                 .putBoolean(MainActivity.PREF_TAB_BAR_TOP,
-                        "hidden".equals(selectedChoice(tabBarPosition, "hidden"))
-                                ? preferences.getBoolean(MainActivity.PREF_TAB_BAR_TOP, false)
-                                : "top".equals(selectedChoice(tabBarPosition, "bottom")))
+                        selectedBarOnTop(tabBarPosition, MainActivity.PREF_TAB_BAR_TOP))
                 .putString(MainActivity.PREF_STARTUP_PAGE,
                         selectedChoice(startupPage, MainActivity.STARTUP_LAST_PAGE))
                 .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY,
@@ -1234,6 +1227,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_BLUR_GIF_THUMBNAILS, true)
                 .putBoolean(MainActivity.PREF_AUTOPLAY_GIFS, false)
                 .putString(MainActivity.PREF_IMGBB_API_KEY, "")
+                .putBoolean(MainActivity.PREF_SHOW_ADDRESS_BAR, true)
+                .putBoolean(MainActivity.PREF_SHOW_TITLE_BAR, true)
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
@@ -1990,6 +1985,20 @@ public class SettingsActivity extends Activity {
             dialog.show();
         });
         return row;
+    }
+
+    private boolean selectedBarOnTop(RadioGroup group, String key) {
+        String selected = selectedChoice(group, "bottom");
+        return "hidden".equals(selected) ? preferences.getBoolean(key, false) : "top".equals(selected);
+    }
+
+    private RadioGroup barPositionGroup(String title) {
+        RadioGroup group = choiceGroup(new String[]{
+                        MainActivity.text("上", "Top"), MainActivity.text("下", "Bottom"),
+                        MainActivity.text("非表示", "Hide")},
+                new String[]{"top", "bottom", "hidden"});
+        group.setContentDescription(title);
+        return group;
     }
 
     private RadioGroup mediaDisplayGroup(String title) {

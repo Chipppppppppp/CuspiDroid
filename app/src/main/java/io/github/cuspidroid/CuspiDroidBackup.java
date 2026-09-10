@@ -209,6 +209,8 @@ final class CuspiDroidBackup {
         putDefault(values, MainActivity.PREF_BLUR_GIF_THUMBNAILS, true);
         putDefault(values, MainActivity.PREF_AUTOPLAY_GIFS, false);
         putDefault(values, MainActivity.PREF_IMGBB_API_KEY, "");
+        putDefault(values, MainActivity.PREF_SHOW_ADDRESS_BAR, true);
+        putDefault(values, MainActivity.PREF_SHOW_TITLE_BAR, true);
         putDefault(values, MainActivity.PREF_ADDRESS_BAR_TOP, false);
         putDefault(values, MainActivity.PREF_TITLE_BAR_TOP, false);
         putDefault(values, MainActivity.PREF_SHOW_TAB_BAR, false);

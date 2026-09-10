@@ -205,6 +205,8 @@ public class MainActivity extends Activity {
     static final String PREF_AUTOPLAY_GIFS = "autoplay_gifs";
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TITLE_BAR_TOP = "title_bar_top";
+    static final String PREF_SHOW_ADDRESS_BAR = "show_address_bar";
+    static final String PREF_SHOW_TITLE_BAR = "show_title_bar";
     static final String PREF_SHOW_TAB_BAR = "show_tab_bar";
     static final String PREF_TAB_BAR_TOP = "tab_bar_top";
     static final String PREF_STARTUP_PAGE = "startup_page";
@@ -876,6 +878,8 @@ public class MainActivity extends Activity {
                 + "|" + preferences.getString(PREF_THREAD_TITLE_MENU_BUTTONS, DEFAULT_THREAD_TITLE_MENU_BUTTONS)
                 + "|" + preferences.getBoolean(PREF_HIDE_BARS_ON_SCROLL, false)
                 + "|" + preferences.getBoolean(PREF_TITLE_BAR_TOP, false)
+                + "|" + preferences.getBoolean(PREF_SHOW_ADDRESS_BAR, true)
+                + "|" + preferences.getBoolean(PREF_SHOW_TITLE_BAR, true)
                 + "|" + preferences.getBoolean(PREF_SHOW_TAB_BAR, false)
                 + "|" + preferences.getBoolean(PREF_TAB_BAR_TOP, false);
     }
@@ -1959,10 +1963,12 @@ public class MainActivity extends Activity {
     }
 
     private void syncChromeBarSlots(boolean animated) {
-        syncChromeBarSlot(bottomToolbarSlot, bottomToolbar, dp(54), animated);
+        syncChromeBarSlot(bottomToolbarSlot, bottomToolbar, dp(54), animated,
+                !preferences.getBoolean(PREF_SHOW_ADDRESS_BAR, true));
         syncChromeBarSlot(threadSearchBarSlot, threadSearchBar, dp(50), animated,
                 addressBar != null && addressBar.hasFocus());
-        syncChromeBarSlot(bottomThreadBarSlot, bottomThreadBar, dp(50), animated);
+        syncChromeBarSlot(bottomThreadBarSlot, bottomThreadBar, dp(50), animated,
+                !preferences.getBoolean(PREF_SHOW_TITLE_BAR, true));
         syncChromeBarSlot(tabBarSlot, tabBar, showTabBar() ? dp(42) : 0, animated);
     }
 
