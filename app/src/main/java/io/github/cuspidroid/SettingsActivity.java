@@ -94,7 +94,6 @@ public class SettingsActivity extends Activity {
     private RadioGroup aiMediaDisplay;
     private RadioGroup replyMediaDisplay;
     private boolean loadingSettings;
-    private final List<Runnable> choiceSummaries = new ArrayList<>();
     private CheckBox hideBarsOnScroll;
     private CheckBox titleBarTabSwipe;
     private CheckBox treeView;
@@ -265,13 +264,23 @@ public class SettingsActivity extends Activity {
                         .putExtra(ButtonLayoutSettingsActivity.EXTRA_MODE, ButtonLayoutSettingsActivity.MODE_TITLE))));
 
         root.addView(categoryHeader(CATEGORY_HOME));
+        root.addView(fieldLabel(MainActivity.text("起動画面", "Startup page")));
         startupPage = choiceGroup(new String[]{
                         MainActivity.text("最後のページ", "Last page"),
                         MainActivity.text("タブ一覧", "Tab overview"),
                         MainActivity.text("新規タブ", "New tab")},
                 new String[]{MainActivity.STARTUP_LAST_PAGE,
                         MainActivity.STARTUP_TAB_OVERVIEW, MainActivity.STARTUP_NEW_TAB});
-        root.addView(choiceRow(MainActivity.text("起動画面", "Startup page"), startupPage));
+        startupPage.setContentDescription(MainActivity.text("起動画面", "Startup page"));
+        for (int i = 0; i < startupPage.getChildCount(); i++) {
+            RadioButton option = (RadioButton) startupPage.getChildAt(i);
+            option.setSingleLine(false);
+            option.setMinHeight(dp(48));
+            option.setPadding(option.getPaddingLeft(), dp(8), dp(8), dp(8));
+            option.setLayoutParams(new RadioGroup.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
+        root.addView(startupPage);
         root.addView(fieldLabel(MainActivity.text("表示する内容", "Visible content")));
         showBookmarksInTabOverview = new CheckBox(this);
         showBookmarksInTabOverview.setText(MainActivity.text("\u30bf\u30d6\u4e00\u89a7\u306b\u30d6\u30c3\u30af\u30de\u30fc\u30af\u3092\u8868\u793a", "Show bookmarks in the tab overview"));
@@ -809,7 +818,6 @@ public class SettingsActivity extends Activity {
             }
         } finally {
             loadingSettings = false;
-            refreshChoiceSummaries();
         }
     }
 
@@ -951,7 +959,6 @@ public class SettingsActivity extends Activity {
 
     private void saveSettings(boolean showError) {
         if (loadingSettings) return;
-        refreshChoiceSummaries();
         String template;
         if (searchFind5chIo.isChecked()) {
             template = MainActivity.DEFAULT_SEARCH_TEMPLATE;
@@ -1924,67 +1931,6 @@ public class SettingsActivity extends Activity {
             group.addView(button, new RadioGroup.LayoutParams(0, dp(44), 1));
         }
         return group;
-    }
-
-    private void refreshChoiceSummaries() {
-        for (Runnable update : choiceSummaries) update.run();
-    }
-
-    private LinearLayout choiceRow(String label, RadioGroup group) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setMinimumHeight(dp(64));
-        row.setBackground(roundedManagementCard());
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, dp(4), 0, dp(4));
-        row.setLayoutParams(params);
-        TextView name = new TextView(this);
-        name.setText(label);
-        name.setTextColor(textColor());
-        name.setTextSize(16);
-        Drawable arrow = getDrawable(R.drawable.ic_arrow_forward).mutate();
-        arrow.setColorFilter(mutedColor(), android.graphics.PorterDuff.Mode.SRC_IN);
-        arrow.setBounds(0, 0, dp(20), dp(20));
-        name.setCompoundDrawablesRelative(null, null, arrow, null);
-        name.setCompoundDrawablePadding(dp(8));
-        row.addView(name);
-        TextView summary = new TextView(this);
-        summary.setTextColor(mutedColor());
-        summary.setTextSize(14);
-        row.addView(summary);
-        // Keep all options in the search index and use the same selection model for saving.
-        group.setVisibility(View.GONE);
-        row.addView(group);
-        Runnable update = () -> {
-            RadioButton selected = group.findViewById(group.getCheckedRadioButtonId());
-            summary.setText(selected == null ? "" : selected.getText());
-            row.setContentDescription(label + ", " + summary.getText());
-        };
-        choiceSummaries.add(update);
-        row.setFocusable(true);
-        row.setOnClickListener(v -> {
-            CharSequence[] labels = new CharSequence[group.getChildCount()];
-            int selected = -1;
-            for (int i = 0; i < labels.length; i++) {
-                RadioButton option = (RadioButton) group.getChildAt(i);
-                labels[i] = option.getText();
-                if (option.isChecked()) selected = i;
-            }
-            AlertDialog dialog = new AlertDialog.Builder(this)
-                    .setTitle(label)
-                    .setSingleChoiceItems(labels, selected, (d, which) -> {
-                        group.check(group.getChildAt(which).getId());
-                        update.run();
-                        d.dismiss();
-                    })
-                    .setNegativeButton(MainActivity.text("キャンセル", "Cancel"), null)
-                    .create();
-            dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
-            dialog.show();
-        });
-        return row;
     }
 
     private boolean selectedBarOnTop(RadioGroup group, String key) {
