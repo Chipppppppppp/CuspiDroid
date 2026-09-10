@@ -206,6 +206,7 @@ public class MainActivity extends Activity {
     static final String PREF_ADDRESS_BAR_TOP = "address_bar_top";
     static final String PREF_TITLE_BAR_TOP = "title_bar_top";
     static final String PREF_SHOW_TAB_BAR = "show_tab_bar";
+    static final String PREF_TAB_BAR_TOP = "tab_bar_top";
     static final String PREF_STARTUP_PAGE = "startup_page";
     static final String PREF_CONFIRM_EXIT = "confirm_exit";
     static final String STARTUP_LAST_PAGE = "last_page";
@@ -877,7 +878,8 @@ public class MainActivity extends Activity {
                 + "|" + preferences.getString(PREF_THREAD_TITLE_MENU_BUTTONS, DEFAULT_THREAD_TITLE_MENU_BUTTONS)
                 + "|" + preferences.getBoolean(PREF_HIDE_BARS_ON_SCROLL, false)
                 + "|" + preferences.getBoolean(PREF_TITLE_BAR_TOP, false)
-                + "|" + preferences.getBoolean(PREF_SHOW_TAB_BAR, false);
+                + "|" + preferences.getBoolean(PREF_SHOW_TAB_BAR, false)
+                + "|" + preferences.getBoolean(PREF_TAB_BAR_TOP, false);
     }
 
     private void migrateAddressMenuNavigationPreference() {
@@ -1303,10 +1305,7 @@ public class MainActivity extends Activity {
     private void showExitConfirmation() {
         exitConfirmationShown = true;
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(text("アプリを終了しますか？", "Exit the app?"))
                 .setMessage(text("もう一度戻る操作をすると終了します。", "Press Back once more to exit."))
-                .setNegativeButton(text("続ける", "Stay"), null)
-                .setPositiveButton(text("終了", "Exit"), (d, which) -> MainActivity.super.onBackPressed())
                 .create();
         dialog.setOnKeyListener((d, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
@@ -1318,6 +1317,7 @@ public class MainActivity extends Activity {
         });
         dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
         dialog.show();
+        dialog.setCanceledOnTouchOutside(true);
     }
 
     @Override
@@ -1687,6 +1687,10 @@ public class MainActivity extends Activity {
         tabBar = buildTabBar();
         tabBarSlot = chromeBarSlot(tabBar, dp(42));
 
+        if (tabBarOnTop()) {
+            root.addView(tabBarSlot, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, showTabBar() ? dp(42) : 0));
+        }
         if (addressBarTop) {
             root.addView(bottomToolbarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
@@ -1696,15 +1700,11 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
             root.addView(threadSearchBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-            root.addView(tabBarSlot, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, showTabBar() ? dp(42) : 0));
             root.addView(overlayFrame, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         } else {
             root.addView(overlayFrame, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-            root.addView(tabBarSlot, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, showTabBar() ? dp(42) : 0));
             root.addView(threadSearchBarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
             root.addView(bottomThreadBarSlot, new LinearLayout.LayoutParams(
@@ -1714,6 +1714,10 @@ public class MainActivity extends Activity {
             root.addView(bottomToolbarSlot, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
         }
+        if (!tabBarOnTop()) {
+            root.addView(tabBarSlot, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, showTabBar() ? dp(42) : 0));
+        }
         syncChromeBarSlots(false);
     }
 
@@ -1721,7 +1725,7 @@ public class MainActivity extends Activity {
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(barColor());
+        scroll.setBackground(bottomBarBackground());
         tabBarItems = new LinearLayout(this);
         tabBarItems.setOrientation(LinearLayout.HORIZONTAL);
         tabBarItems.setGravity(Gravity.CENTER_VERTICAL);
@@ -5747,6 +5751,10 @@ public class MainActivity extends Activity {
             item.setBackground(roundedDrawable(selected ? accentColor() : surfaceColor(),
                     selected ? accentColor() : borderColor(), dp(8)));
             item.setOnClickListener(v -> switchToTab(index));
+            item.setOnLongClickListener(v -> {
+                showTabBarItemMenu(v, tab);
+                return true;
+            });
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(138), dp(34));
             params.setMargins(0, 0, dp(5), 0);
             tabBarItems.addView(item, params);
@@ -5755,6 +5763,29 @@ public class MainActivity extends Activity {
             }
         }
         syncChromeBarSlots(false);
+    }
+
+    private void showTabBarItemMenu(View anchor, CuspTab tab) {
+        if (anchor == null || tab == null || !tabs.contains(tab)) {
+            return;
+        }
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(menuBackground());
+        menu.setPadding(dp(4), dp(4), dp(4), dp(4));
+        PopupWindow popup = new PopupWindow(menu, dp(200),
+                ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        TextView close = menuItem(text("タブを削除", "Close tab"), v -> {
+            popup.dismiss();
+            closeTab(tabs.indexOf(tab));
+        });
+        setMenuItemIcon(close, R.drawable.ic_delete);
+        menu.addView(close, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        prepareAnimatedPopupDismiss(popup, menu);
+        showPopupAttachedToAnchor(popup, menu, anchor);
     }
 
     private void updateAddressBarDisplay(boolean focusText) {
@@ -24843,6 +24874,10 @@ public class MainActivity extends Activity {
 
     private boolean showTabBar() {
         return preferences.getBoolean(PREF_SHOW_TAB_BAR, false);
+    }
+
+    private boolean tabBarOnTop() {
+        return preferences.getBoolean(PREF_TAB_BAR_TOP, false);
     }
 
     private boolean treeViewEnabled() {

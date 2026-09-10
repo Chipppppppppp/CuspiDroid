@@ -86,6 +86,7 @@ public class SettingsActivity extends Activity {
     private RadioButton addressBarTop;
     private RadioButton addressBarBottom;
     private RadioGroup titleBarPosition;
+    private RadioGroup tabBarPosition;
     private RadioGroup startupPage;
     private RadioGroup normalMediaDisplay;
     private RadioGroup aiMediaDisplay;
@@ -247,6 +248,12 @@ public class SettingsActivity extends Activity {
         showTabBar.setTextSize(16);
         Theme.tintCompoundButton(this, showTabBar);
         root.addView(showTabBar);
+
+        root.addView(fieldLabel(MainActivity.text("タブバーの位置", "Tab bar position")));
+        tabBarPosition = choiceGroup(
+                new String[]{MainActivity.text("下", "Bottom"), MainActivity.text("上", "Top")},
+                new String[]{"bottom", "top"});
+        root.addView(tabBarPosition);
 
         root.addView(fieldLabel(MainActivity.text("起動画面", "Startup page")));
         startupPage = choiceGroup(new String[]{
@@ -777,6 +784,9 @@ public class SettingsActivity extends Activity {
         selectChoice(titleBarPosition, preferences.getBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
                 ? "top" : "bottom");
         showTabBar.setChecked(preferences.getBoolean(MainActivity.PREF_SHOW_TAB_BAR, false));
+        selectChoice(tabBarPosition, preferences.getBoolean(MainActivity.PREF_TAB_BAR_TOP, false)
+                ? "top" : "bottom");
+        setGroupEnabled(tabBarPosition, showTabBar.isChecked());
         selectChoice(startupPage, preferences.getString(
                 MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE));
         confirmExit.setChecked(preferences.getBoolean(MainActivity.PREF_CONFIRM_EXIT, false));
@@ -874,7 +884,11 @@ public class SettingsActivity extends Activity {
         addressBarTop.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         addressBarBottom.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         titleBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
-        showTabBar.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
+        showTabBar.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            setGroupEnabled(tabBarPosition, isChecked);
+            saveSettings(false);
+        });
+        tabBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         startupPage.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         confirmExit.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         normalMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
@@ -997,6 +1011,8 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TOP,
                         "top".equals(selectedChoice(titleBarPosition, "bottom")))
                 .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, showTabBar.isChecked())
+                .putBoolean(MainActivity.PREF_TAB_BAR_TOP,
+                        "top".equals(selectedChoice(tabBarPosition, "bottom")))
                 .putString(MainActivity.PREF_STARTUP_PAGE,
                         selectedChoice(startupPage, MainActivity.STARTUP_LAST_PAGE))
                 .putBoolean(MainActivity.PREF_CONFIRM_EXIT, confirmExit.isChecked())
@@ -1239,6 +1255,7 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_ADDRESS_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_TITLE_BAR_TOP, false)
                 .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
+                .putBoolean(MainActivity.PREF_TAB_BAR_TOP, false)
                 .putString(MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE)
                 .putBoolean(MainActivity.PREF_CONFIRM_EXIT, false)
                 .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW)
