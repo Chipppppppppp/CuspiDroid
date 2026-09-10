@@ -208,7 +208,6 @@ public class MainActivity extends Activity {
     static final String PREF_SHOW_TAB_BAR = "show_tab_bar";
     static final String PREF_TAB_BAR_TOP = "tab_bar_top";
     static final String PREF_STARTUP_PAGE = "startup_page";
-    static final String PREF_CONFIRM_EXIT = "confirm_exit";
     static final String STARTUP_LAST_PAGE = "last_page";
     static final String STARTUP_TAB_OVERVIEW = "tab_overview";
     static final String STARTUP_NEW_TAB = "new_tab";
@@ -509,7 +508,6 @@ public class MainActivity extends Activity {
     private boolean pendingPrivateNewTab;
     private boolean pendingHistoryAll;
     private boolean tabOverviewVisible;
-    private boolean exitConfirmationShown;
     private boolean tabOverviewPrivateMode;
     private ClosedTab recentlyClosedTab;
     private Runnable clearClosedTabUndoTask;
@@ -1295,29 +1293,7 @@ public class MainActivity extends Activity {
             closeCurrentTab();
             return;
         }
-        if (preferences.getBoolean(PREF_CONFIRM_EXIT, false) && !exitConfirmationShown) {
-            showExitConfirmation();
-            return;
-        }
         super.onBackPressed();
-    }
-
-    private void showExitConfirmation() {
-        exitConfirmationShown = true;
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setMessage(text("もう一度戻る操作をすると終了します。", "Press Back once more to exit."))
-                .create();
-        dialog.setOnKeyListener((d, keyCode, event) -> {
-            if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                dialog.dismiss();
-                MainActivity.super.onBackPressed();
-                return true;
-            }
-            return false;
-        });
-        dialog.setOnShowListener(d -> Theme.styleDialog(dialog, this));
-        dialog.show();
-        dialog.setCanceledOnTouchOutside(true);
     }
 
     @Override

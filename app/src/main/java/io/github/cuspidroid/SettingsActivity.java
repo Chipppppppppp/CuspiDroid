@@ -93,7 +93,6 @@ public class SettingsActivity extends Activity {
     private RadioGroup aiMediaDisplay;
     private RadioGroup replyMediaDisplay;
     private CheckBox showTabBar;
-    private CheckBox confirmExit;
     private CheckBox hideBarsOnScroll;
     private CheckBox titleBarTabSwipe;
     private CheckBox treeView;
@@ -259,15 +258,14 @@ public class SettingsActivity extends Activity {
                         MainActivity.text("新規タブ", "New tab")},
                 new String[]{MainActivity.STARTUP_LAST_PAGE,
                         MainActivity.STARTUP_TAB_OVERVIEW, MainActivity.STARTUP_NEW_TAB});
+        startupPage.setOrientation(RadioGroup.VERTICAL);
+        for (int i = 0; i < startupPage.getChildCount(); i++) {
+            View option = startupPage.getChildAt(i);
+            option.setMinimumHeight(dp(44));
+            option.setLayoutParams(new RadioGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         root.addView(startupPage);
-
-        confirmExit = new CheckBox(this);
-        confirmExit.setText(MainActivity.text(
-                "終了前に一度確認する", "Confirm once before exiting"));
-        confirmExit.setTextColor(textColor());
-        confirmExit.setTextSize(16);
-        Theme.tintCompoundButton(this, confirmExit);
-        root.addView(confirmExit);
 
         hideBarsOnScroll = new CheckBox(this);
         hideBarsOnScroll.setText(MainActivity.text("\u30b9\u30af\u30ed\u30fc\u30eb\u6642\u306b\u30d0\u30fc\u3092\u81ea\u52d5\u3067\u96a0\u3059", "Hide bars while scrolling"));
@@ -782,7 +780,6 @@ public class SettingsActivity extends Activity {
         setGroupEnabled(tabBarPosition, showTabBar.isChecked());
         selectChoice(startupPage, preferences.getString(
                 MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE));
-        confirmExit.setChecked(preferences.getBoolean(MainActivity.PREF_CONFIRM_EXIT, false));
         selectChoice(normalMediaDisplay, preferences.getString(
                 MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW));
         selectChoice(aiMediaDisplay, preferences.getString(MainActivity.PREF_AI_MEDIA_DISPLAY,
@@ -883,7 +880,6 @@ public class SettingsActivity extends Activity {
         });
         tabBarPosition.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         startupPage.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
-        confirmExit.setOnCheckedChangeListener((buttonView, isChecked) -> saveSettings(false));
         normalMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         aiMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
         replyMediaDisplay.setOnCheckedChangeListener((group, checkedId) -> saveSettings(false));
@@ -1008,7 +1004,6 @@ public class SettingsActivity extends Activity {
                         "top".equals(selectedChoice(tabBarPosition, "bottom")))
                 .putString(MainActivity.PREF_STARTUP_PAGE,
                         selectedChoice(startupPage, MainActivity.STARTUP_LAST_PAGE))
-                .putBoolean(MainActivity.PREF_CONFIRM_EXIT, confirmExit.isChecked())
                 .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY,
                         selectedChoice(normalMediaDisplay, MainActivity.MEDIA_DISPLAY_SHOW))
                 .putString(MainActivity.PREF_AI_MEDIA_DISPLAY,
@@ -1250,7 +1245,6 @@ public class SettingsActivity extends Activity {
                 .putBoolean(MainActivity.PREF_SHOW_TAB_BAR, false)
                 .putBoolean(MainActivity.PREF_TAB_BAR_TOP, false)
                 .putString(MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE)
-                .putBoolean(MainActivity.PREF_CONFIRM_EXIT, false)
                 .putString(MainActivity.PREF_NORMAL_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_SHOW)
                 .putString(MainActivity.PREF_AI_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_BLUR)
                 .putString(MainActivity.PREF_REPLY_MEDIA_DISPLAY, MainActivity.MEDIA_DISPLAY_BLUR)

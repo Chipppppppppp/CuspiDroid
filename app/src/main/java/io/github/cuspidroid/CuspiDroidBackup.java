@@ -26,6 +26,7 @@ final class CuspiDroidBackup {
     private static final String PREFERENCES = "preferences.json";
     private static final String SETTINGS = "settings.json";
     private static final String THEMES_DIRECTORY = "themes/";
+    private static final String REMOVED_CONFIRM_EXIT = "confirm_exit";
 
     private CuspiDroidBackup() {
     }
@@ -90,7 +91,7 @@ final class CuspiDroidBackup {
                 }
                 String key = entry.optString("key", "");
                 String type = entry.optString("type", "");
-                if (key.isEmpty()) {
+                if (key.isEmpty() || REMOVED_CONFIRM_EXIT.equals(key)) {
                     continue;
                 }
                 if ("boolean".equals(type)) {
@@ -119,6 +120,9 @@ final class CuspiDroidBackup {
             java.util.Iterator<String> keys = prefs.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
+                if (REMOVED_CONFIRM_EXIT.equals(key)) {
+                    continue;
+                }
                 editor.putString(key, prefs.optString(key, ""));
                 restored++;
             }
@@ -148,6 +152,7 @@ final class CuspiDroidBackup {
         JSONArray entries = new JSONArray();
         Map<String, Object> sorted = new TreeMap<>();
         sorted.putAll(preferences.getAll());
+        sorted.remove(REMOVED_CONFIRM_EXIT);
         if (includeSettingDefaults) {
             addSettingDefaults(sorted);
         }
@@ -209,7 +214,6 @@ final class CuspiDroidBackup {
         putDefault(values, MainActivity.PREF_SHOW_TAB_BAR, false);
         putDefault(values, MainActivity.PREF_TAB_BAR_TOP, false);
         putDefault(values, MainActivity.PREF_STARTUP_PAGE, MainActivity.STARTUP_LAST_PAGE);
-        putDefault(values, MainActivity.PREF_CONFIRM_EXIT, false);
         putDefault(values, MainActivity.PREF_HIDE_BARS_ON_SCROLL, false);
         putDefault(values, MainActivity.PREF_TITLE_BAR_TAB_SWIPE, true);
         putDefault(values, MainActivity.PREF_TREE_VIEW, true);
