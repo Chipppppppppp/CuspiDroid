@@ -8169,7 +8169,8 @@ public class MainActivity extends Activity {
         tab.boardLoadTask = boardLoadExecutor.submit(() -> {
             SearchPage page;
             try {
-                page = downloadBoard(loadUrl);
+                page = downloadBoard(loadUrl, partial -> runOnUiThread(() ->
+                        showInitialSearchProgress(tab, loadUrl, loadGeneration, partial, false)));
             } catch (Exception error) {
                 if (Thread.currentThread().isInterrupted()) {
                     return;
@@ -8183,6 +8184,20 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> finishBoardLoad(
                     tab, loadUrl, result, loadGeneration));
         });
+    }
+
+    private void showInitialSearchProgress(CuspTab tab, String url, int generation,
+                                           SearchPage partial, boolean directory) {
+        if (!tabs.contains(tab) || generation != tab.boardLoadGeneration || !url.equals(tab.url)
+                || !NATIVE_BOARD.equals(tab.nativeKind) || tab.searchPage != null
+                || tab != currentTab() || tabOverviewVisible) return;
+        // Show one early snapshot, then the complete sorted list. Replacing it on
+        // every chunk would keep moving rows while the user is reading them.
+        tab.searchPage = partial;
+        tab.readerView = directory && isBbsMenuUrl(partial.url)
+                ? buildBbsCategoryIndexView(partial, tab) : buildSearchView(partial, false, tab);
+        showCurrentReaderView(tab);
+        hideCenterSpinner();
     }
 
     private void applyStreamingThreadProgress(CuspTab tab, String loadUrl, ThreadPage partial) {
@@ -8268,6 +8283,7 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        rememberContentScroll(tab);
         tab.readerView = buildSearchView(result, false, tab);
         cacheBoardHistoryPage(tab, result, tab.readerView);
         progressBar.setVisibility(View.GONE);
@@ -8538,6 +8554,8 @@ public class MainActivity extends Activity {
 
     private void loadBbsDirectory(CuspTab tab, String url, boolean foreground) {
         final String loadUrl = url;
+        cancelBoardLoad(tab);
+        final int loadGeneration = ++tab.boardLoadGeneration;
         if (foreground) {
             prepareChromeForLoading();
         }
@@ -8568,7 +8586,9 @@ public class MainActivity extends Activity {
                 if (page != null) {
                     usedCached = true;
                 } else {
-                    page = downloadBbsDirectoryWithCache(loadUrl);
+                    page = downloadBbsDirectory(loadUrl, partial -> runOnUiThread(() ->
+                            showInitialSearchProgress(tab, loadUrl, loadGeneration, partial, true)));
+                    cacheBbsMenu(loadUrl, page);
                 }
                 page.title = bbsMenuTitle(loadUrl, page.title);
                 bbsCategoryCounts(page);
@@ -8578,6 +8598,7 @@ public class MainActivity extends Activity {
             SearchPage result = page;
             boolean refresh = usedCached;
             runOnUiThread(() -> {
+                if (loadGeneration != tab.boardLoadGeneration) return;
                 if (!tabs.contains(tab) || !loadUrl.equals(tab.url)) {
                     resetTopRefreshLoader(tab.boardTopLoader);
                     if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
@@ -8592,6 +8613,7 @@ public class MainActivity extends Activity {
                 tab.title = result.title;
                 tab.searchPage = result;
                 resetTopRefreshLoader(tab.boardTopLoader);
+                rememberContentScroll(tab);
                 tab.readerView = isBbsMenuUrl(result.url) ? buildBbsCategoryIndexView(result, tab) : buildSearchView(result, false, tab);
                 cacheBoardHistoryPage(tab, result, tab.readerView);
                 if ((foreground || tab == currentTab()) && !tabOverviewVisible) {
@@ -8628,10 +8650,34 @@ public class MainActivity extends Activity {
         return box;
     }
 
+    private void guardThreadScrollRestore(CuspTab tab, ScrollView scroll) {
+        if (!tab.hasPendingThreadRefreshScroll && !tab.restoreFromBottom
+                && !shouldRestoreThreadScroll(tab)) return;
+        tab.restoringScroll = true;
+        scroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                if (tab.threadScroll != scroll) {
+                    scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                    return true;
+                }
+                if (tab.threadRendering || scroll.isLayoutRequested()
+                        || (scroll.getChildCount() > 0 && scroll.getChildAt(0).isLayoutRequested())) return false;
+                if (!restoreNewPostPeek(tab) && !restoreThreadRefreshScroll(tab)) {
+                    applyThreadScrollRestore(tab, 0);
+                }
+                // A short thread has no scroll range but is already at its final position.
+                revealThreadAfterScrollRestore(tab, 0);
+                scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                return false; // Commit scroll changes before allowing the next frame.
+            }
+        });
+    }
+
     private View buildThreadView(ThreadPage page, CuspTab tab) {
         cancelThreadChunkRender(tab);
         ScrollView scroll = new ThreadScrollView(this);
         tab.threadScroll = scroll;
+        guardThreadScrollRestore(tab, scroll);
         scroll.setFillViewport(true);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.getViewTreeObserver().addOnScrollChangedListener(this::scheduleThreadMediaLoads);
@@ -9107,6 +9153,7 @@ public class MainActivity extends Activity {
         LinearLayout list = tab.threadList;
         tab.hasPendingThreadRefreshScroll = true;
         tab.pendingThreadRefreshScrollY = tab.threadScroll.getScrollY();
+        guardThreadScrollRestore(tab, tab.threadScroll);
         int insertIndex = list.getChildCount();
         for (int i = list.getChildCount() - 1; i >= 0; i--) {
             View child = list.getChildAt(i);
@@ -24359,6 +24406,7 @@ public class MainActivity extends Activity {
             return false;
         }
         View content = tab.threadScroll.getChildAt(0);
+        if (tab.threadRendering || content.isLayoutRequested() || tab.threadScroll.isLayoutRequested()) return true;
         int range = Math.max(0, content.getHeight() - tab.threadScroll.getHeight());
         tab.threadScroll.scrollTo(0, Math.min(tab.pendingThreadRefreshScrollY, range));
         int pendingNewPostPeekAfterNumber = tab.pendingNewPostPeekAfterNumber;
@@ -24450,8 +24498,8 @@ public class MainActivity extends Activity {
         if (range <= 0) {
             return false;
         }
-        boolean keepHiddenDuringRender = tab.threadRendering
-                && (tab.restoreFromBottom || shouldRestoreThreadScroll(tab));
+        if (tab.threadRendering || tab.threadScroll.isLayoutRequested()
+                || tab.threadScroll.getChildAt(0).isLayoutRequested()) return false;
         if (tab.restoreFromBottom) {
             tab.threadScroll.scrollTo(0, Math.max(0, range - tab.threadBottomOffset));
             tab.restoreFromBottom = false;
@@ -24464,12 +24512,6 @@ public class MainActivity extends Activity {
             }
         } else if (shouldAutoScrollUnreadBoundary(tab)) {
             scrollToUnreadBoundaryWhenReady(tab, 0);
-        }
-        if (keepHiddenDuringRender) {
-            // Post slots are still being added. Revealing now would expose their initial
-            // top position before completeThreadRender restores the final position.
-            scheduleThreadScrollChromeRefresh(tab, 6);
-            return true;
         }
         revealThreadAfterScrollRestore(tab, attempt);
         scheduleThreadScrollChromeRefresh(tab, 6);
@@ -26671,7 +26713,15 @@ public class MainActivity extends Activity {
         return download(urlText, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
     }
 
+    private interface TextProgressListener {
+        void onProgress(String body) throws Exception;
+    }
+
     private String download(String urlText, String userAgent) throws Exception {
+        return download(urlText, userAgent, null);
+    }
+
+    private String download(String urlText, String userAgent, TextProgressListener listener) throws Exception {
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Accept-Encoding", "gzip");
         HttpURLConnection connection = openConnectionFollowingRedirects(urlText, userAgent, headers);
@@ -26681,8 +26731,25 @@ public class MainActivity extends Activity {
             if (stream == null) {
                 throw new HttpStatusException(code, "");
             }
-            byte[] bytes = readBytes(stream);
             Charset charset = responseCharset(connection, Charset.forName("UTF-8"));
+            ByteArrayOutputStream received = new ByteArrayOutputStream();
+            long lastPublish = 0;
+            try (InputStream input = stream) {
+                byte[] chunk = new byte[8192];
+                int count;
+                while ((count = input.read(chunk)) != -1) {
+                    received.write(chunk, 0, count);
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (listener != null && code < 400 && now - lastPublish >= 300) {
+                        String partial = new String(received.toByteArray(), charset);
+                        Charset meta = htmlMetaCharset(partial);
+                        if (meta != null) partial = new String(received.toByteArray(), meta);
+                        listener.onProgress(partial);
+                        lastPublish = now;
+                    }
+                }
+            }
+            byte[] bytes = received.toByteArray();
             String body = new String(bytes, charset);
             Charset metaCharset = htmlMetaCharset(body);
             if (metaCharset != null && !metaCharset.equals(charset)) {
@@ -27244,7 +27311,15 @@ public class MainActivity extends Activity {
         return !date.isEmpty() && !body.isEmpty();
     }
 
+    private interface SearchProgressListener {
+        void onProgress(SearchPage page);
+    }
+
     private SearchPage downloadBoard(String boardUrl) throws Exception {
+        return downloadBoard(boardUrl, null);
+    }
+
+    private SearchPage downloadBoard(String boardUrl, SearchProgressListener listener) throws Exception {
         throwIfBoardLoadInterrupted();
         BoardSubject subject = null;
         Uri originalUri = Uri.parse(normalizeUrl(boardUrl));
@@ -27252,7 +27327,7 @@ public class MainActivity extends Activity {
         String originalBoard = boardNameFromUrl(boardUrl);
         if (originalHost != null && originalBoard != null && !isFutabaBoardUrl(boardUrl)) {
             try {
-                subject = downloadBoardSubject(boardUrl, originalHost, originalBoard);
+                subject = downloadBoardSubject(boardUrl, originalHost, originalBoard, listener);
             } catch (Exception ignored) {
                 subject = null;
             }
@@ -27273,14 +27348,14 @@ public class MainActivity extends Activity {
         if (subject == null && originalHost != null && originalBoard != null
                 && !sameSavedUrl(boardUrl, redirectedUrl)) {
             try {
-                subject = downloadBoardSubject(boardUrl, originalHost, originalBoard);
+                subject = downloadBoardSubject(boardUrl, originalHost, originalBoard, listener);
             } catch (Exception error) {
                 subject = null;
             }
         }
         try {
             if (subject == null) {
-                subject = downloadBoardSubject(redirectedUrl, host, board);
+                subject = downloadBoardSubject(redirectedUrl, host, board, listener);
             }
         } catch (Exception directError) {
             String dataUrl = boardDataUrlFromHtml(redirectedUrl, board);
@@ -27293,8 +27368,12 @@ public class MainActivity extends Activity {
             if (dataHost == null || dataBoard == null) {
                 throw directError;
             }
-            subject = downloadBoardSubject(dataUrl, dataHost, dataBoard);
+            subject = downloadBoardSubject(dataUrl, dataHost, dataBoard, listener);
         }
+        return parseBoardSubject(subject, redirectedUrl);
+    }
+
+    private SearchPage parseBoardSubject(BoardSubject subject, String redirectedUrl) throws Exception {
         String body = subject.body;
         String pageUrl = subject.boardUrl == null || subject.boardUrl.trim().isEmpty()
                 ? redirectedUrl
@@ -27454,13 +27533,25 @@ public class MainActivity extends Activity {
     }
 
     private SearchPage downloadBbsDirectory(String directoryUrl) throws Exception {
+        return downloadBbsDirectory(directoryUrl, null);
+    }
+
+    private SearchPage downloadBbsDirectory(String directoryUrl, SearchProgressListener listener) throws Exception {
         String redirectedUrl = resolveRedirectedUrl(
                 directoryUrl,
                 "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
-        String html = download(redirectedUrl);
+        String html = download(redirectedUrl, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1",
+                isShitarabaBbsMenuJsonUrl(redirectedUrl) || listener == null ? null : body -> {
+                    SearchPage partial = parseBbsDirectory(redirectedUrl, body, false);
+                    if (!partial.results.isEmpty()) listener.onProgress(partial);
+                });
         if (isShitarabaBbsMenuJsonUrl(redirectedUrl)) {
             return parseShitarabaBbsMenuJson(redirectedUrl, html);
         }
+        return parseBbsDirectory(redirectedUrl, html, true);
+    }
+
+    private SearchPage parseBbsDirectory(String redirectedUrl, String html, boolean complete) throws Exception {
         Uri base = Uri.parse(normalizeUrl(redirectedUrl));
         String baseHost = base.getHost();
         SearchPage page = new SearchPage();
@@ -27511,8 +27602,8 @@ public class MainActivity extends Activity {
             categoryCounts.put(category, categoryCounts.containsKey(category) ? categoryCounts.get(category) + 1 : 1);
         }
         page.categoryCounts = categoryCounts;
-        saveBoardDisplayNames(boardNames);
-        if (page.results.isEmpty()) {
+        if (complete) saveBoardDisplayNames(boardNames);
+        if (complete && page.results.isEmpty()) {
             throw new IllegalStateException(text("\u677f\u30ea\u30f3\u30af\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board links found."));
         }
         return page;
@@ -27657,6 +27748,11 @@ public class MainActivity extends Activity {
     }
 
     private BoardSubject downloadBoardSubject(String boardUrl, String host, String board) throws Exception {
+        return downloadBoardSubject(boardUrl, host, board, null);
+    }
+
+    private BoardSubject downloadBoardSubject(String boardUrl, String host, String board,
+                                              SearchProgressListener listener) throws Exception {
         Exception lastError = null;
         for (String subjectUrl : boardSubjectCandidates(boardUrl, host, board)) {
             HttpURLConnection connection = null;
@@ -27669,7 +27765,28 @@ public class MainActivity extends Activity {
                 if (stream == null) {
                     throw new IllegalStateException("HTTP " + code);
                 }
-                String body = readText(stream, responseCharset(connection, boardSubjectFallbackCharset(subjectUrl)));
+                String loadedUrl = connection.getURL().toString();
+                String threadBase = threadBaseFromSubjectUrl(loadedUrl, board);
+                String loadedBoard = boardUrlFromSubjectUrl(loadedUrl);
+                StringBuilder received = new StringBuilder();
+                long[] lastPublish = {0};
+                try (InputStream input = stream) {
+                    DatStreamReader.readLines(input,
+                            responseCharset(connection, boardSubjectFallbackCharset(subjectUrl)), 32,
+                            (lines, bytesRead) -> {
+                                throwIfBoardLoadInterrupted();
+                                for (String line : lines) received.append(line).append('\n');
+                                long now = android.os.SystemClock.uptimeMillis();
+                                if (listener != null && code < 400 && now - lastPublish[0] >= 300
+                                        && isBoardSubjectBody(received.toString())) {
+                                    SearchPage partial = parseBoardSubject(new BoardSubject(
+                                            received.toString(), threadBase, loadedBoard), boardUrl);
+                                    if (!partial.results.isEmpty()) listener.onProgress(partial);
+                                    lastPublish[0] = now;
+                                }
+                            });
+                }
+                String body = received.toString();
                 if (code >= 400) {
                     throw new IllegalStateException("HTTP " + code + "\n" + cleanText(body));
                 }
