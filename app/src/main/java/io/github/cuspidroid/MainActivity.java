@@ -436,6 +436,8 @@ public class MainActivity extends Activity {
 
     private final List<CuspTab> tabs = new ArrayList<>();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
+    // Interactive directory reads must not queue behind home-page prefetches or thread downloads.
+    private final ExecutorService directoryLoadExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService boardLoadExecutor = Executors.newFixedThreadPool(BOARD_LOAD_PARALLELISM);
     private final ExecutorService tabPayloadExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService tabOverviewExecutor = Executors.newSingleThreadExecutor();
@@ -1220,6 +1222,7 @@ public class MainActivity extends Activity {
             bookmarkOverviewPreloadRefreshTask = null;
         }
         ioExecutor.shutdownNow();
+        directoryLoadExecutor.shutdownNow();
         boardLoadExecutor.shutdownNow();
         tabPayloadExecutor.shutdownNow();
         FutureTask<Void> preloadTask;
@@ -4550,7 +4553,7 @@ public class MainActivity extends Activity {
         return cached == null ? null : cached.page;
     }
 
-    private CachedBbsMenu readBbsMenuCache(String directoryUrl) {
+    private synchronized CachedBbsMenu readBbsMenuCache(String directoryUrl) {
         String key = bbsMenuCacheKey(directoryUrl);
         if (key.isEmpty() || !isCacheableBbsMenuUrl(directoryUrl)) {
             return null;
@@ -4609,7 +4612,7 @@ public class MainActivity extends Activity {
         return page;
     }
 
-    private void cacheBbsMenu(String directoryUrl, SearchPage page) {
+    private synchronized void cacheBbsMenu(String directoryUrl, SearchPage page) {
         if (page == null || page.error != null || page.results.isEmpty()
                 || (!isCacheableBbsMenuUrl(directoryUrl) && !isCacheableBbsMenuUrl(page.url))) {
             return;
@@ -4653,7 +4656,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void preloadBbsMenuCache(String directoryUrl) {
+    private synchronized void preloadBbsMenuCache(String directoryUrl) {
         String key = bbsMenuCacheKey(directoryUrl);
         if (key.isEmpty() || !isCacheableBbsMenuUrl(directoryUrl)
                 || bbsMenuCache.containsKey(key) || bbsMenuPreloadInFlight.contains(key)) {
@@ -4691,7 +4694,7 @@ public class MainActivity extends Activity {
         return keys;
     }
 
-    private void trimMemoryBbsMenuCache() {
+    private synchronized void trimMemoryBbsMenuCache() {
         while (bbsMenuCache.size() > MAX_BBSMENU_CACHE_ENTRIES) {
             String oldest = bbsMenuCache.keySet().iterator().next();
             bbsMenuCache.remove(oldest);
@@ -4799,6 +4802,9 @@ public class MainActivity extends Activity {
             ViewGroup oldParent = (ViewGroup) tab.readerView.getParent();
             if (oldParent != null) {
                 oldParent.removeView(tab.readerView);
+            }
+            if (tab.threadScroll != null && isThreadPageNativeKind(tab.nativeKind)) {
+                guardThreadScrollRestore(tab, tab.threadScroll);
             }
             boolean delayThreadReveal = shouldDelayThreadRevealForScroll(tab);
             boolean restoreContentScroll = !delayThreadReveal && shouldRestoreContentScroll(tab);
@@ -4926,6 +4932,9 @@ public class MainActivity extends Activity {
         if (oldParent != null) {
             oldParent.removeView(tab.readerView);
         }
+        if (tab.threadScroll != null && isThreadPageNativeKind(tab.nativeKind)) {
+            guardThreadScrollRestore(tab, tab.threadScroll);
+        }
         boolean delayThreadReveal = shouldDelayThreadRevealForScroll(tab);
         boolean restoreContentScroll = !delayThreadReveal && shouldRestoreContentScroll(tab);
         tab.restoringScroll = delayThreadReveal || restoreContentScroll;
@@ -4999,7 +5008,7 @@ public class MainActivity extends Activity {
                 && tab.threadPage != null
                 && tab.threadPage.posts != null
                 && !tab.threadPage.posts.isEmpty()
-                && (tab.restoreFromBottom || shouldRestoreThreadScroll(tab));
+                && (threadScrollRestorePending(tab) || tab.restoreFromBottom || shouldRestoreThreadScroll(tab));
     }
 
     private void syncLoadingUiWithCurrentSurface() {
@@ -8471,7 +8480,7 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.GONE);
             return;
         }
-        ioExecutor.execute(() -> {
+        directoryLoadExecutor.execute(() -> {
             SearchPage page;
             try {
                 SearchPage all = downloadBbsDirectoryWithCache(menuUrl);
@@ -8578,7 +8587,7 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.VISIBLE);
         }
 
-        ioExecutor.execute(() -> {
+        directoryLoadExecutor.execute(() -> {
             SearchPage page;
             boolean usedCached = false;
             try {
@@ -8650,25 +8659,58 @@ public class MainActivity extends Activity {
         return box;
     }
 
+    private boolean threadScrollRestorePending(CuspTab tab) {
+        return tab != null && tab.threadScroll instanceof ThreadScrollView
+                && ((ThreadScrollView) tab.threadScroll).restorePending;
+    }
+
     private void guardThreadScrollRestore(CuspTab tab, ScrollView scroll) {
+        if (!(scroll instanceof ThreadScrollView) || threadScrollRestorePending(tab)) return;
         if (!tab.hasPendingThreadRefreshScroll && !tab.restoreFromBottom
                 && !shouldRestoreThreadScroll(tab)) return;
+        ThreadScrollView targetScroll = (ThreadScrollView) scroll;
+        // Capture once: layout callbacks must never turn a saved position into the temporary top.
+        final boolean pixelRestore = tab.hasPendingThreadRefreshScroll;
+        final int savedY = tab.pendingThreadRefreshScrollY;
+        final boolean fromBottom = tab.restoreFromBottom || isSavedThreadScrollAtBottom(tab);
+        final int bottomOffset = tab.threadBottomOffset;
+        final float ratio = tab.threadScrollRatio;
+        final int peekAfter = tab.pendingNewPostPeekAfterNumber;
+        targetScroll.restorePending = true;
         tab.restoringScroll = true;
         scroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
             @Override public boolean onPreDraw() {
                 if (tab.threadScroll != scroll) {
+                    targetScroll.restorePending = false;
                     scroll.getViewTreeObserver().removeOnPreDrawListener(this);
                     return true;
                 }
-                if (tab.threadRendering || scroll.isLayoutRequested()
+                if (tab.threadRendering || scroll.isLayoutRequested() || scroll.getHeight() <= 0
                         || (scroll.getChildCount() > 0 && scroll.getChildAt(0).isLayoutRequested())) return false;
-                if (!restoreNewPostPeek(tab) && !restoreThreadRefreshScroll(tab)) {
-                    applyThreadScrollRestore(tab, 0);
+                int range = scroll.getChildCount() == 0 ? 0
+                        : Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
+                int y = pixelRestore ? savedY : fromBottom ? range - bottomOffset : (int) (range * ratio);
+                View peek = peekAfter > 0 ? firstPostSlotAfter(tab, peekAfter) : null;
+                if (peek != null) {
+                    y = ThreadScrollPosition.newPostPeek(descendantTopWithin(peek, scroll.getChildAt(0)),
+                            scroll.getHeight(), dp(40), range);
                 }
-                // A short thread has no scroll range but is already at its final position.
-                revealThreadAfterScrollRestore(tab, 0);
+                scroll.scrollTo(0, Math.max(0, Math.min(y, range)));
+                // Real cards can change placeholder heights. Wait for their layout too.
+                refreshThreadPostVisibility(tab);
+                if (scroll.isLayoutRequested()
+                        || (scroll.getChildCount() > 0 && scroll.getChildAt(0).isLayoutRequested())) return false;
+                tab.restoreFromBottom = false;
+                if (pixelRestore) clearThreadRefreshScroll(tab);
+                targetScroll.restorePending = false;
                 scroll.getViewTreeObserver().removeOnPreDrawListener(this);
-                return false; // Commit scroll changes before allowing the next frame.
+                revealThreadAfterScrollRestore(tab, 0);
+                rememberThreadScroll(tab);
+                if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                    android.util.Log.d("CuspScroll", "first frame y=" + scroll.getScrollY()
+                            + " target=" + Math.max(0, Math.min(y, range)) + " range=" + range);
+                }
+                return true;
             }
         });
     }
@@ -13464,8 +13506,11 @@ public class MainActivity extends Activity {
         }
         final String loadUrl = menuUrl;
         final String targetPageKey = pageKey;
+        final String targetUrl = targetTab == null ? "" : targetTab.url;
+        final int generation = targetTab == null ? 0 : ++targetTab.boardLoadGeneration;
+        final long startedAt = android.os.SystemClock.uptimeMillis();
         showBbsDirectoryLoading(forNewTab, targetTab);
-        ioExecutor.execute(() -> {
+        directoryLoadExecutor.execute(() -> {
             SearchPage page;
             boolean usedCached = false;
             try {
@@ -13473,7 +13518,22 @@ public class MainActivity extends Activity {
                 if (page != null) {
                     usedCached = true;
                 } else {
-                    page = downloadBbsDirectoryWithCache(loadUrl);
+                    boolean[] previewSent = {false};
+                    page = downloadBbsDirectory(loadUrl, partial -> {
+                        if (previewSent[0]) return;
+                        previewSent[0] = true;
+                        runOnUiThread(() -> {
+                            if (forNewTab && isCurrentNewTabPage(targetPageKey)) {
+                                View preview = buildBbsCategoryIndexView(partial, null);
+                                contentFrame.removeAllViews();
+                                contentFrame.addView(preview);
+                                hideCenterSpinner();
+                            } else if (!forNewTab && targetTab != null) {
+                                showInitialSearchProgress(targetTab, targetUrl, generation, partial, true);
+                            }
+                        });
+                    });
+                    cacheBbsMenu(loadUrl, page);
                 }
                 page.title = bbsMenuTitle(loadUrl, page.title);
                 bbsCategoryCounts(page);
@@ -13483,6 +13543,10 @@ public class MainActivity extends Activity {
             SearchPage result = page;
             boolean refresh = usedCached;
             runOnUiThread(() -> {
+                if (targetTab != null && (generation != targetTab.boardLoadGeneration
+                        || !targetUrl.equals(targetTab.url))) return;
+                if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) android.util.Log.d("CuspDirectory", "ready in "
+                        + (android.os.SystemClock.uptimeMillis() - startedAt) + "ms; cached=" + refresh);
                 applyBbsDirectoryResult(targetPageKey, forNewTab, targetTab, result, true);
                 if (refresh) {
                     refreshBbsMenuCacheIfStale(loadUrl);
@@ -13521,7 +13585,7 @@ public class MainActivity extends Activity {
         final String targetCategory = category;
         final String targetPageKey = pageKey;
         showBbsDirectoryLoading(forNewTab, targetTab);
-        ioExecutor.execute(() -> {
+        directoryLoadExecutor.execute(() -> {
             SearchPage page;
             boolean usedCached = false;
             try {
@@ -24297,6 +24361,7 @@ public class MainActivity extends Activity {
     }
 
     private void rememberThreadScroll(CuspTab tab) {
+        if (tab != null && (tab.restoringScroll || tab.threadRendering || threadScrollRestorePending(tab))) return;
         if (tab == null || tab.threadScroll == null || tab.threadScroll.getChildCount() == 0) {
             return;
         }
@@ -24340,6 +24405,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean restoreNewPostPeek(CuspTab tab) {
+        if (threadScrollRestorePending(tab)) return false;
         if (tab == null || tab.pendingNewPostPeekAfterNumber <= 0 || tab.threadPage == null
                 || maxPostNumber(tab.threadPage) <= tab.pendingNewPostPeekAfterNumber) {
             return false;
@@ -24401,6 +24467,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean restoreThreadRefreshScroll(CuspTab tab) {
+        if (threadScrollRestorePending(tab)) return true;
         if (tab == null || !tab.hasPendingThreadRefreshScroll || tab.threadScroll == null
                 || tab.threadScroll.getChildCount() == 0) {
             return false;
@@ -24421,6 +24488,7 @@ public class MainActivity extends Activity {
     }
 
     private void restoreThreadScroll(CuspTab tab) {
+        if (threadScrollRestorePending(tab)) return;
         if (restoreNewPostPeek(tab)) {
             revealThreadAfterScrollRestore(tab, 0);
             return;
@@ -24478,6 +24546,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean applyThreadScrollRestore(CuspTab tab, int attempt) {
+        if (threadScrollRestorePending(tab)) return false;
         if (tab == null) {
             return true;
         }
@@ -24621,6 +24690,7 @@ public class MainActivity extends Activity {
     }
 
     private void revealThreadAfterScrollRestore(CuspTab tab, int attempt) {
+        if (threadScrollRestorePending(tab)) return;
         if (tab == null || tab.readerView == null) {
             return;
         }
@@ -26714,14 +26784,20 @@ public class MainActivity extends Activity {
     }
 
     private interface TextProgressListener {
-        void onProgress(String body) throws Exception;
+        void onProgress(String url, String body) throws Exception;
     }
 
     private String download(String urlText, String userAgent) throws Exception {
-        return download(urlText, userAgent, null);
+        return downloadText(urlText, userAgent, null).body;
     }
 
-    private String download(String urlText, String userAgent, TextProgressListener listener) throws Exception {
+    private static class DownloadedText {
+        final String url;
+        final String body;
+        DownloadedText(String url, String body) { this.url = url; this.body = body; }
+    }
+
+    private DownloadedText downloadText(String urlText, String userAgent, TextProgressListener listener) throws Exception {
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Accept-Encoding", "gzip");
         HttpURLConnection connection = openConnectionFollowingRedirects(urlText, userAgent, headers);
@@ -26744,7 +26820,7 @@ public class MainActivity extends Activity {
                         String partial = new String(received.toByteArray(), charset);
                         Charset meta = htmlMetaCharset(partial);
                         if (meta != null) partial = new String(received.toByteArray(), meta);
-                        listener.onProgress(partial);
+                        listener.onProgress(connection.getURL().toString(), partial);
                         lastPublish = now;
                     }
                 }
@@ -26758,7 +26834,7 @@ public class MainActivity extends Activity {
             if (code >= 400) {
                 throw new HttpStatusException(code, stripTags(body));
             }
-            return body;
+            return new DownloadedText(connection.getURL().toString(), body);
         } finally {
             connection.disconnect();
         }
@@ -27537,23 +27613,34 @@ public class MainActivity extends Activity {
     }
 
     private SearchPage downloadBbsDirectory(String directoryUrl, SearchProgressListener listener) throws Exception {
-        String redirectedUrl = resolveRedirectedUrl(
-                directoryUrl,
-                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1");
-        String html = download(redirectedUrl, "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1",
-                isShitarabaBbsMenuJsonUrl(redirectedUrl) || listener == null ? null : body -> {
-                    SearchPage partial = parseBbsDirectory(redirectedUrl, body, false);
-                    if (!partial.results.isEmpty()) listener.onProgress(partial);
+        long startedAt = android.os.SystemClock.uptimeMillis();
+        boolean[] previewSent = {false};
+        DownloadedText downloaded = downloadText(directoryUrl,
+                "Mozilla/5.0 (Linux; Android) CuspiDroid/0.1",
+                listener == null ? null : (url, body) -> {
+                    if (previewSent[0] || isShitarabaBbsMenuJsonUrl(url)) return;
+                    SearchPage partial = parseBbsDirectory(url, body, false);
+                    if (!partial.results.isEmpty()) {
+                        previewSent[0] = true;
+                        listener.onProgress(partial);
+                    }
                 });
-        if (isShitarabaBbsMenuJsonUrl(redirectedUrl)) {
-            return parseShitarabaBbsMenuJson(redirectedUrl, html);
+        long downloadedAt = android.os.SystemClock.uptimeMillis();
+        SearchPage page = isShitarabaBbsMenuJsonUrl(downloaded.url)
+                ? parseShitarabaBbsMenuJson(downloaded.url, downloaded.body)
+                : parseBbsDirectory(downloaded.url, downloaded.body, true);
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            android.util.Log.d("CuspDirectory", "download=" + (downloadedAt - startedAt)
+                    + "ms parse=" + (android.os.SystemClock.uptimeMillis() - downloadedAt)
+                    + "ms boards=" + page.results.size());
         }
-        return parseBbsDirectory(redirectedUrl, html, true);
+        return page;
     }
 
     private SearchPage parseBbsDirectory(String redirectedUrl, String html, boolean complete) throws Exception {
         Uri base = Uri.parse(normalizeUrl(redirectedUrl));
         String baseHost = base.getHost();
+        boolean fiveChMenu = isBbsMenuUrl(redirectedUrl) && is5chUrl(redirectedUrl);
         SearchPage page = new SearchPage();
         page.url = redirectedUrl;
         page.title = hostTitle(redirectedUrl);
@@ -27570,7 +27657,7 @@ public class MainActivity extends Activity {
             currentCategory = lastBbsMenuCategory(html.substring(lastEnd, matcher.start()), currentCategory);
             lastEnd = matcher.end();
             String href = firstNonEmpty(matcher.group(1), matcher.group(2), matcher.group(3));
-            String label = cleanText(matcher.group(4));
+            String label = cleanBbsMenuLabel(matcher.group(4));
             if (href == null || href.trim().isEmpty()) {
                 continue;
             }
@@ -27580,18 +27667,23 @@ public class MainActivity extends Activity {
             if (!isSameDirectoryFamily(redirectedUrl, absolute, baseHost, host)) {
                 continue;
             }
-            if (!isDirectoryBoardLink(absolute)) {
+            String fastBoard = fiveChMenu && is5chUrl(absolute)
+                    ? BbsMenuFastPath.boardName(target.getPath()) : null;
+            if (fastBoard == null && !isDirectoryBoardLink(absolute)) {
                 continue;
             }
-            String board = boardNameFromUrl(absolute);
+            String board = fastBoard != null ? fastBoard : boardNameFromUrl(absolute);
             if (board == null || board.trim().isEmpty()) {
                 continue;
             }
-            String boardUrl = boardUrlFromDirectoryLink(absolute, board);
+            String boardUrl = fastBoard != null
+                    ? target.getScheme() + "://" + host + "/" + board + "/"
+                    : boardUrlFromDirectoryLink(absolute, board);
             if (!seen.add(boardUrl)) {
                 continue;
             }
-            boardNames.put(boardUrl, label);
+            String nameKey = fastBoard != null ? normalizeHistoryUrl(boardUrl) : boardUrlForDisplayName(boardUrl);
+            if (nameKey != null) boardNames.put(nameKey, label);
             SearchResult result = new SearchResult();
             result.title = label == null || label.isEmpty() ? board : label;
             result.url = boardUrl;
@@ -27602,11 +27694,16 @@ public class MainActivity extends Activity {
             categoryCounts.put(category, categoryCounts.containsKey(category) ? categoryCounts.get(category) + 1 : 1);
         }
         page.categoryCounts = categoryCounts;
-        if (complete) saveBoardDisplayNames(boardNames);
+        if (complete) saveBoardDisplayNames(boardNames, true);
         if (complete && page.results.isEmpty()) {
             throw new IllegalStateException(text("\u677f\u30ea\u30f3\u30af\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093", "No board links found."));
         }
         return page;
+    }
+
+    private String cleanBbsMenuLabel(String html) {
+        String plain = BbsMenuFastPath.plainLabel(html);
+        return plain != null ? plain : cleanText(html);
     }
 
     private String lastBbsMenuCategory(String htmlFragment, String fallback) {
@@ -27619,7 +27716,7 @@ public class MainActivity extends Activity {
                 Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
         Matcher matcher = pattern.matcher(htmlFragment);
         while (matcher.find()) {
-            String value = cleanText(firstNonEmpty(matcher.group(1), matcher.group(2)));
+            String value = cleanBbsMenuLabel(firstNonEmpty(matcher.group(1), matcher.group(2)));
             if (looksLikeBbsCategory(value)) {
                 category = value;
             }
@@ -31022,14 +31119,19 @@ public class MainActivity extends Activity {
     }
 
     private void saveBoardDisplayNames(Map<String, String> names) {
+        saveBoardDisplayNames(names, false);
+    }
+
+    private synchronized void saveBoardDisplayNames(Map<String, String> names, boolean normalized) {
         if (names == null || names.isEmpty()) {
             return;
         }
         try {
             JSONObject object = new JSONObject(preferences.getString(PREF_BOARD_DISPLAY_NAMES, "{}"));
             for (Map.Entry<String, String> entry : names.entrySet()) {
-                String key = boardUrlForDisplayName(entry.getKey());
-                String value = entry.getValue() == null ? "" : cleanText(entry.getValue()).trim();
+                String key = normalized ? entry.getKey() : boardUrlForDisplayName(entry.getKey());
+                String value = entry.getValue() == null ? ""
+                        : normalized ? entry.getValue() : cleanText(entry.getValue()).trim();
                 if (key != null && !key.isEmpty() && !value.isEmpty()) {
                     object.put(key, value);
                 }
@@ -31505,6 +31607,7 @@ public class MainActivity extends Activity {
     }
 
     private static class ThreadScrollView extends ScrollView {
+        boolean restorePending;
         private View.OnTouchListener pullRefreshTouchListener;
 
         ThreadScrollView(Context context) {
