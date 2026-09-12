@@ -9,6 +9,25 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class IncrementalPostsTest {
+    @Test public void snapshotAddsOnlyNewNumbersIncludingFutabaNumberGaps() {
+        assertEquals(Arrays.asList(105, 110), IncrementalPosts.newPostsFromSnapshot(
+                Arrays.asList(100, 102), Arrays.asList(100, 105, 110), n -> n));
+    }
+
+    @Test public void unchangedSnapshotDoesNotDuplicatePosts() {
+        assertTrue(IncrementalPosts.newPostsFromSnapshot(
+                Arrays.asList(1, 2), Arrays.asList(1, 2), n -> n).isEmpty());
+    }
+
+    @Test public void invalidSnapshotsCannotChangeLoadedPosts() {
+        List<Integer> loaded = Arrays.asList(1, 2);
+        for (List<Integer> snapshot : Arrays.asList(Arrays.<Integer>asList(), Arrays.asList(1),
+                Arrays.asList(1, 3, 3), Arrays.asList(2, 1, 3))) {
+            assertThrows(IllegalStateException.class,
+                    () -> IncrementalPosts.newPostsFromSnapshot(loaded, snapshot, n -> n));
+            assertEquals(Arrays.asList(1, 2), loaded);
+        }
+    }
     private static class Post {
         final int number;
         Post(int number) { this.number = number; }

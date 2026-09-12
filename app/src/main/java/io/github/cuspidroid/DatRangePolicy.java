@@ -5,6 +5,10 @@ import java.util.regex.Pattern;
 
 /** Validate headers before reading a response, so ignored ranges never download old posts. */
 final class DatRangePolicy {
+    /** The server cannot supply a usable byte range; retry via the normal thread reader. */
+    static final class Unavailable extends IllegalStateException {
+        Unavailable() { super("Incremental update unavailable: invalid Content-Range"); }
+    }
     private static final Pattern RANGE = Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+)");
 
     static void validate(int status, String contentRange, long start) {
@@ -19,7 +23,7 @@ final class DatRangePolicy {
             } catch (NumberFormatException ignored) {
             }
         }
-        throw new IllegalStateException("Incremental update unavailable: invalid Content-Range");
+        throw new Unavailable();
     }
 
     static long nextOffset(String contentRange, long bytesRead) {
@@ -31,5 +35,16 @@ final class DatRangePolicy {
             throw new IllegalStateException("Incomplete incremental response");
         }
         return last + 1;
+    }
+
+    static void validateFullBody(String body) {
+        if (body.isEmpty() || !body.endsWith("\n")) {
+            throw new IllegalStateException("Incomplete DAT response");
+        }
+        for (String line : body.split("\n")) {
+            if (!line.trim().isEmpty() && line.split("<>", -1).length < 4) {
+                throw new IllegalStateException("Invalid DAT response");
+            }
+        }
     }
 }

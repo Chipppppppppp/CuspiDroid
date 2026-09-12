@@ -5,6 +5,12 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class DatRangePolicyTest {
+    @Test public void fullDatMustHaveCompleteRecordsBeforeSavingItsOffset() {
+        DatRangePolicy.validateFullBody("name<>mail<>date<>body<>title\n");
+        for (String body : new String[]{"", "name<>mail<>date<>partial", "<html>error</html>\n"}) {
+            assertThrows(IllegalStateException.class, () -> DatRangePolicy.validateFullBody(body));
+        }
+    }
     @Test public void acceptsNewBytesAndExactEndOfFile() {
         DatRangePolicy.validate(206, "bytes 100-149/150", 100);
         DatRangePolicy.validate(416, "bytes */100", 100);

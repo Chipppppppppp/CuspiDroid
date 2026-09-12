@@ -7135,7 +7135,7 @@ public class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             ThreadPage page;
             try {
-                page = downloadNewDatPosts(loadUrl, snapshot);
+                page = downloadNewThreadPosts(loadUrl, snapshot);
             } catch (Exception error) {
                 page = ThreadPage.error(loadUrl, error.getMessage());
             }
@@ -27004,6 +27004,7 @@ public class MainActivity extends Activity {
                             }
                         });
                 // The streaming parser already owns the complete page at EOF.
+                if (progressListener == null) DatRangePolicy.validateFullBody(download.body);
                 ThreadPage page = progressListener == null ? parseDatThread(pageUrl, download.body) : streamed;
                 page.datUrl = download.url;
                 page.datByteLength = download.totalByteLength;
@@ -27013,6 +27014,36 @@ public class MainActivity extends Activity {
             }
         }
         return null;
+    }
+
+    private ThreadPage downloadNewThreadPosts(String threadUrl, ThreadPage existing) throws Exception {
+        if (existing == null || existing.posts.isEmpty()) {
+            throw new IllegalStateException("No loaded posts to update");
+        }
+        if (isShitarabaAddress(datAddress(threadUrl))
+                || existing.datUrl != null && !existing.datUrl.isEmpty() && existing.datByteLength > 0) {
+            try {
+                return downloadNewDatPosts(threadUrl, existing);
+            } catch (DatRangePolicy.Unavailable ignored) {
+                // HTML readers and servers ignoring Range still support ordinary thread loading.
+            }
+        }
+        String fullUrl = threadUrl;
+        DatAddress address = datAddress(threadUrl);
+        if (address != null) {
+            String base = (address.scheme == null ? "https" : address.scheme) + "://" + Uri.parse(threadUrl).getAuthority();
+            fullUrl = base + (address.shortThread ? "/" : isMachiAddress(address) ? "/bbs/read.cgi/" : "/test/read.cgi/")
+                    + address.board + "/" + address.key + "/";
+        }
+        ThreadPage snapshot = downloadThreadPage(fullUrl);
+        List<Post> additional = IncrementalPosts.newPostsFromSnapshot(existing.posts, snapshot.posts, post -> post.number);
+        ThreadPage merged = cloneThreadPage(existing);
+        applyThreadPageMetadata(merged, snapshot);
+        merged.archived |= existing.archived;
+        merged.url = threadUrl;
+        IncrementalPosts.append(merged.posts, merged.postsByNumber, additional, post -> post.number);
+        merged.newPostCount = additional.size();
+        return merged;
     }
 
     private ThreadPage downloadNewDatPosts(String threadUrl, ThreadPage existing) throws Exception {
@@ -27095,7 +27126,8 @@ public class MainActivity extends Activity {
                 throw new IllegalStateException("HTTP " + code);
             }
             String host = Uri.parse(url).getHost();
-            Charset charset = isShitarabaHost(host) ? Charset.forName("EUC-JP") : Charset.forName("MS932");
+            Charset charset = responseCharset(connection,
+                    isShitarabaHost(host) ? Charset.forName("EUC-JP") : Charset.forName("MS932"));
             String body;
             long bytesRead;
             try (InputStream input = stream) {
@@ -27172,10 +27204,11 @@ public class MainActivity extends Activity {
                 : address.server + ".5ch.io";
         if (address.host != null && !address.host.isEmpty()
                 && !"itest.5ch.io".equalsIgnoreCase(address.host)) {
-            String base = (address.scheme == null ? "https" : address.scheme) + "://" + address.host + "/" + address.board;
+            String authority = address.host + (address.port < 0 ? "" : ":" + address.port);
+            String base = (address.scheme == null ? "https" : address.scheme) + "://" + authority + "/" + address.board;
             if (isShitarabaHost(address.host)) {
                 addUnique(candidates, (address.scheme == null ? "https" : address.scheme)
-                        + "://" + address.host + "/bbs/rawmode.cgi/" + address.board + "/" + address.key + "/");
+                        + "://" + authority + "/bbs/rawmode.cgi/" + address.board + "/" + address.key + "/");
                 return candidates;
             }
             addUnique(candidates, base + "/dat/" + address.key + ".dat");
@@ -27188,6 +27221,10 @@ public class MainActivity extends Activity {
                 String bucket5 = address.key.substring(0, 5);
                 addUnique(candidates, base + "/kako/" + bucket4 + "/" + bucket5 + "/" + address.key + ".dat");
             }
+        }
+        // Custom BBS hosts are independent services, never aliases of similarly named 5ch servers.
+        if (!is5chServerHost(address.host)) {
+            return candidates;
         }
         if (!realHost.isEmpty()) {
             String base = "https://" + realHost + "/" + address.board;
@@ -27223,7 +27260,7 @@ public class MainActivity extends Activity {
 
     private String threadHtmlUrl(String threadUrl) {
         DatAddress address = datAddress(threadUrl);
-        if (address == null || address.shortThread || !is5chUrl(threadUrl)
+        if (address == null || address.shortThread || !is5chServerHost(address.host)
                 || address.server == null || address.server.trim().isEmpty()) {
             return threadUrl;
         }
@@ -27301,6 +27338,7 @@ public class MainActivity extends Activity {
         DatAddress address = new DatAddress();
         address.scheme = uri.getScheme() == null ? "https" : uri.getScheme();
         address.host = host;
+        address.port = uri.getPort();
         address.server = server;
         address.board = board;
         address.key = key;
@@ -31286,6 +31324,12 @@ public class MainActivity extends Activity {
         return displayBoardTitle(url);
     }
 
+    private boolean is5chServerHost(String host) {
+        String lower = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        return lower.equals("5ch.net") || lower.endsWith(".5ch.net")
+                || lower.equals("5ch.io") || lower.endsWith(".5ch.io");
+    }
+
     private boolean is5chUrl(String url) {
         try {
             String host = Uri.parse(url).getHost();
@@ -32772,6 +32816,7 @@ public class MainActivity extends Activity {
     }
 
     private static class DatAddress {
+        int port = -1;
         String scheme;
         String host;
         String server;
