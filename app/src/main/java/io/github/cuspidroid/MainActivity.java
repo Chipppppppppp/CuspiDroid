@@ -8678,11 +8678,11 @@ public class MainActivity extends Activity {
         final int peekAfter = tab.pendingNewPostPeekAfterNumber;
         targetScroll.restorePending = true;
         tab.restoringScroll = true;
-        scroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+        targetScroll.setScrollRestoreListener(new ViewTreeObserver.OnPreDrawListener() {
             @Override public boolean onPreDraw() {
                 if (tab.threadScroll != scroll) {
                     targetScroll.restorePending = false;
-                    scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                    targetScroll.clearScrollRestoreListener();
                     return true;
                 }
                 if (tab.threadRendering || scroll.isLayoutRequested() || scroll.getHeight() <= 0
@@ -8700,10 +8700,17 @@ public class MainActivity extends Activity {
                 refreshThreadPostVisibility(tab);
                 if (scroll.isLayoutRequested()
                         || (scroll.getChildCount() > 0 && scroll.getChildAt(0).isLayoutRequested())) return false;
+                // INVISIBLE -> VISIBLE can request another layout (including focus scrolling).
+                // Keep the captured target until that layout has also been restored, before drawing.
+                if (tab.readerView != null && tab.readerView.getVisibility() != View.VISIBLE) {
+                    tab.readerView.setVisibility(View.VISIBLE);
+                    scroll.invalidate();
+                    return false;
+                }
                 tab.restoreFromBottom = false;
                 if (pixelRestore) clearThreadRefreshScroll(tab);
                 targetScroll.restorePending = false;
-                scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                targetScroll.clearScrollRestoreListener();
                 revealThreadAfterScrollRestore(tab, 0);
                 rememberThreadScroll(tab);
                 if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
@@ -24488,6 +24495,9 @@ public class MainActivity extends Activity {
     }
 
     private void restoreThreadScroll(CuspTab tab) {
+        if (tab != null && tab.threadScroll != null && !isBottomJumpActive(tab)) {
+            guardThreadScrollRestore(tab, tab.threadScroll);
+        }
         if (threadScrollRestorePending(tab)) return;
         if (restoreNewPostPeek(tab)) {
             revealThreadAfterScrollRestore(tab, 0);
@@ -27006,6 +27016,21 @@ public class MainActivity extends Activity {
     }
 
     private ThreadPage downloadNewDatPosts(String threadUrl, ThreadPage existing) throws Exception {
+        DatAddress address = datAddress(threadUrl);
+        if (isShitarabaAddress(address) && existing != null && !existing.posts.isEmpty()) {
+            String baseUrl = datCandidates(address).get(0);
+            int lastNumber = maxPostNumber(existing);
+            DatDownload download = downloadDatBytes(ShitarabaDat.newPostsUrl(baseUrl, lastNumber), 0);
+            ShitarabaDat.validate(download.body, lastNumber);
+            ThreadPage additional = parseDatThread(threadUrl, download.body, lastNumber + 1);
+            ThreadPage merged = cloneThreadPage(existing);
+            merged.url = threadUrl;
+            // Keep the full-thread URL. The response length is not a full DAT byte offset.
+            merged.datUrl = baseUrl;
+            IncrementalPosts.append(merged.posts, merged.postsByNumber, additional.posts, post -> post.number);
+            merged.newPostCount = additional.posts.size();
+            return merged;
+        }
         if (existing == null || existing.posts.isEmpty() || existing.datUrl == null
                 || existing.datUrl.isEmpty() || existing.datByteLength <= 0) {
             throw new IllegalStateException("Incremental update unavailable");
@@ -27049,6 +27074,12 @@ public class MainActivity extends Activity {
                 headers);
         try {
             int code = connection.getResponseCode();
+            if (isShitarabaHost(connection.getURL().getHost())) {
+                String apiError = connection.getHeaderField("ERROR");
+                if (apiError != null && !apiError.trim().isEmpty()) {
+                    throw new IllegalStateException("Shitaraba DAT error: " + apiError);
+                }
+            }
             if (rangeStart > 0) {
                 DatRangePolicy.validate(code, connection.getHeaderField("Content-Range"), rangeStart);
                 String encoding = connection.getContentEncoding();
@@ -27382,6 +27413,8 @@ public class MainActivity extends Activity {
         if (!number.matches("\\d+")) {
             return false;
         }
+        // rawmode records retain their explicit number even when a deleted post has empty fields.
+        if (isShitarabaHost(Uri.parse(threadUrl).getHost())) return fields.length >= 7;
         String date = fields[3] == null ? "" : cleanText(fields[3]);
         String body = fields[4] == null ? "" : cleanText(fields[4]);
         return !date.isEmpty() && !body.isEmpty();
@@ -31608,10 +31641,47 @@ public class MainActivity extends Activity {
 
     private static class ThreadScrollView extends ScrollView {
         boolean restorePending;
+        private ViewTreeObserver.OnPreDrawListener scrollRestoreListener;
+        private ViewTreeObserver restoreObserver;
         private View.OnTouchListener pullRefreshTouchListener;
 
         ThreadScrollView(Context context) {
             super(context);
+        }
+
+        void setScrollRestoreListener(ViewTreeObserver.OnPreDrawListener listener) {
+            clearScrollRestoreListener();
+            scrollRestoreListener = listener;
+            if (isAttachedToWindow()) attachScrollRestoreListener();
+        }
+
+        private void attachScrollRestoreListener() {
+            if (scrollRestoreListener == null) return;
+            restoreObserver = getViewTreeObserver();
+            restoreObserver.addOnPreDrawListener(scrollRestoreListener);
+        }
+
+        void clearScrollRestoreListener() {
+            detachScrollRestoreListener();
+            scrollRestoreListener = null;
+        }
+
+        private void detachScrollRestoreListener() {
+            if (restoreObserver != null && restoreObserver.isAlive() && scrollRestoreListener != null) {
+                restoreObserver.removeOnPreDrawListener(scrollRestoreListener);
+            }
+            restoreObserver = null;
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            attachScrollRestoreListener();
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            // ViewTreeObserver belongs to the window: never leave a detached thread blocking it.
+            detachScrollRestoreListener();
+            super.onDetachedFromWindow();
         }
 
         void setPullRefreshTouchListener(View.OnTouchListener listener) {

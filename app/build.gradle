@@ -12,6 +12,7 @@ android {
         targetSdk 34
         versionCode 49
         versionName "1.9.6"
+        testInstrumentationRunner "android.test.InstrumentationTestRunner"
     }
 
     buildTypes {
@@ -36,6 +37,8 @@ android {
 dependencies {
     implementation "org.tensorflow:tensorflow-lite:2.16.1"
     testImplementation "junit:junit:4.13.2"
+    androidTestCompileOnly files("${android.sdkDirectory}/platforms/android-${android.compileSdk}/optional/android.test.base.jar",
+            "${android.sdkDirectory}/platforms/android-${android.compileSdk}/optional/android.test.runner.jar")
 }
 
 def launcherForegroundFile = file("src/main/res/drawable/ic_launcher_foreground.xml")
